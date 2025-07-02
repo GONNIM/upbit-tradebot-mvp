@@ -1,14 +1,14 @@
 from urllib.parse import urlencode
 import streamlit as st
 import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
 from ui.style import style_main
 from config import MIN_CASH, PARAMS_JSON_FILENAME
 from services.db import get_user, save_user, get_engine_status
 from services.init_db import reset_db
 from engine.params import load_params, delete_params
-
+import os
+import yaml
+from yaml.loader import SafeLoader
 
 # Setup page
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
@@ -18,9 +18,29 @@ if st.button("⚠️ 전체 DB 초기화"):
     reset_db()
     st.success("DB 초기화 완료")
 
-# Load credentials
-with open("credentials.yaml") as file:
-    config = yaml.load(file, Loader=SafeLoader)
+# 환경별 인증 정보 로딩
+if st.secrets.get("environment") == "cloud":
+    # Streamlit Cloud 환경: secrets.toml 사용
+    config = {
+        "cookie": {
+            "expiry_days": st.secrets.cookie_expiry_days,
+            "key": st.secrets.cookie_key,
+            "name": st.secrets.cookie_name,
+        },
+        "credentials": {"usernames": dict(st.secrets.usernames)},
+    }
+else:
+    # 로컬 환경: credentials.yaml 사용
+    with open("credentials.yaml") as file:
+        raw_config = yaml.load(file, Loader=SafeLoader)
+        config = {
+            "cookie": {
+                "expiry_days": raw_config["cookie"]["expiry_days"],
+                "key": raw_config["cookie"]["key"],
+                "name": raw_config["cookie"]["name"],
+            },
+            "credentials": {"usernames": dict(raw_config["credentials"]["usernames"])},
+        }
 
 authenticator = stauth.Authenticate(
     config["credentials"],
