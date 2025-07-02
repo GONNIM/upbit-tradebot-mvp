@@ -30,7 +30,8 @@ if IS_CLOUD:
             "name": st.secrets.cookie_name,
         },
         # "credentials": {"usernames": dict(st.secrets.usernames)},
-        "usernames": copy.deepcopy(dict(st.secrets.usernames)),
+        # "usernames": copy.deepcopy(dict(st.secrets.usernames)),
+        "usernames": {k: dict(v) for k, v in st.secrets.usernames.items()},
     }
 else:
     # 로컬 환경: credentials.yaml 사용
