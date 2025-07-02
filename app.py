@@ -2,14 +2,22 @@ from urllib.parse import urlencode
 import streamlit as st
 import streamlit_authenticator as stauth
 from ui.style import style_main
-from config import MIN_CASH, PARAMS_JSON_FILENAME
+from config import MIN_CASH, DB_PATH
 from services.db import get_user, save_user, get_engine_status
 from services.init_db import reset_db
 from engine.params import load_params, delete_params
-import copy
+import os
 import yaml
 from yaml.loader import SafeLoader
+from services.init_db import init_db_if_needed
 
+
+init_db_if_needed(DB_PATH)
+st.write(f"init_db_if_needed")
+if os.path.exists(DB_PATH):
+    st.info("DB exist!!!")
+else:
+    st.warning("DB not exist!!!")
 
 # Setup page
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")

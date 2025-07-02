@@ -1,6 +1,10 @@
 import streamlit as st
 import os
 
+
+DB_PATH = "tradebot.db"
+
+
 # Streamlit Cloud에서 secrets.toml 값 읽기
 try:
     ACCESS = st.secrets["UPBIT_ACCESS"]

@@ -1,4 +1,11 @@
 import sqlite3
+import os
+
+
+def init_db_if_needed(DB_PATH):
+    if not os.path.exists(DB_PATH):
+        print("✅ intialize_db.")
+        initialize_db()
 
 
 def reset_db():
