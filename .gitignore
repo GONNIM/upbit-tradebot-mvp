@@ -30,3 +30,6 @@ env/
 *.toml
 *.json
 *.db
+
+# 민감 정보 YAML
+credentials.yaml
