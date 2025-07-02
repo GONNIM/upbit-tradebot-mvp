@@ -29,9 +29,10 @@ if IS_CLOUD:
             "key": st.secrets.cookie_key,
             "name": st.secrets.cookie_name,
         },
-        # "credentials": {"usernames": dict(st.secrets.usernames)},
-        # "usernames": copy.deepcopy(dict(st.secrets.usernames)),
-        "usernames": {k: dict(v) for k, v in st.secrets.usernames.items()},
+        "credentials": {
+            # 💥 deepcopy 사용하지 말고 dict로 명시적으로 재구성
+            "usernames": {k: dict(v) for k, v in st.secrets.usernames.items()}
+        },
     }
 else:
     # 로컬 환경: credentials.yaml 사용
