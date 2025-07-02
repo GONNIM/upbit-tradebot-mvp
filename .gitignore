@@ -1,0 +1,32 @@
+# macOS
+.DS_Store
+.devcontainer
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+BKUP/
+
+# Environment
+.env
+.venv/
+venv/
+env/
+.env.local
+.streamlit
+
+# IDE
+.idea/
+.vscode/
+
+# Python version
+.python-version
+
+# 기타
+*.log
+*.bak
+*.tmp
+*.toml
+*.json
+*.db
