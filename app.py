@@ -6,9 +6,10 @@ from config import MIN_CASH, PARAMS_JSON_FILENAME
 from services.db import get_user, save_user, get_engine_status
 from services.init_db import reset_db
 from engine.params import load_params, delete_params
-import os
+import copy
 import yaml
 from yaml.loader import SafeLoader
+
 
 # Setup page
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
@@ -18,8 +19,9 @@ if st.button("⚠️ 전체 DB 초기화"):
     reset_db()
     st.success("DB 초기화 완료")
 
+IS_CLOUD = st.secrets.get("environment") == "cloud"
 # 환경별 인증 정보 로딩
-if st.secrets.get("environment") == "cloud":
+if IS_CLOUD:
     # Streamlit Cloud 환경: secrets.toml 사용
     config = {
         "cookie": {
@@ -27,7 +29,8 @@ if st.secrets.get("environment") == "cloud":
             "key": st.secrets.cookie_key,
             "name": st.secrets.cookie_name,
         },
-        "credentials": {"usernames": dict(st.secrets.usernames)},
+        # "credentials": {"usernames": dict(st.secrets.usernames)},
+        "usernames": copy.deepcopy(dict(st.secrets.usernames)),
     }
 else:
     # 로컬 환경: credentials.yaml 사용
