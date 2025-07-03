@@ -28,6 +28,7 @@ class MACDStrategy(Strategy):
 
     def init(self):
         logger.info("전략 초기화")
+        logger.info(f"📌 옵션: signal_confirm_enabled = {self.signal_confirm_enabled}")
         close = self.data.Close
         self.macd_line = self.I(
             self._calculate_macd, close, self.fast_period, self.slow_period
@@ -124,6 +125,9 @@ class MACDStrategy(Strategy):
             if self._is_gold_cross() and macd_val >= self.macd_threshold:
                 if self.signal_confirm_enabled:
                     if signal_val < self.macd_threshold:
+                        logger.info(
+                            f"🟡 매수 보류: signal_confirm_enabled 활성화 중, signal_val({signal_val:.5f}) < macd_threshold({self.macd_threshold:.5f})"
+                        )
                         return  # Signal 값 기준 이하 → 진입 보류
 
                 self.buy()
