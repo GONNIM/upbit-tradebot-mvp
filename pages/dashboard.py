@@ -6,12 +6,10 @@ import logging
 from urllib.parse import urlencode
 from streamlit_autorefresh import st_autorefresh
 
-from engine.engine_runner import is_engine_running, stop_engine, engine_runner_main
+from engine.engine_runner import stop_engine, engine_runner_main
 from engine.global_state import (
     is_engine_really_running,
     add_engine_thread,
-    remove_engine_thread,
-    stop_all_engines,
     get_engine_threads,
 )
 from services.db import (
@@ -20,7 +18,6 @@ from services.db import (
     get_initial_krw,
     fetch_recent_orders,
     fetch_logs,
-    get_thread_status,
     insert_log,
     get_last_status_log_from_db,
     fetch_latest_log_signal,
@@ -247,6 +244,12 @@ def get_interval_label(interval_code: str) -> str:
     return "알 수 없음"
 
 
+def get_signal_confirm_enabled() -> str:
+    if params_obj.signal_confirm_enabled:
+        return "사용"
+    return "미사용"
+
+
 st.markdown(
     f"""
     <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
@@ -257,6 +260,9 @@ st.markdown(
         <b>Order 비율:</b> {params_obj.order_ratio*100:.0f}% &nbsp;|&nbsp;
         <b>최소 진입 Bar:</b> {params_obj.min_holding_period} &nbsp;|&nbsp;
         <b>Cross Over:</b> {params_obj.macd_crossover_threshold}
+    </div>
+    <div style="margin-top: .2rem; padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
+        <b>MACD 기준선 통과 매매 타점:</b> < {get_signal_confirm_enabled()} >
     </div>
     """,
     unsafe_allow_html=True,

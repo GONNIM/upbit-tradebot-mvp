@@ -44,6 +44,7 @@ def run_live_loop(
             "macd_threshold": params.macd_threshold,
             "min_holding_period": params.min_holding_period,
             "macd_crossover_threshold": params.macd_crossover_threshold,
+            "signal_confirm_enabled": params.signal_confirm_enabled
         },
     )
 

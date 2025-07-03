@@ -52,6 +52,11 @@ def make_sidebar() -> Optional[LiveParams]:
             tp = st.number_input("Take Profit (%)", 0.1, 50.0, 5.0, 0.1) / 100
             sl = st.number_input("Stop Loss (%)", 0.1, 50.0, 1.0, 0.1) / 100
 
+            signal_confirm_enabled = st.checkbox(
+                "📌 옵션 전략: MACD 기준선 통과 매매 타점",
+                help="기본 전략(Gold Cross + MACD 기준 초과) 이후, Signal 선까지 MACD 기준 초과 시 매수합니다.",
+            )
+
             st.write("주문총액 (KRW)")
             st.info(f"{st.session_state.order_amount:,.0f}")
             cash = st.session_state.order_amount
@@ -89,6 +94,7 @@ def make_sidebar() -> Optional[LiveParams]:
             stop_loss=sl,
             cash=int(cash),
             order_ratio=st.session_state.order_ratio,
+            signal_confirm_enabled=signal_confirm_enabled,
         )
     except Exception as exc:  # pylint: disable=broad-except
         st.error(f"❌ 파라미터 오류: {exc}")
