@@ -353,7 +353,8 @@ if logs:
     df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
     df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
     st.dataframe(
-        df_logs[::-1],  # 최신 순
+        # df_logs[::-1],  # 최신 순
+        df_logs,
         use_container_width=True,
         hide_index=True,
         column_config={
@@ -371,7 +372,8 @@ if error_logs:
     df_error = pd.DataFrame(error_logs, columns=["시간", "레벨", "메시지"])
     df_error["시간"] = pd.to_datetime(df_error["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
     st.dataframe(
-        df_error[::-1],  # 최신 순
+        # df_error[::-1],  # 최신 순
+        df_error,
         use_container_width=True,
         hide_index=True,
         column_config={
