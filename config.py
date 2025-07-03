@@ -28,3 +28,6 @@ DEFAULT_USER_ID = "gon1972"
 
 # 리프레시 간격 (초)
 REFRESH_INTERVAL = 5
+
+MACD_EXIT_ENABLED = False  # Dead Cross 매도 허용 여부
+SIGNAL_CROSS_ENTRY_ENABLED = True  # Signal 통과 시 매수 진입 허용 여부

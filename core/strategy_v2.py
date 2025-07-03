@@ -1,7 +1,15 @@
 from backtesting import Strategy
 import pandas as pd
-from common.logger import logger
-from config import MIN_FEE_RATIO
+import logging
+from config import MIN_FEE_RATIO, MACD_EXIT_ENABLED, SIGNAL_CROSS_ENTRY_ENABLED
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 class MACDStrategy(Strategy):
@@ -11,11 +19,14 @@ class MACDStrategy(Strategy):
     signal_period = 7
 
     # 전략 설정
-    take_profit = 0.05  # 5% 수익 목표
-    stop_loss = 0.01  # 1% 손절 기준
-    macd_threshold = 0.0  # MACD가 이 값 이상일 때 진입
+    take_profit = 0.05  # 5% 익절
+    stop_loss = 0.01  # 1% 손절
+    macd_threshold = 0.0  # MACD 진입 기준
     min_holding_period = 1  # 최소 보유 기간
-    macd_exit_enabled = False  # Dead Cross 매도 허용 여부 (기본 비활성화)
+    macd_exit_enabled = MACD_EXIT_ENABLED  # Dead Cross 매도 허용 여부
+    signal_cross_entry_enabled = (
+        SIGNAL_CROSS_ENTRY_ENABLED  # Signal 통과 시 매수 진입 허용 여부
+    )
 
     def init(self):
         logger.info("전략 초기화")
@@ -59,17 +70,23 @@ class MACDStrategy(Strategy):
             and self.macd_line[-1] < self.signal_line[-1]
         )
 
+    def _is_signal_cross_up(self):
+        return (
+            self.macd_line[-2] < self.signal_line[-2]
+            and self.macd_line[-1] >= self.signal_line[-1]
+        )
+
     def next(self):
         current_bar = len(self.data) - 1
         current_price = self.data.Close[-1]
         macd_val = float(self.macd_line[-1])
         signal_val = float(self.signal_line[-1])
 
-        # 중복 방지
+        # 중복 시그널 방지
         if self.last_signal_bar == current_bar:
             return
 
-        # 교차 판별
+        # 교차 판단
         cross = (
             "Gold"
             if self._is_gold_cross()
@@ -79,7 +96,7 @@ class MACDStrategy(Strategy):
             (current_bar, "LOG", cross, macd_val, signal_val, current_price)
         )
 
-        # 매도 조건: TP 또는 SL 도달 시
+        # 매도 조건: TP / SL
         if self.position:
             bars_held = current_bar - self.entry_bar
             tp_price = self.entry_price * (1 + self.take_profit + 2 * MIN_FEE_RATIO)
@@ -103,7 +120,7 @@ class MACDStrategy(Strategy):
                 self.last_signal_bar = current_bar
                 return
 
-            # MACD 기반 매도는 옵션에 따라 처리
+            # 옵션: MACD Dead Cross 시 매도
             if self.macd_exit_enabled and bars_held >= self.min_holding_period:
                 if self._is_dead_cross() and macd_val >= self.macd_threshold:
                     self.position.close()
@@ -114,9 +131,16 @@ class MACDStrategy(Strategy):
                     self.last_signal_bar = current_bar
                     return
 
-        # 매수 조건: Gold Cross + MACD 기준값 이상
+        # 매수 조건: Gold Cross or Signal 통과, + MACD 기준 만족
         else:
-            if self._is_gold_cross() and macd_val >= self.macd_threshold:
+            gold_cross_cond = self._is_gold_cross() and macd_val >= self.macd_threshold
+            signal_cross_cond = (
+                self.signal_cross_entry_enabled
+                and self._is_signal_cross_up()
+                and macd_val >= self.macd_threshold
+            )
+
+            if gold_cross_cond or signal_cross_cond:
                 self.buy()
                 MACDStrategy.signal_events.append(
                     (current_bar, "BUY", "Gold", macd_val, signal_val)
