@@ -49,6 +49,9 @@ def process_engine_event(user_id: str, event: tuple, ticker: str, order_ratio: f
             msg = f"{event_type} signal: {qty:.6f} @ {price:,.2f} = {amount:,.2f} (fee={fee:,.2f})"
             insert_log(user_id, event_type, msg)
             log_to_file(msg, user_id)
+            msg = f"{event_type} signal: cross={cross} macd={macd} signal={signal}"
+            insert_log(user_id, event_type, msg)
+            log_to_file(msg, user_id)
             update_event_time(user_id)
 
         elif event_type == "EXCEPTION":
