@@ -56,7 +56,7 @@ class MACDStrategy(Strategy):
         self.entry_price = None
         self.entry_bar = None
 
-    def _is_gold_cross(self):
+    def _is_golden_cross(self):
         return (
             self.macd_line[-2] <= self.signal_line[-2]
             and self.macd_line[-1] > self.signal_line[-1]
@@ -78,8 +78,8 @@ class MACDStrategy(Strategy):
             return
 
         cross = (
-            "Gold"
-            if self._is_gold_cross()
+            "Golden"
+            if self._is_golden_cross()
             else "Dead" if self._is_dead_cross() else "Neutral"
         )
         MACDStrategy.signal_events.append(
@@ -122,7 +122,7 @@ class MACDStrategy(Strategy):
 
         # 매수 조건
         else:
-            if self._is_gold_cross() and macd_val >= self.macd_threshold:
+            if self._is_golden_cross() and macd_val >= self.macd_threshold:
                 if self.signal_confirm_enabled:
                     if signal_val < self.macd_threshold:
                         logger.info(
@@ -132,7 +132,7 @@ class MACDStrategy(Strategy):
 
                 self.buy()
                 MACDStrategy.signal_events.append(
-                    (current_bar, "BUY", "Gold", macd_val, signal_val)
+                    (current_bar, "BUY", "Golden", macd_val, signal_val)
                 )
                 self.entry_price = current_price
                 self.entry_bar = current_bar

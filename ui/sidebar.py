@@ -54,7 +54,7 @@ def make_sidebar() -> Optional[LiveParams]:
 
             signal_confirm_enabled = st.checkbox(
                 "📌 옵션 전략: MACD 기준선 통과 매매 타점",
-                help="기본 전략(Gold Cross + MACD 기준 초과) 이후, Signal 선까지 MACD 기준 초과 시 매수합니다.",
+                help="기본 전략(Golden Cross + MACD 기준 초과) 이후, Signal 선까지 MACD 기준 초과 시 매수합니다.",
             )
 
             st.write("주문총액 (KRW)")
