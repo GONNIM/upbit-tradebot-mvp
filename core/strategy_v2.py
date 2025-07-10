@@ -74,9 +74,6 @@ class MACDStrategy(Strategy):
         macd_val = float(self.macd_line[-1])
         signal_val = float(self.signal_line[-1])
 
-        if self.last_signal_bar == current_bar:
-            return
-
         cross = (
             "Golden"
             if self._is_golden_cross()
@@ -85,6 +82,12 @@ class MACDStrategy(Strategy):
         MACDStrategy.signal_events.append(
             (current_bar, "LOG", cross, macd_val, signal_val, current_price)
         )
+
+        # if self.last_signal_bar == current_bar:
+        #     return
+        if self.last_signal_bar == current_bar and not self.position:
+            logger.info(f"⛔️ 중복 매수 방지: current_bar={current_bar}, 이미 시도됨")
+            return
 
         # 매도 조건
         if self.position:
@@ -123,12 +126,11 @@ class MACDStrategy(Strategy):
         # 매수 조건
         else:
             if self._is_golden_cross() and macd_val >= self.macd_threshold:
-                if self.signal_confirm_enabled:
-                    if signal_val < self.macd_threshold:
-                        logger.info(
-                            f"🟡 매수 보류: signal_confirm_enabled 활성화 중, signal_val({signal_val:.5f}) < macd_threshold({self.macd_threshold:.5f})"
-                        )
-                        return  # Signal 값 기준 이하 → 진입 보류
+                if self.signal_confirm_enabled and signal_val < self.macd_threshold:
+                    logger.info(
+                        f"🟡 매수 보류: signal_confirm_enabled 활성화 중, signal_val({signal_val:.5f}) < macd_threshold({self.macd_threshold:.5f})"
+                    )
+                    return  # Signal 값 기준 이하 → 진입 보류
 
                 self.buy()
                 MACDStrategy.signal_events.append(
