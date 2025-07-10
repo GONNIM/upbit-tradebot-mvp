@@ -28,6 +28,7 @@ class MACDStrategy(Strategy):
 
     def init(self):
         logger.info("전략 초기화")
+        logger.info(f"📌 옵션: macd_exit_enabled = {self.macd_exit_enabled}")
         logger.info(f"📌 옵션: signal_confirm_enabled = {self.signal_confirm_enabled}")
         close = self.data.Close
         self.macd_line = self.I(
@@ -74,11 +75,21 @@ class MACDStrategy(Strategy):
         macd_val = float(self.macd_line[-1])
         signal_val = float(self.signal_line[-1])
 
-        cross = (
-            "Golden"
-            if self._is_golden_cross()
-            else "Dead" if self._is_dead_cross() else "Neutral"
-        )
+        if self._is_golden_cross():
+            cross = "Golden"
+            self.last_cross_type = "Golden"
+        elif self._is_dead_cross():
+            cross = "Dead"
+            self.last_cross_type = "Dead"
+        else:
+            # 🔸 이전 cross 상태 기반 중립 상태 판단
+            if self.last_cross_type == "Golden":
+                cross = "Up"
+            elif self.last_cross_type == "Dead":
+                cross = "Down"
+            else:
+                cross = "Neutral"
+
         MACDStrategy.signal_events.append(
             (current_bar, "LOG", cross, macd_val, signal_val, current_price)
         )

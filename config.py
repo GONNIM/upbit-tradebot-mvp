@@ -29,5 +29,5 @@ DEFAULT_USER_ID = "gon1972"
 # 리프레시 간격 (초)
 REFRESH_INTERVAL = 5
 
-MACD_EXIT_ENABLED = False  # TP/SL 도달 전 매도 될 가능성
+MACD_EXIT_ENABLED = True  # TP/SL 도달 전 매도 될 가능성
 SIGNAL_CONFIRM_ENABLED = False  # (Golden Cross) + (MACD >= 기준값) + (Signal >= 기준값)

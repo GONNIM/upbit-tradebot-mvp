@@ -21,6 +21,8 @@ class LiveParams(BaseModel):
 
     min_holding_period: int = 1
     macd_crossover_threshold: float = 0.0
+
+    macd_exit_enabled: bool = True
     signal_confirm_enabled: bool = False
 
     order_ratio: float = 1.0

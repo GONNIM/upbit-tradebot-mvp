@@ -244,6 +244,12 @@ def get_interval_label(interval_code: str) -> str:
     return "알 수 없음"
 
 
+def get_macd_exit_enabled() -> str:
+    if params_obj.macd_exit_enabled:
+        return "사용"
+    return "미사용"
+
+
 def get_signal_confirm_enabled() -> str:
     if params_obj.signal_confirm_enabled:
         return "사용"
@@ -262,6 +268,7 @@ st.markdown(
         <b>Cross Over:</b> {params_obj.macd_crossover_threshold}
     </div>
     <div style="margin-top: .2rem; padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
+        <b>MACD EXIT:</b> < {get_macd_exit_enabled()} > &nbsp;|&nbsp;
         <b>MACD 기준선 통과 매매 타점:</b> < {get_signal_confirm_enabled()} >
     </div>
     """,
@@ -292,7 +299,7 @@ with col_pnl:
 # ✅ 최근 거래 내역
 st.subheader("📝 최근 거래 내역")
 # ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인, 수익금액
-orders = fetch_recent_orders(user_id, limit=10)
+orders = fetch_recent_orders(user_id, limit=100)
 if orders:
     df_orders = pd.DataFrame(
         orders,
@@ -380,7 +387,7 @@ else:
 
 # ✅ 로그 기록
 st.subheader("📚 트레이딩 엔진 로그")
-logs = fetch_logs(user_id, limit=10)
+logs = fetch_logs(user_id, limit=100)
 if logs:
     df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
     df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
