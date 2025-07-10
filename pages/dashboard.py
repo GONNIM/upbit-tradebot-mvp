@@ -385,14 +385,49 @@ else:
     st.info("📭 아직 유효한 LOG 시그널이 없습니다.")
 
 
+def emoji_cross(msg: str):
+    if "cross=Golden" in msg:
+        return "🟢 " + msg
+    elif "cross=Dead" in msg:
+        return "🔴 " + msg
+    elif "cross=Up" in msg:
+        return "🔵 " + msg
+    elif "cross=Down" in msg:
+        return "🟣 " + msg
+    elif "cross=Neutral" in msg:
+        return "⚪ " + msg
+    return msg
+
+
 # ✅ 로그 기록
 st.subheader("📚 트레이딩 엔진 로그")
+st.markdown(
+    """
+    🟢 **Golden** &nbsp;&nbsp; 🔴 **Dead** &nbsp;&nbsp; 🔵 **Up** &nbsp;&nbsp; 🟣 **Down** &nbsp;&nbsp; ⚪ **Neutral**
+"""
+)
 logs = fetch_logs(user_id, limit=10000)
 if logs:
     df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
     df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 🟡 cross 상태를 시각화 이모지로 가공
+    def emoji_cross(msg: str):
+        if "cross=Golden" in msg:
+            return "🟢 " + msg
+        elif "cross=Dead" in msg:
+            return "🔴 " + msg
+        elif "cross=Up" in msg:
+            return "🔵 " + msg
+        elif "cross=Down" in msg:
+            return "🟣 " + msg
+        elif "cross=Neutral" in msg:
+            return "⚪ " + msg
+        return msg
+
+    df_logs["메시지"] = df_logs["메시지"].apply(emoji_cross)
+
     st.dataframe(
-        # df_logs[::-1],  # 최신 순
         df_logs,
         use_container_width=True,
         hide_index=True,
@@ -404,6 +439,7 @@ if logs:
     )
 else:
     st.info("아직 기록된 로그가 없습니다.")
+
 
 error_logs = fetch_logs(user_id, level="ERROR", limit=10)
 error_logs = None
