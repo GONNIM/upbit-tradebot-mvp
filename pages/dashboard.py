@@ -291,19 +291,44 @@ with col_pnl:
 
 # ✅ 최근 거래 내역
 st.subheader("📝 최근 거래 내역")
+# ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인, 수익금액
 orders = fetch_recent_orders(user_id, limit=10)
 if orders:
     df_orders = pd.DataFrame(
-        orders, columns=["시간", "코인", "매매", "가격", "수량", "상태"]
+        orders,
+        columns=[
+            "시간",
+            "코인",
+            "매매",
+            "가격",
+            "수량",
+            "상태",
+            "현재금액",
+            "보유코인",
+            "수익금액",
+        ],
     )
+
+    # 시간 포맷 정리
     df_orders["시간"] = pd.to_datetime(df_orders["시간"]).dt.strftime(
         "%Y-%m-%d %H:%M:%S"
     )
-    st.dataframe(df_orders, use_container_width=True, hide_index=True)
+
+    # 수익금 강조 포맷 (옵션)
+    df_orders["수익금액"] = df_orders["수익금액"].map(lambda x: f"{x:,.0f} KRW")
+    df_orders["현재금액"] = df_orders["현재금액"].map(lambda x: f"{x:,.0f} KRW")
+    df_orders["보유코인"] = df_orders["보유코인"].map(lambda x: f"{x:.6f}")
+
+    st.dataframe(
+        df_orders,
+        use_container_width=True,
+        hide_index=True,
+    )
 else:
     st.info("최근 거래 내역이 없습니다.")
 
 buy_logs = fetch_logs(user_id, level="BUY", limit=10)
+buy_logs = None
 if buy_logs:
     st.subheader("🚨 매수 로그")
     df_buy = pd.DataFrame(buy_logs, columns=["시간", "레벨", "메시지"])
@@ -321,6 +346,7 @@ if buy_logs:
     )
 
 sell_logs = fetch_logs(user_id, level="SELL", limit=10)
+sell_logs = None
 if sell_logs:
     st.subheader("🚨 매도 로그")
     df_sell = pd.DataFrame(sell_logs, columns=["시간", "레벨", "메시지"])
@@ -373,6 +399,7 @@ else:
     st.info("아직 기록된 로그가 없습니다.")
 
 error_logs = fetch_logs(user_id, level="ERROR", limit=10)
+error_logs = None
 if error_logs:
     st.subheader("🚨 에러 로그")
     df_error = pd.DataFrame(error_logs, columns=["시간", "레벨", "메시지"])

@@ -50,15 +50,39 @@ def get_user(username: str):
 
 
 # ✅ 주문
-def insert_order(user_id, ticker, side, price, volume, status):
+def insert_order(
+    user_id,
+    ticker,
+    side,
+    price,
+    volume,
+    status,
+    current_krw=None,
+    current_coin=None,
+    profit_krw=None,
+):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO orders (user_id, timestamp, ticker, side, price, volume, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-            (user_id, now_kst(), ticker, side, price, volume, status),
+            INSERT INTO orders (
+                user_id, timestamp, ticker, side, price, volume, status,
+                current_krw, current_coin, profit_krw
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                now_kst(),
+                ticker,
+                side,
+                price,
+                volume,
+                status,
+                current_krw,
+                current_coin,
+                profit_krw,
+            ),
         )
         conn.commit()
 
@@ -68,7 +92,7 @@ def fetch_recent_orders(user_id, limit=10):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT timestamp, ticker, side, price, volume, status
+            SELECT timestamp, ticker, side, price, volume, status, current_krw, current_coin, profit_krw
             FROM orders
             WHERE user_id = ?
             ORDER BY id DESC

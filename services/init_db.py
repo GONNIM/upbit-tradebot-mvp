@@ -58,7 +58,10 @@ def initialize_db():
         side TEXT,
         price REAL,
         volume REAL,
-        status TEXT
+        status TEXT,
+        current_krw INTEGER DEFAULT 0,      -- ✅ 현재 KRW 잔고
+        current_coin REAL DEFAULT 0.0,      -- ✅ 현재 보유 코인
+        profit_krw INTEGER DEFAULT 0        -- ✅ 매도 수익 (매수 시 0)
     );
     """
     )

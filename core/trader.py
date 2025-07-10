@@ -38,7 +38,7 @@ class UpbitTrader:
     def _krw_balance(self) -> float:
         if self.test_mode:
             return get_account(self.user_id)
-        
+
         try:
             balance = self.upbit.get_balance(ticker="KRW")
             return float(balance) if balance else 0.0
@@ -72,8 +72,27 @@ class UpbitTrader:
         if self.test_mode:
             current_krw = self._krw_balance()
             current_coin = self._coin_balance(ticker)
+
             self._simulate_buy(ticker, qty, price, current_krw, current_coin)
-            insert_order(self.user_id, ticker, "BUY", price, qty, "completed")
+
+            # ✅ 음수 -0 방지 및 정수 변환
+            raw_total = qty * price * (1 + MIN_FEE_RATIO)
+            new_krw = max(int(current_krw - raw_total + 1e-8), 0)
+            new_coin = current_coin + qty
+
+            # insert_order(self.user_id, ticker, "BUY", price, qty, "completed")
+            insert_order(
+                self.user_id,
+                ticker,
+                "BUY",
+                price,
+                qty,
+                "completed",
+                current_krw=new_krw,
+                current_coin=new_coin,
+                profit_krw=0,
+            )
+
             return {"time": ts, "side": "BUY", "qty": qty, "price": price}
 
         try:
@@ -92,8 +111,30 @@ class UpbitTrader:
         if self.test_mode:
             current_krw = self._krw_balance()
             current_coin = self._coin_balance(ticker)
+
             self._simulate_sell(ticker, qty, price, current_krw, current_coin)
-            insert_order(self.user_id, ticker, "SELL", price, qty, "completed")
+
+            # ✅ 수익 계산 및 정수 변환 (음수 방지)
+            raw_gain = qty * price
+            fee = raw_gain * MIN_FEE_RATIO
+            total_gain = max(int(raw_gain - fee + 1e-8), 0)
+
+            new_krw = current_krw + total_gain
+            new_coin = max(current_coin - qty, 0.0)
+
+            # insert_order(self.user_id, ticker, "SELL", price, qty, "completed")
+            insert_order(
+                self.user_id,
+                ticker,
+                "SELL",
+                price,
+                qty,
+                "completed",
+                current_krw=new_krw,
+                current_coin=new_coin,
+                profit_krw=total_gain,  # 매도 수익
+            )
+
             return {"time": ts, "side": "SELL", "qty": qty, "price": price}
 
         try:

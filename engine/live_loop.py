@@ -44,7 +44,7 @@ def run_live_loop(
             "macd_threshold": params.macd_threshold,
             "min_holding_period": params.min_holding_period,
             "macd_crossover_threshold": params.macd_crossover_threshold,
-            "signal_confirm_enabled": params.signal_confirm_enabled
+            "signal_confirm_enabled": params.signal_confirm_enabled,
         },
     )
 
@@ -77,11 +77,13 @@ def run_live_loop(
                 latest_price = df.Close.iloc[-1]
 
                 # ✅ LOG 메시지 → Queue 전송
+                latest_bar = len(df) - 1
                 for event in signal_events:
                     if event[1] == "LOG":
                         ts, _, cross, macd, signal, price = event
-                        msg = f"{df.index[ts]} | price={price} | cross={cross} | macd={macd} | signal={signal} | bar={ts}"
-                        q.put((df.index[ts], "LOG", msg))
+                        if ts == latest_bar:
+                            msg = f"{df.index[ts]} | price={price} | cross={cross} | macd={macd} | signal={signal} | bar={ts}"
+                            q.put((df.index[ts], "LOG", msg))
 
                 # ✅ 최근 시그널이 마지막 캔들에 있는지 확인
                 trade_signal = None

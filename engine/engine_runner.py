@@ -3,8 +3,6 @@ import queue
 import traceback
 import logging
 
-from streamlit.runtime.scriptrunner import add_script_run_ctx
-
 from engine.params import load_params
 from engine.live_loop import run_live_loop
 from engine.lock_manager import get_user_lock
@@ -86,29 +84,42 @@ def engine_runner_main(
     stop_event = stop_event or threading.Event()
 
     try:
-        # 파라미터 및 트레이더 초기화
+        # ✅ 파라미터 및 트레이더 설정
         params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}")
         trader = UpbitTrader(user_id, risk_pct=params.order_ratio, test_mode=test_mode)
 
-        # 상태 설정
+        # ✅ 엔진 상태 등록
+        update_engine_status(user_id, "running")
         set_engine_status(user_id, True)
         set_thread_status(user_id, True)
-        update_engine_status(user_id, "running")
 
-        # 라이브 루프 스레드 실행
+        # ✅ run_live_loop 스레드 정의
         worker = threading.Thread(
             target=run_live_loop,
             args=(params, q, trader, stop_event, test_mode),
             daemon=True,
+            name=f"run_live_loop_{user_id}",
         )
-        add_script_run_ctx(worker)
+
+        # ✅ Streamlit ScriptRunContext 주입 (예외 무시 가능)
+        try:
+            from streamlit.runtime.scriptrunner import add_script_run_ctx
+
+            add_script_run_ctx(worker)
+        except Exception:
+            logger.warning(
+                f"⚠️ ScriptRunContext 주입 실패 (bare mode or not running in Streamlit context)"
+            )
+
+        # ✅ 스레드 실행 및 상태 등록
         worker.start()
         add_engine_thread(user_id, worker, stop_event)
 
-        log_to_file(f"🚀 트레이딩 엔진 시작됨: user_id={user_id}", user_id)
-        insert_log(user_id, "INFO", f"🚀 트레이딩 엔진 시작됨: user_id={user_id}")
+        msg = f"🚀 트레이딩 엔진 시작됨: user_id={user_id}"
+        log_to_file(msg, user_id)
+        insert_log(user_id, "INFO", msg)
 
-        # 이벤트 루프
+        # ✅ 이벤트 루프
         while not stop_event.is_set():
             try:
                 event = q.get(timeout=0.5)
@@ -124,21 +135,24 @@ def engine_runner_main(
 
     except Exception as e:
         msg = f"❌ 엔진 예외: {e}"
+        logger.exception(msg)
         insert_log(user_id, "ERROR", msg)
         log_to_file(msg, user_id)
-        traceback.print_exc()
         update_engine_status(user_id, "error", note=msg)
 
     finally:
+        # ✅ 안전하게 stop 처리
         stop_event.set()
         set_engine_status(user_id, False)
         set_thread_status(user_id, False)
-        remove_engine_thread(user_id)
         update_engine_status(user_id, "stopped")
+        remove_engine_thread(user_id)
 
         msg = f"🛑 트레이딩 엔진 종료됨: user_id={user_id}"
         log_to_file(msg, user_id)
         insert_log(user_id, "INFO", msg)
+
+        user_lock.release()
 
 
 def stop_engine(user_id: str):
