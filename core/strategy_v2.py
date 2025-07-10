@@ -42,6 +42,8 @@ class MACDStrategy(Strategy):
         self.entry_bar = None
         self.last_signal_bar = None
 
+        self.last_cross_type = None
+
         MACDStrategy.signal_events = []
 
     def _calculate_macd(self, series, fast, slow):

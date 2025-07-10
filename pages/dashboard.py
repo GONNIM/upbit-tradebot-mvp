@@ -299,7 +299,7 @@ with col_pnl:
 # ✅ 최근 거래 내역
 st.subheader("📝 최근 거래 내역")
 # ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인, 수익금액
-orders = fetch_recent_orders(user_id, limit=100)
+orders = fetch_recent_orders(user_id, limit=10000)
 if orders:
     df_orders = pd.DataFrame(
         orders,
@@ -387,7 +387,7 @@ else:
 
 # ✅ 로그 기록
 st.subheader("📚 트레이딩 엔진 로그")
-logs = fetch_logs(user_id, limit=100)
+logs = fetch_logs(user_id, limit=10000)
 if logs:
     df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
     df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
