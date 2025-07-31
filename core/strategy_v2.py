@@ -24,7 +24,7 @@ class MACDStrategy(Strategy):
     macd_threshold = 0.0
     min_holding_period = 1
     macd_exit_enabled = MACD_EXIT_ENABLED
-    signal_confirm_enabled = SIGNAL_CONFIRM_ENABLED  # 🔸 옵션
+    signal_confirm_enabled = SIGNAL_CONFIRM_ENABLED
 
     def init(self):
         logger.info("전략 초기화")
@@ -41,10 +41,11 @@ class MACDStrategy(Strategy):
         self.entry_price = None
         self.entry_bar = None
         self.last_signal_bar = None
-
         self.last_cross_type = None
+        self.golden_cross_pending = False
 
-        MACDStrategy.signal_events = []
+        MACDStrategy.log_events = []
+        MACDStrategy.trade_events = []
 
     def _calculate_macd(self, series, fast, slow):
         return (
@@ -77,27 +78,37 @@ class MACDStrategy(Strategy):
         macd_val = float(self.macd_line[-1])
         signal_val = float(self.signal_line[-1])
 
+        # 골든/데드 크로스 감지 및 상태 업데이트
         if self._is_golden_cross():
-            cross = "Golden"
+            self.golden_cross_pending = True
             self.last_cross_type = "Golden"
-        elif self._is_dead_cross():
-            cross = "Dead"
-            self.last_cross_type = "Dead"
-        else:
-            # 🔸 이전 cross 상태 기반 중립 상태 판단
-            if self.last_cross_type == "Golden":
-                cross = "Up"
-            elif self.last_cross_type == "Dead":
-                cross = "Down"
-            else:
-                cross = "Neutral"
 
-        MACDStrategy.signal_events.append(
-            (current_bar, "LOG", cross, macd_val, signal_val, current_price)
+        if self._is_dead_cross():
+            self.last_cross_type = "Dead"
+            self.golden_cross_pending = False
+
+        MACDStrategy.log_events.append(
+            (
+                current_bar,
+                "LOG",
+                self.last_cross_type or "Neutral",
+                macd_val,
+                signal_val,
+                current_price,
+            )
+        )
+        timestamp = self.data.index[-1]
+        position_color = ""
+        if self.last_cross_type == "Golden":
+            position_color = "🟢"
+        elif self.last_cross_type == "Dead":
+            position_color = "🛑"
+        else:
+            position_color = ""
+        logger.info(
+            f"{position_color}[{timestamp}] bar={current_bar} macd={macd_val} signal={signal_val} price={current_price}"
         )
 
-        # if self.last_signal_bar == current_bar:
-        #     return
         if self.last_signal_bar == current_bar and not self.position:
             logger.info(f"⛔️ 중복 매수 방지: current_bar={current_bar}, 이미 시도됨")
             return
@@ -108,10 +119,14 @@ class MACDStrategy(Strategy):
             tp_price = self.entry_price * (1 + self.take_profit + 2 * MIN_FEE_RATIO)
             sl_price = self.entry_price * (1 - self.stop_loss - 2 * MIN_FEE_RATIO)
 
+            logger.info(
+                f"[{timestamp}] {self.position} current={current_price} entry={self.entry_price} tp={tp_price} sl={sl_price}"
+            )
+
             if current_price >= tp_price:
                 self.position.close()
-                MACDStrategy.signal_events.append(
-                    (current_bar, "SELL", "TP", macd_val, signal_val)
+                MACDStrategy.trade_events.append(
+                    (current_bar, "SELL", "TP", macd_val, signal_val, current_price)
                 )
                 self._reset_entry()
                 self.last_signal_bar = current_bar
@@ -119,8 +134,8 @@ class MACDStrategy(Strategy):
 
             if current_price <= sl_price:
                 self.position.close()
-                MACDStrategy.signal_events.append(
-                    (current_bar, "SELL", "SL", macd_val, signal_val)
+                MACDStrategy.trade_events.append(
+                    (current_bar, "SELL", "SL", macd_val, signal_val, current_price)
                 )
                 self._reset_entry()
                 self.last_signal_bar = current_bar
@@ -129,26 +144,37 @@ class MACDStrategy(Strategy):
             if self.macd_exit_enabled and bars_held >= self.min_holding_period:
                 if self._is_dead_cross() and macd_val >= self.macd_threshold:
                     self.position.close()
-                    MACDStrategy.signal_events.append(
-                        (current_bar, "SELL", "MACD_EXIT", macd_val, signal_val)
+                    MACDStrategy.trade_events.append(
+                        (
+                            current_bar,
+                            "SELL",
+                            "MACD_EXIT",
+                            macd_val,
+                            signal_val,
+                            current_price,
+                        )
                     )
                     self._reset_entry()
                     self.last_signal_bar = current_bar
                     return
 
-        # 매수 조건
-        else:
-            if self._is_golden_cross() and macd_val >= self.macd_threshold:
+        # 매수 조건 (방안 2)
+        if not self.position and self.golden_cross_pending:
+            if macd_val >= self.macd_threshold:
                 if self.signal_confirm_enabled and signal_val < self.macd_threshold:
                     logger.info(
                         f"🟡 매수 보류: signal_confirm_enabled 활성화 중, signal_val({signal_val:.5f}) < macd_threshold({self.macd_threshold:.5f})"
                     )
-                    return  # Signal 값 기준 이하 → 진입 보류
+                    return
 
                 self.buy()
-                MACDStrategy.signal_events.append(
-                    (current_bar, "BUY", "Golden", macd_val, signal_val)
+                MACDStrategy.trade_events.append(
+                    (current_bar, "BUY", "Golden", macd_val, signal_val, current_price)
+                )
+                logger.info(
+                    f"✅ 매수 실행: bar={current_bar} | price={current_price} | macd={macd_val} | signal={signal_val}"
                 )
                 self.entry_price = current_price
                 self.entry_bar = current_bar
                 self.last_signal_bar = current_bar
+                self.golden_cross_pending = False

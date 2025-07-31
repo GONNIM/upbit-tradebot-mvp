@@ -10,7 +10,6 @@ from core.trader import UpbitTrader
 from engine.params import LiveParams
 from backtesting import Backtest
 
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s | %(message)s",
@@ -26,12 +25,11 @@ def run_live_loop(
     stop_event: threading.Event,
     test_mode: bool,
 ) -> None:
-    """Live Trading Worker: Stream candles → Backtest → Process signal → Put events in queue."""
     from streamlit.runtime.scriptrunner import add_script_run_ctx
 
     add_script_run_ctx(threading.current_thread())
 
-    # ✅ 전략 클래스 정의 (동적으로)
+    # 전략 클래스 생성
     strategy_cls = type(
         "LiveStrategy",
         (MACDStrategy,),
@@ -62,7 +60,6 @@ def run_live_loop(
                     time.sleep(5)
                     continue
 
-                # ✅ 전략 실행
                 bt = Backtest(
                     df,
                     strategy_cls,
@@ -71,41 +68,49 @@ def run_live_loop(
                     exclusive_orders=True,
                 )
                 bt.run()
-                logger.info("LiveStrategy Backtest 실행 완료")
+                logger.info("✅ LiveStrategy Backtest 실행 완료")
 
-                signal_events = MACDStrategy.signal_events
+                log_events = MACDStrategy.log_events
+                trade_events = MACDStrategy.trade_events
+
                 latest_index = df.index[-1]
                 latest_price = df.Close.iloc[-1]
-
-                # ✅ LOG 메시지 → Queue 전송
                 latest_bar = len(df) - 1
-                for event in signal_events:
-                    if event[1] == "LOG":
-                        ts, _, cross, macd, signal, price = event
-                        if ts == latest_bar:
-                            msg = f"{df.index[ts]} | price={price} | cross={cross} | macd={macd} | signal={signal} | bar={ts}"
-                            q.put((df.index[ts], "LOG", msg))
 
-                # ✅ 최근 시그널이 마지막 캔들에 있는지 확인
+                # 🔹 최신 LOG만 전송 (UI 모니터링)
+                for event in reversed(log_events):
+                    if event[1] == "LOG" and event[0] == latest_bar:
+                        bar_idx, _, cross, macd, signal, price = event
+                        msg = f"{df.index[bar_idx]} | price={price:.2f} | cross={cross} | macd={macd:.5f} | signal={signal:.5f} | bar={bar_idx}"
+                        q.put((df.index[bar_idx], "LOG", msg))
+                        break
+
+                # 🔹 최근 bar 중 BUY/SELL 시그널 확인
                 trade_signal = None
                 cross = macd = signal = None
 
-                for event in reversed(signal_events):
-                    if event[0] == len(df) - 1:
+                for event in reversed(trade_events):
+                    logger.info(f"[{df.index[bar_idx]}] {event}")
+                    bar_idx = event[0]
+                    if bar_idx >= latest_bar - 2 and event[1] in ("BUY", "SELL"):
                         trade_signal = event[1]
                         cross, macd, signal = event[2], event[3], event[4]
                         break
 
-                if trade_signal is None:
+                if not trade_signal:
+                    logger.info("🔍 최근 BUY/SELL 시그널 없음 → 패스")
                     continue
 
                 coin_balance = trader._coin_balance(params.upbit_ticker)
+                logger.info(f"📊 현재 잔고: {coin_balance:.8f}")
 
-                if trade_signal == "BUY" and coin_balance == 0:
+                # 🔹 매수 로직
+                if trade_signal == "BUY" and coin_balance < 1e-6:
                     result = trader.buy_market(
                         latest_price, params.upbit_ticker, ts=latest_index
                     )
                     if result:
+                        logger.info(f"✅ 실매수 완료: {result}")
                         q.put(
                             (
                                 latest_index,
@@ -118,7 +123,8 @@ def run_live_loop(
                             )
                         )
 
-                elif trade_signal == "SELL" and coin_balance > 0:
+                # 🔹 매도 로직
+                elif trade_signal == "SELL" and coin_balance >= 1e-6:
                     result = trader.sell_market(
                         coin_balance,
                         ticker=params.upbit_ticker,
@@ -126,6 +132,7 @@ def run_live_loop(
                         ts=latest_index,
                     )
                     if result:
+                        logger.info(f"✅ 실매도 완료: {result}")
                         q.put(
                             (
                                 latest_index,
