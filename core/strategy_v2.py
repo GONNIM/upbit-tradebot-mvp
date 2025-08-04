@@ -16,13 +16,13 @@ class MACDStrategy(Strategy):
     # MACD 설정
     fast_period = 12
     slow_period = 26
-    signal_period = 7
+    signal_period = 9
 
     # 전략 설정
-    take_profit = 0.05
+    take_profit = 0.03
     stop_loss = 0.01
     macd_threshold = 0.0
-    min_holding_period = 1
+    min_holding_period = 2
     macd_exit_enabled = MACD_EXIT_ENABLED
     signal_confirm_enabled = SIGNAL_CONFIRM_ENABLED
 

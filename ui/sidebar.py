@@ -44,13 +44,13 @@ def make_sidebar() -> Optional[LiveParams]:
                 "차트 단위", list(INTERVAL_OPTIONS.keys()), index=0
             )
 
-            fast = st.number_input("단기 EMA", 5, 50, 12)
-            slow = st.number_input("장기 EMA", 20, 100, 26)
-            signal = st.number_input("신호선 기간", 5, 20, 7)
-            macd_threshold = st.number_input("MACD 기준값", -10.0, 10.0, 0.0, 0.01)
+            fast = st.number_input("단기 EMA", 1, 50, 12)
+            slow = st.number_input("장기 EMA", 5, 240, 26)
+            signal = st.number_input("신호선 기간", 1, 50, 9)
+            macd_threshold = st.number_input("MACD 기준값", -100.0, 100.0, 0.0, 1.0)
 
-            tp = st.number_input("Take Profit (%)", 0.1, 50.0, 5.0, 0.1) / 100
-            sl = st.number_input("Stop Loss (%)", 0.1, 50.0, 1.0, 0.1) / 100
+            tp = st.number_input("Take Profit (%)", 0.5, 50.0, 3.0, 0.5) / 100
+            sl = st.number_input("Stop Loss (%)", 0.5, 50.0, 1.0, 0.5) / 100
 
             macd_exit_enabled = st.checkbox(
                 "📌 매도 전략: MACD EXIT",
