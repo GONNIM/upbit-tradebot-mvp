@@ -4,11 +4,14 @@ from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 
 
-DB_PATH = "tradebot.db"
+DB_PREFIX = "tradebot"
 
 
 @contextmanager
-def get_db():
+def get_db(user_id):
+    DB_PATH = f"{DB_PREFIX}_{user_id}.db"
+    # print(f"🧹 get_db : {DB_PATH}")
+
     conn = sqlite3.connect(DB_PATH)
     try:
         yield conn
@@ -23,7 +26,7 @@ def now_kst() -> str:
 
 # ✅ 사용자 정보
 def save_user(username: str, display_name: str, virtual_krw: int):
-    with get_db() as conn:
+    with get_db(username) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -40,7 +43,7 @@ def save_user(username: str, display_name: str, virtual_krw: int):
 
 
 def get_user(username: str):
-    with get_db() as conn:
+    with get_db(username) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT display_name, virtual_krw, updated_at FROM users WHERE username=?",
@@ -61,7 +64,7 @@ def insert_order(
     current_coin=None,
     profit_krw=None,
 ):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -88,7 +91,7 @@ def insert_order(
 
 
 def fetch_recent_orders(user_id, limit=10):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -103,8 +106,8 @@ def fetch_recent_orders(user_id, limit=10):
         return cursor.fetchall()
 
 
-def delete_orders():
-    with get_db() as conn:
+def delete_orders(user_id):
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -119,7 +122,7 @@ def delete_orders():
 
 # ✅ 로그
 def insert_log(user_id: str, level: str, message: str):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -132,7 +135,7 @@ def insert_log(user_id: str, level: str, message: str):
 
 
 def fetch_logs(user_id, level="LOG", limit=20):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
 
         if level == "BUY":
@@ -187,7 +190,7 @@ def get_last_status_log_from_db(user_id: str) -> str:
     """
     status_prefixes = ("🚀", "🔌", "🛑", "✅", "⚠️", "📡", "🔄", "❌", "🚨")
 
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         # 이모지로 시작하는 메시지만 필터링
         emoji_conditions = " OR ".join(
@@ -225,8 +228,8 @@ def get_last_status_log_from_db(user_id: str) -> str:
             conn.close()
 
 
-def delete_old_logs():
-    with get_db() as conn:
+def delete_old_logs(user_id):
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -253,7 +256,7 @@ def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
         LIMIT 1
     """
     try:
-        with get_db() as conn:
+        with get_db(user_id) as conn:
             cursor = conn.cursor()
             cursor.execute(query, (user_id,))
             row = cursor.fetchone()
@@ -284,7 +287,7 @@ def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
 
 # ✅ 계정 정보
 def get_account(user_id):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT virtual_krw FROM accounts WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
@@ -292,7 +295,7 @@ def get_account(user_id):
 
 
 def create_or_init_account(user_id, init_krw=1_000_000):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "INSERT OR IGNORE INTO accounts (user_id, virtual_krw) VALUES (?, ?)",
@@ -304,7 +307,7 @@ def create_or_init_account(user_id, init_krw=1_000_000):
 def update_account(user_id, virtual_krw):
     virtual_krw = int(virtual_krw)  # ✅ 정수로 변환
 
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -320,7 +323,7 @@ def update_account(user_id, virtual_krw):
 
 # ✅ 포지션 정보
 def get_coin_balance(user_id, ticker):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -335,7 +338,7 @@ def get_coin_balance(user_id, ticker):
 
 
 def update_coin_position(user_id, ticker, virtual_coin):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -353,7 +356,7 @@ def update_coin_position(user_id, ticker, virtual_coin):
 
 # ✅ 히스토리 누적
 def insert_account_history(user_id: str, virtual_krw: int):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -366,7 +369,7 @@ def insert_account_history(user_id: str, virtual_krw: int):
 
 
 def insert_position_history(user_id: str, ticker: str, virtual_coin: float):
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -381,7 +384,7 @@ def insert_position_history(user_id: str, ticker: str, virtual_coin: float):
 # ✅ 엔진 상태
 def set_engine_status(user_id, is_running: bool):
     now = now_kst()
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -397,7 +400,7 @@ def set_engine_status(user_id, is_running: bool):
 
 
 def get_engine_status(user_id) -> bool:
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT is_running FROM engine_status WHERE user_id = ?", (user_id,)
@@ -409,7 +412,7 @@ def get_engine_status(user_id) -> bool:
 # ✅ Thread 상태
 def set_thread_status(user_id, is_thread_running: bool):
     now = now_kst()
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -425,7 +428,7 @@ def set_thread_status(user_id, is_thread_running: bool):
 
 
 def get_thread_status(user_id) -> bool:
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             "SELECT is_thread_running FROM thread_status WHERE user_id = ?", (user_id,)
@@ -435,7 +438,7 @@ def get_thread_status(user_id) -> bool:
 
 
 def get_initial_krw(user_id: str) -> float:
-    with get_db() as conn:
+    with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT virtual_krw FROM users WHERE username = ?", (user_id,))
         row = cursor.fetchone()

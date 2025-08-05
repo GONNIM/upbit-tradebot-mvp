@@ -2,30 +2,18 @@ from urllib.parse import urlencode
 import streamlit as st
 import streamlit_authenticator as stauth
 from ui.style import style_main
-from config import MIN_CASH, DB_PATH
-from services.db import get_user, save_user, get_engine_status
+from config import MIN_CASH
+from services.db import get_user, save_user
 from services.init_db import reset_db
-from engine.params import load_params, delete_params
 import os
 import yaml
 from yaml.loader import SafeLoader
 from services.init_db import init_db_if_needed
 
 
-init_db_if_needed(DB_PATH)
-st.write(f"init_db_if_needed")
-if os.path.exists(DB_PATH):
-    st.info("DB exist!!!")
-else:
-    st.warning("DB not exist!!!")
-
 # Setup page
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 st.markdown(style_main, unsafe_allow_html=True)
-
-if st.button("⚠️ 전체 DB 초기화"):
-    reset_db()
-    st.success("DB 초기화 완료")
 
 IS_CLOUD = st.secrets.get("environment") == "cloud"
 # 환경별 인증 정보 로딩
@@ -87,6 +75,9 @@ elif authentication_status is None:
 elif authentication_status:
     login_placeholder.empty()
     st.success(f"환영합니다, {name}님!")
+
+    # 2025-08-04 DB 분리
+    init_db_if_needed(username)
 
     # 초기 세션 설정
     st.session_state.setdefault("user_id", username)

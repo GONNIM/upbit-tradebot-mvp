@@ -2,7 +2,7 @@ import streamlit as st
 import os
 
 
-DB_PATH = "tradebot.db"
+DB_PREFIX = "tradebot"
 
 
 # Streamlit Cloud에서 secrets.toml 값 읽기
@@ -31,3 +31,7 @@ REFRESH_INTERVAL = 5
 
 MACD_EXIT_ENABLED = True  # TP/SL 도달 전 매도 될 가능성
 SIGNAL_CONFIRM_ENABLED = False  # (Golden Cross) + (MACD >= 기준값) + (Signal >= 기준값)
+
+# Strategy
+MIN_HOLDING_PERIOD = 5
+VOLATILITY_WINDOW = 20

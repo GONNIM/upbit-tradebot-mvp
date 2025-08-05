@@ -6,12 +6,10 @@ import logging
 from urllib.parse import urlencode
 from streamlit_autorefresh import st_autorefresh
 
+from engine.engine_manager import engine_manager
 from engine.engine_runner import stop_engine, engine_runner_main
-from engine.global_state import (
-    is_engine_really_running,
-    add_engine_thread,
-    get_engine_threads,
-)
+from engine.params import load_params
+
 from services.db import (
     get_account,
     get_coin_balance,
@@ -22,8 +20,8 @@ from services.db import (
     get_last_status_log_from_db,
     fetch_latest_log_signal,
 )
-from engine.params import load_params
 from services.init_db import reset_db
+
 from config import PARAMS_JSON_FILENAME, REFRESH_INTERVAL
 from ui.style import style_main
 
@@ -106,14 +104,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-_engine_lock = threading.Lock()
-
 # ✅ 자동 새로고침
 st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_autorefresh")
 
 # ✅ 현재 엔진 상태
-engine_status = is_engine_really_running(user_id)
-# logger.info(f"is_engine_really_running {engine_status}")
+engine_status = engine_manager.is_running(user_id)
+# logger.info(f"engine_manager.is_running {engine_status}")
 if not engine_status:
     engine_status = st.session_state.engine_started
     # logger.info(f"st.session_state.engine_started {engine_status}")
@@ -153,22 +149,16 @@ if not engine_status:
     )
     if start_trading:
         if not st.session_state.get("engine_started", False):
-            if not is_engine_really_running(user_id):
-                with _engine_lock:
-                    if not is_engine_really_running(user_id):
-                        st.write("🔄 엔진 실행을 시작합니다...")
-                        stop_event = threading.Event()
-                        thread = threading.Thread(
-                            target=engine_runner_main,
-                            kwargs={"user_id": user_id, "stop_event": stop_event},
-                            daemon=True,
-                        )
-                        thread.start()
-                        add_engine_thread(user_id, thread, stop_event)
-                        insert_log(user_id, "INFO", "✅ 트레이딩 엔진 실행됨")
-                        st.session_state.engine_started = True
-                        st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
-                        st.rerun()
+            if not engine_manager.is_running(user_id):  # ✅ 유저별 엔진 실행 여부 확인
+                st.write("🔄 엔진 실행을 시작합니다...")
+                success = engine_manager.start_engine(user_id, test_mode=True)
+                if success:
+                    insert_log(user_id, "INFO", "✅ 트레이딩 엔진 실행됨")
+                    st.session_state.engine_started = True
+                    st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ 트레이딩 엔진 실행 실패")
             else:
                 st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
         else:
@@ -204,19 +194,19 @@ with btn_col2:
             st.success(msg)
 with btn_col3:
     if st.button("🛑 트레이딩 엔진 종료", use_container_width=True):
-        stop_engine(user_id)
-        st.session_state.engine_started = False  # ✅ 수동 초기화
+        engine_manager.stop_engine(user_id)
+        insert_log(user_id, "INFO", "🛑 트레이딩 엔진 수동 종료됨")
+        st.session_state.engine_started = False
         time.sleep(0.2)
         st.rerun()
 with btn_col4:
     if st.button("💥 시스템 초기화", use_container_width=True):
-        active_threads = get_engine_threads()
-        for uid in list(active_threads.keys()):
-            stop_engine(uid)  # ✅ 정상 종료 처리
+        for uid in engine_manager.get_active_user_ids():
+            engine_manager.stop_engine(uid)  # ✅ 정상 종료 처리
             insert_log(uid, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
 
         time.sleep(1)  # 종료 대기
-        reset_db()
+        reset_db(user_id)
 
         st.session_state.engine_started = False  # ✅ 캐시 초기화
         st.success("DB 초기화 완료")
@@ -403,7 +393,7 @@ def emoji_cross(msg: str):
 st.subheader("📚 트레이딩 엔진 로그")
 st.markdown(
     """
-    🟢 **Golden** &nbsp;&nbsp; 🔴 **Dead** &nbsp;&nbsp; 🔵 **Up** &nbsp;&nbsp; 🟣 **Down** &nbsp;&nbsp; ⚪ **Neutral**
+    🟢 **Golden** &nbsp;&nbsp; 🔴 **Dead** &nbsp;&nbsp; 🔵 **Pending** &nbsp;&nbsp; ⚪ **Neutral**
 """
 )
 logs = fetch_logs(user_id, limit=10000)
@@ -417,7 +407,7 @@ if logs:
             return "🟢 " + msg
         elif "cross=Dead" in msg:
             return "🔴 " + msg
-        elif "cross=Up" in msg:
+        elif "cross=Pending" in msg:
             return "🔵 " + msg
         elif "cross=Down" in msg:
             return "🟣 " + msg

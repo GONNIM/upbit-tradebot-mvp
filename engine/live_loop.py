@@ -47,6 +47,9 @@ def run_live_loop(
         },
     )
 
+    in_position = False
+    entry_price = None
+
     try:
         while not stop_event.is_set():
             for df in stream_candles(
@@ -90,7 +93,7 @@ def run_live_loop(
                 cross = macd = signal = None
 
                 for event in reversed(trade_events):
-                    logger.info(f"[{df.index[bar_idx]}] {event}")
+                    # logger.info(f"[{df.index[bar_idx]}] {event}")
                     bar_idx = event[0]
                     if bar_idx >= latest_bar - 2 and event[1] in ("BUY", "SELL"):
                         trade_signal = event[1]
@@ -98,7 +101,9 @@ def run_live_loop(
                         break
 
                 if not trade_signal:
-                    logger.info("🔍 최근 BUY/SELL 시그널 없음 → 패스")
+                    logger.info(
+                        f"🔍 최근 BUY/SELL 시그널 없음 → 패스, in_position={in_position}, entry_price={entry_price}"
+                    )
                     continue
 
                 coin_balance = trader._coin_balance(params.upbit_ticker)
@@ -122,6 +127,8 @@ def run_live_loop(
                                 signal,
                             )
                         )
+                        in_position = True
+                        entry_price = result["price"]
 
                 # 🔹 매도 로직
                 elif trade_signal == "SELL" and coin_balance >= 1e-6:
@@ -144,6 +151,12 @@ def run_live_loop(
                                 signal,
                             )
                         )
+                        in_position = False
+                        entry_price = None
+
+                logger.info(
+                    f"💡 실거래 포지션 상태: in_position={in_position} | entry_price={entry_price}"
+                )
 
     except Exception:
         logger.exception("❌ run_live_loop 예외 발생:")

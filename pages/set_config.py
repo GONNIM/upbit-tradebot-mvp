@@ -115,7 +115,7 @@ else:
 # --- 엔진 실행 및 페이지 전환 ---
 if start_trading:
     init_log_file(user_id)
-    delete_old_logs()
+    delete_old_logs(user_id)
 
     # 🔁 페이지 이동 처리
     next_page = "dashboard"
