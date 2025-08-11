@@ -55,11 +55,15 @@ def make_sidebar() -> Optional[LiveParams]:
             macd_exit_enabled = st.checkbox(
                 "📌 매도 전략: MACD EXIT",
                 help="TP/SL 도달 전 Dead Cross + MACD 기준 초과 시 매도합니다.",
+                value=True,
+                disabled=True,
             )
 
             signal_confirm_enabled = st.checkbox(
                 "📌 옵션 전략: MACD 기준선 통과 매매 타점",
                 help="기본 전략(Golden Cross + MACD 기준 초과) 이후, Signal 선까지 MACD 기준 초과 시 매수합니다.",
+                value=False,
+                disabled=True,
             )
 
             st.write("주문총액 (KRW)")

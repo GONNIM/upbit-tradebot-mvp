@@ -93,6 +93,8 @@ if params:
                 f"🕒 최초 저장 시각: {datetime.now().isoformat(timespec='seconds')}"
             )
 
+        exist_params = load_params(json_path)
+        st.write(exist_params)
         start_trading = st.button(
             "Upbit Trade Bot v1 (TEST) - Go Dashboard", use_container_width=True
         )

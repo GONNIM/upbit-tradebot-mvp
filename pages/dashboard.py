@@ -201,19 +201,9 @@ with btn_col3:
         st.rerun()
 with btn_col4:
     if st.button("💥 시스템 초기화", use_container_width=True):
-        for uid in engine_manager.get_active_user_ids():
-            engine_manager.stop_engine(uid)  # ✅ 정상 종료 처리
-            insert_log(uid, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
-
-        time.sleep(1)  # 종료 대기
-        reset_db(user_id)
-
-        st.session_state.engine_started = False  # ✅ 캐시 초기화
-        st.success("DB 초기화 완료")
-
         params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id})
         st.markdown(
-            f'<meta http-equiv="refresh" content="0; url=./set_config?{params}">',
+            f'<meta http-equiv="refresh" content="0; url=./confirm_init_db?{params}">',
             unsafe_allow_html=True,
         )
 
@@ -257,9 +247,37 @@ st.markdown(
         <b>최소 진입 Bar:</b> {params_obj.min_holding_period} &nbsp;|&nbsp;
         <b>Cross Over:</b> {params_obj.macd_crossover_threshold}
     </div>
-    <div style="margin-top: .2rem; padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
-        <b>MACD EXIT:</b> < {get_macd_exit_enabled()} > &nbsp;|&nbsp;
-        <b>MACD 기준선 통과 매매 타점:</b> < {get_signal_confirm_enabled()} >
+    """,
+    unsafe_allow_html=True,
+)
+st.write("")
+
+st.subheader("⚙️ 매수 전략")
+st.markdown(
+    f"""
+    <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
+        <b>MACD > 0</b> &nbsp;|&nbsp;
+        <b>Signal > 0</b> &nbsp;|&nbsp;
+        <b>IS BULLISH CANDLE</b> &nbsp;|&nbsp;
+        <b>IS MACD TRENDING UP</b> &nbsp;|&nbsp;
+        <b>IS ABOVE MA20</b> &nbsp;|&nbsp;
+        <b>IS ABOVE MA60</b>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+st.write("")
+
+st.subheader("⚙️ 매도 전략")
+st.markdown(
+    f"""
+    <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
+        <b>Trailing Stop</b> &nbsp;|&nbsp;
+        <b>Take Profit</b> &nbsp;|&nbsp;
+        <b>Stop Loss</b> &nbsp;|&nbsp;
+        <b>MACD EXIT and Period = 5</b> &nbsp;|&nbsp;
+        <b>Dead Cross and MACD <= 0</b> &nbsp;|&nbsp;
+        <b>MA20 Slope <= 0</b>
     </div>
     """,
     unsafe_allow_html=True,
