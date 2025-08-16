@@ -1,3 +1,4 @@
+import string
 import threading
 import queue
 import logging
@@ -24,6 +25,7 @@ def run_live_loop(
     trader: UpbitTrader,
     stop_event: threading.Event,
     test_mode: bool,
+    user_id: string
 ) -> None:
     from streamlit.runtime.scriptrunner import add_script_run_ctx
 
@@ -44,6 +46,7 @@ def run_live_loop(
             "macd_crossover_threshold": params.macd_crossover_threshold,
             "macd_exit_enabled": params.macd_exit_enabled,
             "signal_confirm_enabled": params.signal_confirm_enabled,
+            "user_id": user_id
         },
     )
 

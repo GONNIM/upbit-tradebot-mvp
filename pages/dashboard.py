@@ -1,13 +1,12 @@
+import json
 import streamlit as st
 import pandas as pd
 import time
-import threading
 import logging
 from urllib.parse import urlencode
 from streamlit_autorefresh import st_autorefresh
 
 from engine.engine_manager import engine_manager
-from engine.engine_runner import stop_engine, engine_runner_main
 from engine.params import load_params
 
 from services.db import (
@@ -20,13 +19,14 @@ from services.db import (
     get_last_status_log_from_db,
     fetch_latest_log_signal,
 )
-from services.init_db import reset_db
 
-from config import PARAMS_JSON_FILENAME, REFRESH_INTERVAL
+from config import PARAMS_JSON_FILENAME, REFRESH_INTERVAL, CONDITIONS_JSON_FILENAME
 from ui.style import style_main
 
 from core.trader import UpbitTrader
 from services.trading_control import force_liquidate, force_buy_in
+
+from pathlib import Path
 
 
 logging.basicConfig(
@@ -173,6 +173,225 @@ account_krw = get_account(user_id) or 0
 # st.write(account_krw)
 coin_balance = get_coin_balance(user_id, params_obj.upbit_ticker) or 0.0
 
+
+# ✅ 자산 현황
+st.subheader("💰 자산 현황")
+initial_krw = get_initial_krw(user_id) or 0
+if account_krw:
+    total_value = account_krw
+    roi = ((total_value - initial_krw) / initial_krw) * 100 if initial_krw else 0.0
+    roi_msg = f"{roi:.2f} %"
+else:
+    roi_msg = "미정"
+
+col_krw, col_coin, col_pnl = st.columns(3)
+with col_krw:
+    st.metric("보유 KRW", f"{account_krw:,.0f} KRW")
+with col_coin:
+    st.metric(f"{params_obj.upbit_ticker} 보유량", f"{coin_balance:,.6f}")
+with col_pnl:
+    st.metric("📈 누적 수익률", roi_msg)
+
+st.divider()
+
+# ✅ 최근 거래 내역
+st.subheader("📝 최근 거래 내역")
+# ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인, 수익금액
+orders = fetch_recent_orders(user_id, limit=10000)
+if orders:
+    show_logs = st.toggle("📝 최근 거래 내역 보기", value=False)
+    if show_logs:
+        df_orders = pd.DataFrame(
+            orders,
+            columns=[
+                "시간",
+                "코인",
+                "매매",
+                "가격",
+                "수량",
+                "상태",
+                "현재금액",
+                "보유코인",
+                "수익금액",
+            ],
+        )
+
+        # 시간 포맷 정리
+        df_orders["시간"] = pd.to_datetime(df_orders["시간"]).dt.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+
+        # 수익금 강조 포맷 (옵션)
+        df_orders["수익금액"] = df_orders["수익금액"].map(lambda x: f"{x:,.0f} KRW")
+        df_orders["현재금액"] = df_orders["현재금액"].map(lambda x: f"{x:,.0f} KRW")
+        df_orders["보유코인"] = df_orders["보유코인"].map(lambda x: f"{x:.6f}")
+
+        st.dataframe(
+            df_orders,
+            use_container_width=True,
+            hide_index=True,
+        )
+else:
+    st.info("최근 거래 내역이 없습니다.")
+
+st.divider()
+
+buy_logs = fetch_logs(user_id, level="BUY", limit=10)
+buy_logs = None
+if buy_logs:
+    st.subheader("🚨 매수 로그")
+    df_buy = pd.DataFrame(buy_logs, columns=["시간", "레벨", "메시지"])
+    df_buy["시간"] = pd.to_datetime(df_buy["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+    st.dataframe(
+        # df_buy[::-1],  # 최신 순
+        df_buy,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "시간": st.column_config.Column(width="small"),
+            "레벨": st.column_config.Column(width="small"),
+            "메시지": st.column_config.Column(width="large"),
+        },
+    )
+
+sell_logs = fetch_logs(user_id, level="SELL", limit=10)
+sell_logs = None
+if sell_logs:
+    st.subheader("🚨 매도 로그")
+    df_sell = pd.DataFrame(sell_logs, columns=["시간", "레벨", "메시지"])
+    df_sell["시간"] = pd.to_datetime(df_sell["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+    st.dataframe(
+        # df_sell[::-1],  # 최신 순
+        df_sell,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "시간": st.column_config.Column(width="small"),
+            "레벨": st.column_config.Column(width="small"),
+            "메시지": st.column_config.Column(width="large"),
+        },
+    )
+
+info_logs = fetch_logs(user_id, level="INFO", limit=10)
+if info_logs:
+    st.subheader("🚨 상태 로그")
+
+    show_logs = st.toggle("🚨 상태 로그 보기", value=False)
+    if show_logs:
+        df_info = pd.DataFrame(info_logs, columns=["시간", "레벨", "메시지"])
+        df_info["시간"] = pd.to_datetime(df_info["시간"]).dt.strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        st.dataframe(
+            # df_info[::-1],  # 최신 순
+            df_info,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "시간": st.column_config.Column(width="small"),
+                "레벨": st.column_config.Column(width="small"),
+                "메시지": st.column_config.Column(width="large"),
+            },
+        )
+
+st.divider()
+
+log_summary = fetch_latest_log_signal(user_id, params_obj.upbit_ticker)
+if log_summary:
+    st.subheader("📌 최종 시그널 정보")
+    cols = st.columns(6)
+    cols[0].markdown(f"**시간**<br>{log_summary['시간']}", unsafe_allow_html=True)
+    cols[1].markdown(f"**Ticker**<br>{log_summary['Ticker']}", unsafe_allow_html=True)
+    cols[2].markdown(f"**Price**<br>{log_summary['price']}", unsafe_allow_html=True)
+    cols[3].markdown(f"**Cross**<br>{log_summary['cross']}", unsafe_allow_html=True)
+    cols[4].markdown(f"**MACD**<br>{log_summary['macd']}", unsafe_allow_html=True)
+    cols[5].markdown(f"**Signal**<br>{log_summary['signal']}", unsafe_allow_html=True)
+else:
+    st.info("📭 아직 유효한 LOG 시그널이 없습니다.")
+
+
+def emoji_cross(msg: str):
+    if "cross=Golden" in msg:
+        return "🟢 " + msg
+    elif "cross=Dead" in msg:
+        return "🔴 " + msg
+    elif "cross=Up" in msg:
+        return "🔵 " + msg
+    elif "cross=Down" in msg:
+        return "🟣 " + msg
+    elif "cross=Neutral" in msg:
+        return "⚪ " + msg
+    return msg
+
+
+st.divider()
+
+# ✅ 로그 기록
+st.subheader("📚 트레이딩 엔진 로그")
+st.markdown(
+    """
+    🟢 **Golden** &nbsp;&nbsp; 🔴 **Dead** &nbsp;&nbsp; 🔵 **Pending** &nbsp;&nbsp; ⚪ **Neutral**
+"""
+)
+logs = fetch_logs(user_id, limit=10000)
+if logs:
+    df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
+    df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # 🟡 cross 상태를 시각화 이모지로 가공
+    def emoji_cross(msg: str):
+        if "cross=Golden" in msg:
+            return "🟢 " + msg
+        elif "cross=Dead" in msg:
+            return "🔴 " + msg
+        elif "cross=Pending" in msg:
+            return "🔵 " + msg
+        elif "cross=Down" in msg:
+            return "🟣 " + msg
+        elif "cross=Neutral" in msg:
+            return "⚪ " + msg
+        return msg
+
+    df_logs["메시지"] = df_logs["메시지"].apply(emoji_cross)
+
+    show_logs = st.toggle("📚 트레이딩 엔진 로그 보기", value=False)
+    if show_logs:
+        st.dataframe(
+            df_logs,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "시간": st.column_config.Column(width="small"),
+                "레벨": st.column_config.Column(width="small"),
+                "메시지": st.column_config.Column(width="large"),
+            },
+        )
+else:
+    st.info("아직 기록된 로그가 없습니다.")
+
+
+error_logs = fetch_logs(user_id, level="ERROR", limit=10)
+error_logs = None
+if error_logs:
+    st.subheader("🚨 에러 로그")
+    df_error = pd.DataFrame(error_logs, columns=["시간", "레벨", "메시지"])
+    df_error["시간"] = pd.to_datetime(df_error["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+    st.dataframe(
+        # df_error[::-1],  # 최신 순
+        df_error,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "시간": st.column_config.Column(width="small"),
+            "레벨": st.column_config.Column(width="small"),
+            "메시지": st.column_config.Column(width="large"),
+        },
+    )
+st.write()
+
+st.divider()
+
+st.subheader("⚙️ Option 기능")
 # ✅ 실행된 경우: 제어 및 모니터링 UI 출력
 # ✅ 제어 버튼
 btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1, 1, 1, 1])
@@ -207,8 +426,9 @@ with btn_col4:
             unsafe_allow_html=True,
         )
 
+st.divider()
 
-# ✅ params 요약 상단 카드 표시
+# ✅ params 요약 카드 표시
 st.subheader("⚙️ 파라미터 설정값")
 from ui.sidebar import INTERVAL_OPTIONS
 
@@ -252,217 +472,75 @@ st.markdown(
 )
 st.write("")
 
-st.subheader("⚙️ 매수 전략")
+
+col1, col2 = st.columns([6, 1])
+with col1:
+    st.subheader("⚙️ 매수 전략")
+with col2:
+    if st.button("🛠️ 설정", use_container_width=True):
+        params = urlencode({"user_id": user_id})
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url=./set_buy_conditions?{params}">',
+            unsafe_allow_html=True,
+        )
+
+target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
+SAVE_PATH = Path(target_filename)
+
+BUY_CONDITIONS = {
+    "macd_positive": "✳️  MACD > threshold",
+    "signal_positive": "➕  Signal > threshold",
+    "bullish_candle": "📈  Bullish Candle",
+    "macd_trending_up": "🔼  MACD Trending Up",
+    "above_ma20": "🧮  Above MA20",
+    "above_ma60": "🧮  Above MA60",
+}
+
+
+# --- 상태 불러오기 ---
+def load_conditions():
+    if SAVE_PATH.exists():
+        with SAVE_PATH.open("r", encoding="utf-8") as f:
+            saved = json.load(f)
+            for key in BUY_CONDITIONS:
+                st.session_state[key] = saved.get(key, True)
+        st.info("✅ 저장된 매수 전략 Condition 설정을 불러왔습니다.")
+
+
+if "loaded" not in st.session_state:
+    load_conditions()
+    st.session_state["loaded"] = True
+
+# --- ON 상태 조건만 필터링 ---
+active_conditions = [
+    f"<b>{label}</b>" for key, label in BUY_CONDITIONS.items() if st.session_state[key]
+]
+
+# --- 한 줄로 Markdown 표시 ---
+if active_conditions:
+    condition_line = " &nbsp;|&nbsp; ".join(active_conditions)
+    st.markdown(
+        f"""
+        <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
+            {condition_line}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+else:
+    st.warning("⚠️ 현재 활성화된 매수 조건이 없습니다.")
+
+st.write("")
+
+st.subheader("⚙️ 매도 전략 - 고정됨")
 st.markdown(
     f"""
     <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
-        <b>MACD > 0</b> &nbsp;|&nbsp;
-        <b>Signal > 0</b> &nbsp;|&nbsp;
-        <b>IS BULLISH CANDLE</b> &nbsp;|&nbsp;
-        <b>IS MACD TRENDING UP</b> &nbsp;|&nbsp;
-        <b>IS ABOVE MA20</b> &nbsp;|&nbsp;
-        <b>IS ABOVE MA60</b>
+        <b>🧮 Trailing Stop - Peak (-10%)</b> &nbsp;|&nbsp;
+        <b>🔻 Stop Loss</b> &nbsp;|&nbsp;
+        <b>📉 MACD Exit - Dead Cross or MACD < threshold</b>
     </div>
     """,
     unsafe_allow_html=True,
 )
 st.write("")
-
-st.subheader("⚙️ 매도 전략")
-st.markdown(
-    f"""
-    <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
-        <b>Trailing Stop</b> &nbsp;|&nbsp;
-        <b>Take Profit</b> &nbsp;|&nbsp;
-        <b>Stop Loss</b> &nbsp;|&nbsp;
-        <b>MACD EXIT and Period = 5</b> &nbsp;|&nbsp;
-        <b>Dead Cross and MACD <= 0</b> &nbsp;|&nbsp;
-        <b>MA20 Slope <= 0</b>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-st.write("")
-
-
-# ✅ 자산 현황
-st.subheader("💰 자산 현황")
-initial_krw = get_initial_krw(user_id) or 0
-if account_krw:
-    total_value = account_krw
-    roi = ((total_value - initial_krw) / initial_krw) * 100 if initial_krw else 0.0
-    roi_msg = f"{roi:.2f} %"
-else:
-    roi_msg = "미정"
-
-col_krw, col_coin, col_pnl = st.columns(3)
-with col_krw:
-    st.metric("보유 KRW", f"{account_krw:,.0f} KRW")
-with col_coin:
-    st.metric(f"{params_obj.upbit_ticker} 보유량", f"{coin_balance:,.6f}")
-with col_pnl:
-    st.metric("📈 누적 수익률", roi_msg)
-
-
-# ✅ 최근 거래 내역
-st.subheader("📝 최근 거래 내역")
-# ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인, 수익금액
-orders = fetch_recent_orders(user_id, limit=10000)
-if orders:
-    df_orders = pd.DataFrame(
-        orders,
-        columns=[
-            "시간",
-            "코인",
-            "매매",
-            "가격",
-            "수량",
-            "상태",
-            "현재금액",
-            "보유코인",
-            "수익금액",
-        ],
-    )
-
-    # 시간 포맷 정리
-    df_orders["시간"] = pd.to_datetime(df_orders["시간"]).dt.strftime(
-        "%Y-%m-%d %H:%M:%S"
-    )
-
-    # 수익금 강조 포맷 (옵션)
-    df_orders["수익금액"] = df_orders["수익금액"].map(lambda x: f"{x:,.0f} KRW")
-    df_orders["현재금액"] = df_orders["현재금액"].map(lambda x: f"{x:,.0f} KRW")
-    df_orders["보유코인"] = df_orders["보유코인"].map(lambda x: f"{x:.6f}")
-
-    st.dataframe(
-        df_orders,
-        use_container_width=True,
-        hide_index=True,
-    )
-else:
-    st.info("최근 거래 내역이 없습니다.")
-
-buy_logs = fetch_logs(user_id, level="BUY", limit=10)
-buy_logs = None
-if buy_logs:
-    st.subheader("🚨 매수 로그")
-    df_buy = pd.DataFrame(buy_logs, columns=["시간", "레벨", "메시지"])
-    df_buy["시간"] = pd.to_datetime(df_buy["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-    st.dataframe(
-        # df_buy[::-1],  # 최신 순
-        df_buy,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "시간": st.column_config.Column(width="small"),
-            "레벨": st.column_config.Column(width="small"),
-            "메시지": st.column_config.Column(width="large"),
-        },
-    )
-
-sell_logs = fetch_logs(user_id, level="SELL", limit=10)
-sell_logs = None
-if sell_logs:
-    st.subheader("🚨 매도 로그")
-    df_sell = pd.DataFrame(sell_logs, columns=["시간", "레벨", "메시지"])
-    df_sell["시간"] = pd.to_datetime(df_sell["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-    st.dataframe(
-        # df_sell[::-1],  # 최신 순
-        df_sell,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "시간": st.column_config.Column(width="small"),
-            "레벨": st.column_config.Column(width="small"),
-            "메시지": st.column_config.Column(width="large"),
-        },
-    )
-
-
-log_summary = fetch_latest_log_signal(user_id, params_obj.upbit_ticker)
-if log_summary:
-    st.subheader("📌 최종 시그널 정보")
-    cols = st.columns(6)
-    cols[0].markdown(f"**시간**<br>{log_summary['시간']}", unsafe_allow_html=True)
-    cols[1].markdown(f"**Ticker**<br>{log_summary['Ticker']}", unsafe_allow_html=True)
-    cols[2].markdown(f"**Price**<br>{log_summary['price']}", unsafe_allow_html=True)
-    cols[3].markdown(f"**Cross**<br>{log_summary['cross']}", unsafe_allow_html=True)
-    cols[4].markdown(f"**MACD**<br>{log_summary['macd']}", unsafe_allow_html=True)
-    cols[5].markdown(f"**Signal**<br>{log_summary['signal']}", unsafe_allow_html=True)
-else:
-    st.info("📭 아직 유효한 LOG 시그널이 없습니다.")
-
-
-def emoji_cross(msg: str):
-    if "cross=Golden" in msg:
-        return "🟢 " + msg
-    elif "cross=Dead" in msg:
-        return "🔴 " + msg
-    elif "cross=Up" in msg:
-        return "🔵 " + msg
-    elif "cross=Down" in msg:
-        return "🟣 " + msg
-    elif "cross=Neutral" in msg:
-        return "⚪ " + msg
-    return msg
-
-
-# ✅ 로그 기록
-st.subheader("📚 트레이딩 엔진 로그")
-st.markdown(
-    """
-    🟢 **Golden** &nbsp;&nbsp; 🔴 **Dead** &nbsp;&nbsp; 🔵 **Pending** &nbsp;&nbsp; ⚪ **Neutral**
-"""
-)
-logs = fetch_logs(user_id, limit=10000)
-if logs:
-    df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
-    df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-
-    # 🟡 cross 상태를 시각화 이모지로 가공
-    def emoji_cross(msg: str):
-        if "cross=Golden" in msg:
-            return "🟢 " + msg
-        elif "cross=Dead" in msg:
-            return "🔴 " + msg
-        elif "cross=Pending" in msg:
-            return "🔵 " + msg
-        elif "cross=Down" in msg:
-            return "🟣 " + msg
-        elif "cross=Neutral" in msg:
-            return "⚪ " + msg
-        return msg
-
-    df_logs["메시지"] = df_logs["메시지"].apply(emoji_cross)
-
-    st.dataframe(
-        df_logs,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "시간": st.column_config.Column(width="small"),
-            "레벨": st.column_config.Column(width="small"),
-            "메시지": st.column_config.Column(width="large"),
-        },
-    )
-else:
-    st.info("아직 기록된 로그가 없습니다.")
-
-
-error_logs = fetch_logs(user_id, level="ERROR", limit=10)
-error_logs = None
-if error_logs:
-    st.subheader("🚨 에러 로그")
-    df_error = pd.DataFrame(error_logs, columns=["시간", "레벨", "메시지"])
-    df_error["시간"] = pd.to_datetime(df_error["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-    st.dataframe(
-        # df_error[::-1],  # 최신 순
-        df_error,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "시간": st.column_config.Column(width="small"),
-            "레벨": st.column_config.Column(width="small"),
-            "메시지": st.column_config.Column(width="large"),
-        },
-    )

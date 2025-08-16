@@ -24,15 +24,23 @@ MIN_CASH = 10_000
 MIN_FEE_RATIO = 0.0005
 
 PARAMS_JSON_FILENAME = "latest_params.json"
+CONDITIONS_JSON_FILENAME = "buy_conditions.json"
 DEFAULT_USER_ID = "gon1972"
 
 # 리프레시 간격 (초)
 REFRESH_INTERVAL = 5
 
-MACD_EXIT_ENABLED = True  # TP/SL 도달 전 매도 될 가능성
-SIGNAL_CONFIRM_ENABLED = False  # (Golden Cross) + (MACD >= 기준값) + (Signal >= 기준값)
-
 # Strategy
 MIN_HOLDING_PERIOD = 5
 VOLATILITY_WINDOW = 20
-TRAILING_STOP_PERCENT = 0.03
+TRAILING_STOP_PERCENT = 0.1
+
+MACD_EXIT_ENABLED = True  # TP/SL 도달 전 매도 될 가능성
+SIGNAL_CONFIRM_ENABLED = False  # (Golden Cross) + (MACD >= 기준값) + (Signal >= 기준값)
+
+MACD_POSITIVE_ENABLED = False
+SIGNAL_POSITIVE_ENABLED = False
+BULLISH_CANDLE_ENABLED = False
+MACD_TRENDING_UP_ENABLED = False
+ABOVE_MA_20_ENABLED = False
+ABOVE_MA_60_ENABLED = False

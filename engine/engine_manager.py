@@ -113,7 +113,7 @@ class EngineManager:
 
             worker = threading.Thread(
                 target=run_live_loop,
-                args=(params, q, trader, stop_event, test_mode),
+                args=(params, q, trader, stop_event, test_mode, user_id),
                 daemon=True,
                 name=f"run_live_loop_{user_id}",
             )

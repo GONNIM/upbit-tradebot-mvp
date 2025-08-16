@@ -2,11 +2,13 @@ from backtesting import Strategy
 import pandas as pd
 import logging
 from config import (
-    MIN_FEE_RATIO,
+    CONDITIONS_JSON_FILENAME,
     MACD_EXIT_ENABLED,
     SIGNAL_CONFIRM_ENABLED,
     TRAILING_STOP_PERCENT,
 )
+import json
+from pathlib import Path
 
 
 logging.basicConfig(
@@ -62,6 +64,35 @@ class MACDStrategy(Strategy):
 
         MACDStrategy.log_events = []
         MACDStrategy.trade_events = []
+
+        self.conditions = self._load_conditions()
+        self._log_loaded_conditions()
+
+    def _load_conditions(self):
+        target_filename = f"{self.user_id}_{CONDITIONS_JSON_FILENAME}"
+        SAVE_PATH = Path(target_filename)
+
+        try:
+            with SAVE_PATH.open("r", encoding="utf-8") as f:
+                conditions = json.load(f)
+                logger.info(f"📂 매수 전략 Condition 파일 로드 완료: {SAVE_PATH}")
+                return conditions
+        except FileNotFoundError:
+            logger.warning(f"⚠️ 매수 전략 Condition 파일 없음. 기본값 사용: {SAVE_PATH}")
+            return {
+                "macd_positive": False,
+                "signal_positive": False,
+                "bullish_candle": False,
+                "macd_trending_up": False,
+                "above_ma20": False,
+                "above_ma60": False,
+            }
+
+    def _log_loaded_conditions(self):
+        logger.info("📋 매수 전략 Condition 상태:")
+        for key, val in self.conditions.items():
+            status = "✅ ON" if val else "❌ OFF"
+            logger.info(f" - {key}: {status}")
 
     def _calculate_macd(self, series, fast, slow):
         return (
@@ -148,68 +179,46 @@ class MACDStrategy(Strategy):
         if self.position:
             bars_held = current_bar - self.entry_bar
 
-            # entry_price가 None이 아니어야 TP와 SL 계산 가능
             if self.entry_price is None:
                 logger.warning(f"진입가가 None입니다. TP 및 SL 계산을 건너뜁니다.")
-                return  # entry_price가 None인 경우 매도 조건을 건너뛰고 바로 리턴
+                return
 
-            # Take Profit (TP) 및 Stop Loss (SL) 조건
-            tp_price = self.entry_price * (
-                1 + self.take_profit
-            )  # take_profit 상승 시 매도
-            sl_price = self.entry_price * (1 - self.stop_loss)  # stop_loss 하락 시 매도
+            tp_price = self.entry_price * (1 + self.take_profit)
+            sl_price = self.entry_price * (1 - self.stop_loss)
 
             logger.info(
                 f"[{timestamp}] 📈 현재 보유중 | 진입가={self.entry_price:.2f} | 현재가={current_price:.2f} | TP={tp_price:.2f} | SL={sl_price:.2f}"
             )
 
-            # 1. Trailing Stop 우선 적용
-            if self.highest_price is None or current_price > self.highest_price:
-                self.highest_price = current_price  # 가격 상승 시 최고 가격 갱신
-
-            trailing_stop_price = self.highest_price * (1 - self.trailing_stop_pct)
-
-            if current_price <= trailing_stop_price:
-                self.position.close()
-                self._reset_entry()
-                self.last_signal_bar = current_bar
-                MACDStrategy.trade_events.append(
-                    (
-                        current_bar,
-                        "SELL",
-                        "Trailing Stop",
-                        macd_val,
-                        signal_val,
-                        current_price,
-                    )
-                )
-                logger.info(
-                    f"[{timestamp}] ✅ 매도 실행 (Trailing Stop): bar={current_bar} | price={current_price} | macd={macd_val} | signal={signal_val}"
-                )
-                return
-
-            # 2. Take Profit (TP) 매도
+            # TP 조건 만족 시 trailing 시작
             if current_price >= tp_price:
-                self.position.close()
-                self._reset_entry()
-                self.last_signal_bar = current_bar
-                MACDStrategy.trade_events.append(
-                    (
-                        current_bar,
-                        "SELL",
-                        "TP",
-                        macd_val,
-                        signal_val,
-                        current_price,
-                    )
-                )
-                logger.info(
-                    f"[{timestamp}] ✅ 매도 실행 (Take Profit): bar={current_bar} | price={current_price} | macd={macd_val} | signal={signal_val}"
-                )
-                return
+                if self.highest_price is None or current_price > self.highest_price:
+                    self.highest_price = current_price
+                trailing_threshold = (
+                    self.highest_price - tp_price
+                ) * self.trailing_stop_pct
 
-            # 3. Stop Loss (SL) 매도
-            elif current_price <= sl_price:
+                if current_price <= self.highest_price - trailing_threshold:
+                    self.position.close()
+                    self._reset_entry()
+                    self.last_signal_bar = current_bar
+                    MACDStrategy.trade_events.append(
+                        (
+                            current_bar,
+                            "SELL",
+                            "Trailing Stop",
+                            macd_val,
+                            signal_val,
+                            current_price,
+                        )
+                    )
+                    logger.info(
+                        f"[{timestamp}] ✅ 매도 실행 (Trailing Stop): bar={current_bar} | price={current_price} | macd={macd_val} | signal={signal_val}"
+                    )
+                    return
+
+            # Stop Loss (SL)
+            if current_price <= sl_price:
                 self.position.close()
                 self._reset_entry()
                 self.last_signal_bar = current_bar
@@ -228,9 +237,11 @@ class MACDStrategy(Strategy):
                 )
                 return
 
-            # 4. MACD Exit 조건 (상승 추세 반전 후 매도)
+            # MACD Exit
             if self.macd_exit_enabled and bars_held >= self.min_holding_period:
-                if self._is_dead_cross() and macd_val <= self.macd_threshold:
+                if (
+                    self._is_dead_cross() or macd_val < self.macd_threshold
+                ):  # OR 조건 중요
                     self.position.close()
                     self._reset_entry()
                     self.last_signal_bar = current_bar
@@ -249,39 +260,17 @@ class MACDStrategy(Strategy):
                     )
                     return
 
-            # 5. 이동 평균선(MA20) 기울기 꺾임 (기울기 변화 속도 체크)
-            ma20_current = self.ma20[-1]
-            ma20_previous = self.ma20[-2]
-            ma20_slope = ma20_current - ma20_previous
-
-            if ma20_slope <= 0:
-                self.position.close()
-                self._reset_entry()
-                self.last_signal_bar = current_bar
-                MACDStrategy.trade_events.append(
-                    (
-                        current_bar,
-                        "SELL",
-                        "MA Slope Exit",
-                        macd_val,
-                        signal_val,
-                        current_price,
-                    )
-                )
-                logger.info(
-                    f"[{timestamp}] ✅ 매도 실행 (MA Slope Exit): bar={current_bar} | price={current_price} | macd={macd_val} | signal={signal_val}"
-                )
-
         # 매수 조건
         if not self.position and self.golden_cross_pending:
+            cond = self.conditions
+
             if (
-                macd_val > 0
-                and signal_val > 0
-                and self._is_bullish_candle()
-                and self._is_macd_trending_up()
-                and self._is_above_ma20()
-                and self._is_above_ma60()
-                and macd_val > self.macd_line[-2]
+                (not cond["macd_positive"] or macd_val > 0)
+                and (not cond["signal_positive"] or signal_val > 0)
+                and (not cond["bullish_candle"] or self._is_bullish_candle())
+                and (not cond["macd_trending_up"] or self._is_macd_trending_up())
+                and (not cond["above_ma20"] or self._is_above_ma20())
+                and (not cond["above_ma60"] or self._is_above_ma60())
             ):
                 if self.signal_confirm_enabled and signal_val < self.macd_threshold:
                     logger.info(

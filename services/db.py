@@ -168,6 +168,20 @@ def fetch_logs(user_id, level="LOG", limit=20):
                 """,
                 (user_id, limit),
             )
+        elif level == "INFO":
+            cursor.execute(
+                """
+                SELECT timestamp, level, message
+                FROM logs
+                WHERE user_id = ?
+                  AND (
+                      (level = 'INFO' OR level = 'BUY' OR level = 'SELL')
+                  )
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            )
         else:
             cursor.execute(
                 """
@@ -197,15 +211,6 @@ def get_last_status_log_from_db(user_id: str) -> str:
             [f"message LIKE '{prefix}%'" for prefix in status_prefixes]
         )
         try:
-            # cursor.execute(
-            #     f"""
-            #     SELECT timestamp, message FROM logs
-            #     WHERE user_id = ? AND level = 'INFO' AND ({emoji_conditions})
-            #     ORDER BY timestamp DESC
-            #     LIMIT 1
-            #     """,
-            #     (user_id,),
-            # )
             cursor.execute(
                 f"""
                 SELECT timestamp, message FROM logs
