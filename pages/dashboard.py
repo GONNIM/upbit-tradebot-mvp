@@ -272,7 +272,7 @@ if sell_logs:
         },
     )
 
-info_logs = fetch_logs(user_id, level="INFO", limit=10)
+info_logs = fetch_logs(user_id, level="INFO", limit=10000)
 if info_logs:
     st.subheader("🚨 상태 로그")
 
@@ -287,11 +287,11 @@ if info_logs:
             df_info,
             use_container_width=True,
             hide_index=True,
-            column_config={
-                "시간": st.column_config.Column(width="small"),
-                "레벨": st.column_config.Column(width="small"),
-                "메시지": st.column_config.Column(width="large"),
-            },
+            # column_config={
+            #     "시간": st.column_config.Column(width="small"),
+            #     "레벨": st.column_config.Column(width="small"),
+            #     "메시지": st.column_config.Column(width="large"),
+            # },
         )
 
 st.divider()
