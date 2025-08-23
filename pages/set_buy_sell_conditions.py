@@ -31,23 +31,42 @@ BUY_CONDITIONS = {
     "above_ma60": "🧮  Above MA60",
 }
 
+SELL_CONDITIONS = {
+    "trailing_stop": "🧮 Trailing Stop - Peak (-10%)",
+    "take_profit": "💰  Take Profit",
+    "stop_loss": "🔻  Stop Loss",
+    "macd_exit": "📉  MACD Exit - Dead Cross or MACD < threshold",
+}
+
 
 # --- 상태 불러오기 ---
 def load_conditions():
     if SAVE_PATH.exists():
         with SAVE_PATH.open("r", encoding="utf-8") as f:
             saved = json.load(f)
+            buy_saved = saved.get("buy", {})
+            sell_saved = saved.get("sell", {})
             for key in BUY_CONDITIONS:
-                st.session_state[key] = saved.get(key, True)
-        st.info("✅ 저장된 매수 전략 Condition 설정을 불러왔습니다.")
+                st.session_state[key] = buy_saved.get(key, False)
+            for key in SELL_CONDITIONS:
+                st.session_state[key] = sell_saved.get(key, False)
+        st.info("✅ 저장된 매수/매도 전략 Condition 설정을 불러왔습니다.")
+    else:
+        for key in BUY_CONDITIONS:
+            st.session_state.setdefault(key, False)
+        for key in SELL_CONDITIONS:
+            st.session_state.setdefault(key, False)
 
 
 # --- 상태 저장하기 ---
 def save_conditions():
-    conditions = {key: st.session_state[key] for key in BUY_CONDITIONS}
+    conditions = {
+        "buy": {key: st.session_state[key] for key in BUY_CONDITIONS},
+        "sell": {key: st.session_state[key] for key in SELL_CONDITIONS},
+    }
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
-    st.success("✅ 매수 전략 Condition 설정이 저장되었습니다.")
+    st.success("✅ 매수/매도 전략 Condition 설정이 저장되었습니다.")
 
 
 def go_dashboard():
@@ -102,9 +121,17 @@ st.markdown(
 
 # --- 제목 및 UI ---
 st.markdown("### 📊 매수 전략 Condition 설정")
-
 st.subheader("📋 매수 전략 Option 선택")
 for key, label in BUY_CONDITIONS.items():
+    st.session_state[key] = st.toggle(
+        label, value=st.session_state.get(key, False), key=f"toggle_{key}"
+    )
+
+st.divider()
+
+st.markdown("### 📉 매도 전략 Condition 설정")
+st.subheader("📋 매도 전략 Option 선택")
+for key, label in SELL_CONDITIONS.items():
     st.session_state[key] = st.toggle(
         label, value=st.session_state.get(key, False), key=f"toggle_{key}"
     )
@@ -117,6 +144,10 @@ if st.button("💾 설정 저장", use_container_width=True):
     go_dashboard()
 
 # --- 현재 상태 출력 ---
-st.subheader("⚙️ 매수 전략 Option 상태")
+st.subheader("⚙️ 현재 매수/매도 전략 Option 상태")
+st.markdown("**📈 매수 전략 상태**")
 for key, label in BUY_CONDITIONS.items():
+    st.write(f"{label}: {'✅ ON' if st.session_state[key] else '❌ OFF'}")
+st.markdown("**📉 매도 전략 상태**")
+for key, label in SELL_CONDITIONS.items():
     st.write(f"{label}: {'✅ ON' if st.session_state[key] else '❌ OFF'}")

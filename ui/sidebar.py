@@ -1,7 +1,8 @@
 import streamlit as st
 from engine.params import LiveParams
 from typing import Optional
-
+from config import PARAMS_JSON_FILENAME
+from engine.params import load_params
 
 INTERVAL_OPTIONS: dict[str, str] = {
     "1분봉": "minute1",
@@ -34,35 +35,84 @@ CASH_OPTIONS = {
 }
 
 
-def make_sidebar() -> Optional[LiveParams]:
+def make_sidebar(user_id) -> Optional[LiveParams]:
+    json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+    load_params_obj = load_params(json_path)
+    DEFAULT_PARAMS = load_params_obj.dict() if load_params_obj else {}
+
     """Render sidebar form and return validated params (or None)."""
     with st.sidebar:
         st.header("⚙️ 파라미터 설정")
         with st.form("input_form"):
-            ticker = st.text_input("거래 종목", value="DOGE")
+            ticker = st.text_input(
+                "거래 종목", value=DEFAULT_PARAMS.get("ticker", "PEPE")
+            )
+            interval_default = [
+                k
+                for k, v in INTERVAL_OPTIONS.items()
+                if v == DEFAULT_PARAMS.get("interval", "minute15")
+            ]
             interval_name = st.selectbox(
-                "차트 단위", list(INTERVAL_OPTIONS.keys()), index=0
+                "차트 단위",
+                list(INTERVAL_OPTIONS.keys()),
+                index=(
+                    0
+                    if not interval_default
+                    else list(INTERVAL_OPTIONS.keys()).index(interval_default[0])
+                ),
             )
 
-            fast = st.number_input("단기 EMA", 1, 50, 12)
-            slow = st.number_input("장기 EMA", 5, 240, 26)
-            signal = st.number_input("신호선 기간", 1, 50, 9)
-            macd_threshold = st.number_input("MACD 기준값", -100.0, 100.0, 0.0, 1.0)
+            fast = st.number_input(
+                "단기 EMA", 1, 50, value=DEFAULT_PARAMS.get("fast_period", 12)
+            )
+            slow = st.number_input(
+                "장기 EMA", 5, 240, value=DEFAULT_PARAMS.get("slow_period", 26)
+            )
+            signal = st.number_input(
+                "신호선 기간", 1, 50, value=DEFAULT_PARAMS.get("signal_period", 9)
+            )
+            macd_threshold = st.number_input(
+                "MACD 기준값",
+                -100.0,
+                100.0,
+                value=DEFAULT_PARAMS.get("macd_threshold", 0.0),
+                step=1.0,
+            )
 
-            tp = st.number_input("Take Profit (%)", 0.5, 50.0, 3.0, 0.5) / 100
-            sl = st.number_input("Stop Loss (%)", 0.5, 50.0, 1.0, 0.5) / 100
+            tp_default = DEFAULT_PARAMS.get("take_profit", 0.03) * 100
+            tp = (
+                st.number_input(
+                    "Take Profit (%)",
+                    0.5,
+                    50.0,
+                    value=tp_default,
+                    step=0.5,
+                )
+                / 100
+            )
+            sl_default = DEFAULT_PARAMS.get("stop_loss", 0.01) * 100
+            sl = (
+                st.number_input(
+                    "Stop Loss (%)",
+                    0.5,
+                    50.0,
+                    value=sl_default,
+                    step=0.5,
+                )
+                / 100
+            )
 
             macd_exit_enabled = st.checkbox(
                 "📌 매도 전략: MACD EXIT",
                 help="TP/SL 도달 전 Dead Cross + MACD 기준 초과 시 매도합니다.",
-                value=True,
+                value=DEFAULT_PARAMS.get("macd_exit_enabled", True),
                 disabled=True,
             )
 
             signal_confirm_enabled = st.checkbox(
                 "📌 옵션 전략: MACD 기준선 통과 매매 타점",
                 help="기본 전략(Golden Cross + MACD 기준 초과) 이후, Signal 선까지 MACD 기준 초과 시 매수합니다.",
-                value=False,
+                value=DEFAULT_PARAMS.get("signal_confirm_enabled", False),
                 disabled=True,
             )
 

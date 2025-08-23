@@ -95,7 +95,7 @@ def fetch_recent_orders(user_id, limit=10):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT timestamp, ticker, side, price, volume, status, current_krw, current_coin, profit_krw
+            SELECT timestamp, ticker, side, price, volume, status, current_krw, current_coin
             FROM orders
             WHERE user_id = ?
             ORDER BY id DESC

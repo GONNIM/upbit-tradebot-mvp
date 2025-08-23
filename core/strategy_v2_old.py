@@ -2,16 +2,10 @@ from backtesting import Strategy
 import pandas as pd
 import logging
 from config import (
-    MIN_FEE_RATIO,
+    MIN_HOLDING_PERIOD,
     MACD_EXIT_ENABLED,
     SIGNAL_CONFIRM_ENABLED,
     TRAILING_STOP_PERCENT,
-    MACD_POSITIVE_ENABLED,
-    SIGNAL_POSITIVE_ENABLED,
-    BULLISH_CANDLE_ENABLED,
-    MACD_TRENDING_UP_ENABLED,
-    ABOVE_MA_20_ENABLED,
-    ABOVE_MA_60_ENABLED,
 )
 
 

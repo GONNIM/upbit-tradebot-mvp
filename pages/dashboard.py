@@ -196,7 +196,7 @@ st.divider()
 
 # ✅ 최근 거래 내역
 st.subheader("📝 최근 거래 내역")
-# ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인, 수익금액
+# ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인
 orders = fetch_recent_orders(user_id, limit=10000)
 if orders:
     show_logs = st.toggle("📝 최근 거래 내역 보기", value=False)
@@ -212,27 +212,64 @@ if orders:
                 "상태",
                 "현재금액",
                 "보유코인",
-                "수익금액",
             ],
         )
 
-        # 시간 포맷 정리
+        # 시간 포맷
         df_orders["시간"] = pd.to_datetime(df_orders["시간"]).dt.strftime(
             "%Y-%m-%d %H:%M:%S"
         )
 
-        # 수익금 강조 포맷 (옵션)
-        df_orders["수익금액"] = df_orders["수익금액"].map(lambda x: f"{x:,.0f} KRW")
-        df_orders["현재금액"] = df_orders["현재금액"].map(lambda x: f"{x:,.0f} KRW")
-        df_orders["보유코인"] = df_orders["보유코인"].map(lambda x: f"{x:.6f}")
-
-        st.dataframe(
-            df_orders,
-            use_container_width=True,
-            hide_index=True,
+        # 현재금액 숫자 변환
+        df_orders["_현재금액_숫자"] = (
+            df_orders["현재금액"]
+            .astype(str)
+            .str.replace(",", "")
+            .str.replace(" KRW", "")
+            .replace("", "0")
+            .astype(float)
         )
+        df_orders["_가격_숫자"] = df_orders["가격"].astype(float)
+
+        # 손익 / 수익률 계산
+        def calc_profit(row):
+            if row["매매"] == "BUY":
+                return "-", "-"
+            elif row["매매"] == "SELL":
+                current_amount = row["_현재금액_숫자"]
+                profit = current_amount - initial_krw
+                try:
+                    profit_rate = (profit / initial_krw) * 100
+                except ZeroDivisionError:
+                    profit_rate = 0
+                return profit, profit_rate
+            else:
+                return "-", "-"
+
+        df_orders[["손익", "수익률(%)"]] = df_orders.apply(
+            lambda row: pd.Series(calc_profit(row)), axis=1
+        )
+
+        df_orders["가격"] = df_orders["_가격_숫자"].map(lambda x: f"{x:,.0f} KRW")
+        df_orders["현재금액"] = df_orders["_현재금액_숫자"].map(
+            lambda x: f"{x:,.0f} KRW"
+        )
+        df_orders["보유코인"] = df_orders["보유코인"].map(lambda x: f"{float(x):.6f}")
+        df_orders["손익"] = df_orders["손익"].apply(
+            lambda x: f"{x:,.0f} KRW" if isinstance(x, (int, float)) else x
+        )
+        df_orders["수익률(%)"] = df_orders["수익률(%)"].apply(
+            lambda x: f"{x:.2f}%" if isinstance(x, (int, float)) else x
+        )
+
+        # 불필요 컬럼 제거
+        df_orders = df_orders.drop(columns=["_가격_숫자"])
+        df_orders = df_orders.drop(columns=["_현재금액_숫자"])
+
+        st.dataframe(df_orders, use_container_width=True, hide_index=True)
 else:
     st.info("최근 거래 내역이 없습니다.")
+
 
 st.divider()
 
@@ -473,17 +510,6 @@ st.markdown(
 st.write("")
 
 
-col1, col2 = st.columns([6, 1])
-with col1:
-    st.subheader("⚙️ 매수 전략")
-with col2:
-    if st.button("🛠️ 설정", use_container_width=True):
-        params = urlencode({"user_id": user_id})
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url=./set_buy_conditions?{params}">',
-            unsafe_allow_html=True,
-        )
-
 target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
 SAVE_PATH = Path(target_filename)
 
@@ -496,51 +522,96 @@ BUY_CONDITIONS = {
     "above_ma60": "🧮  Above MA60",
 }
 
+SELL_CONDITIONS = {
+    "trailing_stop": "🧮 Trailing Stop - Peak (-10%)",
+    "take_profit": "💰  Take Profit",
+    "stop_loss": "🔻  Stop Loss",
+    "macd_exit": "📉  MACD Exit - Dead Cross or MACD < threshold",
+}
+
 
 # --- 상태 불러오기 ---
 def load_conditions():
     if SAVE_PATH.exists():
         with SAVE_PATH.open("r", encoding="utf-8") as f:
             saved = json.load(f)
-            for key in BUY_CONDITIONS:
-                st.session_state[key] = saved.get(key, True)
-        st.info("✅ 저장된 매수 전략 Condition 설정을 불러왔습니다.")
+            buy_saved = saved.get("buy", {})
+            sell_saved = saved.get("sell", {})
+            return buy_saved, sell_saved
+    else:
+        return {}, {}
 
 
-if "loaded" not in st.session_state:
-    load_conditions()
-    st.session_state["loaded"] = True
+buy_state, sell_state = load_conditions()
 
-# --- ON 상태 조건만 필터링 ---
-active_conditions = [
-    f"<b>{label}</b>" for key, label in BUY_CONDITIONS.items() if st.session_state[key]
-]
+st.markdown(
+    """
+    <style>
+    .strategy-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    .strategy-table colgroup col:first-child {
+        width: 75%;  /* Condition 칼럼 */
+    }
+    .strategy-table colgroup col:last-child {
+        width: 25%;  /* Status 칼럼 */
+    }
+    .strategy-table th, .strategy-table td {
+        border: 1px solid #555;
+        padding: 6px 10px;
+        text-align: left;
+    }
+    .strategy-table th {
+        background-color: #2c2c2c;
+        color: white;  /* 다크모드 제목 */
+    }
+    .strategy-table td.on {
+        color: #00ff00;
+        font-weight: bold;
+    }
+    .strategy-table td.off {
+        color: #ff3333;
+        font-weight: bold;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-# --- 한 줄로 Markdown 표시 ---
-if active_conditions:
-    condition_line = " &nbsp;|&nbsp; ".join(active_conditions)
-    st.markdown(
-        f"""
-        <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
-            {condition_line}
-        </div>
-        """,
-        unsafe_allow_html=True,
+col1, col2 = st.columns([6, 1])
+with col1:
+    st.subheader("⚙️ 매수 전략")
+with col2:
+    if st.button("🛠️ 설정", use_container_width=True):
+        params = urlencode({"user_id": user_id})
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">',
+            unsafe_allow_html=True,
+        )
+st.markdown(
+    "<table class='strategy-table'>"
+    "<colgroup><col><col></colgroup>"  # 칼럼 비율 고정
+    "<tr><th>Condition</th><th>Status</th></tr>"
+    + "".join(
+        f"<tr><td>{label}</td><td class='{ 'on' if buy_state.get(key, False) else 'off' }'>{ '✅ ON' if buy_state.get(key, False) else '❌ OFF' }</td></tr>"
+        for key, label in BUY_CONDITIONS.items()
     )
-else:
-    st.warning("⚠️ 현재 활성화된 매수 조건이 없습니다.")
-
+    + "</table>",
+    unsafe_allow_html=True,
+)
 st.write("")
 
-st.subheader("⚙️ 매도 전략 - 고정됨")
+st.subheader("⚙️ 매도 전략")
 st.markdown(
-    f"""
-    <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
-        <b>🧮 Trailing Stop - Peak (-10%)</b> &nbsp;|&nbsp;
-        <b>🔻 Stop Loss</b> &nbsp;|&nbsp;
-        <b>📉 MACD Exit - Dead Cross or MACD < threshold</b>
-    </div>
-    """,
+    "<table class='strategy-table'>"
+    "<colgroup><col><col></colgroup>"  # 칼럼 비율 고정
+    "<tr><th>Condition</th><th>Status</th></tr>"
+    + "".join(
+        f"<tr><td>{label}</td><td class='{ 'on' if sell_state.get(key, False) else 'off' }'>{ '✅ ON' if sell_state.get(key, False) else '❌ OFF' }</td></tr>"
+        for key, label in SELL_CONDITIONS.items()
+    )
+    + "</table>",
     unsafe_allow_html=True,
 )
 st.write("")
