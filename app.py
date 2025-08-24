@@ -9,6 +9,7 @@ import os
 import yaml
 from yaml.loader import SafeLoader
 from services.init_db import init_db_if_needed
+from services.health_monitor import start_health_monitoring
 
 
 # Setup page
@@ -78,6 +79,9 @@ elif authentication_status:
 
     # 2025-08-04 DB 분리
     init_db_if_needed(username)
+    
+    # 🏥 24시간 운영: 헬스 모니터링 자동 시작
+    start_health_monitoring()
 
     # 초기 세션 설정
     st.session_state.setdefault("user_id", username)

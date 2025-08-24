@@ -49,7 +49,7 @@ class EngineManager:
         thread = self._threads.get(user_id)
         return thread is not None and thread.is_alive()
 
-    def start_engine(self, user_id, test_mode=True):
+    def start_engine(self, user_id, test_mode=True, restart_count=0):
         self._ensure_user_resources(user_id)
 
         if self.is_running(user_id):
@@ -60,12 +60,19 @@ class EngineManager:
                 return False
 
             stop_event = self._events[user_id] = threading.Event()
+            
+            # 🔄 재시작 카운터 추가
+            if not hasattr(self, '_restart_counts'):
+                self._restart_counts = {}
+            self._restart_counts[user_id] = restart_count
+            
             thread = threading.Thread(
-                target=self._engine_runner,
+                target=self._engine_runner_with_recovery,
                 kwargs={
                     "user_id": user_id,
                     "stop_event": stop_event,
                     "test_mode": test_mode,
+                    "restart_count": restart_count,
                 },
                 daemon=True,
                 name=f"engine_runner_{user_id}",
@@ -89,6 +96,35 @@ class EngineManager:
         update_engine_status(user_id, "stopped")
         remove_engine_thread(user_id)
         log_to_file(f"🔌 엔진 종료 요청됨: user_id={user_id}", user_id)
+
+    def _engine_runner_with_recovery(self, user_id, stop_event, test_mode=True, restart_count=0):
+        """
+        🔄 24시간 안정성: 예외 발생 시 자동 재시작 메커니즘
+        최대 3회까지 재시도 (1분, 5분, 15분 간격)
+        """
+        MAX_RESTART_ATTEMPTS = 3
+        RESTART_DELAYS = [60, 300, 900]  # 1분, 5분, 15분
+        
+        try:
+            self._engine_runner(user_id, stop_event, test_mode)
+        except Exception as e:
+            if restart_count < MAX_RESTART_ATTEMPTS and not stop_event.is_set():
+                delay = RESTART_DELAYS[restart_count] if restart_count < len(RESTART_DELAYS) else 900
+                msg = f"🔄 엔진 예외 발생, {delay}초 후 재시작 ({restart_count + 1}/{MAX_RESTART_ATTEMPTS}): {e}"
+                logger.error(msg)
+                insert_log(user_id, "ERROR", msg)
+                log_to_file(msg, user_id)
+                
+                # 지연 후 재시작
+                time.sleep(delay)
+                if not stop_event.is_set():
+                    # 자기 자신을 재시작
+                    self.start_engine(user_id, test_mode, restart_count + 1)
+            else:
+                msg = f"❌ 엔진 최종 실패: 재시작 횟수 초과 또는 사용자 중단 요청"
+                logger.critical(msg)
+                insert_log(user_id, "CRITICAL", msg)
+                log_to_file(msg, user_id)
 
     def _engine_runner(self, user_id, stop_event, test_mode=True):
         logger.info(f"[DEBUG] engine_runner 시작됨 → user_id={user_id}")
@@ -150,6 +186,8 @@ class EngineManager:
             insert_log(user_id, "ERROR", msg)
             log_to_file(msg, user_id)
             update_engine_status(user_id, "error", note=msg)
+            # 🔄 예외 상위로 전파 (재시작 메커니즘 활성화)
+            raise
 
         finally:
             stop_event.set()

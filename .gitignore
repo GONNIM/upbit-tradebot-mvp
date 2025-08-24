@@ -15,10 +15,12 @@ venv/
 env/
 .env.local
 .streamlit
+.claudeignore
+.clauderc
 
 # IDE
 .idea/
-.vscode/
+# .vscode/  # VS Code 설정은 프로젝트 공유를 위해 포함
 
 # Python version
 .python-version
