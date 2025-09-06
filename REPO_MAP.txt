@@ -38,6 +38,7 @@
       engine/live_loop.py
       engine/lock_manager.py
       engine/params.py
+[DIR] logs
 [DIR] migrations
       migrations/0001_init.sql
       migrations/0001_rollback.sql
