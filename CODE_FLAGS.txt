@@ -1,3 +1,9 @@
-engine/params.py:36:                 raise ValueError("Format must be KRW-XXX or simply XXX")
+engine/global_state.py:576:     # TODO: 스레드 레지스트리와 통합 필요
+engine/global_state.py:581:     # TODO: 스레드 레지스트리와 통합 필요
+engine/global_state.py:586:     # TODO: 스레드 레지스트리와 통합 필요
+engine/live_loop.py:517:             # TODO: 캔들 테이블이 있는 경우 저장
+engine/live_loop.py:569:             # TODO: 실제 잔고 업데이트 로직 구현
+engine/params.py:160:                 raise ValueError("Format must be KRW-XXX or simply XXX")
+engine/params.py:474:     # TODO: 실제 최적화 로직 구현
 tools/gen_repo_insights.py:4: Generate REPO_MAP.txt (구조 요약) & CODE_FLAGS.txt (TODO/FIXME 등)
 tools/gen_repo_insights.py:37: FLAG_PAT = re.compile(r"\b(TODO|FIXME|HACK|XXX|@deprecated|BUG|SECURITY)\b", re.I)
