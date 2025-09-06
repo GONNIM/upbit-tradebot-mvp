@@ -409,6 +409,11 @@ def get_alert_logger(name: str = "alert") -> logging.Logger:
     """알림 모듈 로거"""
     return LogManager.get_logger(f"alert.{name}")
 
+# 일반적인 로거 접근 함수
+def get_logger(name: str) -> logging.Logger:
+    """일반적인 로거 접근 함수"""
+    return LogManager.get_logger(name)
+
 # 기존 호환성 함수
 def log(level: str, message: str, **kwargs):
     """기존 로그 함수 호환성"""

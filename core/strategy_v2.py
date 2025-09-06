@@ -12,7 +12,7 @@ from enum import Enum
 import json
 
 from services.logger import get_logger
-from services.db import get_db_manager, insert_signal, insert_log
+from services.db import get_db_manager, insert_log
 from engine.params import get_params_manager, LiveParams, StrategyType, MACDParams
 from config import DEFAULT_USER_ID
 from utils.logging_util import log_to_file
