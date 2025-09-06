@@ -1,0 +1,3 @@
+engine/params.py:36:                 raise ValueError("Format must be KRW-XXX or simply XXX")
+tools/gen_repo_insights.py:4: Generate REPO_MAP.txt (구조 요약) & CODE_FLAGS.txt (TODO/FIXME 등)
+tools/gen_repo_insights.py:37: FLAG_PAT = re.compile(r"\b(TODO|FIXME|HACK|XXX|@deprecated|BUG|SECURITY)\b", re.I)

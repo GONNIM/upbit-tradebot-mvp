@@ -1,0 +1,16 @@
+repos:
+  - repo: local
+    hooks:
+      - id: gen-repo-insights
+        name: Generate REPO_MAP & CODE_FLAGS (manual)
+        entry: python tools/gen_repo_insights.py
+        language: system
+        pass_filenames: false
+        stages: [manual]
+
+      - id: check-repo-insights
+        name: Check REPO_MAP & CODE_FLAGS up-to-date
+        entry: python tools/gen_repo_insights.py --check
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
