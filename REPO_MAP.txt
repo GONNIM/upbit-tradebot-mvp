@@ -32,6 +32,7 @@
       core/trader.py
 [DIR] docs
       docs/PLAN_tradebot_v2.md
+      docs/REVIEW_tradebot_v2.md
 [DIR] engine
       engine/engine_manager.py
       engine/engine_runner.py

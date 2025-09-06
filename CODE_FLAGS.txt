@@ -1,4 +1,5 @@
 core/strategy_v2.py:610:         # TODO: 성능 메트릭 계산 로직 구현
+docs/REVIEW_tradebot_v2.md:464: - **구현**: `core/strategy_v2.py` TODO 항목 완성
 engine/global_state.py:576:     # TODO: 스레드 레지스트리와 통합 필요
 engine/global_state.py:581:     # TODO: 스레드 레지스트리와 통합 필요
 engine/global_state.py:586:     # TODO: 스레드 레지스트리와 통합 필요
