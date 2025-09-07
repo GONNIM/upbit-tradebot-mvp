@@ -31,6 +31,7 @@
       core/strategy_v2_old.py
       core/trader.py
 [DIR] docs
+      docs/EXEC_tradebot_v2.md
       docs/PLAN_tradebot_v2.md
       docs/REVIEW_tradebot_v2.md
 [DIR] engine

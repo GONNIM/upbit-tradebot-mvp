@@ -1,8 +1,9 @@
 core/strategy_v2.py:610:         # TODO: 성능 메트릭 계산 로직 구현
+docs/EXEC_tradebot_v2.md:516: - **버그 보고**: bug-reports@example.com
 docs/REVIEW_tradebot_v2.md:464: - **구현**: `core/strategy_v2.py` TODO 항목 완성
-engine/global_state.py:576:     # TODO: 스레드 레지스트리와 통합 필요
-engine/global_state.py:581:     # TODO: 스레드 레지스트리와 통합 필요
-engine/global_state.py:586:     # TODO: 스레드 레지스트리와 통합 필요
+engine/global_state.py:574:     # TODO: 스레드 레지스트리와 통합 필요
+engine/global_state.py:579:     # TODO: 스레드 레지스트리와 통합 필요
+engine/global_state.py:584:     # TODO: 스레드 레지스트리와 통합 필요
 engine/live_loop.py:517:             # TODO: 캔들 테이블이 있는 경우 저장
 engine/live_loop.py:569:             # TODO: 실제 잔고 업데이트 로직 구현
 engine/params.py:160:                 raise ValueError("Format must be KRW-XXX or simply XXX")

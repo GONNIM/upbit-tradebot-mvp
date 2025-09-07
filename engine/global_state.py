@@ -15,10 +15,8 @@ from services.logger import get_logger
 from services.db import (
     get_db_manager, 
     insert_log, 
-    fetch_latest_orders, 
-    fetch_latest_positions,
-    fetch_account_balance,
-    get_account_balance
+    fetch_recent_orders, 
+    get_coin_balance
 )
 from config import DEFAULT_USER_ID
 from utils.logging_util import log_to_file
@@ -408,7 +406,7 @@ class GlobalStateManager:
         """데이터베이스와 상태 동기화"""
         try:
             # 계정 정보 동기화
-            balance = get_account_balance(user_id)
+            balance = get_coin_balance(user_id, 'KRW')
             if balance:
                 account_update = {
                     'total_balance': balance.get('total_balance', 0),
@@ -419,7 +417,7 @@ class GlobalStateManager:
                 self.update_user_state(user_id, {'account_state': account_update})
             
             # 주문 정보 동기화
-            latest_orders = fetch_latest_orders(user_id, limit=50)
+            latest_orders = fetch_recent_orders(user_id, limit=50)
             if latest_orders:
                 orders_update = {}
                 for order in latest_orders:
