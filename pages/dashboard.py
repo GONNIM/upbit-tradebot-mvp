@@ -135,35 +135,59 @@ with col2:
 
 style_metric_cards()
 
-logout = st.button("로그아웃하기", use_container_width=True)
-if logout:
-    st.markdown(
-        f'<meta http-equiv="refresh" content="0; url=/?redirected=1">',
-        unsafe_allow_html=True,
-    )
-
-# ✅ 실행되지 않았을 경우: 실행 버튼 표시
-if not engine_status:
-    start_trading = st.button(
-        "Upbit Trade Bot v1 (TEST) 엔진 실행하기", use_container_width=True
-    )
-    if start_trading:
-        if not st.session_state.get("engine_started", False):
-            if not engine_manager.is_running(user_id):  # ✅ 유저별 엔진 실행 여부 확인
-                st.write("🔄 엔진 실행을 시작합니다...")
-                success = engine_manager.start_engine(user_id, test_mode=True)
-                if success:
-                    insert_log(user_id, "INFO", "✅ 트레이딩 엔진 실행됨")
-                    st.session_state.engine_started = True
-                    st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
-                    st.rerun()
+col10, col20, col30 = st.columns([1, 1, 1])
+with col10:
+    # ✅ 실행되지 않았을 경우: 실행 버튼 표시
+    if not engine_status:
+        start_trading = st.button(
+            "Upbit Trade Bot v1 (TEST) 엔진 실행하기", use_container_width=True
+        )
+        if start_trading:
+            if not st.session_state.get("engine_started", False):
+                if not engine_manager.is_running(user_id):  # ✅ 유저별 엔진 실행 여부 확인
+                    st.write("🔄 엔진 실행을 시작합니다...")
+                    success = engine_manager.start_engine(user_id, test_mode=True)
+                    if success:
+                        insert_log(user_id, "INFO", "✅ 트레이딩 엔진 실행됨")
+                        st.session_state.engine_started = True
+                        st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ 트레이딩 엔진 실행 실패")
                 else:
-                    st.warning("⚠️ 트레이딩 엔진 실행 실패")
+                    st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
             else:
                 st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
-        else:
-            st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
-    st.stop()
+with col20:
+    start_setting = st.button(
+        "Upbit Trade Bot v1 (TEST) 파라미터 설정하기", use_container_width=True
+    )
+    if start_setting:
+        if engine_status:
+            st.warning("⚠️ 먼저 트레이딩 엔진 종료해주세요.")
+            st.stop()
+
+        next_page = "set_config"
+
+        params = urlencode(
+            {
+                "virtual_krw": st.session_state.virtual_krw,
+                "user_id": st.session_state.user_id,
+            }
+        )
+
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
+            unsafe_allow_html=True,
+        )
+        st.switch_page(next_page)
+with col30:
+    logout = st.button("로그아웃하기", use_container_width=True)
+    if logout:
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url=/?redirected=1">',
+            unsafe_allow_html=True,
+        )
 
 st.divider()
 
@@ -215,10 +239,9 @@ if orders:
             ],
         )
 
-        # 시간 포맷
-        df_orders["시간"] = pd.to_datetime(df_orders["시간"]).dt.strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
+        # 시간: 원본 datetime 보존용 컬럼 추가(정렬/계산에 사용)
+        df_orders["시간_dt"] = pd.to_datetime(df_orders["시간"], errors="coerce")  # ★ 추가
+        # 표시용 문자열은 맨 끝에서 처리
 
         # 현재금액 숫자 변환
         df_orders["_현재금액_숫자"] = (
@@ -231,45 +254,60 @@ if orders:
         )
         df_orders["_가격_숫자"] = df_orders["가격"].astype(float)
 
-        # 손익 / 수익률 계산
-        def calc_profit(row):
-            if row["매매"] == "BUY":
-                return "-", "-"
-            elif row["매매"] == "SELL":
-                current_amount = row["_현재금액_숫자"]
-                profit = current_amount - initial_krw
-                try:
-                    profit_rate = (profit / initial_krw) * 100
-                except ZeroDivisionError:
-                    profit_rate = 0
-                return profit, profit_rate
-            else:
-                return "-", "-"
+        # -------------------------------
+        # 손익 / 수익률 계산 (정확히 동작)
+        # SELL - 직전 BUY (코인별, 시간 오름차순 기준)
+        # -------------------------------
+        import numpy as np  # ★ 추가
 
-        df_orders[["손익", "수익률(%)"]] = df_orders.apply(
-            lambda row: pd.Series(calc_profit(row)), axis=1
-        )
+        # 코인/시간 오름차순 정렬로 "최근 매수"를 이후 행으로 전달 가능
+        df_orders.sort_values(["코인", "시간_dt"], inplace=True)  # ★ 추가
 
+        # 매수 가격만 남긴 임시열 → ffill 로 최근 매수가를 전달
+        df_orders["_buy_price_tmp"] = df_orders["_가격_숫자"].where(df_orders["매매"] == "BUY")  # ★ 추가
+        df_orders["_last_buy_price"] = df_orders.groupby("코인")["_buy_price_tmp"].ffill()      # ★ 추가
+
+        # SELL 행에서만 손익/수익률 계산, 그 외는 NaN
+        df_orders["손익"] = np.where(
+            (df_orders["매매"] == "SELL") & df_orders["_last_buy_price"].notna(),
+            df_orders["_가격_숫자"] - df_orders["_last_buy_price"],
+            np.nan,
+        )  # ★ 추가
+        df_orders["수익률(%)"] = np.where(
+            df_orders["손익"].notna(),
+            (df_orders["손익"] / df_orders["_last_buy_price"]) * 100,
+            np.nan,
+        )  # ★ 추가
+
+        # 다시 최신순(내림차순)으로 돌려서 보기 좋게
+        df_orders.sort_values("시간_dt", ascending=False, inplace=True)  # ★ 추가
+
+        # 표시용 시간 문자열 최종 변환
+        df_orders["시간"] = df_orders["시간_dt"].dt.strftime("%Y-%m-%d %H:%M:%S")  # ★ 변경(표시 시점 이동)
+
+        # 표시 포맷팅
         df_orders["가격"] = df_orders["_가격_숫자"].map(lambda x: f"{x:,.0f} KRW")
-        df_orders["현재금액"] = df_orders["_현재금액_숫자"].map(
-            lambda x: f"{x:,.0f} KRW"
-        )
+        df_orders["현재금액"] = df_orders["_현재금액_숫자"].map(lambda x: f"{x:,.0f} KRW")
         df_orders["보유코인"] = df_orders["보유코인"].map(lambda x: f"{float(x):.6f}")
         df_orders["손익"] = df_orders["손익"].apply(
-            lambda x: f"{x:,.0f} KRW" if isinstance(x, (int, float)) else x
+            lambda x: f"{x:,.0f} KRW" if pd.notna(x) else "-"
         )
         df_orders["수익률(%)"] = df_orders["수익률(%)"].apply(
-            lambda x: f"{x:.2f}%" if isinstance(x, (int, float)) else x
+            lambda x: f"{x:.2f}%" if pd.notna(x) else "-"
         )
 
         # 불필요 컬럼 제거
-        df_orders = df_orders.drop(columns=["_가격_숫자"])
-        df_orders = df_orders.drop(columns=["_현재금액_숫자"])
+        df_orders = df_orders.drop(columns=["_가격_숫자", "_현재금액_숫자", "_buy_price_tmp", "_last_buy_price", "시간_dt"])
+
+        # ▶ 컬럼 순서 조정(모바일 가독성): 상태, 현재금액, 보유코인을 맨 뒤로
+        cols_to_tail = ["상태", "현재금액", "보유코인"]
+        tail = [c for c in cols_to_tail if c in df_orders.columns]
+        front = [c for c in df_orders.columns if c not in tail]
+        df_orders = df_orders[front + tail]
 
         st.dataframe(df_orders, use_container_width=True, hide_index=True)
 else:
     st.info("최근 거래 내역이 없습니다.")
-
 
 st.divider()
 
@@ -331,6 +369,27 @@ if info_logs:
             # },
         )
 
+st.markdown("---")
+st.subheader("💹 거래 로그 (BUY / SELL)")
+show_trade = st.toggle("💹 거래 로그 보기", value=False)
+if show_trade:
+    trade_logs = (fetch_logs(user_id, level="BUY", limit=10000) or []) + \
+                    (fetch_logs(user_id, level="SELL", limit=10000) or [])
+    if trade_logs:
+        df_trade = pd.DataFrame(trade_logs, columns=["시간", "레벨", "메시지"])
+
+        df_trade["시간_dt"] = pd.to_datetime(df_trade["시간"], errors="coerce")
+        df_trade.sort_values("시간_dt", ascending=False, inplace=True)
+
+        df_trade["시간"] = df_trade["시간_dt"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        df_trade.drop(columns=["시간_dt"], inplace=True)
+        
+        st.dataframe(
+            df_trade, use_container_width=True, hide_index=True
+        )
+    else:
+        st.info("표시할 BUY/SELL 로그가 없습니다.")
+
 st.divider()
 
 log_summary = fetch_latest_log_signal(user_id, params_obj.upbit_ticker)
@@ -346,7 +405,6 @@ if log_summary:
 else:
     st.info("📭 아직 유효한 LOG 시그널이 없습니다.")
 
-
 def emoji_cross(msg: str):
     if "cross=Golden" in msg:
         return "🟢 " + msg
@@ -360,7 +418,6 @@ def emoji_cross(msg: str):
         return "⚪ " + msg
     return msg
 
-
 st.divider()
 
 # ✅ 로그 기록
@@ -373,15 +430,17 @@ st.markdown(
 logs = fetch_logs(user_id, limit=10000)
 if logs:
     df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
-    df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    # 🟡 cross 상태를 시각화 이모지로 가공
+    # ★ LOG SYNC: 기록 시각(로그 저장 시각) 표준 포맷
+    df_logs["시간"] = pd.to_datetime(df_logs["시간"]).dt.strftime("%Y-%m-%d %H:%M:%S")  # 기록된 DB 시간
+
+    # 🟡 cross 상태 시각화 이모지 (기존 유지)
     def emoji_cross(msg: str):
         if "cross=Golden" in msg:
             return "🟢 " + msg
         elif "cross=Dead" in msg:
             return "🔴 " + msg
-        elif "cross=Pending" in msg:
+        elif "cross=Pending" in msg or "cross=Up" in msg:
             return "🔵 " + msg
         elif "cross=Down" in msg:
             return "🟣 " + msg
@@ -389,8 +448,46 @@ if logs:
             return "⚪ " + msg
         return msg
 
+    # ★ LOG SYNC: 경계 동기화 메시지에서 bar_open/bar_close 추출
+    import re
+    re_last = re.compile(r"last_closed_open=([0-9:\- ]+)\s*\|\s*last_closed_close=([0-9:\- ]+)")
+    re_bar  = re.compile(r"run_at=([0-9:\- ]+)\s*\|\s*bar_open=([0-9:\- ]+)\s*\|\s*bar_close=([0-9:\- ]+)")
+
+    def parse_sync_fields(msg: str):
+        """
+        ⏱ last_closed_open=... | last_closed_close=...
+        또는
+        ⏱ run_at=... | bar_open=... | bar_close=...
+        형태를 파싱해 컬럼으로 반환.
+        """
+        m1 = re_last.search(msg)
+        if m1:
+            return {
+                "bar_open": m1.group(1).strip(),
+                "bar_close": m1.group(2).strip(),
+                "run_at": None,  # 이 형태엔 run_at 없음
+            }
+        m2 = re_bar.search(msg)
+        if m2:
+            return {
+                "run_at": m2.group(1).strip(),
+                "bar_open": m2.group(2).strip(),
+                "bar_close": m2.group(3).strip(),
+            }
+        return {"run_at": None, "bar_open": None, "bar_close": None}
+
+    parsed = df_logs["메시지"].apply(parse_sync_fields)  # ★ LOG SYNC
+
+    # ★ LOG SYNC: 새 컬럼 추가(사용자 오해 방지용)
+    df_logs["실행시각(run_at)"] = parsed.apply(lambda d: d["run_at"])        # 메시지 내부의 run_at(있으면)
+    df_logs["바오픈(bar_open)"]  = parsed.apply(lambda d: d["bar_open"])
+    df_logs["바클로즈(bar_close)"] = parsed.apply(lambda d: d["bar_close"])
+
+    # ★ LOG SYNC: 가독성을 위해 원문 메시지에 이모지 적용 (기존 유지)
     df_logs["메시지"] = df_logs["메시지"].apply(emoji_cross)
 
+    # 최근 순 정렬(기록 시각 기준)
+    # df_logs = df_logs.iloc[::-1]  # 필요시 사용
     show_logs = st.toggle("📚 트레이딩 엔진 로그 보기", value=False)
     if show_logs:
         st.dataframe(
@@ -398,14 +495,16 @@ if logs:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "시간": st.column_config.Column(width="small"),
+                "시간": st.column_config.Column(width="small", label="기록시각(DB)"),
+                "실행시각(run_at)": st.column_config.Column(width="small"),
+                "바오픈(bar_open)": st.column_config.Column(width="small"),
+                "바클로즈(bar_close)": st.column_config.Column(width="small"),
                 "레벨": st.column_config.Column(width="small"),
                 "메시지": st.column_config.Column(width="large"),
             },
         )
 else:
     st.info("아직 기록된 로그가 없습니다.")
-
 
 error_logs = fetch_logs(user_id, level="ERROR", limit=10)
 error_logs = None
@@ -514,6 +613,7 @@ target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
 SAVE_PATH = Path(target_filename)
 
 BUY_CONDITIONS = {
+    "golden_cross": "🟢  Golden Cross",
     "macd_positive": "✳️  MACD > threshold",
     "signal_positive": "➕  Signal > threshold",
     "bullish_candle": "📈  Bullish Candle",

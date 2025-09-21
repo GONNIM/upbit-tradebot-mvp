@@ -23,6 +23,7 @@ SAVE_PATH = Path(target_filename)
 
 # --- 조건 목록 ---
 BUY_CONDITIONS = {
+    "golden_cross": "🟢  Golden Cross",
     "macd_positive": "✳️  MACD > threshold",
     "signal_positive": "➕  Signal > threshold",
     "bullish_candle": "📈  Bullish Candle",
