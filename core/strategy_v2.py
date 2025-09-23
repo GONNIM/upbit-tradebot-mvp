@@ -48,9 +48,9 @@ class MACDStrategy(Strategy):
         self.entry_price = None
         self.entry_bar = None
         self.highest_price = None
-        self.trailing_stop_pct = TRAILING_STOP_PERCENT
-        self.trailing_arm = False
+        self.trailing_armed = False
         self.golden_cross_pending = False
+        self.trailing_stop_pct = TRAILING_STOP_PERCENT
         self.last_cross_type = None
         self._last_sell_bar = None
 
@@ -142,7 +142,12 @@ class MACDStrategy(Strategy):
         return self.data.Close[-1] > self.data.Open[-1]
 
     def _is_macd_trending_up(self):
-        return self.macd_line[-3] < self.macd_line[-2] < self.macd_line[-1]
+        if len(self.macd_line) < 3:
+            return False
+        a, b, c = self.macd_line[-3], self.macd_line[-2], self.macd_line[-1]
+        if pd.isna(a) or pd.isna(b) or pd.isna(c):
+            return False
+        return a < b < c
 
     def _is_above_ma20(self):
         return self.data.Close[-1] > self.ma20[-1]
@@ -194,19 +199,19 @@ class MACDStrategy(Strategy):
     # ★ BUY 체크 정의
     def _buy_check_defs(self, state, buy_cond):
         return [
-            ("golden_cross",    buy_cond.get("golden_cross", False),
+            ("golden_cross", buy_cond.get("golden_cross", False),
              lambda: self.golden_cross_pending and self.last_cross_type == "Golden"),
-            ("macd_positive",   buy_cond.get("macd_positive", False),
+            ("macd_positive", buy_cond.get("macd_positive", False),
              lambda: state["macd"] > 0),
             ("signal_positive", buy_cond.get("signal_positive", False),
              lambda: state["signal"] > 0),
-            ("bullish_candle",  buy_cond.get("bullish_candle", False),
+            ("bullish_candle", buy_cond.get("bullish_candle", False),
              self._is_bullish_candle),
-            ("macd_trending_up",buy_cond.get("macd_trending_up", False),
+            ("macd_trending_up", buy_cond.get("macd_trending_up", False),
              self._is_macd_trending_up),
-            ("above_ma20",      buy_cond.get("above_ma20", False),
+            ("above_ma20", buy_cond.get("above_ma20", False),
              self._is_above_ma20),
-            ("above_ma60",      buy_cond.get("above_ma60", False),
+            ("above_ma60", buy_cond.get("above_ma60", False),
              self._is_above_ma60),
         ]
 
@@ -239,7 +244,7 @@ class MACDStrategy(Strategy):
         return overall_ok, passed, failed, details
 
     def _evaluate_buy(self):
-        if self.position and not self.golden_cross_pending:
+        if self.position:
             return
 
         state = self._current_state()
@@ -259,7 +264,7 @@ class MACDStrategy(Strategy):
         """BUY 체결 + 상태 갱신 + 이벤트 기록 (중복 방지 포함)"""
         # ★ 같은 bar 중복 BUY 방지
         if getattr(self, "_last_buy_bar", None) == state["bar"]:
-            logger.info(f"⏹️ DUP BUY SKIP | bar={state['bar']} reasons={' + '.join(reasons) if reasons else ''}")
+            logger.info(f"⏹️ DUPLICATE BUY SKIP | bar={state['bar']} reasons={' + '.join(reasons) if reasons else ''}")
             return
 
         self.buy()
@@ -321,15 +326,15 @@ class MACDStrategy(Strategy):
         # Trailing Stop
         if sell_cond.get("trailing_stop", False):
             # TP 도달 시점에 TS 무장
-            if not self.trailing_arm and state["price"] >= tp_price:
-                self.trailing_arm = True
+            if not self.trailing_armed and state["price"] >= tp_price:
+                self.trailing_armed = True
                 self.highest_price = max(self.highest_price or state["price"], state["price"])
                 logger.info(
                     f"🟢 TS ARMED at {state['price']:.2f} (TP reached) | high={self.highest_price:.2f}"
                 )
                 
             # TS 무장 후엔 Peak 갱신 및 하락폭 체크
-            if self.trailing_arm:
+            if self.trailing_armed:
                 if self.highest_price is None or state["price"] > self.highest_price:
                     self.highest_price = state["price"]
                 
@@ -348,24 +353,29 @@ class MACDStrategy(Strategy):
         if sell_cond.get("take_profit", False) and state["price"] >= tp_price:
             # TS가 비활성화인 경우에만 TP로 매도
             if not sell_cond.get("trailing_stop", False):
-                if bars_held >= self.min_holding_period:
-                    logger.info("💰 TP HIT (no TS) → SELL")
-                    self._sell_action(state, "Take Profit")
-                    return
-                else:
-                    # TS가 켜져있으면 위에서 무장만 하고 여기서는 매도하지 않음
-                    logger.info("💡 TP reached but TS enabled → armed only")
+                logger.info("💰 TP HIT (no TS) → SELL")
+                self._sell_action(state, "Take Profit")
+                return
+            else:
+                # TS가 켜져있으면 위에서 무장만 하고 여기서는 매도하지 않음
+                logger.info("💡 TP reached but TS enabled → armed only")
 
-        # MACD Exit
-        if sell_cond.get("macd_exit", False) and bars_held >= self.min_holding_period and self._is_dead_cross():
-            logger.info("📉 MACD EXIT → SELL")  # ★ LOG
-            self._sell_action(state, "MACD Exit")
+        # MACD Negative
+        if sell_cond.get("macd_negative", False) and state["macd"] < 0:
+            logger.info("📉 MACD < threshold → SELL")  # ★ LOG
+            self._sell_action(state, "MACD Negative")
+            return
+        
+        # Dead Cross
+        if sell_cond.get("dead_cross", False) and self._is_dead_cross():
+            logger.info("🛑 Dead Cross → SELL")  # ★ LOG
+            self._sell_action(state, "Dead Cross")
             return
 
     def _sell_action(self, state, reason):
         # 중복 방지: 같은 bar에서 두번 SELL 호출되면 무시
         if getattr(self, "_last_sell_bar", None) == state["bar"]:
-            logger.info(f"⏹️ DUP SELL SKIP | bar={state['bar']} reason={reason}")
+            logger.info(f"⏹️ DUPLICATE SELL SKIP | bar={state['bar']} reason={reason}")
             return
         self._last_sell_bar = state["bar"]
         
@@ -391,7 +401,7 @@ class MACDStrategy(Strategy):
         self.entry_price = None
         self.entry_bar = None
         self.highest_price = None
-        self.trailing_arm = False
+        self.trailing_armed = False
         self.golden_cross_pending = False
 
     # 공통 이벤트 헬퍼 (BUY/SELL 모두에 사용)

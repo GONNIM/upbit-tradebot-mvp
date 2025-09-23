@@ -626,7 +626,8 @@ SELL_CONDITIONS = {
     "trailing_stop": "🧮 Trailing Stop - Peak (-10%)",
     "take_profit": "💰  Take Profit",
     "stop_loss": "🔻  Stop Loss",
-    "macd_exit": "📉  MACD Exit - Dead Cross or MACD < threshold",
+    "macd_negative": "📉  MACD < threshold",
+    "dead_cross": "🔴  Dead Cross",
 }
 
 
