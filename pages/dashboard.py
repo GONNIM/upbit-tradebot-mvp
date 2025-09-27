@@ -716,3 +716,41 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.write("")
+
+# ------------------------------------------------------------
+# 📑 감사로그 뷰어 이동
+# ------------------------------------------------------------
+st.subheader("📑 감사 로그")
+
+c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
+
+with c1:
+    # 실패한 BUY 평가만 보기 (기본 True)
+    audit_only_failed = st.toggle("Only failed(BUY)", value=True, key="audit_only_failed")
+
+with c2:
+    # 행 개수
+    audit_rows = st.number_input("Rows", min_value=100, max_value=20000, value=2000, step=100, key="audit_rows")
+
+with c3:
+    # 기본 탭 선택 (buy|sell|trades|settings)
+    default_tab = st.selectbox("Default Tab", ["buy", "sell", "trades", "settings"], index=0, key="audit_default_tab")
+
+with c4:
+    # 이동 버튼
+    if st.button("🔍 감사로그 뷰어 열기", use_container_width=True):
+        # ticker 파라미터는 둘 중 있는 값으로 (프로젝트에 따라 params_obj.upbit_ticker 또는 params_obj.ticker 사용)
+        ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
+
+        audit_params = urlencode({
+            "user_id": user_id,
+            "ticker": ticker_param,
+            "rows": int(audit_rows),
+            "only_failed": int(bool(audit_only_failed)),
+            "tab": default_tab,  # buy/sell/trades/settings 중 하나
+        })
+
+        next_page = "audit_viewer"  # 👈 pages/audit_viewer.py 파일명 기준 (아래 Step 2)
+        # 메타 리프레시 + switch_page 병행 (현 코드 스타일과 통일)
+        st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{audit_params}">', unsafe_allow_html=True)
+        st.switch_page(next_page)

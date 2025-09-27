@@ -3,6 +3,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 
+import json
+
 
 DB_PREFIX = "tradebot"
 
@@ -10,10 +12,13 @@ DB_PREFIX = "tradebot"
 @contextmanager
 def get_db(user_id):
     DB_PATH = f"{DB_PREFIX}_{user_id}.db"
-    # print(f"🧹 get_db : {DB_PATH}")
-
     conn = sqlite3.connect(DB_PATH)
     try:
+        # 🔧 동시성/안정화
+        conn.execute("PRAGMA journal_mode=WAL;")     # 동시 읽기/쓰기 개선
+        conn.execute("PRAGMA synchronous=NORMAL;")   # 성능/안정 균형
+        conn.execute("PRAGMA busy_timeout=3000;")    # ms, 잠금 시 대기
+        conn.execute("PRAGMA foreign_keys=ON;")
         yield conn
     finally:
         conn.close()
@@ -106,18 +111,25 @@ def fetch_recent_orders(user_id, limit=10):
         return cursor.fetchall()
 
 
+# def delete_orders(user_id):
+#     with get_db(user_id) as conn:
+#         cursor = conn.cursor()
+#         cursor.execute(
+#             """
+#             DELETE FROM orders;
+#         """
+#         )
+#         deleted = cursor.rowcount
+#         conn.commit()
+
+#     print(f"🧹 Deleted {deleted} rows from orders table.")
 def delete_orders(user_id):
     with get_db(user_id) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            DELETE FROM orders;
-        """
-        )
+        cursor.execute("DELETE FROM orders WHERE user_id = ?", (user_id,))
         deleted = cursor.rowcount
         conn.commit()
-
-    print(f"🧹 Deleted {deleted} rows from orders table.")
+    print(f"🧹 Deleted {deleted} rows from orders table for user={user_id}.")
 
 
 # ✅ 로그
@@ -198,54 +210,98 @@ def fetch_logs(user_id, level="LOG", limit=20):
         return cursor.fetchall()
 
 
-def get_last_status_log_from_db(user_id: str) -> str:
-    """
-    logs 테이블에서 level='INFO'이고 이모지로 시작하는 상태 메시지 중 가장 최근 항목 1개 반환
-    """
-    status_prefixes = ("🚀", "🔌", "🛑", "✅", "⚠️", "📡", "🔄", "❌", "🚨")
+# def get_last_status_log_from_db(user_id: str) -> str:
+#     """
+#     logs 테이블에서 level='INFO'이고 이모지로 시작하는 상태 메시지 중 가장 최근 항목 1개 반환
+#     """
+#     status_prefixes = ("🚀", "🔌", "🛑", "✅", "⚠️", "📡", "🔄", "❌", "🚨")
 
+#     with get_db(user_id) as conn:
+#         cursor = conn.cursor()
+#         # 이모지로 시작하는 메시지만 필터링
+#         emoji_conditions = " OR ".join(
+#             [f"message LIKE '{prefix}%'" for prefix in status_prefixes]
+#         )
+#         try:
+#             cursor.execute(
+#                 f"""
+#                 SELECT timestamp, message FROM logs
+#                 WHERE user_id = ? AND (level = 'INFO' OR level = 'BUY' OR level = 'SELL')
+#                 ORDER BY timestamp DESC
+#                 LIMIT 1
+#                 """,
+#                 (user_id,),
+#             )
+#             row = cursor.fetchone()
+#             if row:
+#                 ts, message = row
+#                 formatted_ts = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M:%S")
+#                 return f"[{formatted_ts}] {message}"
+#             else:
+#                 return "❌ 상태 로그 없음"
+#         except Exception as e:
+#             return f"❌ DB 조회 오류: {e}"
+#         finally:
+#             conn.close()
+def get_last_status_log_from_db(user_id: str) -> str:
+    status_prefixes = ("🚀","🔌","🛑","✅","⚠️","📡","🔄","❌","🚨")
     with get_db(user_id) as conn:
         cursor = conn.cursor()
-        # 이모지로 시작하는 메시지만 필터링
-        emoji_conditions = " OR ".join(
-            [f"message LIKE '{prefix}%'" for prefix in status_prefixes]
-        )
+        emoji_conditions = " OR ".join(["message LIKE ?"] * len(status_prefixes))
+        params = [user_id] + [f"{p}%" for p in status_prefixes]
         try:
             cursor.execute(
                 f"""
                 SELECT timestamp, message FROM logs
-                WHERE user_id = ? AND (level = 'INFO' OR level = 'BUY' OR level = 'SELL')
+                WHERE user_id = ?
+                  AND (level IN ('INFO','BUY','SELL'))
+                  AND ({emoji_conditions})
                 ORDER BY timestamp DESC
                 LIMIT 1
                 """,
-                (user_id,),
+                params,
             )
             row = cursor.fetchone()
             if row:
                 ts, message = row
-                formatted_ts = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M:%S")
+                try:
+                    formatted_ts = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    formatted_ts = ts
                 return f"[{formatted_ts}] {message}"
             else:
                 return "❌ 상태 로그 없음"
         except Exception as e:
             return f"❌ DB 조회 오류: {e}"
-        finally:
-            conn.close()
 
 
+# def delete_old_logs(user_id):
+#     with get_db(user_id) as conn:
+#         cursor = conn.cursor()
+#         cursor.execute(
+#             """
+#             DELETE FROM logs
+#             WHERE timestamp < DATETIME('now', 'start of day', 'localtime');
+#         """
+#         )
+#         deleted = cursor.rowcount
+#         conn.commit()
+
+#     print(f"🧹 Deleted {deleted} old logs.")
 def delete_old_logs(user_id):
     with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             DELETE FROM logs
-            WHERE timestamp < DATETIME('now', 'start of day', 'localtime');
-        """
+            WHERE user_id = ?
+              AND timestamp < DATETIME('now', 'start of day', 'localtime');
+            """,
+            (user_id,),
         )
         deleted = cursor.rowcount
         conn.commit()
-
-    print(f"🧹 Deleted {deleted} old logs.")
+    print(f"🧹 Deleted {deleted} old logs for user={user_id}.")
 
 
 def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
@@ -448,3 +504,182 @@ def get_initial_krw(user_id: str) -> float:
         cursor.execute("SELECT virtual_krw FROM users WHERE username = ?", (user_id,))
         row = cursor.fetchone()
         return row[0] if row else None
+
+
+def insert_buy_eval(
+    user_id: str,
+    ticker: str,
+    interval_sec: int,
+    bar: int,
+    price: float,
+    macd: float,
+    signal: float,
+    have_position: bool,
+    overall_ok: bool,
+    failed_keys: list | None,
+    checks: dict | None,
+    notes: str = ""
+):
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_buy_eval
+            (timestamp, ticker, interval_sec, bar, price, macd, signal,
+             have_position, overall_ok, failed_keys, checks, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                now_kst(), ticker, interval_sec, bar, price, macd, signal,
+                int(bool(have_position)), int(bool(overall_ok)),
+                json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
+                json.dumps(checks, ensure_ascii=False) if checks else None,
+                notes
+            )
+        )
+        conn.commit()
+
+
+def insert_sell_eval(
+    user_id: str,
+    ticker: str,
+    interval_sec: int,
+    bar: int,
+    price: float,
+    macd: float,
+    signal: float,
+    tp_price: float,
+    sl_price: float,
+    highest: float | None,
+    ts_pct: float | None,
+    ts_armed: bool,
+    bars_held: int,
+    checks: dict,
+    triggered: bool,
+    trigger_key: str | None,
+    notes: str = ""
+):
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_sell_eval
+            (timestamp, ticker, interval_sec, bar, price, macd, signal,
+             tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
+             checks, triggered, trigger_key, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                now_kst(), ticker, interval_sec, bar, price, macd, signal,
+                tp_price, sl_price, highest, ts_pct,
+                int(bool(ts_armed)), bars_held,
+                json.dumps(checks, ensure_ascii=False) if checks else None,
+                int(bool(triggered)), trigger_key, notes
+            )
+        )
+        conn.commit()
+
+
+def insert_trade_audit(
+    user_id: str,
+    ticker: str,
+    interval_sec: int,
+    bar: int,
+    kind: str,           # "BUY" | "SELL"
+    reason: str,
+    price: float,
+    macd: float,
+    signal: float,
+    entry_price: float | None,
+    entry_bar: int | None,
+    bars_held: int | None,
+    tp: float | None,
+    sl: float | None,
+    highest: float | None,
+    ts_pct: float | None,
+    ts_armed: bool | None
+):
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_trades
+            (timestamp, ticker, interval_sec, bar, type, reason, price, macd, signal,
+             entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                now_kst(), ticker, interval_sec, bar, kind, reason, price, macd, signal,
+                entry_price, entry_bar, bars_held, tp, sl, highest,
+                ts_pct, (int(ts_armed) if ts_armed is not None else None)
+            )
+        )
+        conn.commit()
+
+
+# (선택) 실행 시점 설정 스냅샷
+def insert_settings_snapshot(
+    user_id: str,
+    ticker: str,
+    interval_sec: int,
+    tp: float, sl: float, ts_pct: float | None,
+    signal_gate: bool, threshold: float,
+    buy_dict: dict, sell_dict: dict
+):
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO audit_settings
+            (timestamp, ticker, interval_sec, tp, sl, ts_pct, signal_gate, threshold, buy_json, sell_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                now_kst(), ticker, interval_sec, tp, sl, ts_pct,
+                int(bool(signal_gate)), threshold,
+                json.dumps(buy_dict, ensure_ascii=False),
+                json.dumps(sell_dict, ensure_ascii=False)
+            )
+        )
+        conn.commit()
+
+
+# 조회 유틸(뷰/디버깅용)
+def fetch_buy_eval(user_id: str, ticker: str | None = None, only_failed=False, limit=500):
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        q = """
+            SELECT timestamp, ticker, interval_sec, bar, price, macd, signal,
+                   have_position, overall_ok, failed_keys, checks, notes
+            FROM audit_buy_eval
+            WHERE 1=1
+        """
+        params = []
+        if ticker:
+            q += " AND ticker = ?"
+            params.append(ticker)
+        if only_failed:
+            q += " AND overall_ok = 0"
+        q += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        cur.execute(q, params)
+        return cur.fetchall()
+
+
+def fetch_trades_audit(user_id: str, ticker: str | None = None, limit=500):
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        q = """
+            SELECT timestamp, ticker, interval_sec, bar, type, reason, price,
+                   macd, signal, entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed
+            FROM audit_trades
+            WHERE 1=1
+        """
+        params = []
+        if ticker:
+            q += " AND ticker = ?"
+            params.append(ticker)
+        q += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        cur.execute(q, params)
+        return cur.fetchall()

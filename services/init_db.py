@@ -9,10 +9,18 @@ def get_db_path(user_id):
     return f"{DB_PREFIX}_{user_id}.db"
 
 
+# def init_db_if_needed(user_id):
+#     if not os.path.exists(get_db_path(user_id)):
+#         print(f"✅ intialize_db : {get_db_path(user_id)}")
+#         initialize_db(user_id)
 def init_db_if_needed(user_id):
-    if not os.path.exists(get_db_path(user_id)):
-        print(f"✅ intialize_db : {get_db_path(user_id)}")
+    db_path = get_db_path(user_id)
+    if not os.path.exists(db_path):
+        print(f"✅ intialize_db : {db_path}")
         initialize_db(user_id)
+    else:
+        # ✅ 기존 DB에도 감사 테이블/인덱스 보증 (idempotent)
+        add_audit_tables(user_id)
 
 
 def reset_db(user_id):
@@ -150,7 +158,120 @@ def initialize_db(user_id):
         """
     )
 
+    # orders 조회/정리용
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_ts ON orders(user_id, timestamp);")
+    # logs 최근/상태 조회용
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_logs_user_ts ON logs(user_id, timestamp);")
+
     conn.commit()
     conn.close()
 
+    add_audit_tables(user_id)
+
     print(f"✅ DB 초기화 완료: {get_db_path(user_id)}")
+
+
+def add_audit_tables(user_id):
+    conn = sqlite3.connect(get_db_path(user_id))
+    cursor = conn.cursor()
+
+    # 1) 매수 평가 감사 (왜 못 샀는지)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_buy_eval (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+            ticker TEXT,
+            interval_sec INTEGER,
+            bar INTEGER,
+            price REAL,
+            macd REAL,
+            signal REAL,
+            have_position INTEGER,     -- 0/1
+            overall_ok INTEGER,        -- 0/1
+            failed_keys TEXT,          -- JSON string: ["signal_confirm",...]
+            checks TEXT,               -- JSON string: {"signal_positive":true,...}
+            notes TEXT
+        );
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_buy_eval_ts ON audit_buy_eval(timestamp);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_buy_eval_ticker_ts ON audit_buy_eval(ticker, timestamp);")
+
+    # 2) 체결 감사 (BUY/SELL 기록)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+            ticker TEXT,
+            interval_sec INTEGER,
+            bar INTEGER,
+            type TEXT,                 -- 'BUY' | 'SELL'
+            reason TEXT,
+            price REAL,
+            macd REAL,
+            signal REAL,
+            entry_price REAL,
+            entry_bar INTEGER,
+            bars_held INTEGER,
+            tp REAL,
+            sl REAL,
+            highest REAL,
+            ts_pct REAL,
+            ts_armed INTEGER           -- 0/1/NULL
+        );
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_trades_ts ON audit_trades(timestamp);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_trades_ticker_ts ON audit_trades(ticker, timestamp);")
+
+    # (선택) 3) 실행 시점 설정 스냅샷
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_settings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+            ticker TEXT,
+            interval_sec INTEGER,
+            tp REAL, sl REAL, ts_pct REAL,
+            signal_gate INTEGER,       -- 0/1
+            threshold REAL,
+            buy_json TEXT,             -- JSON string
+            sell_json TEXT             -- JSON string
+        );
+        """
+    )
+
+    # 4) 매도 평가 감사 (전 조건 판정 + 트리거)
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_sell_eval (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT DEFAULT (DATETIME('now', 'localtime')),
+            ticker      TEXT,
+            interval_sec INTEGER,
+            bar         INTEGER,
+            price       REAL,
+            macd        REAL,
+            signal      REAL,
+            tp_price    REAL,
+            sl_price    REAL,
+            highest     REAL,
+            ts_pct      REAL,
+            ts_armed    INTEGER,          -- 0/1
+            bars_held   INTEGER,
+            checks      TEXT,             -- JSON: {"take_profit":{"enabled":1,"pass":0,"value":...}, ...}
+            triggered   INTEGER,          -- 0/1
+            trigger_key TEXT,             -- "Stop Loss" | "Trailing Stop" | ...
+            notes       TEXT
+        );
+        """
+    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_sell_eval_ts ON audit_sell_eval(timestamp);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_sell_eval_ticker_ts ON audit_sell_eval(ticker, timestamp);")
+
+    conn.commit()
+    conn.close()
+    print(f"✅ Audit tables ready: {get_db_path(user_id)}")
