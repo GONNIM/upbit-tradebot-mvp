@@ -2,11 +2,17 @@ import sqlite3
 import os
 
 
+APP_ROOT = os.path.abspath(os.getcwd())
+DB_DIR = os.path.join(APP_ROOT, "data")
+
+os.makedirs(DB_DIR, exist_ok=True)
+
 DB_PREFIX = "tradebot"
 
 
 def get_db_path(user_id):
-    return f"{DB_PREFIX}_{user_id}.db"
+    # return f"{DB_PREFIX}_{user_id}.db"
+    return os.path.join(DB_DIR, f"{DB_PREFIX}_{user_id}.db")
 
 
 # def init_db_if_needed(user_id):
@@ -15,12 +21,17 @@ def get_db_path(user_id):
 #         initialize_db(user_id)
 def init_db_if_needed(user_id):
     db_path = get_db_path(user_id)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
     if not os.path.exists(db_path):
-        print(f"✅ intialize_db : {db_path}")
-        initialize_db(user_id)
+        print(f"✅ initialize_db : {db_path}")
     else:
-        # ✅ 기존 DB에도 감사 테이블/인덱스 보증 (idempotent)
-        add_audit_tables(user_id)
+        print(f"ℹ️ DB exists: {db_path}")
+
+    # ✅ 신규/기존 구분 없이, 항상 코어 테이블 + 감사 테이블 보강
+    ensure_core_tables(user_id)
+    add_audit_tables(user_id)
+    print(f"✅ Schema ensured: {db_path}")
 
 
 def reset_db(user_id):
@@ -275,3 +286,106 @@ def add_audit_tables(user_id):
     conn.commit()
     conn.close()
     print(f"✅ Audit tables ready: {get_db_path(user_id)}")
+
+
+def _connect(user_id):
+    conn = sqlite3.connect(get_db_path(user_id))
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=3000;")
+    conn.execute("PRAGMA foreign_keys=ON;")
+    return conn
+
+def ensure_core_tables(user_id: str):
+    conn = _connect(user_id)
+    cur = conn.cursor()
+
+    # ✅ 핵심 테이블들 (모두 IF NOT EXISTS)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        display_name TEXT,
+        virtual_krw INTEGER,
+        updated_at TEXT DEFAULT (DATETIME('now', 'localtime'))
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+        ticker TEXT,
+        side TEXT,
+        price REAL,
+        volume REAL,
+        status TEXT,
+        current_krw INTEGER DEFAULT 0,
+        current_coin REAL DEFAULT 0.0,
+        profit_krw INTEGER DEFAULT 0
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+        level TEXT,
+        message TEXT
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS accounts (
+        user_id TEXT PRIMARY KEY,
+        virtual_krw INTEGER DEFAULT 1000000,
+        updated_at TEXT DEFAULT (DATETIME('now', 'localtime'))
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS account_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+        virtual_krw INTEGER
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS account_positions (
+        user_id TEXT,
+        ticker TEXT,
+        virtual_coin REAL DEFAULT 0,
+        updated_at TEXT DEFAULT (DATETIME('now', 'localtime')),
+        PRIMARY KEY (user_id, ticker)
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS position_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+        ticker TEXT,
+        virtual_coin REAL
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS engine_status (
+        user_id TEXT PRIMARY KEY,
+        is_running INTEGER DEFAULT 0,
+        last_heartbeat TEXT DEFAULT (DATETIME('now', 'localtime'))
+    );
+    """)
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS thread_status (
+        user_id TEXT PRIMARY KEY,
+        is_thread_running INTEGER DEFAULT 0,
+        last_heartbeat TEXT DEFAULT (DATETIME('now', 'localtime'))
+    );
+    """)
+
+    # 인덱스
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_ts ON orders(user_id, timestamp);")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_user_ts ON logs(user_id, timestamp);")
+
+    conn.commit()
+    conn.close()

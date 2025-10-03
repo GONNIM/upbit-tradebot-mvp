@@ -5,14 +5,18 @@ from contextlib import contextmanager
 
 import json
 
+from services.init_db import get_db_path 
+
 
 DB_PREFIX = "tradebot"
 
 
 @contextmanager
 def get_db(user_id):
-    DB_PATH = f"{DB_PREFIX}_{user_id}.db"
-    conn = sqlite3.connect(DB_PATH)
+    # DB_PATH = f"{DB_PREFIX}_{user_id}.db"
+    # conn = sqlite3.connect(DB_PATH)
+    DB_PATH = get_db_path(user_id)  # ⬅️ 절대경로 통일!
+    conn = sqlite3.connect(DB_PATH, timeout=30, isolation_level=None)
     try:
         # 🔧 동시성/안정화
         conn.execute("PRAGMA journal_mode=WAL;")     # 동시 읽기/쓰기 개선

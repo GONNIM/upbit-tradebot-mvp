@@ -191,6 +191,10 @@ with col30:
 
 st.divider()
 
+from services.init_db import init_db_if_needed, get_db_path
+init_db_if_needed(user_id)
+st.caption(f"DB file: `{get_db_path(user_id)}`")
+
 json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
 params_obj = load_params(json_path)
 account_krw = get_account(user_id) or 0
@@ -495,7 +499,7 @@ if logs:
             use_container_width=True,
             hide_index=True,
             column_config={
-                "시간": st.column_config.Column(width="small", label="기록시각(DB)"),
+                "시간": st.column_config.Column(width="medium", label="기록시각(DB)"),
                 "실행시각(run_at)": st.column_config.Column(width="small"),
                 "바오픈(bar_open)": st.column_config.Column(width="small"),
                 "바클로즈(bar_close)": st.column_config.Column(width="small"),

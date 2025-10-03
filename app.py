@@ -11,6 +11,8 @@ from yaml.loader import SafeLoader
 from services.init_db import init_db_if_needed
 from services.health_monitor import start_health_monitoring
 
+from utils.smoke_test import render_db_smoke_test
+
 
 # Setup page
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
@@ -94,6 +96,8 @@ elif authentication_status:
     st.write(f"{username} / {user_info}")
 
     if user_info:
+        render_db_smoke_test(user_id=username, ticker="KRW-BTC", interval_sec=60)
+
         _, virtual_krw, _ = user_info
         st.balloons()
         st.session_state.virtual_krw = virtual_krw
