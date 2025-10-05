@@ -5,9 +5,9 @@ from config import (
     CONDITIONS_JSON_FILENAME,
     SIGNAL_CONFIRM_ENABLED,
     TRAILING_STOP_PERCENT,
-    AUDIT_LOG_SKIP_POS,             # ← 사용
-    AUDIT_SKIP_POS_SAMPLE_N,        # ← 사용
-    AUDIT_DEDUP_PER_BAR             # ← 사용
+    AUDIT_LOG_SKIP_POS,
+    AUDIT_SKIP_POS_SAMPLE_N,
+    AUDIT_DEDUP_PER_BAR
 )
 import json
 from pathlib import Path
@@ -65,11 +65,11 @@ class MACDStrategy(Strategy):
         self.last_cross_type = None
         self._last_sell_bar = None
 
-        # --- 감사 로그 제어 상태 (최소 수정)
+        # --- 감사 로그 제어 상태
         self._last_buy_audit_bar = None
         self._last_skippos_audit_bar = None
         self._last_sell_sig = None
-        self._sell_sample_n = 60   # 필요시 config로 치환 가능
+        self._sell_sample_n = 60
 
         MACDStrategy.log_events = []
         MACDStrategy.trade_events = []
@@ -410,7 +410,12 @@ class MACDStrategy(Strategy):
         self.entry_price = state["price"]
         self.entry_bar = state["bar"]
         self.highest_price = self.entry_price
-        self.trailing_armed = False
+        # ✅ 트레일링 스탑을 사용한다면 진입 즉시 ARM (TP 대기 없이 작동)
+        try:
+            sell_cond = self.conditions.get("sell", {}) if hasattr(self, "conditions") else {}
+            self.trailing_armed = bool(sell_cond.get("trailing_stop", False))
+        except Exception:
+            self.trailing_armed = False
         self.golden_cross_pending = False
 
         reason_str = "+".join(reasons) if reasons else "BUY"
@@ -446,12 +451,19 @@ class MACDStrategy(Strategy):
         # Trailing Stop
         ts_enabled = sell_cond.get("trailing_stop", False)
         if ts_enabled:
-            ts_armed = self.trailing_armed or (state["price"] >= tp_price - eps)
-            highest = max(self.highest_price or state["price"], state["price"]) if ts_armed else (self.highest_price or None)
-            trailing_limit = (highest * (1 - self.trailing_stop_pct)) if (ts_armed and highest) else None
-            ts_hit = (ts_armed and trailing_limit is not None
-                    and bars_held >= self.min_holding_period
-                    and state["price"] <= trailing_limit + eps)
+            # ✅ 진입 직후 ARM 가능: self.trailing_armed는 BUY 시점에 세팅됨
+            ts_armed = bool(self.trailing_armed)
+            # ✅ 최고가는 항상 갱신
+            if (self.highest_price is None) or (state["price"] > self.highest_price):
+                self.highest_price = state["price"]
+            highest = self.highest_price
+            trailing_limit = (highest * (1 - self.trailing_stop_pct)) if highest is not None else None
+            ts_hit = (
+                ts_armed
+                and (trailing_limit is not None)
+                and (bars_held >= self.min_holding_period)
+                and (state["price"] <= trailing_limit + eps)
+            )
         else:
             ts_armed, highest, trailing_limit, ts_hit = False, self.highest_price, None, False
 
@@ -491,15 +503,16 @@ class MACDStrategy(Strategy):
 
         # --- SELL 감사 적재: 트리거/상태변화/샘플링일 때만 ---
         import hashlib, json
+        # ✅ bars_held는 해시에서 제외 (매 바 증가로 인한 과도한 적재 방지)
         sig = hashlib.md5(json.dumps({
             "armed": ts_armed,
             "highest": round((self.highest_price or 0.0), 6),
-            "bars_held": bars_held,
             "pass_map": {k:v["pass"] for k,v in checks.items() if v.get("enabled")==1}
         }, sort_keys=True, default=str).encode()).hexdigest()
 
         should_insert = (trigger_key is not None)
         if not should_insert:
+            # 상태 변화시에만 적재, 그 외에는 샘플링 주기로만 적재
             if sig != self._last_sell_sig:
                 should_insert = True
             elif self._sell_sample_n and (state["bar"] % self._sell_sample_n == 0):
@@ -534,21 +547,12 @@ class MACDStrategy(Strategy):
 
         # Trailing Stop
         if ts_enabled:
-            if not self.trailing_armed and state["price"] >= tp_price - eps:
-                self.trailing_armed = True
-                self.highest_price = max(self.highest_price or state["price"], state["price"])
-                logger.info(f"🟢 TS ARMED at {state['price']:.2f} (TP reached) | high={self.highest_price:.2f}")
-                
-            if self.trailing_armed:
-                if self.highest_price is None or state["price"] > self.highest_price:
-                    self.highest_price = state["price"]
-
+            if self.trailing_armed and (self.highest_price is not None):
                 trailing_limit = self.highest_price * (1 - self.trailing_stop_pct)
                 logger.info(
                     f"🔧 TS CHECK | price={state['price']:.2f} high={self.highest_price:.2f} "
                     f"limit={trailing_limit:.2f} pct={self.trailing_stop_pct:.3f}"
                 )
-
                 if bars_held >= self.min_holding_period and state["price"] <= trailing_limit + eps:
                     logger.info("🛑 TS HIT → SELL")
                     self._sell_action(state, "Trailing Stop")
@@ -640,6 +644,7 @@ class MACDStrategy(Strategy):
 
         enabled_keys = [k for k,v in report.items() if v["enabled"]==1]
         failed_keys  = [k for k in enabled_keys if report[k]["pass"]==0]
-        overall_ok = (len(failed_keys)==0)
+        # ✅ 활성화된(ON) 조건이 하나도 없으면 매수 성공으로 보지 않는다.
+        overall_ok = (len(enabled_keys) > 0) and (len(failed_keys)==0)
 
         return report, enabled_keys, failed_keys, overall_ok
