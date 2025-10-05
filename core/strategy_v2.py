@@ -38,6 +38,9 @@ class MACDStrategy(Strategy):
     signal_confirm_enabled = SIGNAL_CONFIRM_ENABLED  # Default: False
     volatility_window = 20
 
+    ignore_db_gate = False
+    ignore_wallet_gate = False
+
     def init(self):
         logger.info("MACDStrategy init")
         logger.info(f"[BOOT] strategy_file={os.path.abspath(inspect.getfile(self.__class__))}")
@@ -120,7 +123,8 @@ class MACDStrategy(Strategy):
     # --- Helper Methods
     # -------------------
     def _load_conditions(self):
-        path = Path(f"{self.user_id}_{CONDITIONS_JSON_FILENAME}")
+        uid = getattr(self, 'user_id', 'UNKNOWN')
+        path = Path(f"{uid}_{CONDITIONS_JSON_FILENAME}")
         if path.exists():
             with path.open("r", encoding="utf-8") as f:
                 conditions = json.load(f)
@@ -239,8 +243,9 @@ class MACDStrategy(Strategy):
     # --- Buy/Sell Logic
     # -------------------
     def next(self):
-        self._maybe_reload_conditions()
+        self._reconcile_entry_with_wallet()
 
+        self._maybe_reload_conditions()
         self._update_cross_state()
         self._evaluate_sell()
         self._evaluate_buy()
@@ -273,6 +278,49 @@ class MACDStrategy(Strategy):
             )
         )
 
+    # --- 주문 이력 기반 Flat 판정 (옵션 훅) ---
+    def _is_flat_by_history(self) -> bool | None:
+        """
+        True  : 최근 주문 이력이 '완료된 SELL'로 끝났거나, 주문이력이 없어서 Flat로 간주
+        False : 최근 주문 이력이 '완료된 BUY'로 끝남 (보유 가정)
+        None  : 판단 불가(훅 미제공/포맷 불명) → 기존 게이트만 사용
+        기대 포맷: [{'side':'BUY'|'SELL', 'state':'completed'|'cancelled'|..., 'timestamp': ...}, ...]
+        최신이 앞쪽에 오도록 정렬되어 있다고 가정(아닐 경우 정렬 시도)
+        """
+        try:
+            if not hasattr(self, "fetch_orders") or not callable(self.fetch_orders):
+                return None
+            orders = self.fetch_orders(self.user_id, getattr(self, "ticker", "UNKNOWN"), limit=100) or []
+            if not isinstance(orders, list):
+                return None
+            if len(orders) == 0:
+                return True  # 이력이 없으면 Flat로 간주
+
+            # 정렬 시도(옵셔널)
+            try:
+                orders = sorted(
+                    orders,
+                    key=lambda o: o.get("timestamp") or o.get("created_at") or 0,
+                    reverse=True
+                )
+            except Exception:
+                pass
+
+            for o in orders:
+                side = str(o.get("side", "")).upper()
+                state = str(o.get("state") or o.get("status") or "").lower()
+                if state == "completed":
+                    if side == "SELL":
+                        return True
+                    if side == "BUY":
+                        return False
+                    # 다른 side 값은 무시하고 다음으로
+            # 완료된 주문이 하나도 없으면 Flat로 보수적 간주
+            return True
+        except Exception as e:
+            logger.debug(f"[HIST] flat-by-history check skipped: {e}")
+            return None
+        
     # ★ BUY 체크 정의
     def _buy_check_defs(self, state, buy_cond):
         return [
@@ -334,10 +382,33 @@ class MACDStrategy(Strategy):
         if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
             wallet_open = bool(self.has_wallet_position(ticker))
 
-        have_open_gate = (bool(db_open) is True) or (pos_sz > 0) or (wallet_open is True)
+        # ✅ 주문 이력 기반 Flat 판정 (True/False/None)
+        hist_flat = self._is_flat_by_history()
+
+        # ✅ 무시 플래그와 히스토리 오버라이드 반영한 게이트 계산
+        have_open_gate = False
+        if (not self.ignore_db_gate) and (db_open is True):
+            have_open_gate = True
+        if pos_sz > 0:
+            have_open_gate = True
+        if (not self.ignore_wallet_gate) and (wallet_open is True):
+            have_open_gate = True
+
+        # ✅ 히스토리 결과가 명확하면 강제 오버라이드
+        if hist_flat is True:
+            have_open_gate = False
+        elif hist_flat is False:
+            have_open_gate = True
 
         state = self._current_state()
-        logger.info(f"[BUY-GATE] db_open={db_open} pos_size={pos_sz} wallet_open={wallet_open} entry_price={getattr(self,'entry_price',None)}")
+        # 교체 (hist_flat, ignore 플래그, 최종 gate까지 모두 출력)
+        logger.info(
+            "[BUY-GATE] db_open=%s pos_size=%s wallet_open=%s hist_flat=%s "
+            "ignore_db=%s ignore_wallet=%s entry_price=%s -> gate=%s",
+            db_open, pos_sz, wallet_open, hist_flat,
+            self.ignore_db_gate, self.ignore_wallet_gate,
+            getattr(self, 'entry_price', None), have_open_gate
+        )
 
         # B. 고아 엔트리 리셋 (모두 없음일 때만)
         if (not have_open_gate) and (getattr(self, "entry_price", None) is not None):

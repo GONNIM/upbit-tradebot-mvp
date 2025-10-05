@@ -721,8 +721,10 @@ def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:
 def has_open_by_orders(user_id: str, ticker: str) -> bool:
     """
     orders 테이블의 체결 레코드로 순포지션(매수-매도 체결 수량)을 계산.
-    양수면 '열린 포지션'(롱)으로 간주.
-    - filled_qty 컬럼이 있으면 우선 사용, 없으면 volume 사용.
+    - 상태 컬럼(status/state)와 값( completed / filled / partially_filled / closed / partial )을 모두 허용
+    - side/STATUS 대소문자 혼용 케이스 허용
+    - 수량 컬럼(filled_qty / executed_volume / executed_qty / volume / qty) 우선순위로 사용
+    - 순포지션이 양수면 '롱 보유'로 간주 (숏도 보유로 보려면 net_qty != 0 로 변경)
     """
     from services.init_db import get_db_path
     import sqlite3
@@ -730,23 +732,58 @@ def has_open_by_orders(user_id: str, ticker: str) -> bool:
     db_path = get_db_path(user_id)
     con = sqlite3.connect(db_path)
     try:
-        # filled_qty 컬럼 존재 여부 확인
+        # 스키마 탐색
         cols = {row[1] for row in con.execute("PRAGMA table_info(orders)")}
-        qty_expr = "COALESCE(filled_qty, volume)" if "filled_qty" in cols else "volume"
+        # 상태/사이드/수량 컬럼 결정
+        status_col = 'status' if 'status' in cols else ('state' if 'state' in cols else None)
+        side_col   = 'side'   if 'side'   in cols else ('order_side' if 'order_side' in cols else None)
 
-        sql = f"""
-            SELECT COALESCE(SUM(
-                CASE WHEN side='BUY'  THEN {qty_expr}
-                     WHEN side='SELL' THEN -{qty_expr}
-                     ELSE 0 END
-            ), 0) AS net_qty
-            FROM orders
-            WHERE user_id = ?
-              AND ticker  = ?
-              AND status IN ('FILLED','PARTIALLY_FILLED')  -- 미체결/취소 제외
-        """
-        cur = con.execute(sql, (user_id, ticker))
+        qty_candidates = ['filled_qty', 'executed_volume', 'executed_qty', 'volume', 'qty']
+        qty_cols = [c for c in qty_candidates if c in cols]
+        if not qty_cols:
+            # 수량 컬럼이 없으면 판단 불가 → 보수적으로 보유 아님(False) 반환
+            return False
+        qty_expr = "COALESCE(" + ",".join(qty_cols) + ")"
+
+        # 허용 상태 (소문자 비교)
+        ok_statuses = ("filled","partially_filled","completed","partial","closed")
+
+        # 동적 WHERE
+        where = ["user_id = ?", "ticker = ?"]
+        params = [user_id, ticker]
+
+        if status_col:
+            where.append(f"LOWER({status_col}) IN ({','.join(['?']*len(ok_statuses))})")
+            params.extend(ok_statuses)
+
+        # 실제 집계 쿼리
+        # side가 없으면 BUY/SELL 구분이 불가 → 0으로 간주
+        if side_col:
+            sql = f"""
+                SELECT COALESCE(SUM(
+                    CASE
+                        WHEN UPPER({side_col})='BUY'  THEN {qty_expr}
+                        WHEN UPPER({side_col})='SELL' THEN -{qty_expr}
+                        ELSE 0
+                    END
+                ), 0) AS net_qty
+                FROM orders
+                WHERE {' AND '.join(where)}
+            """
+        else:
+            # side 컬럼 자체가 없으면 판단 불가 → 0으로 간주
+            sql = f"SELECT 0 AS net_qty FROM orders WHERE {' AND '.join(where)} LIMIT 1"
+
+        cur = con.execute(sql, tuple(params))
         net_qty = cur.fetchone()[0] or 0
-        return net_qty > 0          # 숏도 보유로 보려면: return net_qty != 0
+
+        # 미세 잔량으로 인한 오검 방지(예: 1e-8 레벨 부동소수 잔량)
+        try:
+            net_qty = float(net_qty)
+        except Exception:
+            pass
+
+        EPS = 1e-8
+        return float(net_qty) > EPS   # 숏까지 보유로 보려면: return abs(net_qty) > EPS
     finally:
         con.close()
