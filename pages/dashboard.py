@@ -763,5 +763,5 @@ with c4:
 # 어디서든 임시 로그:
 with get_db(user_id) as conn:
     ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
-    print("orders cols:", [r[1] for r in conn.execute("PRAGMA table_info(orders)")])
-    print(conn.execute("SELECT COUNT(*) FROM orders WHERE user_id=? AND ticker=?", (user_id, ticker_param)).fetchone())
+    # print("orders cols:", [r[1] for r in conn.execute("PRAGMA table_info(orders)")])
+    # print(conn.execute("SELECT COUNT(*) FROM orders WHERE user_id=? AND ticker=?", (user_id, ticker_param)).fetchone())

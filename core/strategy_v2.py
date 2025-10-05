@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 # Audit
-from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot, has_open_by_orders
+from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot, has_open_by_orders, insert_trade_audit
 from services.init_db import get_db_path
 
 import inspect, os
@@ -370,61 +370,55 @@ class MACDStrategy(Strategy):
     def _evaluate_buy(self):
         ticker = getattr(self, "ticker", "UNKNOWN")
 
-        # A. 데이터 소스 3중 게이트
+        # --- 0) 실제 포지션: 엔진이 말하는 게 진실 ---
+        inpos = bool(getattr(getattr(self, "position", None), "size", 0) > 0)
+
+        # --- 1) 참고 정보 (오류 나면 False로) ---
         try:
             db_open = has_open_by_orders(self.user_id, ticker)
         except Exception as e:
             logger.error(f"[BUY-GATE] has_open_by_orders 실패: {e}")
             db_open = False
 
-        pos_sz = int(getattr(getattr(self, "position", None), "size", 0) or 0)
         wallet_open = None
         if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
-            wallet_open = bool(self.has_wallet_position(ticker))
+            try:
+                wallet_open = bool(self.has_wallet_position(ticker))
+            except Exception:
+                wallet_open = None      
 
-        # ✅ 주문 이력 기반 Flat 판정 (True/False/None)
-        hist_flat = self._is_flat_by_history()
+        hist_flat = self._is_flat_by_history()  # True/False/None
 
-        # ✅ 무시 플래그와 히스토리 오버라이드 반영한 게이트 계산
-        have_open_gate = False
-        if (not self.ignore_db_gate) and (db_open is True):
-            have_open_gate = True
-        if pos_sz > 0:
-            have_open_gate = True
-        if (not self.ignore_wallet_gate) and (wallet_open is True):
-            have_open_gate = True
-
-        # ✅ 히스토리 결과가 명확하면 강제 오버라이드
-        if hist_flat is True:
-            have_open_gate = False
-        elif hist_flat is False:
-            have_open_gate = True
-
-        # 히스토리 오버라이드 후 (hist_flat 처리 다음)
-        # stale position 무시: DB/지갑이 모두 False/None이고 히스토리도 보유 아님으로 단정 못하며
-        # entry_price도 None인데 position.size만 양수면, 이건 잔상으로 보고 무시
-        if (pos_sz > 0) and (db_open is False) and (wallet_open is not True) and (hist_flat is not False) and (self.entry_price is None):
-            logger.info("[BUY-GATE] stale position detected (pos_size>0 only). Ignoring position gate.")
-            pos_sz = 0
-            have_open_gate = False
+        # --- 2) 보유 차단 여부 결정 ---
+        # 기본은 엔진 판단(inpos). 참고 신호는 '보유 아님'이면 차단을 풀어주는 용도로만 사용.
+        blocked = inpos
+        if blocked:
+            # 히스토리가 "Flat"이라고 명시하면 차단 해제
+            if hist_flat is True:
+                blocked = False
+            # DB가 '열림 아님'이면 차단 약화
+            if db_open is False:
+                blocked = False
+            # 지갑이 '보유 아님'이면 차단 약화
+            if wallet_open is False:
+                blocked = False
 
         state = self._current_state()
-        # 교체 (hist_flat, ignore 플래그, 최종 gate까지 모두 출력)
         logger.info(
-            "[BUY-GATE] db_open=%s pos_size=%s wallet_open=%s hist_flat=%s "
-            "ignore_db=%s ignore_wallet=%s entry_price=%s -> gate=%s",
-            db_open, pos_sz, wallet_open, hist_flat,
+            "[BUY-GATE] inpos=%s db_open=%s wallet_open=%s hist_flat=%s "
+            "ignore_db=%s ignore_wallet=%s entry_price=%s -> blocked=%s",
+            inpos, db_open, wallet_open, hist_flat,
             self.ignore_db_gate, self.ignore_wallet_gate,
-            getattr(self, 'entry_price', None), have_open_gate
+            getattr(self, 'entry_price', None), blocked
         )
 
-        # B. 고아 엔트리 리셋 (모두 없음일 때만)
-        if (not have_open_gate) and (getattr(self, "entry_price", None) is not None):
+        # --- 3) 고아 엔트리 정리 ---
+        if (not blocked) and (getattr(self, "entry_price", None) is not None) and (not inpos):
             self._reset_entry()
-            logger.info("🧹 고아 엔트리 정리: 모든 소스에서 포지션 없음 → entry 리셋")
+            logger.info("🧹 고아 엔트리 정리: 엔진은 미보유 → entry 리셋")
 
-        # C. 보유 중이면 BUY 스킵 (+ 필요 시 샘플링 감사)
-        if have_open_gate:
+        # --- 4) 보유로 차단되면 감사만 적재하고 스킵 ---
+        if blocked:
             if AUDIT_LOG_SKIP_POS:
                 if not (AUDIT_DEDUP_PER_BAR and self._last_skippos_audit_bar == state["bar"]):
                     if (AUDIT_SKIP_POS_SAMPLE_N is None) or (AUDIT_SKIP_POS_SAMPLE_N <= 0) or (state["bar"] % AUDIT_SKIP_POS_SAMPLE_N == 0):
@@ -433,19 +427,20 @@ class MACDStrategy(Strategy):
                                 user_id=self.user_id,
                                 ticker=ticker,
                                 interval_sec=getattr(self,"interval_sec",60),
-                                bar=state["bar"], price=state["price"], macd=state["macd"], signal=state["signal"],
+                                bar=state["bar"], price=state["price"],
+                                macd=state["macd"], signal=state["signal"],
                                 have_position=True, overall_ok=False,
-                                failed_keys=[], checks={"note":"have_position"},
+                                failed_keys=[], checks={"note":"blocked_by_position"},
                                 notes="BUY_SKIP_POS"
                             )
                             self._last_skippos_audit_bar = state["bar"]
                             logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} note=BUY_SKIP_POS")
                         except Exception as e:
                             logger.error(f"[AUDIT-BUY] insert failed(SKIP_POS): {e} | bar={state['bar']}")
-            logger.debug(f"[BUY] SKIP (이미 보유) | bar={state['bar']} price={state['price']:.6f}")
+            logger.debug(f"[BUY] SKIP (보유 차단) | bar={state['bar']} price={state['price']:.6f}")
             return
 
-        # D. 정상 BUY 평가/체결
+        # 정상 BUY 평가/체결
         state = self._current_state()
         buy_cond = self.conditions.get("buy", {})
         report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
@@ -692,6 +687,29 @@ class MACDStrategy(Strategy):
             "ts_armed": getattr(self, "trailing_armed", False),
         }
         MACDStrategy.trade_events.append(evt)
+
+        try:
+            insert_trade_audit(
+                user_id=self.user_id,
+                ticker=getattr(self, "ticker", "UNKNOWN"),
+                interval_sec=getattr(self, "interval_sec", 60),
+                bar=state["bar"],
+                kind=kind,
+                reason=reason,
+                price=state["price"],
+                macd=state["macd"],
+                signal=state["signal"],
+                entry_price=evt["entry_price"],
+                entry_bar=evt["entry_bar"],
+                bars_held=evt["bars_held"],
+                tp=evt["tp"],
+                sl=evt["sl"],
+                highest=evt["highest"],
+                ts_pct=evt["ts_pct"],
+                ts_armed=evt["ts_armed"],
+            )
+        except Exception as e:
+            logger.error(f"[AUDIT-TRADES] insert failed: {e} | kind={kind} bar={state['bar']}")
 
     # Audit
     def _buy_checks_report(self, state, buy_cond):
