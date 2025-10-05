@@ -375,7 +375,7 @@ class MACDStrategy(Strategy):
             db_open = has_open_by_orders(self.user_id, ticker)
         except Exception as e:
             logger.error(f"[BUY-GATE] has_open_by_orders 실패: {e}")
-            db_open = None
+            db_open = False
 
         pos_sz = int(getattr(getattr(self, "position", None), "size", 0) or 0)
         wallet_open = None
@@ -399,6 +399,14 @@ class MACDStrategy(Strategy):
             have_open_gate = False
         elif hist_flat is False:
             have_open_gate = True
+
+        # 히스토리 오버라이드 후 (hist_flat 처리 다음)
+        # stale position 무시: DB/지갑이 모두 False/None이고 히스토리도 보유 아님으로 단정 못하며
+        # entry_price도 None인데 position.size만 양수면, 이건 잔상으로 보고 무시
+        if (pos_sz > 0) and (db_open is False) and (wallet_open is not True) and (hist_flat is not False) and (self.entry_price is None):
+            logger.info("[BUY-GATE] stale position detected (pos_size>0 only). Ignoring position gate.")
+            pos_sz = 0
+            have_open_gate = False
 
         state = self._current_state()
         # 교체 (hist_flat, ignore 플래그, 최종 gate까지 모두 출력)

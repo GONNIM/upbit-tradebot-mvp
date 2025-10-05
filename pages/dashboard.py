@@ -18,6 +18,7 @@ from services.db import (
     insert_log,
     get_last_status_log_from_db,
     fetch_latest_log_signal,
+    get_db
 )
 
 from config import PARAMS_JSON_FILENAME, REFRESH_INTERVAL, CONDITIONS_JSON_FILENAME
@@ -758,3 +759,9 @@ with c4:
         # 메타 리프레시 + switch_page 병행 (현 코드 스타일과 통일)
         st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{audit_params}">', unsafe_allow_html=True)
         st.switch_page(next_page)
+
+# 어디서든 임시 로그:
+with get_db(user_id) as conn:
+    ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
+    print("orders cols:", [r[1] for r in conn.execute("PRAGMA table_info(orders)")])
+    print(conn.execute("SELECT COUNT(*) FROM orders WHERE user_id=? AND ticker=?", (user_id, ticker_param)).fetchone())
