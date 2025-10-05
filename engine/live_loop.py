@@ -46,7 +46,8 @@ def run_live_loop(
             "macd_crossover_threshold": params.macd_crossover_threshold,
             "macd_exit_enabled": params.macd_exit_enabled,
             "signal_confirm_enabled": params.signal_confirm_enabled,
-            "user_id": user_id
+            "user_id": user_id,
+            "ticker": params.upbit_ticker
         },
     )
 

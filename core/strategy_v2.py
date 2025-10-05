@@ -5,12 +5,18 @@ from config import (
     CONDITIONS_JSON_FILENAME,
     SIGNAL_CONFIRM_ENABLED,
     TRAILING_STOP_PERCENT,
+    AUDIT_LOG_SKIP_POS,             # ← 사용
+    AUDIT_SKIP_POS_SAMPLE_N,        # ← 사용
+    AUDIT_DEDUP_PER_BAR             # ← 사용
 )
 import json
 from pathlib import Path
 
 # Audit
-from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot
+from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot, has_open_by_orders
+from services.init_db import get_db_path
+
+import inspect, os
 
 
 logging.basicConfig(
@@ -34,6 +40,8 @@ class MACDStrategy(Strategy):
 
     def init(self):
         logger.info("MACDStrategy init")
+        logger.info(f"[BOOT] strategy_file={os.path.abspath(inspect.getfile(self.__class__))}")
+        logger.info(f"[BOOT] __name__={__name__} __package__={__package__}")
 
         close = self.data.Close
         self.macd_line = self.I(
@@ -57,8 +65,17 @@ class MACDStrategy(Strategy):
         self.last_cross_type = None
         self._last_sell_bar = None
 
+        # --- 감사 로그 제어 상태 (최소 수정)
+        self._last_buy_audit_bar = None
+        self._last_skippos_audit_bar = None
+        self._last_sell_sig = None
+        self._sell_sample_n = 60   # 필요시 config로 치환 가능
+
         MACDStrategy.log_events = []
         MACDStrategy.trade_events = []
+
+        self._cond_path = Path(f"{getattr(self, 'user_id', 'UNKNOWN')}_{CONDITIONS_JSON_FILENAME}")
+        self._cond_mtime = self._cond_path.stat().st_mtime if self._cond_path.exists() else None
 
         self.conditions = self._load_conditions()
         self._log_conditions()
@@ -78,6 +95,26 @@ class MACDStrategy(Strategy):
         except Exception as e:
             logger.warning(f"[AUDIT] settings snapshot failed (ignored): {e}")
 
+        try:
+            _uid = getattr(self, "user_id", None)
+            _dbp = get_db_path(_uid if _uid else "UNKNOWN")
+            p = Path(_dbp)
+            logger.info(f"[AUDIT-PATH] user_id={_uid} → db={_dbp} (exists={p.exists()} size={p.stat().st_size if p.exists() else 'NA'})")
+        except Exception as e:
+            logger.warning(f"[AUDIT-PATH] failed to resolve db path: {e}")
+
+    def _maybe_reload_conditions(self):
+        try:
+            if self._cond_path and self._cond_path.exists():
+                mtime = self._cond_path.stat().st_mtime
+                if self._cond_mtime != mtime:
+                    with self._cond_path.open("r", encoding="utf-8") as f:
+                        self.conditions = json.load(f)
+                    self._cond_mtime = mtime
+                    logger.info(f"🔄 Condition reloaded: {self._cond_path}")
+                    self._log_conditions()
+        except Exception as e:
+            logger.warning(f"⚠️ Condition hot-reload failed (ignored): {e}")
 
     # -------------------
     # --- Helper Methods
@@ -143,12 +180,16 @@ class MACDStrategy(Strategy):
     # --- Cross Detection
     # -------------------
     def _is_golden_cross(self):
+        if len(self.macd_line) < 2 or len(self.signal_line) < 2:
+            return False
         return (
             self.macd_line[-2] <= self.signal_line[-2]
             and self.macd_line[-1] > self.signal_line[-1]
         )
 
     def _is_dead_cross(self):
+        if len(self.macd_line) < 2 or len(self.signal_line) < 2:
+            return False
         return (
             self.macd_line[-2] >= self.signal_line[-2]
             and self.macd_line[-1] < self.signal_line[-1]
@@ -174,10 +215,32 @@ class MACDStrategy(Strategy):
     def _is_above_ma60(self):
         return self.data.Close[-1] > self.ma60[-1]
 
+    def _check_macd_pos(self, state, eps=1e-8) -> bool:
+        return state["macd"] >= (self.macd_threshold - eps)
+
+    def _check_signal_pos(self, state, eps=1e-8) -> bool:
+        return state["signal"] >= (self.macd_threshold - eps)
+    
+    def _reconcile_entry_with_wallet(self):
+        """지갑/포지션과 불일치할 때 고아 엔트리를 정리한다(선택적)."""
+        try:
+            sz = getattr(getattr(self, "position", None), "size", 0) or 0
+            if sz == 0 and self.entry_price is not None:
+                has_wallet_pos = None
+                if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+                    has_wallet_pos = bool(self.has_wallet_position(self.ticker))
+                if has_wallet_pos is None or has_wallet_pos is False:
+                    logger.warning("🧹 고아 엔트리 정리: 포지션/지갑에 보유 없음 → entry 리셋")
+                    self._reset_entry()
+        except Exception as e:
+            logger.debug(f"[reconcile] skip ({e})")
+
     # -------------------
     # --- Buy/Sell Logic
     # -------------------
     def next(self):
+        self._maybe_reload_conditions()
+
         self._update_cross_state()
         self._evaluate_sell()
         self._evaluate_buy()
@@ -199,7 +262,6 @@ class MACDStrategy(Strategy):
             self.last_cross_type = "Neutral"
             position_color = "⚪"
 
-        # 로그 기록
         MACDStrategy.log_events.append(
             (
                 state["bar"],
@@ -217,9 +279,9 @@ class MACDStrategy(Strategy):
             ("golden_cross", buy_cond.get("golden_cross", False),
              lambda: self.golden_cross_pending and self.last_cross_type == "Golden"),
             ("macd_positive", buy_cond.get("macd_positive", False),
-             lambda: state["macd"] > 0),
+             lambda: self._check_macd_pos(state)),
             ("signal_positive", buy_cond.get("signal_positive", False),
-             lambda: state["signal"] > 0),
+             lambda: self._check_signal_pos(state)),
             ("bullish_candle", buy_cond.get("bullish_candle", False),
              self._is_bullish_candle),
             ("macd_trending_up", buy_cond.get("macd_trending_up", False),
@@ -230,7 +292,7 @@ class MACDStrategy(Strategy):
              self._is_above_ma60),
         ]
 
-    # ★ BUY 체크 실행 (enabled된 것만 평가 → 통과/실패/세부 결과 반환)
+    # ★ BUY 체크 실행
     def _run_buy_checks(self, state, buy_cond):
         passed, failed, details = [], [], {}
         for name, enabled, fn in self._buy_check_defs(state, buy_cond):
@@ -245,7 +307,6 @@ class MACDStrategy(Strategy):
             logger.info(f"🧪 BUY 체크 '{name}': enabled=True -> {'PASS' if ok else 'FAIL'}")
             (passed if ok else failed).append(name)
 
-        # ★ 옵션 게이트: signal_confirm (전역 플래그)
         if self.signal_confirm_enabled:
             ok = state["signal"] >= self.macd_threshold
             details["signal_confirm"] = ok
@@ -259,63 +320,101 @@ class MACDStrategy(Strategy):
         return overall_ok, passed, failed, details
 
     def _evaluate_buy(self):
-        if self.position:
-            st = self._current_state()
-            insert_buy_eval(
-                user_id=self.user_id,
-                ticker=getattr(self, "ticker", "UNKNOWN"),
-                interval_sec=getattr(self, "interval_sec", 60),
-                bar=st["bar"], price=st["price"], macd=st["macd"], signal=st["signal"],
-                have_position=True, overall_ok=False,
-                failed_keys=[], checks={"note":"have_position"}, notes="BUY_SKIP_POS"
-            )
-            return
+        ticker = getattr(self, "ticker", "UNKNOWN")
+
+        # A. 데이터 소스 3중 게이트
+        try:
+            db_open = has_open_by_orders(self.user_id, ticker)
+        except Exception as e:
+            logger.error(f"[BUY-GATE] has_open_by_orders 실패: {e}")
+            db_open = None
+
+        pos_sz = int(getattr(getattr(self, "position", None), "size", 0) or 0)
+        wallet_open = None
+        if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+            wallet_open = bool(self.has_wallet_position(ticker))
+
+        have_open_gate = (bool(db_open) is True) or (pos_sz > 0) or (wallet_open is True)
 
         state = self._current_state()
-        buy_cond = self.conditions.get("buy", {})
+        logger.info(f"[BUY-GATE] db_open={db_open} pos_size={pos_sz} wallet_open={wallet_open} entry_price={getattr(self,'entry_price',None)}")
 
-        # ★ 전 항목 리포트 생성
-        report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
-        # 감사 적재
-        insert_buy_eval(
-            user_id=self.user_id,
-            ticker=getattr(self, "ticker", "UNKNOWN"),
-            interval_sec=getattr(self, "interval_sec", 60),
-            bar=state["bar"], price=state["price"], macd=state["macd"], signal=state["signal"],
-            have_position=False, overall_ok=overall_ok,
-            failed_keys=failed_keys, checks=report,
-            notes=("OK" if overall_ok else "FAILED")
-        )
+        # B. 고아 엔트리 리셋 (모두 없음일 때만)
+        if (not have_open_gate) and (getattr(self, "entry_price", None) is not None):
+            self._reset_entry()
+            logger.info("🧹 고아 엔트리 정리: 모든 소스에서 포지션 없음 → entry 리셋")
 
-        overall_ok, passed, failed, details = self._run_buy_checks(state, buy_cond)
-        if not overall_ok:
-            if failed:
-                logger.info(f"⏸️ BUY 보류 | 실패 조건: {failed}")
+        # C. 보유 중이면 BUY 스킵 (+ 필요 시 샘플링 감사)
+        if have_open_gate:
+            if AUDIT_LOG_SKIP_POS:
+                if not (AUDIT_DEDUP_PER_BAR and self._last_skippos_audit_bar == state["bar"]):
+                    if (AUDIT_SKIP_POS_SAMPLE_N is None) or (AUDIT_SKIP_POS_SAMPLE_N <= 0) or (state["bar"] % AUDIT_SKIP_POS_SAMPLE_N == 0):
+                        try:
+                            insert_buy_eval(
+                                user_id=self.user_id,
+                                ticker=ticker,
+                                interval_sec=getattr(self,"interval_sec",60),
+                                bar=state["bar"], price=state["price"], macd=state["macd"], signal=state["signal"],
+                                have_position=True, overall_ok=False,
+                                failed_keys=[], checks={"note":"have_position"},
+                                notes="BUY_SKIP_POS"
+                            )
+                            self._last_skippos_audit_bar = state["bar"]
+                            logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} note=BUY_SKIP_POS")
+                        except Exception as e:
+                            logger.error(f"[AUDIT-BUY] insert failed(SKIP_POS): {e} | bar={state['bar']}")
+            logger.debug(f"[BUY] SKIP (이미 보유) | bar={state['bar']} price={state['price']:.6f}")
             return
 
-        # ★ 모든 enabled 조건 통과 → BUY 실행 (사유 리스트/세부정보 전달)
-        self._buy_action(state, reasons=passed, details=details)
+        # D. 정상 BUY 평가/체결
+        state = self._current_state()
+        buy_cond = self.conditions.get("buy", {})
+        report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
+
+        # 감사 적재(바 중복 방지)
+        if AUDIT_DEDUP_PER_BAR and self._last_buy_audit_bar == state["bar"]:
+            logger.info(f"[AUDIT-BUY] DUP SKIP | bar={state['bar']}")
+        else:
+            try:
+                insert_buy_eval(
+                    user_id=self.user_id,
+                    ticker=ticker,
+                    interval_sec=getattr(self,"interval_sec",60),
+                    bar=state["bar"], price=state["price"], macd=state["macd"], signal=state["signal"],
+                    have_position=False, overall_ok=overall_ok,
+                    failed_keys=failed_keys, checks=report,
+                    notes=("OK" if overall_ok else "FAILED")
+                )
+                self._last_buy_audit_bar = state["bar"]
+                logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
+            except Exception as e:
+                logger.error(f"[AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
+
+        if not overall_ok:
+            if failed_keys:
+                logger.info(f"⏸️ BUY 보류 | 실패 조건: {failed_keys}")
+            return
+
+        reasons = [k for k in enabled_keys if report[k]["pass"] == 1]
+        self._buy_action(state, reasons=reasons, details=report)
     
     def _buy_action(self, state, reasons: list[str], details: dict | None = None):
-        """BUY 체결 + 상태 갱신 + 이벤트 기록 (중복 방지 포함)"""
-        # ★ 같은 bar 중복 BUY 방지
+        # 같은 bar 중복 BUY 방지
         if getattr(self, "_last_buy_bar", None) == state["bar"]:
             logger.info(f"⏹️ DUPLICATE BUY SKIP | bar={state['bar']} reasons={' + '.join(reasons) if reasons else ''}")
             return
 
         self.buy()
 
-        # ★ 엔트리/피크/트레일링 상태 초기화
+        # 엔트리/피크/트레일링 상태 초기화
         self.entry_price = state["price"]
         self.entry_bar = state["bar"]
         self.highest_price = self.entry_price
         self.trailing_armed = False
         self.golden_cross_pending = False
 
-        # ★ reason을 'golden_cross + macd_positive + ...' 형태로 전달 (하위호환 tuple 유지)
         reason_str = "+".join(reasons) if reasons else "BUY"
         self._emit_trade("BUY", state, reason=reason_str)
-
         self._last_buy_bar = state["bar"]
 
     def _evaluate_sell(self):
@@ -326,14 +425,13 @@ class MACDStrategy(Strategy):
         sell_cond = self.conditions.get("sell", {})
 
         if self.entry_price is None:
-            logger.warning(f"entry_price is None. Jump TP / SL Calculation.")
+            logger.debug("entry_price is None. Jump TP / SL Calculation.")  # ← 경고→디버그로 완화
             return
 
         tp_price = self.entry_price * (1 + self.take_profit)
         sl_price = self.entry_price * (1 - self.stop_loss)
         bars_held = state["bar"] - self.entry_bar if self.entry_bar is not None else 0
 
-        # --- 전 항목 평가 (raw 값 포함) ---
         eps = 1e-8
         checks = {}
 
@@ -347,10 +445,8 @@ class MACDStrategy(Strategy):
 
         # Trailing Stop
         ts_enabled = sell_cond.get("trailing_stop", False)
-        # 무장 상태/최고가/리밋 계산
         if ts_enabled:
             ts_armed = self.trailing_armed or (state["price"] >= tp_price - eps)
-            # 무장 시 최고가 갱신
             highest = max(self.highest_price or state["price"], state["price"]) if ts_armed else (self.highest_price or None)
             trailing_limit = (highest * (1 - self.trailing_stop_pct)) if (ts_armed and highest) else None
             ts_hit = (ts_armed and trailing_limit is not None
@@ -365,7 +461,7 @@ class MACDStrategy(Strategy):
             "bars_held": bars_held, "min_hold": self.min_holding_period
         })
 
-        # Take Profit  (TS 꺼져 있을 때만 즉시 매도 트리거)
+        # Take Profit (TS 꺼져 있을 때만 즉시 매도)
         tp_enabled = sell_cond.get("take_profit", False)
         tp_hit = (state["price"] >= tp_price - eps) and (not ts_enabled)
         add("take_profit", tp_enabled, tp_hit, {"price":state["price"], "tp_price":tp_price, "ts_enabled":ts_enabled})
@@ -380,9 +476,8 @@ class MACDStrategy(Strategy):
         dead_hit = self._is_dead_cross()
         add("dead_cross", dead_enabled, dead_hit, {"macd":state["macd"], "signal":state["signal"]})
 
-        # --- 감사 적재 (트리거 키는 실제 체결된 항목으로 세팅; 아래 로직과 동일한 우선순위) ---
+        # 트리거 판단 (전략 우선순위 유지)
         trigger_key = None
-        # 전략의 실제 우선순위와 일치하도록 순서 유지
         if sl_enabled and sl_hit:
             trigger_key = "Stop Loss"
         elif ts_enabled and ts_hit:
@@ -394,21 +489,43 @@ class MACDStrategy(Strategy):
         elif dead_enabled and dead_hit:
             trigger_key = "Dead Cross"
 
-        insert_sell_eval(
-            user_id=self.user_id,
-            ticker=getattr(self,"ticker","UNKNOWN"),
-            interval_sec=getattr(self,"interval_sec",60),
-            bar=state["bar"], price=state["price"],
-            macd=state["macd"], signal=state["signal"],
-            tp_price=tp_price, sl_price=sl_price,
-            highest=self.highest_price, ts_pct=getattr(self,"trailing_stop_pct", None),
-            ts_armed=self.trailing_armed, bars_held=bars_held,
-            checks=checks,
-            triggered=(trigger_key is not None),
-            trigger_key=trigger_key,
-            notes=""
-        )
-        
+        # --- SELL 감사 적재: 트리거/상태변화/샘플링일 때만 ---
+        import hashlib, json
+        sig = hashlib.md5(json.dumps({
+            "armed": ts_armed,
+            "highest": round((self.highest_price or 0.0), 6),
+            "bars_held": bars_held,
+            "pass_map": {k:v["pass"] for k,v in checks.items() if v.get("enabled")==1}
+        }, sort_keys=True, default=str).encode()).hexdigest()
+
+        should_insert = (trigger_key is not None)
+        if not should_insert:
+            if sig != self._last_sell_sig:
+                should_insert = True
+            elif self._sell_sample_n and (state["bar"] % self._sell_sample_n == 0):
+                should_insert = True
+
+        if should_insert:
+            try:
+                insert_sell_eval(
+                    user_id=self.user_id,
+                    ticker=getattr(self,"ticker","UNKNOWN"),
+                    interval_sec=getattr(self,"interval_sec",60),
+                    bar=state["bar"], price=state["price"],
+                    macd=state["macd"], signal=state["signal"],
+                    tp_price=tp_price, sl_price=sl_price,
+                    highest=self.highest_price, ts_pct=getattr(self,"trailing_stop_pct", None),
+                    ts_armed=self.trailing_armed, bars_held=bars_held,
+                    checks=checks,
+                    triggered=(trigger_key is not None),
+                    trigger_key=trigger_key,
+                    notes=""
+                )
+                self._last_sell_sig = sig
+                logger.info(f"[AUDIT-SELL] inserted | uid={getattr(self,'user_id',None)} bar={state['bar']} trigger={trigger_key}")
+            except Exception as e:
+                logger.error(f"[AUDIT-SELL] insert failed: {e} | uid={getattr(self,'user_id',None)} bar={state['bar']} checks_keys={list(checks.keys())}")
+
         # Stop Loss
         if sl_enabled and sl_hit:
             logger.info("🛑 SL HIT → SELL")
@@ -417,7 +534,7 @@ class MACDStrategy(Strategy):
 
         # Trailing Stop
         if ts_enabled:
-            if not self.trailing_armed and state["price"] >= tp_price:
+            if not self.trailing_armed and state["price"] >= tp_price - eps:
                 self.trailing_armed = True
                 self.highest_price = max(self.highest_price or state["price"], state["price"])
                 logger.info(f"🟢 TS ARMED at {state['price']:.2f} (TP reached) | high={self.highest_price:.2f}")
@@ -432,55 +549,37 @@ class MACDStrategy(Strategy):
                     f"limit={trailing_limit:.2f} pct={self.trailing_stop_pct:.3f}"
                 )
 
-                if bars_held >= self.min_holding_period and state["price"] <= trailing_limit:
+                if bars_held >= self.min_holding_period and state["price"] <= trailing_limit + eps:
                     logger.info("🛑 TS HIT → SELL")
                     self._sell_action(state, "Trailing Stop")
                     return
 
         # Take Profit
-        if tp_enabled and state["price"] >= tp_price:
-            if not ts_enabled:
-                logger.info("💰 TP HIT (no TS) → SELL")
-                self._sell_action(state, "Take Profit")
-                return
-            else:
-                logger.info("💡 TP reached but TS enabled → armed only")
+        if tp_enabled and tp_hit:
+            logger.info("💰 TP HIT (no TS) → SELL")
+            self._sell_action(state, "Take Profit")
+            return
 
         # MACD Negative
-        if macdneg_enabled and state["macd"] < 0:
-            logger.info("📉 MACD < threshold → SELL")  # ★ LOG
+        if macdneg_enabled and macdneg_hit:
+            logger.info("📉 MACD < threshold → SELL")
             self._sell_action(state, "MACD Negative")
             return
         
         # Dead Cross
         if dead_enabled and self._is_dead_cross():
-            logger.info("🛑 Dead Cross → SELL")  # ★ LOG
+            logger.info("🛑 Dead Cross → SELL")
             self._sell_action(state, "Dead Cross")
             return
 
     def _sell_action(self, state, reason):
-        # 중복 방지: 같은 bar에서 두번 SELL 호출되면 무시
         if getattr(self, "_last_sell_bar", None) == state["bar"]:
             logger.info(f"⏹️ DUPLICATE SELL SKIP | bar={state['bar']} reason={reason}")
             return
         self._last_sell_bar = state["bar"]
         
         self.position.close()
-
         self._emit_trade("SELL", state, reason=reason)
-        # MACDStrategy.trade_events.append(
-        #     (
-        #         state["bar"],
-        #         "SELL",
-        #         reason,
-        #         state["macd"],
-        #         state["signal"],
-        #         state["price"],
-        #     )
-        # )
-        # logger.info(
-        #     f"[{state["timestamp"]}] ✅ 매도 ({reason}) : bar={state["bar"]} | price={state["price"]} | macd={state["macd"]} | signal={state["signal"]}"
-        # )
         self._reset_entry()
 
     def _reset_entry(self):
@@ -494,31 +593,22 @@ class MACDStrategy(Strategy):
     def _emit_trade(self, kind: str, state: dict, reason: str = ""):
         evt = {
             "bar": state["bar"],
-            "type": kind,                    # "BUY" / "SELL"
-            "reason": reason,                # 매도 사유(예: "Take Profit", "Trailing Stop")
+            "type": kind,
+            "reason": reason,
             "timestamp": state["timestamp"],
-
-            # 상태 스냅샷
             "price": state["price"],
             "macd": state["macd"],
             "signal": state["signal"],
-
-            # 포지션 관련
             "entry_price": self.entry_price,
             "entry_bar": self.entry_bar,
             "bars_held": state["bar"] - (self.entry_bar if self.entry_bar is not None else state["bar"]),
-
-            # 리스크 파라미터
             "tp": (self.entry_price * (1 + self.take_profit)) if self.entry_price else None,
             "sl": (self.entry_price * (1 - self.stop_loss)) if self.entry_price else None,
-
-            # 트레일링 상태
             "highest": self.highest_price,
             "ts_pct": getattr(self, "trailing_stop_pct", None),
             "ts_armed": getattr(self, "trailing_armed", False),
         }
         MACDStrategy.trade_events.append(evt)
-
 
     # Audit
     def _buy_checks_report(self, state, buy_cond):
@@ -528,16 +618,14 @@ class MACDStrategy(Strategy):
         def add(name, enabled, passed, raw=None):
             report[name] = {"enabled": 1 if enabled else 0, "pass": 1 if passed else 0, "value": raw}
 
-        # 각 항목 계산
         golden = self._is_golden_cross()
-        macd_pos = state["macd"] >= (self.macd_threshold - eps)  # MACD > threshold
-        signal_pos = state["signal"] >= (self.macd_threshold - eps)  # Signal > threshold
+        macd_pos = self._check_macd_pos(state, eps)
+        signal_pos = self._check_signal_pos(state, eps)
         bull = self._is_bullish_candle()
         trending = self._is_macd_trending_up()
         above20 = self._is_above_ma20()
         above60 = self._is_above_ma60()
 
-        # 리포트 채우기 (ON/OFF 그대로 기록)
         add("golden_cross",   buy_cond.get("golden_cross", False),   golden,       {"macd":state["macd"], "signal":state["signal"]})
         add("macd_positive",  buy_cond.get("macd_positive", False),  macd_pos,     {"macd":state["macd"], "thr":self.macd_threshold})
         add("signal_positive",buy_cond.get("signal_positive", False),signal_pos,   {"signal":state["signal"], "thr":self.macd_threshold})
@@ -546,12 +634,10 @@ class MACDStrategy(Strategy):
         add("above_ma20",     buy_cond.get("above_ma20", False),     above20,      {"ma20": float(self.ma20[-1])})
         add("above_ma60",     buy_cond.get("above_ma60", False),     above60,      {"ma60": float(self.ma60[-1])})
 
-        # 전역 게이트 (signal_confirm_enabled)
         if self.signal_confirm_enabled:
             gate_ok = state["signal"] >= (self.macd_threshold - eps)
             report["signal_confirm"] = {"enabled":1, "pass": 1 if gate_ok else 0, "value":{"signal":state["signal"], "thr":self.macd_threshold}}
 
-        # 전체 통과 여부(ON인 항목이 모두 pass)
         enabled_keys = [k for k,v in report.items() if v["enabled"]==1]
         failed_keys  = [k for k in enabled_keys if report[k]["pass"]==0]
         overall_ok = (len(failed_keys)==0)

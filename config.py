@@ -44,3 +44,7 @@ BULLISH_CANDLE_ENABLED = False
 MACD_TRENDING_UP_ENABLED = False
 ABOVE_MA_20_ENABLED = False
 ABOVE_MA_60_ENABLED = False
+
+AUDIT_LOG_SKIP_POS = False        # ← 기본 False: BUY_SKIP_POS는 DB에 남기지 않음
+AUDIT_SKIP_POS_SAMPLE_N = 0       # 0이면 샘플링 안함(=완전 비활성), n>0이면 n bar마다 1회
+AUDIT_DEDUP_PER_BAR = True        # 같은 bar 중복 적재 방지

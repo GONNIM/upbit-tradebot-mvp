@@ -687,3 +687,66 @@ def fetch_trades_audit(user_id: str, ticker: str | None = None, limit=500):
         params.append(limit)
         cur.execute(q, params)
         return cur.fetchall()
+
+
+def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:
+    """
+    orders 테이블의 체결 레코드로 순포지션(매수-매도 체결 수량)을 계산.
+    양수면 '열린 포지션'으로 간주.
+    """
+    from services.init_db import get_db_path
+    import sqlite3
+
+    db_path = get_db_path(user_id)
+    sql = """
+        SELECT COALESCE(SUM(
+            CASE WHEN side='BUY'  THEN volume
+                 WHEN side='SELL' THEN -volume
+                 ELSE 0 END
+        ), 0) AS net_qty
+        FROM orders
+        WHERE user_id = ?
+          AND ticker  = ?
+          AND status IN ('FILLED','PARTIALLY_FILLED')  -- 미체결/취소 제외
+    """
+    con = sqlite3.connect(db_path)
+    try:
+        cur = con.execute(sql, (user_id, ticker))
+        net_qty = cur.fetchone()[0] or 0
+        return net_qty > 0
+    finally:
+        con.close()
+
+
+def has_open_by_orders(user_id: str, ticker: str) -> bool:
+    """
+    orders 테이블의 체결 레코드로 순포지션(매수-매도 체결 수량)을 계산.
+    양수면 '열린 포지션'(롱)으로 간주.
+    - filled_qty 컬럼이 있으면 우선 사용, 없으면 volume 사용.
+    """
+    from services.init_db import get_db_path
+    import sqlite3
+
+    db_path = get_db_path(user_id)
+    con = sqlite3.connect(db_path)
+    try:
+        # filled_qty 컬럼 존재 여부 확인
+        cols = {row[1] for row in con.execute("PRAGMA table_info(orders)")}
+        qty_expr = "COALESCE(filled_qty, volume)" if "filled_qty" in cols else "volume"
+
+        sql = f"""
+            SELECT COALESCE(SUM(
+                CASE WHEN side='BUY'  THEN {qty_expr}
+                     WHEN side='SELL' THEN -{qty_expr}
+                     ELSE 0 END
+            ), 0) AS net_qty
+            FROM orders
+            WHERE user_id = ?
+              AND ticker  = ?
+              AND status IN ('FILLED','PARTIALLY_FILLED')  -- 미체결/취소 제외
+        """
+        cur = con.execute(sql, (user_id, ticker))
+        net_qty = cur.fetchone()[0] or 0
+        return net_qty > 0          # 숏도 보유로 보려면: return net_qty != 0
+    finally:
+        con.close()
