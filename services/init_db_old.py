@@ -35,57 +35,25 @@ def init_db_if_needed(user_id):
 
 
 def reset_db(user_id):
-    """
-    기존 DB를 '완전 초기화'하고 스키마를 재생성한다.
-    - 코어 테이블 + 감사 테이블(audit_*) 모두 DROP
-    - WAL/SHM 파일 정리
-    - VACUUM으로 파일 축소
-    - initialize_db(user_id)로 스키마 재생성
-    """
-    db_path = get_db_path(user_id)
+    """기존 DB를 초기화하고 테이블을 재생성"""
+    conn = sqlite3.connect(get_db_path(user_id))
+    cursor = conn.cursor()
 
-    # 1) 모두 드랍 (코어 + 감사 테이블)
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-
-    tables_to_drop = [
-        # core
-        "users", "orders", "logs", "accounts", "account_positions",
-        "account_history", "position_history", "engine_status", "thread_status",
-        # audits
-        "audit_buy_eval", "audit_trades", "audit_settings", "audit_sell_eval",
-    ]
-
-    for t in tables_to_drop:
-        try:
-            cur.execute(f"DROP TABLE IF EXISTS {t};")
-        except Exception as e:
-            print(f"⚠️ DROP 실패({t}): {e}")
+    # ✅ 기존 테이블 삭제
+    cursor.execute("DROP TABLE IF EXISTS users;")
+    cursor.execute("DROP TABLE IF EXISTS orders;")
+    cursor.execute("DROP TABLE IF EXISTS logs;")
+    cursor.execute("DROP TABLE IF EXISTS accounts;")
+    cursor.execute("DROP TABLE IF EXISTS account_positions;")
+    cursor.execute("DROP TABLE IF EXISTS account_history;")
+    cursor.execute("DROP TABLE IF EXISTS position_history;")
+    cursor.execute("DROP TABLE IF EXISTS engine_status;")
+    cursor.execute("DROP TABLE IF EXISTS thread_status;")
 
     conn.commit()
     conn.close()
 
-    # 2) WAL/SHM 잔여 파일 정리 (WAL 모드 사용 시 파일 남을 수 있음)
-    wal = f"{db_path}-wal"
-    shm = f"{db_path}-shm"
-    for f in (wal, shm):
-        try:
-            if os.path.exists(f):
-                os.remove(f)
-                print(f"🧹 removed: {f}")
-        except Exception as e:
-            print(f"⚠️ remove failed({f}): {e}")
-
-    # 3) VACUUM으로 파일 축소 (빈 스키마에서 한 번 더 청소)
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.execute("VACUUM;")
-        conn.close()
-        print("🧼 VACUUM done")
-    except Exception as e:
-        print(f"⚠️ VACUUM failed: {e}")
-
-    # 4) 스키마 재생성 (코어 + 감사 테이블)
+    print("🧹 모든 테이블 삭제 완료.")
     initialize_db(user_id)
 
 

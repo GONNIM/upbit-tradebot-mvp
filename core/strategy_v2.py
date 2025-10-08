@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 # Audit
-from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot, has_open_by_orders, insert_trade_audit
+from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot, has_open_by_orders
 from services.init_db import get_db_path
 
 import inspect, os
@@ -687,29 +687,6 @@ class MACDStrategy(Strategy):
             "ts_armed": getattr(self, "trailing_armed", False),
         }
         MACDStrategy.trade_events.append(evt)
-
-        try:
-            insert_trade_audit(
-                user_id=self.user_id,
-                ticker=getattr(self, "ticker", "UNKNOWN"),
-                interval_sec=getattr(self, "interval_sec", 60),
-                bar=state["bar"],
-                kind=kind,
-                reason=reason,
-                price=state["price"],
-                macd=state["macd"],
-                signal=state["signal"],
-                entry_price=evt["entry_price"],
-                entry_bar=evt["entry_bar"],
-                bars_held=evt["bars_held"],
-                tp=evt["tp"],
-                sl=evt["sl"],
-                highest=evt["highest"],
-                ts_pct=evt["ts_pct"],
-                ts_armed=evt["ts_armed"],
-            )
-        except Exception as e:
-            logger.error(f"[AUDIT-TRADES] insert failed: {e} | kind={kind} bar={state['bar']}")
 
     # Audit
     def _buy_checks_report(self, state, buy_cond):
