@@ -1,6 +1,7 @@
 import time
 from urllib.parse import urlencode
 import streamlit as st
+from engine.engine_runner import is_engine_running
 from services.db import insert_log
 from services.init_db import reset_db
 from engine.engine_manager import engine_manager
@@ -24,14 +25,20 @@ if virtual_krw < MIN_CASH:
 
 # 시스템 초기화 함수
 def initialize_confirm():
-    for uid in engine_manager.get_active_user_ids():
-        engine_manager.stop_engine(uid)  # ✅ 정상 종료 처리
-        insert_log(uid, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
+    # for uid in engine_manager.get_active_user_ids():
+    #     engine_manager.stop_engine(uid)  # ✅ 정상 종료 처리
+    #     insert_log(uid, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
+    if engine_manager.is_running(user_id):
+        engine_manager.stop_engine(user_id)
+        insert_log(user_id, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
+    else:
+        insert_log(user_id, "INFO", "ℹ️ 엔진이 실행 중이 아님")
 
     time.sleep(1)  # 종료 대기
     reset_db(user_id)
 
-    st.session_state.engine_started = False  # ✅ 캐시 초기화
+    # st.session_state.engine_started = False  # ✅ 캐시 초기화
+    st.session_state.pop("engine_started", None)
     st.success("DB 초기화 완료")
 
     # 페이지 리프레시
@@ -82,6 +89,9 @@ st.markdown(
 )
 
 
+if "init_busy" not in st.session_state:
+    st.session_state.init_busy = False
+
 btn_col1, btn_col2 = st.columns([1, 1])
 with btn_col1:
     if st.button("💥 초기화 취소", use_container_width=True):
@@ -89,4 +99,5 @@ with btn_col1:
 
 with btn_col2:
     if st.button("💥 초기화 진행", use_container_width=True):
+        st.session_state.init_busy = True
         initialize_confirm()
