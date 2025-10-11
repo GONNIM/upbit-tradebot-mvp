@@ -1,5 +1,7 @@
 import pyupbit
 import logging
+from typing import Optional, Dict, Any, Tuple
+
 from config import ACCESS, SECRET, MIN_FEE_RATIO
 from services.db import (
     get_account,
@@ -10,6 +12,7 @@ from services.db import (
     insert_account_history,
     insert_position_history,
     insert_order,  # ✅ 거래 기록 추가
+    insert_trade_audit,
 )
 
 
@@ -60,15 +63,96 @@ class UpbitTrader:
             logger.error(f"[실거래] 코인 잔고 조회 실패: {e}")
             return 0.0
 
-    def buy_market(self, price: float, ticker: str, ts=None) -> dict:
+    # ---------------------------
+    # 공통 감사 헬퍼
+    # ---------------------------
+    def _audit_trade(
+        self,
+        *,
+        side: str,
+        ticker: str,
+        price: Optional[float],
+        qty: Optional[float],
+        status_note: str,
+        ts=None,
+        meta: Optional[Dict[str, Any]] = None,
+        balances_before: Tuple[Optional[float], Optional[float]] = (None, None),
+        balances_after: Tuple[Optional[float], Optional[float]] = (None, None),
+        fee_ratio: Optional[float] = None,
+        risk_pct: Optional[float] = None,
+    ):
+        """
+        insert_trade_audit 를 '풍부한 컨텍스트'로 호출하는 공통 헬퍼.
+        - interval/bar/reason/macd/signal/entry_price/bars_held/tp/sl/highest/ts_* 는 meta 로 선택 적용
+        - 금액, 수수료, 잔고, 위험비율 등 운영정보를 로그로 함께 기록
+        """
+        meta = meta or {}
+        try:
+            interval = meta.get("interval", "minute1")
+            bar = meta.get("bar", 0)
+            reason = meta.get("reason")
+            macd = meta.get("macd")
+            signal = meta.get("signal")
+            entry_price = meta.get("entry_price")
+            entry_bar = meta.get("entry_bar", 0)
+            bars_held = meta.get("bars_held", 0)
+            tp_price = meta.get("tp")
+            sl_price = meta.get("sl")
+            highest = meta.get("highest")
+            ts_pct = meta.get("ts_pct")
+            ts_armed = meta.get("ts_armed")
+
+            krw_before, coin_before = balances_before
+            krw_after, coin_after = balances_after
+            px = price or 0.0
+            q = qty or 0.0
+            amount = q * px
+            fee = amount * (fee_ratio or 0.0)
+
+            # DB 감사 기록
+            insert_trade_audit(
+                self.user_id,
+                ticker,
+                interval,
+                bar,
+                side,
+                (reason or status_note),
+                px,
+                macd,
+                signal,
+                entry_price,
+                entry_bar,
+                bars_held,
+                tp_price,
+                sl_price,
+                highest,
+                ts_pct,
+                ts_armed,
+            )
+
+            # 운영 로그
+            logger.info(
+                f"[AUDIT] {side} | px={px} qty={q} amt={amount} fee={fee} risk_pct={risk_pct} "
+                f"| krw {krw_before}->{krw_after} coin {coin_before}->{coin_after} "
+                f"| note={status_note} meta={meta}"
+            )
+        except Exception as e:
+            logger.error(f"[AUDIT] insert_trade_audit failed: {e} | side={side} meta={meta}")
+
+    # ---------------------------
+    # 매수 / 매도
+    # ---------------------------
+    def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
         krw_to_use = self._krw_balance() * self.risk_pct
         # ✅ 수수료 포함한 실제 지불 가능 수량 계산
         qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
 
-        # if qty <= 0:
-        if krw_to_use <= 0:
-            logger.warning(f"[BUY] 주문 금액이 0 이하입니다. krw_to_use={krw_to_use}")
+        # ✅ 금액 또는 수량이 0/음수면 주문 중단 (고가·수수료·반올림으로 qty==0 방지)
+        if krw_to_use <= 0 or qty <= 0:
+            logger.warning(f"[BUY] 주문 불가: krw_to_use={krw_to_use:.4f}, qty={qty} (price={price}, fee={MIN_FEE_RATIO})")
             return {}
+        
+        logger.info(f"[BUY] plan krw_to_use={krw_to_use:.4f} price={price:.8f} fee={MIN_FEE_RATIO} -> qty={qty}")
 
         if self.test_mode:
             current_krw = self._krw_balance()
@@ -81,7 +165,6 @@ class UpbitTrader:
             new_krw = max(int(current_krw - raw_total + 1e-8), 0)
             new_coin = current_coin + qty
 
-            # insert_order(self.user_id, ticker, "BUY", price, qty, "completed")
             insert_order(
                 self.user_id,
                 ticker,
@@ -94,22 +177,52 @@ class UpbitTrader:
                 profit_krw=0,
             )
 
+            # ✅ 주문 레이어 감사(풍부한 컨텍스트)
+            self._audit_trade(
+                side="BUY",
+                ticker=ticker,
+                price=price,
+                qty=qty,
+                status_note="market buy(test_mode)",
+                ts=ts,
+                meta=(meta or {}),
+                balances_before=(current_krw, current_coin),
+                balances_after=(new_krw, new_coin),
+                fee_ratio=MIN_FEE_RATIO,
+                risk_pct=self.risk_pct,
+            )
+
             return {"time": ts, "side": "BUY", "qty": qty, "price": price}
 
         try:
-            # res = self.upbit.buy_market_order(ticker, qty)
-            # insert_order(self.user_id, ticker, "BUY", price, qty, "requested")
+            # 🟢 실거래: Upbit는 KRW 금액(=krw_to_use)로 시장가 매수
             res = self.upbit.buy_market_order(ticker, krw_to_use)
             insert_order(self.user_id, ticker, "BUY", price, 0, "requested")
+            # ✅ 실거래도 감사 선기록(요청 시점) — 잔고 사후값은 미확정이므로 before만 기록
+            self._audit_trade(
+                side="BUY",
+                ticker=ticker,
+                price=price,
+                qty=None,
+                status_note="market buy(live-req)",
+                ts=ts,
+                meta=(meta or {}),
+                balances_before=(self._krw_balance(), self._coin_balance(ticker)),
+                balances_after=(None, None),
+                fee_ratio=MIN_FEE_RATIO,
+                risk_pct=self.risk_pct,
+            )
             return res
         except Exception as e:
             logger.error(f"[실거래] 매수 주문 실패: {e}")
             return {}
 
-    def sell_market(self, qty: float, ticker: str, price: float, ts=None) -> dict:
+    def sell_market(self, qty: float, ticker: str, price: float, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
         if qty <= 0:
             logger.warning("[SELL] 수량이 0 이하입니다. 매도 생략")
             return {}
+        
+        logger.info(f"[SELL] plan qty={qty} price={price:.8f} fee={MIN_FEE_RATIO}")
 
         if self.test_mode:
             current_krw = self._krw_balance()
@@ -125,7 +238,6 @@ class UpbitTrader:
             new_krw = current_krw + total_gain
             new_coin = max(current_coin - qty, 0.0)
 
-            # insert_order(self.user_id, ticker, "SELL", price, qty, "completed")
             insert_order(
                 self.user_id,
                 ticker,
@@ -138,11 +250,40 @@ class UpbitTrader:
                 profit_krw=total_gain,  # 매도 수익
             )
 
+            # ✅ 주문 레이어 감사(풍부한 컨텍스트)
+            self._audit_trade(
+                side="SELL",
+                ticker=ticker,
+                price=price,
+                qty=qty,
+                status_note="market sell(test_mode)",
+                ts=ts,
+                meta=(meta or {}),
+                balances_before=(current_krw, current_coin),
+                balances_after=(new_krw, new_coin),
+                fee_ratio=MIN_FEE_RATIO,
+                risk_pct=self.risk_pct,
+            )
+
             return {"time": ts, "side": "SELL", "qty": qty, "price": price}
 
         try:
             res = self.upbit.sell_market_order(ticker, qty)
             insert_order(self.user_id, ticker, "SELL", price, qty, "requested")
+            # ✅ 실거래도 감사 선기록(요청 시점)
+            self._audit_trade(
+                side="SELL",
+                ticker=ticker,
+                price=price,
+                qty=qty,
+                status_note="market sell(live-req)",
+                ts=ts,
+                meta=(meta or {}),
+                balances_before=(self._krw_balance(), self._coin_balance(ticker)),
+                balances_after=(None, None),
+                fee_ratio=MIN_FEE_RATIO,
+                risk_pct=self.risk_pct,
+            )
             return res
         except Exception as e:
             logger.error(f"[실거래] 매도 주문 실패: {e}")

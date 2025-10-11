@@ -220,33 +220,31 @@ def run_live_loop(
                             logger.info(
                                 f"🛡️ Wallet-Guard → SELL ({reason}) | live={latest_price_live:.4f} ref={ref_price:.4f}"
                             )
+
+                            meta = {
+                                "interval": params.interval,
+                                "bar": len(df_bt) - 1,
+                                "reason": reason,               # "Stop Loss" / "Take Profit"
+                                "macd": macd_log,
+                                "signal": signal_log,
+                                "entry_price": entry_price,
+                                "entry_bar": len(df_bt) - 1,    # 적어도 동기화 가능한 값
+                                "bars_held": 0,
+                                "tp": tp_price,
+                                "sl": sl_price,
+                                "highest": None,
+                                "ts_pct": getattr(params, "trailing_stop_pct", None),
+                                "ts_armed": False,
+                            }
                             result = trader.sell_market(
-                                coin_balance_live, params.upbit_ticker, latest_price_live, ts=latest_index_live
+                                coin_balance_live,
+                                params.upbit_ticker,
+                                latest_price_live,
+                                ts=latest_index_live,
+                                meta=meta
                             )
                             if result:
                                 q.put((latest_index_live, "SELL", result["qty"], result["price"], reason, None, None))
-                                try:
-                                    insert_trade_audit(
-                                        user_id,
-                                        params.upbit_ticker,
-                                        params.interval,
-                                        len(df_bt) - 1,
-                                        "SELL",
-                                        reason,
-                                        result["price"],
-                                        macd_log,
-                                        signal_log,
-                                        entry_price,
-                                        len(df_bt) - 1,
-                                        0,
-                                        tp_price,
-                                        sl_price,
-                                        None,
-                                        getattr(params, "trailing_stop_pct", None),
-                                        False,
-                                    )
-                                except Exception as e:
-                                    logger.error(f"[AUDIT-TRADES] insert failed(WG SELL): {e}")
                                 entry_price = None
                                 in_position = False
                                 continue
@@ -293,69 +291,64 @@ def run_live_loop(
                             logger.info(f"⛔ BUY 조건 미충족({passed}) → 차단")
                             continue
 
-                        result = trader.buy_market(latest_price_live, params.upbit_ticker, ts=latest_index_live)
+                        meta = {
+                            "interval": params.interval,
+                            "bar": ebar,
+                            "reason": evt.get("reason", ""),
+                            "macd": evt.get("macd"),
+                            "signal": evt.get("signal"),
+                            "entry_price": None,       # BUY 직전엔 없음
+                            "entry_bar": ebar,
+                            "bars_held": 0,
+                            "tp": None,
+                            "sl": None,
+                            "highest": None,
+                            "ts_pct": getattr(params, "trailing_stop_pct", None),
+                            "ts_armed": False,
+                        }
+                        result = trader.buy_market(
+                            latest_price_live,
+                            params.upbit_ticker,
+                            ts=latest_index_live,
+                            meta=meta
+                        )
                         if result:
                             logger.info(f"✅ BUY 체결 완료({passed}) {result}")
                             q.put((latest_index_live, "BUY", result["qty"], result["price"], cross_e, macd_e, signal_e))
                             in_position = True
                             entry_price = result["price"]
-                            try:
-                                insert_trade_audit(
-                                    user_id,
-                                    params.upbit_ticker,
-                                    params.interval,
-                                    ebar,
-                                    "BUY",
-                                    evt.get("reason", ""),
-                                    result["price"],
-                                    evt.get("macd"),
-                                    evt.get("signal"),
-                                    result["price"],
-                                    ebar,
-                                    0,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                )
-                            except Exception as e:
-                                logger.error(f"[AUDIT-TRADES] insert failed(BUY): {e}")
-
                     # SELL
                     elif etype == "SELL" and coin_balance >= 1e-6:
                         if not check_sell_conditions(evt, trade_conditions.get("sell", {})):
                             logger.info(f"⛔ SELL 조건 미충족({cross_e}) → 차단 | evt={evt}")
                             continue
 
-                        result = trader.sell_market(coin_balance, params.upbit_ticker, latest_price_live, ts=latest_index_live)
+                        meta = {
+                            "interval": params.interval,
+                            "bar": ebar,
+                            "reason": evt.get("reason", ""),
+                            "macd": evt.get("macd"),
+                            "signal": evt.get("signal"),
+                            "entry_price": entry_price,
+                            "entry_bar": ebar,                # 없으면 0
+                            "bars_held": evt.get("bars_held", 0),
+                            "tp": evt.get("tp"),
+                            "sl": evt.get("sl"),
+                            "highest": evt.get("highest"),
+                            "ts_pct": evt.get("ts_pct"),
+                            "ts_armed": evt.get("ts_armed"),
+                        }
+                        result = trader.sell_market(
+                            coin_balance,
+                            params.upbit_ticker,
+                            latest_price_live,
+                            ts=latest_index_live,
+                            meta=meta
+                        )
                         if result:
                             logger.info(f"✅ SELL 체결 완료({cross_e}) {result}")
                             q.put((latest_index_live, "SELL", result["qty"], result["price"], cross_e, macd_e, signal_e))
                             in_position = False
-                            try:
-                                insert_trade_audit(
-                                    user_id,
-                                    params.upbit_ticker,
-                                    params.interval,
-                                    ebar,
-                                    "SELL",
-                                    evt.get("reason", ""),
-                                    result["price"],
-                                    evt.get("macd"),
-                                    evt.get("signal"),
-                                    entry_price,
-                                    ebar,
-                                    evt.get("bars_held"),
-                                    evt.get("tp"),
-                                    evt.get("sl"),
-                                    evt.get("highest"),
-                                    evt.get("ts_pct"),
-                                    evt.get("ts_armed"),
-                                )
-                            except Exception as e:
-                                logger.error(f"[AUDIT-TRADES] insert failed(SELL): {e}")
                             entry_price = None
 
                 logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
