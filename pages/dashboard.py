@@ -706,6 +706,7 @@ st.markdown(
 )
 st.write("")
 
+st.divider()
 
 target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
 SAVE_PATH = Path(target_filename)
@@ -814,6 +815,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 st.write("")
+
+st.divider()
 
 # ------------------------------------------------------------
 # 📑 감사로그 뷰어 이동
