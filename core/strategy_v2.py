@@ -7,7 +7,8 @@ from config import (
     TRAILING_STOP_PERCENT,
     AUDIT_LOG_SKIP_POS,
     AUDIT_SKIP_POS_SAMPLE_N,
-    AUDIT_DEDUP_PER_BAR
+    AUDIT_DEDUP_PER_BAR,
+    TP_WITH_TS
 )
 import json
 from pathlib import Path
@@ -404,13 +405,13 @@ class MACDStrategy(Strategy):
                 blocked = False
 
         state = self._current_state()
-        logger.info(
-            "[BUY-GATE] inpos=%s db_open=%s wallet_open=%s hist_flat=%s "
-            "ignore_db=%s ignore_wallet=%s entry_price=%s -> blocked=%s",
-            inpos, db_open, wallet_open, hist_flat,
-            self.ignore_db_gate, self.ignore_wallet_gate,
-            getattr(self, 'entry_price', None), blocked
-        )
+        # logger.info(
+        #     "[BUY-GATE] inpos=%s db_open=%s wallet_open=%s hist_flat=%s "
+        #     "ignore_db=%s ignore_wallet=%s entry_price=%s -> blocked=%s",
+        #     inpos, db_open, wallet_open, hist_flat,
+        #     self.ignore_db_gate, self.ignore_wallet_gate,
+        #     getattr(self, 'entry_price', None), blocked
+        # )
 
         # --- 3) 고아 엔트리 정리 ---
         if (not blocked) and (getattr(self, "entry_price", None) is not None) and (not inpos):
@@ -434,7 +435,7 @@ class MACDStrategy(Strategy):
                                 notes="BUY_SKIP_POS"
                             )
                             self._last_skippos_audit_bar = state["bar"]
-                            logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} note=BUY_SKIP_POS")
+                            # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} note=BUY_SKIP_POS")
                         except Exception as e:
                             logger.error(f"[AUDIT-BUY] insert failed(SKIP_POS): {e} | bar={state['bar']}")
             logger.debug(f"[BUY] SKIP (보유 차단) | bar={state['bar']} price={state['price']:.6f}")
@@ -460,13 +461,13 @@ class MACDStrategy(Strategy):
                     notes=("OK" if overall_ok else "FAILED")
                 )
                 self._last_buy_audit_bar = state["bar"]
-                logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
+                # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
             except Exception as e:
                 logger.error(f"[AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
 
         if not overall_ok:
-            if failed_keys:
-                logger.info(f"⏸️ BUY 보류 | 실패 조건: {failed_keys}")
+            # if failed_keys:
+            #     logger.info(f"⏸️ BUY 보류 | 실패 조건: {failed_keys}")
             return
 
         reasons = [k for k in enabled_keys if report[k]["pass"] == 1]
@@ -497,8 +498,16 @@ class MACDStrategy(Strategy):
         self._last_buy_bar = state["bar"]
 
     def _evaluate_sell(self):
+        ticker = getattr(self, "ticker", "UNKNOWN")
+        # if not self.position:
+        #     return
         if not self.position:
-            return
+            try:
+                if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+                    if not self.has_wallet_position(ticker):
+                        return
+            except Exception:
+                return
 
         state = self._current_state()
         sell_cond = self.conditions.get("sell", {})
@@ -549,7 +558,8 @@ class MACDStrategy(Strategy):
 
         # Take Profit (TS 꺼져 있을 때만 즉시 매도)
         tp_enabled = sell_cond.get("take_profit", False)
-        tp_hit = (state["price"] >= tp_price - eps) and (not ts_enabled)
+        # tp_hit = (state["price"] >= tp_price - eps) and (not ts_enabled)
+        tp_hit = (state["price"] >= tp_price - eps) and (TP_WITH_TS or (not ts_enabled))
         add("take_profit", tp_enabled, tp_hit, {"price":state["price"], "tp_price":tp_price, "ts_enabled":ts_enabled})
 
         # MACD Negative

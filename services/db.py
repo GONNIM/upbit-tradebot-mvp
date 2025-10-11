@@ -5,7 +5,9 @@ from contextlib import contextmanager
 
 import json
 
-from services.init_db import get_db_path 
+from services.init_db import get_db_path
+
+from typing import Optional, Dict, Any
 
 
 DB_PREFIX = "tradebot"
@@ -786,3 +788,85 @@ def has_open_by_orders(user_id: str, ticker: str) -> bool:
         return net_qty > 0
     finally:
         con.close()
+
+
+import logging
+logger = logging.getLogger(__name__)
+
+def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    'orders' 스키마가 환경마다 다른 문제를 회피하기 위해,
+    실제 보유 컬럼을 PRAGMA로 확인한 뒤 동적으로 쿼리를 구성한다.
+    우선순위:
+      1) state/status 가 있으면 ('completed','filled') 필터
+      2) 정렬키: executed_at > created_at > ts > timestamp > ROWID
+    """
+    dbp = get_db_path(user_id)
+
+    def _get_columns(conn) -> set:
+        cur = conn.cursor()
+        cur.execute("PRAGMA table_info(orders)")
+        cols = {row[1] for row in cur.fetchall()}
+        return cols
+
+    def _fetch_one(conn, sql: str, params: tuple) -> Optional[float]:
+        try:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            row = cur.fetchone()
+            price = float(row[0]) if row and row[0] is not None else None
+            return price
+        except Exception as e:
+            logger.warning(f"[DB] query failed: {e} | sql={sql} params={params}")
+            return None
+
+    try:
+        conn = sqlite3.connect(dbp)
+        cols = _get_columns(conn)
+        logger.info(f"[DB] orders cols = {sorted(cols)}")
+
+        # --- WHERE 절 구성 ---
+        where = ["user_id = ?", "ticker = ?", "side = 'BUY'"]
+        params = [user_id, ticker]
+
+        # 상태 컬럼: state 또는 status 중 존재하는 것 사용
+        status_col = None
+        for cand in ("state", "status"):
+            if cand in cols:
+                status_col = cand
+                break
+        if status_col:
+            where.append(f"{status_col} IN ('completed','filled')")
+
+        where_sql = " AND ".join(where)
+
+        # --- ORDER BY 구성 ---
+        order_keys = [c for c in ("executed_at", "created_at", "ts", "timestamp") if c in cols]
+        if order_keys:
+            order_sql = " , ".join(order_keys) + " DESC, ROWID DESC"
+        else:
+            order_sql = "ROWID DESC"
+
+        # 1) 상태 컬럼이 있으면 우선 해당 필터로 시도
+        sql1 = f"SELECT price FROM orders WHERE {where_sql} ORDER BY {order_sql} LIMIT 1"
+        p = _fetch_one(conn, sql1, tuple(params))
+        logger.info(f"[DB] last BUY (with status filter={bool(status_col)}) => {p}")
+        if p is not None:
+            conn.close()
+            return {"price": p}
+
+        # 2) 상태 컬럼 없거나 결과 없음 → 상태 필터 제외하고 재시도
+        base_where = ["user_id = ?", "ticker = ?", "side = 'BUY'"]
+        sql2 = f"SELECT price FROM orders WHERE {' AND '.join(base_where)} ORDER BY {order_sql} LIMIT 1"
+        p = _fetch_one(conn, sql2, (user_id, ticker))
+        logger.info(f"[DB] last BUY (any state) => {p}")
+        conn.close()
+
+        if p is not None:
+            return {"price": p}
+        logger.info("[DB] no BUY candidate found")
+        return None
+
+    except Exception as e:
+        logger.warning(f"[DB] get_last_open_buy_order failed: {e}")
+        return None

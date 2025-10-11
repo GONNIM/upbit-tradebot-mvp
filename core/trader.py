@@ -65,8 +65,9 @@ class UpbitTrader:
         # ✅ 수수료 포함한 실제 지불 가능 수량 계산
         qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
 
-        if qty <= 0:
-            logger.warning(f"[BUY] 주문 수량이 0 이하입니다. qty={qty}")
+        # if qty <= 0:
+        if krw_to_use <= 0:
+            logger.warning(f"[BUY] 주문 금액이 0 이하입니다. krw_to_use={krw_to_use}")
             return {}
 
         if self.test_mode:
@@ -96,8 +97,10 @@ class UpbitTrader:
             return {"time": ts, "side": "BUY", "qty": qty, "price": price}
 
         try:
-            res = self.upbit.buy_market_order(ticker, qty)
-            insert_order(self.user_id, ticker, "BUY", price, qty, "requested")
+            # res = self.upbit.buy_market_order(ticker, qty)
+            # insert_order(self.user_id, ticker, "BUY", price, qty, "requested")
+            res = self.upbit.buy_market_order(ticker, krw_to_use)
+            insert_order(self.user_id, ticker, "BUY", price, 0, "requested")
             return res
         except Exception as e:
             logger.error(f"[실거래] 매수 주문 실패: {e}")

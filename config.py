@@ -38,6 +38,8 @@ TRAILING_STOP_PERCENT = 0.1
 MACD_EXIT_ENABLED = True  # TP/SL 도달 전 매도 될 가능성
 SIGNAL_CONFIRM_ENABLED = False  # (Golden Cross) + (MACD >= 기준값) + (Signal >= 기준값)
 
+TP_WITH_TS = False
+
 MACD_POSITIVE_ENABLED = False
 SIGNAL_POSITIVE_ENABLED = False
 BULLISH_CANDLE_ENABLED = False
