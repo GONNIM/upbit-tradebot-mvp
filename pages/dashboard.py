@@ -117,7 +117,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard - `{user_id}`")
+st.markdown(f"### 📊 Dashboard : `{user_id}`님")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -397,31 +397,124 @@ if show_trade:
 
 st.divider()
 
-log_summary = fetch_latest_log_signal(user_id, params_obj.upbit_ticker)
-if log_summary:
-    st.subheader("📌 최종 시그널 정보")
-    cols = st.columns(6)
-    cols[0].markdown(f"**시간**<br>{log_summary['시간']}", unsafe_allow_html=True)
-    cols[1].markdown(f"**Ticker**<br>{log_summary['Ticker']}", unsafe_allow_html=True)
-    cols[2].markdown(f"**Price**<br>{log_summary['price']}", unsafe_allow_html=True)
-    cols[3].markdown(f"**Cross**<br>{log_summary['cross']}", unsafe_allow_html=True)
-    cols[4].markdown(f"**MACD**<br>{log_summary['macd']}", unsafe_allow_html=True)
-    cols[5].markdown(f"**Signal**<br>{log_summary['signal']}", unsafe_allow_html=True)
-else:
-    st.info("📭 아직 유효한 LOG 시그널이 없습니다.")
+# log_summary = fetch_latest_log_signal(user_id, params_obj.upbit_ticker)
+# if log_summary:
+#     st.subheader("📌 최근 시그널 정보")
+#     cols = st.columns(6)
+#     cols[0].markdown(f"**시간**<br>{log_summary['시간']}", unsafe_allow_html=True)
+#     cols[1].markdown(f"**Ticker**<br>{log_summary['Ticker']}", unsafe_allow_html=True)
+#     cols[2].markdown(f"**Price**<br>{log_summary['price']}", unsafe_allow_html=True)
+#     cols[3].markdown(f"**Cross**<br>{log_summary['cross']}", unsafe_allow_html=True)
+#     cols[4].markdown(f"**MACD**<br>{log_summary['macd']}", unsafe_allow_html=True)
+#     cols[5].markdown(f"**Signal**<br>{log_summary['signal']}", unsafe_allow_html=True)
+# else:
+#     st.info("📭 아직 유효한 LOG 시그널이 없습니다.")
+# --- 최신 시그널 카드: tz-naive/aware 혼합 비교 에러 픽스 ---
 
-def emoji_cross(msg: str):
-    if "cross=Golden" in msg:
-        return "🟢 " + msg
-    elif "cross=Dead" in msg:
-        return "🔴 " + msg
-    elif "cross=Up" in msg:
-        return "🔵 " + msg
-    elif "cross=Down" in msg:
-        return "🟣 " + msg
-    elif "cross=Neutral" in msg:
-        return "⚪ " + msg
-    return msg
+import pandas as pd
+
+# 화면 표시용 로컬 타임존 (원하면 설정에서 끌어와도 됨)
+LOCAL_TZ = "Asia/Seoul"
+
+def _parse_dt(s: str) -> pd.Timestamp | None:
+    """
+    입력 문자열을 'UTC 기준 tz-aware Timestamp' 로 통일.
+    - tz가 붙은 문자열이면 UTC로 변환
+    - tz가 없는 문자열(naive)이면 UTC로 간주해서 tz를 붙임
+    """
+    if s is None:
+        return None
+    try:
+        ts = pd.to_datetime(s, errors="coerce", utc=True)  # <- 핵심: utc=True
+        return ts
+    except Exception:
+        return None
+
+def _fmt_dt(ts: pd.Timestamp | None, tz: str = LOCAL_TZ) -> str | None:
+    """표시용 문자열: UTC → 로컬 타임존으로 변환 후 포맷."""
+    if ts is None or pd.isna(ts):
+        return None
+    try:
+        return ts.tz_convert(tz).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        # 혹시 tz 정보가 없으면 로컬라이즈 후 변환
+        try:
+            return ts.tz_localize("UTC").tz_convert(tz).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+
+def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
+    """
+    LOG 스냅샷(fetch_latest_log_signal)과 최근 체결(fetch_recent_orders) 중
+    '시간'이 더 최신인 항목을 하나로 통합해 반환.
+    """
+    # 1) LOG 스냅샷
+    log_row = fetch_latest_log_signal(user_id, ticker)  # {"시간","Ticker","price","cross","macd","signal"} | None
+    log_dt = _parse_dt(log_row["시간"]) if log_row else None
+
+    # 2) 최근 체결에서 같은 티커의 최신 1건
+    orders = fetch_recent_orders(user_id, limit=200) or []  # 최신순 보장 안 되면 직접 max
+    trade_row = None
+    trade_dt = None
+    for r in orders:
+        # r: ["시간","코인","매매","가격","수량","상태","현재금액","보유코인"]
+        if len(r) < 4 or r[1] != ticker:
+            continue
+        dt = _parse_dt(r[0])
+        if dt is None:
+            continue
+        if (trade_dt is None) or (dt > trade_dt):
+            trade_dt, trade_row = dt, r
+
+    if (log_dt is None) and (trade_dt is None):
+        return None
+
+    choose_trade = (trade_dt is not None) and ((log_dt is None) or (trade_dt >= log_dt))
+
+    if choose_trade:
+        t_time, t_ticker, t_side, t_price = trade_row[0], trade_row[1], trade_row[2], trade_row[3]
+        return {
+            "source": "TRADE",
+            "시간": _fmt_dt(_parse_dt(t_time)),
+            "Ticker": t_ticker,
+            "Price": f"{float(t_price):.2f}",
+            "Cross": "(Filled)",
+            "MACD": None,
+            "Signal": None,
+            "Extra": {"side": t_side},
+        }
+    else:
+        return {
+            "source": "LOG",
+            "시간": _fmt_dt(log_dt),
+            "Ticker": log_row.get("Ticker"),
+            "Price": log_row.get("price"),
+            "Cross": log_row.get("cross"),
+            "MACD": log_row.get("macd"),
+            "Signal": log_row.get("signal"),
+            "Extra": None,
+        }
+
+latest = get_latest_any_signal(
+    user_id, getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
+)
+
+st.subheader("📌 최종 시그널 정보 (가장 최신)")
+if latest:
+    cols = st.columns(6)
+    cols[0].markdown(f"**시간**<br>{latest['시간']}", unsafe_allow_html=True)
+    cols[1].markdown(f"**Ticker**<br>{latest['Ticker']}", unsafe_allow_html=True)
+    cols[2].markdown(f"**Price**<br>{latest['Price']}", unsafe_allow_html=True)
+    cols[3].markdown(f"**Cross**<br>{latest['Cross']}", unsafe_allow_html=True)
+    if latest["source"] == "TRADE":
+        cols[4].markdown(f"**Side**<br>{latest['Extra']['side']}", unsafe_allow_html=True)
+        cols[5].markdown(f"**Source**<br>TRADE", unsafe_allow_html=True)
+    else:
+        cols[4].markdown(f"**MACD**<br>{latest['MACD']}", unsafe_allow_html=True)
+        cols[5].markdown(f"**Signal**<br>{latest['Signal']}", unsafe_allow_html=True)
+        st.caption("Source: LOG (닫힌 바 기준 스냅샷)")
+else:
+    st.info("📭 아직 표시할 최신 시그널/체결 정보가 없습니다.")
 
 st.divider()
 
@@ -765,3 +858,22 @@ with get_db(user_id) as conn:
     ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
     # print("orders cols:", [r[1] for r in conn.execute("PRAGMA table_info(orders)")])
     # print(conn.execute("SELECT COUNT(*) FROM orders WHERE user_id=? AND ticker=?", (user_id, ticker_param)).fetchone())
+
+st.divider()
+
+from ui.charts import macd_altair_chart
+from core.data_feed import get_ohlcv_once
+
+# ...
+ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
+interval_code = getattr(params_obj, "interval", params_obj.interval)
+
+df_live = get_ohlcv_once(ticker, interval_code, count=600)  # 최근 600봉
+st.markdown(f"### 📈 Price & MACD : `{ticker}`")
+macd_altair_chart(
+    df_live,
+    fast=params_obj.fast_period,
+    slow=params_obj.slow_period,
+    signal=params_obj.signal_period,
+    max_bars=500,
+)

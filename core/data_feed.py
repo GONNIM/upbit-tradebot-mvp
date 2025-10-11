@@ -1,3 +1,4 @@
+from __future__ import annotations
 import pyupbit
 import pandas as pd
 import time
@@ -8,7 +9,9 @@ import psutil
 import os
 from datetime import datetime, timedelta
 
+
 logger = logging.getLogger(__name__)
+
 
 # --------- 시간/경계 유틸 (KST naive로 일관) ---------
 _IV_MIN = {
@@ -212,3 +215,33 @@ def stream_candles(
             _optimize_dataframe_memory.last_gc_time = time.time()
 
         yield df
+
+
+_INTERVAL_MAP = {
+    "minute1": "minute1",
+    "minute3": "minute3",
+    "minute5": "minute5",
+    "minute10": "minute10",
+    "minute15": "minute15",
+    "minute30": "minute30",
+    "minute60": "minute60",
+    "minute240": "minute240",
+    "day": "day",
+    "week": "week",
+}
+
+def get_ohlcv_once(ticker: str, interval_code: str, count: int = 500) -> pd.DataFrame:
+    """
+    대시보드용 원샷 OHLCV.
+    반환: columns = [Open, High, Low, Close, Volume], DatetimeIndex(UTC 기준으로 tz-aware)
+    """
+    interval = _INTERVAL_MAP.get(interval_code, "minute1")
+    df = pyupbit.get_ohlcv(ticker=ticker, interval=interval, count=count)
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
+    # pyupbit는 보통 tz-naive → UTC로 가정 후 tz-aware로 변환
+    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+    return df[["open","high","low","close","volume"]].rename(
+        columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}
+    )
