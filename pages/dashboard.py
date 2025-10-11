@@ -864,7 +864,7 @@ with get_db(user_id) as conn:
 
 st.divider()
 
-from ui.charts import macd_altair_chart
+from ui.charts import macd_altair_chart, debug_time_meta
 from core.data_feed import get_ohlcv_once
 
 # ...
@@ -880,3 +880,5 @@ macd_altair_chart(
     signal=params_obj.signal_period,
     max_bars=500,
 )
+
+# debug_time_meta(df_live, "live_raw")
