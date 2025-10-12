@@ -370,6 +370,9 @@ def run_live_loop(
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
+                    tp_p = entry_price * (1 + params.take_profit) if entry_price is not None else None
+                    sl_p = entry_price * (1 - params.stop_loss) if entry_price is not None else None
+
                     meta = {
                         "interval": params.interval,
                         "bar": ebar,
@@ -379,8 +382,8 @@ def run_live_loop(
                         "entry_price": entry_price,
                         "entry_bar": ebar,                # 없으면 0
                         "bars_held": evt.get("bars_held", 0),
-                        "tp": evt.get("tp"),
-                        "sl": evt.get("sl"),
+                        "tp": tp_p,
+                        "sl": sl_p,
                         "highest": evt.get("highest"),
                         "ts_pct": evt.get("ts_pct"),
                         "ts_armed": evt.get("ts_armed"),

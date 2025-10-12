@@ -160,12 +160,12 @@ class MACDStrategy(Strategy):
 
     def _calculate_macd(self, series, fast, slow):
         return (
-            pd.Series(series).ewm(span=fast).mean()
-            - pd.Series(series).ewm(span=slow).mean()
+            pd.Series(series).ewm(span=fast, adjust=False).mean()
+            - pd.Series(series).ewm(span=slow, adjust=False).mean()
         ).values
 
     def _calculate_signal(self, macd, period):
-        return pd.Series(macd).ewm(span=period).mean().values
+        return pd.Series(macd).ewm(span=period, adjust=False).mean().values
 
     def _calculate_volatility(self, high, low):
         return pd.Series(high - low).rolling(self.volatility_window).mean().values
@@ -393,16 +393,6 @@ class MACDStrategy(Strategy):
         # --- 2) 보유 차단 여부 결정 ---
         # 기본은 엔진 판단(inpos). 참고 신호는 '보유 아님'이면 차단을 풀어주는 용도로만 사용.
         blocked = inpos
-        if blocked:
-            # 히스토리가 "Flat"이라고 명시하면 차단 해제
-            if hist_flat is True:
-                blocked = False
-            # DB가 '열림 아님'이면 차단 약화
-            if db_open is False:
-                blocked = False
-            # 지갑이 '보유 아님'이면 차단 약화
-            if wallet_open is False:
-                blocked = False
 
         state = self._current_state()
         # logger.info(
