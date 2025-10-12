@@ -97,6 +97,37 @@ def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[float]:
         return None
 
 
+# --- 포지션 감지 & 엔트리 시드 유틸 ---
+def detect_position_and_seed_entry(
+    trader: UpbitTrader,
+    ticker: str,
+    user_id: str,
+    entry_price: Optional[float],
+) -> Tuple[bool, Optional[float]]:
+    """
+    지갑 잔고로 실제 포지션 유무를 판단하고, 엔트리 가격이 없으면 DB에서 1회 시드.
+    - in_position: 잔고(코인) > 0 이면 True
+    - entry_price: 없으면 get_last_open_buy_order()로 복구
+    """
+    bal = trader._coin_balance(ticker)
+    inpos = bal >= 1e-6
+
+    if inpos and entry_price is None:
+        seed = get_last_open_buy_order(ticker, user_id)  # {"price": float} | None
+        ep = (seed or {}).get("price")
+        if ep is not None:
+            entry_price = float(ep)
+            logger.info(f"[POS] inpos=True, entry_price seeded={entry_price}")
+        else:
+            logger.info("[POS] inpos=True, but no entry price in DB")
+
+    if (not inpos) and (entry_price is not None):
+        logger.info("[POS] inpos=False → entry_price reset")
+        entry_price = None
+
+    return inpos, entry_price
+
+
 def run_live_loop(
     params: LiveParams,
     q: queue.Queue,
@@ -157,7 +188,11 @@ def run_live_loop(
                     time.sleep(1)
                     continue
 
+                MACDStrategy.log_events = []
+                MACDStrategy.trade_events = []
+
                 df_bt = df.iloc[:-1].copy()
+
                 bt = Backtest(
                     df_bt,
                     strategy_cls,
@@ -175,6 +210,10 @@ def run_live_loop(
                 latest_index_live = df.index[-1]
                 latest_price_live = float(df.Close.iloc[-1])
 
+                # --- 지갑 기준 포지션/엔트리 확정 ---
+                in_position, entry_price = detect_position_and_seed_entry(trader, params.upbit_ticker, user_id, entry_price)
+                logger.info(f"[POS] resolved → in_position={in_position}, entry_price={entry_price}")
+
                 # 최신 LOG만 전송
                 cross_log = macd_log = signal_log = price_log = None
                 for event in reversed(log_events):
@@ -186,12 +225,6 @@ def run_live_loop(
                         )
                         q.put((df.index[bar_idx], "LOG", msg))
                         break
-
-                # ⛳️ 2) 루프마다 무조건 재시드 시도 (INFO 로그로 결과 출력)
-                if entry_price is None:
-                    entry_price = _seed_entry_price_from_db(params.upbit_ticker, user_id)
-                    if entry_price is not None:
-                        in_position = True
 
                 # -----------------------------
                 # 월렛 가드: SL/TP 즉시 매도
@@ -259,97 +292,111 @@ def run_live_loop(
                 # -----------------------------
                 # 전략 이벤트 처리
                 # -----------------------------
-                new_events = [e for e in trade_events if (e.get("bar"), e.get("type")) not in seen_signals]
-                if not new_events:
-                    logger.info("↩️ 신규 이벤트 없음 (모두 처리됨)")
+                events_on_latest = [e for e in trade_events if e.get("bar") == latest_bar_bt]
+                evt = events_on_latest[-1] if events_on_latest else None
+                if not evt:
+                    logger.info(f"↩️ 최신 bar 신호 없음 | in_position={in_position} entry={entry_price}")
                     logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                     continue
 
-                for evt in new_events:
-                    ebar, etype = evt.get("bar"), evt.get("type")
-                    if ebar is None or etype not in ("BUY", "SELL"):
-                        logger.warning(f"[EVENT] skip invalid event: {evt}")
+                ebar = evt.get("bar")
+                etype = evt.get("type")
+                if ebar is None or etype not in ("BUY", "SELL"):
+                    logger.warning(f"[EVENT] skip invalid event: {evt}")
+                    continue
+
+                key = (ebar, etype)
+                if key in seen_signals:
+                    logger.info(f"[EVENT] duplicate skip: {key}")
+                    logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
+                    continue
+                seen_signals.add(key)
+
+                cross_e = evt.get("reason")
+                macd_e = evt.get("macd")
+                signal_e = evt.get("signal")
+
+                coin_balance = trader._coin_balance(params.upbit_ticker)
+                logger.info(f"📊 현재 잔고: {coin_balance:.8f}")
+
+                if not in_position:
+                    # 포지션 없으면 BUY만 허용
+                    if etype != "BUY":
+                        logger.info("⛔ 포지션 없음 → SELL 무시")
+                        logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
-                    key = (ebar, etype)
-                    if key in seen_signals:
-                        logger.info(f"[EVENT] duplicate skip: {key}")
+                    ok, passed = check_buy_conditions(evt, df_bt, trade_conditions.get("buy", {}), params.macd_threshold)
+                    if not ok:
+                        logger.info(f"⛔ BUY 조건 미충족({passed}) → 차단")
+                        logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
-                    seen_signals.add(key)
 
-                    cross_e = evt.get("reason")
-                    macd_e = evt.get("macd")
-                    signal_e = evt.get("signal")
+                    meta = {
+                        "interval": params.interval,
+                        "bar": ebar,
+                        "reason": evt.get("reason", ""),
+                        "macd": evt.get("macd"),
+                        "signal": evt.get("signal"),
+                        "entry_price": None,       # BUY 직전엔 없음
+                        "entry_bar": ebar,
+                        "bars_held": 0,
+                        "tp": None,
+                        "sl": None,
+                        "highest": None,
+                        "ts_pct": getattr(params, "trailing_stop_pct", None),
+                        "ts_armed": False,
+                    }
+                    result = trader.buy_market(
+                        latest_price_live,
+                        params.upbit_ticker,
+                        ts=latest_index_live,
+                        meta=meta
+                    )
+                    if result:
+                        logger.info(f"✅ BUY 체결 완료({passed}) {result}")
+                        q.put((latest_index_live, "BUY", result["qty"], result["price"], cross_e, macd_e, signal_e))
+                        in_position = True
+                        entry_price = result["price"]
+                else:
+                    # 포지션 있으면 SELL만 허용
+                    if etype != "SELL":
+                        logger.info("⛔ 포지션 있음 → BUY 무시")
+                        logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
+                        continue
 
-                    coin_balance = trader._coin_balance(params.upbit_ticker)
-                    logger.info(f"📊 현재 잔고: {coin_balance:.8f}")
+                    if not check_sell_conditions(evt, trade_conditions.get("sell", {})):
+                        logger.info(f"⛔ SELL 조건 미충족({cross_e}) → 차단 | evt={evt}")
+                        logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
+                        continue
 
-                    # BUY
-                    if etype == "BUY" and coin_balance < 1e-6:
-                        ok, passed = check_buy_conditions(evt, df_bt, trade_conditions.get("buy", {}), params.macd_threshold)
-                        if not ok:
-                            logger.info(f"⛔ BUY 조건 미충족({passed}) → 차단")
-                            continue
-
-                        meta = {
-                            "interval": params.interval,
-                            "bar": ebar,
-                            "reason": evt.get("reason", ""),
-                            "macd": evt.get("macd"),
-                            "signal": evt.get("signal"),
-                            "entry_price": None,       # BUY 직전엔 없음
-                            "entry_bar": ebar,
-                            "bars_held": 0,
-                            "tp": None,
-                            "sl": None,
-                            "highest": None,
-                            "ts_pct": getattr(params, "trailing_stop_pct", None),
-                            "ts_armed": False,
-                        }
-                        result = trader.buy_market(
-                            latest_price_live,
-                            params.upbit_ticker,
-                            ts=latest_index_live,
-                            meta=meta
-                        )
-                        if result:
-                            logger.info(f"✅ BUY 체결 완료({passed}) {result}")
-                            q.put((latest_index_live, "BUY", result["qty"], result["price"], cross_e, macd_e, signal_e))
-                            in_position = True
-                            entry_price = result["price"]
-                    # SELL
-                    elif etype == "SELL" and coin_balance >= 1e-6:
-                        if not check_sell_conditions(evt, trade_conditions.get("sell", {})):
-                            logger.info(f"⛔ SELL 조건 미충족({cross_e}) → 차단 | evt={evt}")
-                            continue
-
-                        meta = {
-                            "interval": params.interval,
-                            "bar": ebar,
-                            "reason": evt.get("reason", ""),
-                            "macd": evt.get("macd"),
-                            "signal": evt.get("signal"),
-                            "entry_price": entry_price,
-                            "entry_bar": ebar,                # 없으면 0
-                            "bars_held": evt.get("bars_held", 0),
-                            "tp": evt.get("tp"),
-                            "sl": evt.get("sl"),
-                            "highest": evt.get("highest"),
-                            "ts_pct": evt.get("ts_pct"),
-                            "ts_armed": evt.get("ts_armed"),
-                        }
-                        result = trader.sell_market(
-                            coin_balance,
-                            params.upbit_ticker,
-                            latest_price_live,
-                            ts=latest_index_live,
-                            meta=meta
-                        )
-                        if result:
-                            logger.info(f"✅ SELL 체결 완료({cross_e}) {result}")
-                            q.put((latest_index_live, "SELL", result["qty"], result["price"], cross_e, macd_e, signal_e))
-                            in_position = False
-                            entry_price = None
+                    meta = {
+                        "interval": params.interval,
+                        "bar": ebar,
+                        "reason": evt.get("reason", ""),
+                        "macd": evt.get("macd"),
+                        "signal": evt.get("signal"),
+                        "entry_price": entry_price,
+                        "entry_bar": ebar,                # 없으면 0
+                        "bars_held": evt.get("bars_held", 0),
+                        "tp": evt.get("tp"),
+                        "sl": evt.get("sl"),
+                        "highest": evt.get("highest"),
+                        "ts_pct": evt.get("ts_pct"),
+                        "ts_armed": evt.get("ts_armed"),
+                    }
+                    result = trader.sell_market(
+                        coin_balance,
+                        params.upbit_ticker,
+                        latest_price_live,
+                        ts=latest_index_live,
+                        meta=meta
+                    )
+                    if result:
+                        logger.info(f"✅ SELL 체결 완료({cross_e}) {result}")
+                        q.put((latest_index_live, "SELL", result["qty"], result["price"], cross_e, macd_e, signal_e))
+                        in_position = False
+                        entry_price = None
 
                 logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
     except Exception:

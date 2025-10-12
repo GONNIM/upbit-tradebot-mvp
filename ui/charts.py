@@ -133,7 +133,7 @@ def macd_altair_chart(
         layers.append(price_layer)
 
     # 아랫패널: MACD/Signal + 히스토그램
-    macd_line = base.mark_line(strokeWidth=1, color="white").encode(y=alt.Y("MACD:Q", title="MACD / Signal"))
+    macd_line = base.mark_line(strokeWidth=1, color="black").encode(y=alt.Y("MACD:Q", title="MACD / Signal"))
     signal_line = base.mark_line(strokeWidth=1, color="red").encode(y="Signal:Q")
     hist = base.mark_bar().encode(
         y="Hist:Q",
@@ -150,6 +150,7 @@ def macd_altair_chart(
     layers.append(macd_panel)
 
     chart = alt.vconcat(*layers).resolve_scale(x="shared")
+    chart = chart.properties(background="white").configure(background="white").configure_view(stroke=None)
     st.altair_chart(chart.interactive(), use_container_width=use_container_width)
 
 def macd_mpl_chart(
