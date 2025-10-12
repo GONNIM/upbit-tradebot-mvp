@@ -7,8 +7,9 @@ from core.data_feed import stream_candles
 from core.trader import UpbitTrader
 from engine.params import LiveParams
 from backtesting import Backtest
-from services.db import insert_trade_audit, get_last_open_buy_order
+from services.db import get_last_open_buy_order, insert_buy_eval
 from config import TP_WITH_TS
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -358,6 +359,30 @@ def run_live_loop(
                         q.put((latest_index_live, "BUY", result["qty"], result["price"], cross_e, macd_e, signal_e))
                         in_position = True
                         entry_price = result["price"]
+
+                        # === 체결 직후 BUY 평가 스냅샷 남기기 (리포트 1:1 매칭용) ===
+                        try:
+                            insert_buy_eval(
+                                user_id=user_id,
+                                ticker=params.upbit_ticker,
+                                interval_sec=getattr(params, "interval_sec", 60),
+                                bar=latest_bar_bt,                       # 이번 루프에서의 평가 기준 bar
+                                price=float(result["price"]),            # 실제 체결가
+                                macd=float(macd_e) if macd_e is not None else None,
+                                signal=float(signal_e) if signal_e is not None else None,
+                                have_position=False,
+                                overall_ok=True,                         # 체결됐으니 평가 OK로 마킹
+                                failed_keys=[],
+                                checks={"reason": cross_e},
+                                # 스키마 변경 없이 링크키 보관(ts_live, bar_bt)
+                                notes=f"EXECUTED ts_live={latest_index_live} bar_bt={latest_bar_bt}"
+                            )
+                            logger.info(
+                                f"[AUDIT-LINK] BUY EXEC snap | ts_live={latest_index_live} "
+                                f"bar_bt={latest_bar_bt} price={float(result['price']):.6f}"
+                            )
+                        except Exception as e:
+                            logger.warning(f"[AUDIT-LINK] insert_buy_eval (EXECUTED) failed: {e}")
                 else:
                     # 포지션 있으면 SELL만 허용
                     if etype != "SELL":

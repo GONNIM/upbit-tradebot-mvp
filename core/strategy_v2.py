@@ -422,7 +422,7 @@ class MACDStrategy(Strategy):
                                 macd=state["macd"], signal=state["signal"],
                                 have_position=True, overall_ok=False,
                                 failed_keys=[], checks={"note":"blocked_by_position"},
-                                notes="BUY_SKIP_POS"
+                                notes="BUY_SKIP_POS" + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
                             )
                             self._last_skippos_audit_bar = state["bar"]
                             # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} note=BUY_SKIP_POS")
@@ -448,7 +448,7 @@ class MACDStrategy(Strategy):
                     bar=state["bar"], price=state["price"], macd=state["macd"], signal=state["signal"],
                     have_position=False, overall_ok=overall_ok,
                     failed_keys=failed_keys, checks=report,
-                    notes=("OK" if overall_ok else "FAILED")
+                    notes=("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
                 )
                 self._last_buy_audit_bar = state["bar"]
                 # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
