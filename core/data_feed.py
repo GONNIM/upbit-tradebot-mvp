@@ -9,6 +9,8 @@ import psutil
 import os
 from datetime import datetime, timedelta
 
+from zoneinfo import ZoneInfo
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +24,14 @@ _IV_MIN = {
 def _iv_min(interval: str) -> int:
     return _IV_MIN.get(interval, 10)
 
+# v1.2025.10.18.2031
 def _now_kst_naive() -> datetime:
-    # KST 타임존 시각을 tz-naive로 반환 (벽시계)
-    # 시스템이 KST가 아니라도, 'KST로 동작'한다고 가정할 때 적절
-    # (진짜 KST 변환이 필요하면 pytz/zoneinfo로 변환 후 tz 제거)
-    n = datetime.now()
-    return n.replace(second=0, microsecond=0)
+    """
+    ✅ 시스템 로컬타임(UTC 등)에 의존하지 않고 KST 시각을 tz-aware로 만든 뒤 tz 제거.
+    - 모든 바 경계 계산을 'KST-naive'로 통일하기 위함.
+    """
+    kst_now = datetime.now(tz=ZoneInfo("Asia/Seoul"))
+    return kst_now.replace(second=0, microsecond=0).replace(tzinfo=None)
 
 def _floor_boundary(dt: datetime, interval: str) -> datetime:
     if interval == "day":
@@ -111,9 +115,12 @@ def stream_candles(
         idx = pd.to_datetime(df.index)
         try:
             if getattr(idx, "tz", None) is not None:
-                # 서버/로컬 차이를 없애기 위해 KST로 통일 후 naive로 변환
-                idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
+                # tz-naive라면 UTC로 간주 후 로컬라이즈
+                idx = idx.tz_localize("UTC")
+            # KST로 변환 후 tz 제거하여 전체 파이프라인을 'KST-naive'로 통일
+            idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
         except Exception:
+            # 예외 시에도 최소 정렬/중복 제거는 수행
             pass
 
         df.index = idx
@@ -198,14 +205,18 @@ def stream_candles(
         old_df = df
         # 중복/정렬은 _optimize_dataframe_memory 내부에서 처리되지만
         # 혹시 남은 중복에 대해 최신 값 우선으로 한 번 더 보정
-        df = _optimize_dataframe_memory(df, new, max_length).loc[~_optimize_dataframe_memory(df, new, max_length).index.duplicated(keep="last")].sort_index()
+        # df = _optimize_dataframe_memory(df, new, max_length).loc[~_optimize_dataframe_memory(df, new, max_length).index.duplicated(keep="last")].sort_index()
+        # ✅ 한 번만 계산한 결과를 재사용하여 중복 호출/레이스 위험 제거
+        tmp = _optimize_dataframe_memory(df, new, max_length)
+        df = tmp.loc[~tmp.index.duplicated(keep="last")].sort_index()
         del old_df
 
         last_open = df.index[-1]
         # 사용자 혼란 방지용 동기화 로그 (bar_open / bar_close 명시)
         if q:
             last_close = last_open + timedelta(minutes=iv)
-            run_at = datetime.now()
+            # run_at = datetime.now()
+            run_at = _now_kst_naive()  # ✅ KST-naive로 기록 통일
             q.put((
                 time.time(),
                 "LOG",
@@ -236,18 +247,25 @@ _INTERVAL_MAP = {
     "week": "week",
 }
 
+# get_ohlcv_once() 주석 및 인덱스 정규화 수정
 def get_ohlcv_once(ticker: str, interval_code: str, count: int = 500) -> pd.DataFrame:
     """
     대시보드용 원샷 OHLCV.
-    반환: columns = [Open, High, Low, Close, Volume], DatetimeIndex(UTC 기준으로 tz-aware)
+    ✅ 반환: columns = [Open, High, Low, Close, Volume], DatetimeIndex = 'KST-naive' (stream과 동일 기준)
     """
     interval = _INTERVAL_MAP.get(interval_code, "minute1")
     df = pyupbit.get_ohlcv(ticker=ticker, interval=interval, count=count)
     if df is None or df.empty:
         return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
-    # pyupbit는 보통 tz-naive → UTC로 가정 후 tz-aware로 변환
-    if isinstance(df.index, pd.DatetimeIndex) and df.index.tz is None:
-        df.index = df.index.tz_localize("UTC")
+
+    # pyupbit 인덱스가 tz-naive(=UTC)일 가능성 높음 → KST-naive로 통일
+    if isinstance(df.index, pd.DatetimeIndex):
+        idx = pd.to_datetime(df.index)
+        if getattr(idx, "tz", None) is None:
+            idx = idx.tz_localize("UTC")
+        idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
+        df.index = idx
+
     return df[["open","high","low","close","volume"]].rename(
         columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}
     )
