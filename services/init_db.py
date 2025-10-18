@@ -2,8 +2,11 @@ import sqlite3
 import os
 
 
-APP_ROOT = os.path.abspath(os.getcwd())
-DB_DIR = os.path.join(APP_ROOT, "data")
+# 모듈 파일 기준으로 고정 (CWD 변동 영향 제거)
+from pathlib import Path
+APP_ROOT = Path(__file__).resolve().parent  # services.init_db.py 파일이 있는 폴더
+DB_DIR = (APP_ROOT / "data").as_posix()
+
 
 os.makedirs(DB_DIR, exist_ok=True)
 
@@ -11,8 +14,9 @@ DB_PREFIX = "tradebot"
 
 
 def get_db_path(user_id):
-    # return f"{DB_PREFIX}_{user_id}.db"
-    return os.path.join(DB_DIR, f"{DB_PREFIX}_{user_id}.db")
+    path = os.path.join(DB_DIR, f"{DB_PREFIX}_{user_id}.db")
+    # print(f"[DBPATH] resolved={os.path.abspath(path)}")  # 진단 로그
+    return path
 
 
 # def init_db_if_needed(user_id):
@@ -23,18 +27,43 @@ def init_db_if_needed(user_id):
     db_path = get_db_path(user_id)
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
-    if not os.path.exists(db_path):
-        print(f"✅ initialize_db : {db_path}")
-    else:
-        print(f"ℹ️ DB exists: {db_path}")
+    # if not os.path.exists(db_path):
+    #     print(f"✅ initialize_db : {db_path}")
+    # else:
+    #     print(f"ℹ️ DB exists: {db_path}")
 
     # ✅ 신규/기존 구분 없이, 항상 코어 테이블 + 감사 테이블 보강
     ensure_core_tables(user_id)
     add_audit_tables(user_id)
-    print(f"✅ Schema ensured: {db_path}")
+    # print(f"✅ Schema ensured: {db_path}")
 
 
 def reset_db(user_id):
+    db_path = get_db_path(user_id)
+
+    # 엔진/스레드 정지는 기존 로직 유지
+    # 1) 체크포인트
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        conn.close()
+    except Exception:
+        pass
+
+    # [FIX] DB 파일 자체 삭제 (WAL/SHM 포함)
+    for f in (db_path, f"{db_path}-wal", f"{db_path}-shm"):
+        try:
+            if os.path.exists(f):
+                os.remove(f)
+                print(f"🧹 removed: {f}")
+        except Exception as e:
+            print(f"⚠️ remove failed({f}): {e}")
+
+    # [FIX] 깨끗한 새 파일로 스키마 생성
+    initialize_db(user_id)
+
+
+def reset_db_before(user_id):
     """
     기존 DB를 '완전 초기화'하고 스키마를 재생성한다.
     - 코어 테이블 + 감사 테이블(audit_*) 모두 DROP
@@ -44,19 +73,34 @@ def reset_db(user_id):
     """
     db_path = get_db_path(user_id)
 
-    # 1) 모두 드랍 (코어 + 감사 테이블)
+    # 열려있는 커넥션이 있으면 WAL 체크포인트가 안 돼서 잔여가 남을 수 있음
+    # 가능하면 여기 오기 전 engine/thread를 반드시 중지(이미 호출함).
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+        conn.commit()
+    finally:
+        conn.close()
+
+    # 실제 존재하는 테이블만 동적으로 DROP (이름 불일치 문제 해결)
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
-    tables_to_drop = [
+    # 드롭 후보: core + 감사(audit_* + 구(비프리픽스) 이름들)
+    drop_candidates = {
         # core
-        "users", "orders", "logs", "accounts", "account_positions",
-        "account_history", "position_history", "engine_status", "thread_status",
-        # audits
-        "audit_buy_eval", "audit_trades", "audit_settings", "audit_sell_eval",
-    ]
+        "users", "orders", "logs", "accounts", "account_history",
+        "account_positions", "position_history", "engine_status", "thread_status",
+        # audit (신/구 혼용 모두)
+        "audit_buy_eval", "audit_sell_eval", "audit_trades", "audit_settings",
+        "buy_eval", "sell_eval", "trades", "settings",
+    }
 
-    for t in tables_to_drop:
+    # 실제 존재 테이블 목록 수집
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    existing = {r[0] for r in cur.fetchall()}
+
+    for t in (drop_candidates & existing):
         try:
             cur.execute(f"DROP TABLE IF EXISTS {t};")
         except Exception as e:
@@ -65,7 +109,7 @@ def reset_db(user_id):
     conn.commit()
     conn.close()
 
-    # 2) WAL/SHM 잔여 파일 정리 (WAL 모드 사용 시 파일 남을 수 있음)
+    # WAL/SHM 잔여 파일 정리
     wal = f"{db_path}-wal"
     shm = f"{db_path}-shm"
     for f in (wal, shm):
@@ -76,7 +120,7 @@ def reset_db(user_id):
         except Exception as e:
             print(f"⚠️ remove failed({f}): {e}")
 
-    # 3) VACUUM으로 파일 축소 (빈 스키마에서 한 번 더 청소)
+    # VACUUM은 모든 연결이 닫힌 뒤 수행
     try:
         conn = sqlite3.connect(db_path)
         conn.execute("VACUUM;")
@@ -85,7 +129,7 @@ def reset_db(user_id):
     except Exception as e:
         print(f"⚠️ VACUUM failed: {e}")
 
-    # 4) 스키마 재생성 (코어 + 감사 테이블)
+    # 스키마 재생성 (코어 + 감사 테이블)
     initialize_db(user_id)
 
 
@@ -317,7 +361,7 @@ def add_audit_tables(user_id):
 
     conn.commit()
     conn.close()
-    print(f"✅ Audit tables ready: {get_db_path(user_id)}")
+    # print(f"✅ Audit tables ready: {get_db_path(user_id)}")
 
 
 def _connect(user_id):

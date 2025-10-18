@@ -50,3 +50,9 @@ ABOVE_MA_60_ENABLED = False
 AUDIT_LOG_SKIP_POS = False        # ← 기본 False: BUY_SKIP_POS는 DB에 남기지 않음
 AUDIT_SKIP_POS_SAMPLE_N = 0       # 0이면 샘플링 안함(=완전 비활성), n>0이면 n bar마다 1회
 AUDIT_DEDUP_PER_BAR = True        # 같은 bar 중복 적재 방지
+
+# 감사 로그 튜닝 파라미터
+AUDIT_BUY_SAMPLE_N = 60          # 동일 상태가 지속되어도 N bar마다 1회 기록
+AUDIT_BUY_COOLDOWN_BARS = 15     # 동일 상태에서 최소 대기 bar 수
+AUDIT_SELL_SAMPLE_N = 60         # (SELL 평가 샘플링 간격; 필요 시)
+AUDIT_SELL_COOLDOWN_BARS = 10    # SELL 평가 쿨다운

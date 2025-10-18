@@ -25,9 +25,6 @@ if virtual_krw < MIN_CASH:
 
 # 시스템 초기화 함수
 def initialize_confirm():
-    # for uid in engine_manager.get_active_user_ids():
-    #     engine_manager.stop_engine(uid)  # ✅ 정상 종료 처리
-    #     insert_log(uid, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
     if engine_manager.is_running(user_id):
         engine_manager.stop_engine(user_id)
         insert_log(user_id, "INFO", "🛑 시스템 초기화로 엔진 종료됨")

@@ -392,13 +392,18 @@ def update_account(user_id, virtual_krw):
 def get_coin_balance(user_id, ticker):
     with get_db(user_id) as conn:
         cursor = conn.cursor()
+        # 'WLFI'로 오더가 와도 'KRW-WLFI' 행을 집계할 수 있게 심볼/마켓코드 모두 조회
+        sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
+        mkt = f"KRW-{sym}"
+
         cursor.execute(
             """
-            SELECT virtual_coin
+            SELECT COALESCE(SUM(virtual_coin), 0.0)
             FROM account_positions
-            WHERE user_id = ? AND ticker = ?
+            WHERE user_id = ?
+            AND UPPER(ticker) IN (?, ?)
         """,
-            (user_id, ticker),
+            (user_id, sym, mkt),
         )
         row = cursor.fetchone()
         return row[0] if row else 0.0

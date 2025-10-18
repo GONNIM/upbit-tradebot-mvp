@@ -475,7 +475,8 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
         t_time, t_ticker, t_side, t_price = trade_row[0], trade_row[1], trade_row[2], trade_row[3]
         return {
             "source": "TRADE",
-            "시간": _fmt_dt(_parse_dt(t_time)),
+            # "시간": _fmt_dt(_parse_dt(t_time)),
+            "시간": (t_time.tz_localize(None) if getattr(t_time, "tz", None) is not None else t_time).strftime("%Y-%m-%d %H:%M:%S"),
             "Ticker": t_ticker,
             "Price": f"{float(t_price):.2f}",
             "Cross": "(Filled)",
@@ -486,7 +487,8 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
     else:
         return {
             "source": "LOG",
-            "시간": _fmt_dt(log_dt),
+            # "시간": _fmt_dt(log_dt),
+            "시간": (log_dt.tz_localize(None) if getattr(log_dt, "tz", None) is not None else log_dt).strftime("%Y-%m-%d %H:%M:%S"),
             "Ticker": log_row.get("Ticker"),
             "Price": log_row.get("price"),
             "Cross": log_row.get("cross"),

@@ -42,6 +42,21 @@ class MACDStrategy(Strategy):
     ignore_db_gate = False
     ignore_wallet_gate = False
 
+    _seen_buy_audits = set()
+    _seen_sell_audits = set()
+
+    # =========================
+    # 업비트 티커 정규화 유틸 추가
+    #  - "KRW-WLFI" → "WLFI" 로 변환하여 월렛 조회 훅에 전달
+    #  - 지갑 보유를 정확히 감지하지 못해 BUY 평가가 계속 도는 문제 방지
+    # =========================
+    @staticmethod
+    def _norm_ticker(ticker: str) -> str:
+        try:
+            return (ticker or "").split("-")[-1].strip().upper()
+        except Exception:
+            return ticker
+
     def init(self):
         logger.info("MACDStrategy init")
         logger.info(f"[BOOT] strategy_file={os.path.abspath(inspect.getfile(self.__class__))}")
@@ -74,6 +89,9 @@ class MACDStrategy(Strategy):
         self._last_skippos_audit_bar = None
         self._last_sell_sig = None
         self._sell_sample_n = 60
+        self._boot_start_bar = len(self.data) - 1
+        self._last_buy_sig = None      # BUY 상태 시그니처(변화 감지용)
+        self._buy_sample_n = 60        # 샘플링 주기(원하면 0/None으로 끔)
 
         MACDStrategy.log_events = []
         MACDStrategy.trade_events = []
@@ -233,7 +251,8 @@ class MACDStrategy(Strategy):
             if sz == 0 and self.entry_price is not None:
                 has_wallet_pos = None
                 if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
-                    has_wallet_pos = bool(self.has_wallet_position(self.ticker))
+                    # 월렛 훅 호출 시 티커 정규화
+                    has_wallet_pos = bool(self.has_wallet_position(self._norm_ticker(self.ticker)))
                 if has_wallet_pos is None or has_wallet_pos is False:
                     logger.warning("🧹 고아 엔트리 정리: 포지션/지갑에 보유 없음 → entry 리셋")
                     self._reset_entry()
@@ -384,15 +403,16 @@ class MACDStrategy(Strategy):
         wallet_open = None
         if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
             try:
-                wallet_open = bool(self.has_wallet_position(ticker))
+                # 월렛 훅 호출 시 정규화된 티커 사용
+                wallet_open = bool(self.has_wallet_position(self._norm_ticker(ticker)))
             except Exception:
                 wallet_open = None      
 
         hist_flat = self._is_flat_by_history()  # True/False/None
 
         # --- 2) 보유 차단 여부 결정 ---
-        # 기본은 엔진 판단(inpos). 참고 신호는 '보유 아님'이면 차단을 풀어주는 용도로만 사용.
-        blocked = inpos
+        # 지갑이 보유(True)면 BUY 평가를 확실히 차단하도록 반영
+        blocked = inpos or (False if self.ignore_wallet_gate else bool(wallet_open)) or (False if self.ignore_db_gate else bool(db_open))
 
         state = self._current_state()
         # logger.info(
@@ -433,27 +453,63 @@ class MACDStrategy(Strategy):
 
         # 정상 BUY 평가/체결
         state = self._current_state()
+        # ✅ 부팅 재생 바 스킵
+        if state["bar"] < getattr(self, "_boot_start_bar", 0):
+            return
+        
         buy_cond = self.conditions.get("buy", {})
         report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
 
+        # BUY 조건이 하나도 켜져 있지 않으면 감사기록 자체를 생략 (노이즈 컷)
+        if len(enabled_keys) == 0:
+            return
+
+        # ✅ 프로세스 내 동일 바 dedup
+        key = (self.user_id, ticker, getattr(self,"interval_sec",60), state["bar"])
+        if key in MACDStrategy._seen_buy_audits:
+            return
+        
+        # ✅ BUY 상태 서명: 활성 조건들의 pass 맵 + 크로스 상태만 사용(숫자값 제외)
+        import hashlib
+        pass_map = {k: 1 if report.get(k, {}).get("pass", 0) == 1 else 0 for k in enabled_keys}
+        buy_sig = hashlib.md5(json.dumps({
+            "pass_map": pass_map,
+            "golden_pending": bool(self.golden_cross_pending),
+            "last_cross": self.last_cross_type,
+        }, sort_keys=True, default=str).encode()).hexdigest()
+
+        # ✅ 상태변화면 즉시 기록, 그 외엔 N-바마다 1회만 기록
+        should_insert = False
+        if (self._last_buy_sig is None) or (buy_sig != self._last_buy_sig):
+            should_insert = True
+        elif self._buy_sample_n and (state["bar"] % self._buy_sample_n == 0):
+            should_insert = True
+            
         # 감사 적재(바 중복 방지)
         if AUDIT_DEDUP_PER_BAR and self._last_buy_audit_bar == state["bar"]:
             logger.info(f"[AUDIT-BUY] DUP SKIP | bar={state['bar']}")
         else:
-            try:
-                insert_buy_eval(
-                    user_id=self.user_id,
-                    ticker=ticker,
-                    interval_sec=getattr(self,"interval_sec",60),
-                    bar=state["bar"], price=state["price"], macd=state["macd"], signal=state["signal"],
-                    have_position=False, overall_ok=overall_ok,
-                    failed_keys=failed_keys, checks=report,
-                    notes=("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
-                )
-                self._last_buy_audit_bar = state["bar"]
-                # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
-            except Exception as e:
-                logger.error(f"[AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
+            if should_insert:
+                try:
+                    insert_buy_eval(
+                        user_id=self.user_id,
+                        ticker=ticker,
+                        interval_sec=getattr(self,"interval_sec",60),
+                        bar=state["bar"],
+                        price=state["price"],
+                        macd=state["macd"],
+                        signal=state["signal"],
+                        have_position=False,
+                        overall_ok=overall_ok,
+                        failed_keys=failed_keys,
+                        checks=report,
+                        notes=("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
+                    )
+                    MACDStrategy._seen_buy_audits.add(key)
+                    self._last_buy_audit_bar = state["bar"]
+                    # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
+                except Exception as e:
+                    logger.error(f"[AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
 
         if not overall_ok:
             # if failed_keys:
@@ -489,18 +545,39 @@ class MACDStrategy(Strategy):
 
     def _evaluate_sell(self):
         ticker = getattr(self, "ticker", "UNKNOWN")
-        # if not self.position:
-        #     return
         if not self.position:
             try:
                 if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
-                    if not self.has_wallet_position(ticker):
+                    # 월렛 훅 호출 시 정규화된 티커 사용 (보유 시 SELL 평가가 돌도록)
+                    if not self.has_wallet_position(self._norm_ticker(ticker)):
                         return
             except Exception:
                 return
 
         state = self._current_state()
+        if state["bar"] < getattr(self, "_boot_start_bar", 0):
+            return
+        
         sell_cond = self.conditions.get("sell", {})
+
+        # =========================
+        # 엔트리 하이드레이션:
+        #  - 월렛/DB로 보유가 확인되었는데 entry_price가 None이면
+        #    엔진이 넘겨준 훅(get_wallet_entry_price)으로 복구
+        # =========================
+        if self.entry_price is None:
+            try:
+                if hasattr(self, "get_wallet_entry_price") and callable(self.get_wallet_entry_price):
+                    ep = self.get_wallet_entry_price(self._norm_ticker(ticker))
+                    if ep is None:
+                        ep = self.get_wallet_entry_price(ticker)
+                    if ep is not None:
+                        self.entry_price = float(ep)
+                        # bars_held 계산을 위해 최소한의 entry_bar 세팅
+                        if self.entry_bar is None:
+                            self.entry_bar = state["bar"]
+            except Exception:
+                logger.debug(f"[SELL] entry hydrate skipped: {e}")
 
         if self.entry_price is None:
             logger.debug("entry_price is None. Jump TP / SL Calculation.")  # ← 경고→디버그로 완화
@@ -592,6 +669,18 @@ class MACDStrategy(Strategy):
             elif self._sell_sample_n and (state["bar"] % self._sell_sample_n == 0):
                 should_insert = True
 
+        # --- SELL 감사 적재 직전 ---
+        audit_key = (
+            self.user_id,
+            getattr(self, "ticker", "UNKNOWN"),
+            getattr(self, "interval_sec", 60),
+            state["bar"],
+            sig,  # 상태 해시 사용(권장). 단순 바만 쓰려면 sig를 빼면 됨.
+        )
+
+        if audit_key in MACDStrategy._seen_sell_audits:
+            should_insert = False  # 이미 같은 상태를 같은 바에서 기록했음 → 스킵
+            
         if should_insert:
             try:
                 insert_sell_eval(
@@ -608,6 +697,7 @@ class MACDStrategy(Strategy):
                     trigger_key=trigger_key,
                     notes=""
                 )
+                MACDStrategy._seen_sell_audits.add(audit_key)
                 self._last_sell_sig = sig
                 logger.info(f"[AUDIT-SELL] inserted | uid={getattr(self,'user_id',None)} bar={state['bar']} trigger={trigger_key}")
             except Exception as e:

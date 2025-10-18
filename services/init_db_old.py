@@ -23,15 +23,15 @@ def init_db_if_needed(user_id):
     db_path = get_db_path(user_id)
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
-    if not os.path.exists(db_path):
-        print(f"✅ initialize_db : {db_path}")
-    else:
-        print(f"ℹ️ DB exists: {db_path}")
+    # if not os.path.exists(db_path):
+    #     print(f"✅ initialize_db : {db_path}")
+    # else:
+    #     print(f"ℹ️ DB exists: {db_path}")
 
     # ✅ 신규/기존 구분 없이, 항상 코어 테이블 + 감사 테이블 보강
     ensure_core_tables(user_id)
     add_audit_tables(user_id)
-    print(f"✅ Schema ensured: {db_path}")
+    # print(f"✅ Schema ensured: {db_path}")
 
 
 def reset_db(user_id):
@@ -285,7 +285,7 @@ def add_audit_tables(user_id):
 
     conn.commit()
     conn.close()
-    print(f"✅ Audit tables ready: {get_db_path(user_id)}")
+    # print(f"✅ Audit tables ready: {get_db_path(user_id)}")
 
 
 def _connect(user_id):

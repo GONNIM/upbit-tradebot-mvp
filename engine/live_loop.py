@@ -98,6 +98,30 @@ def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[float]:
         return None
 
 
+# =========================
+# 잔고 조회 정규화 유틸
+#  - Upbit 잔고 키가 'KRW-WLFI'가 아니라 'WLFI'로 관리되는 경우를 처리
+#  - 포지션 감지 오류(in_position=False로 오판) 방지
+# =========================
+def _normalize_asset(ticker: str) -> str:
+    return ticker.split("-")[-1].strip().upper() if ticker else ticker
+
+
+def _wallet_has_position(trader: UpbitTrader, ticker: str) -> bool:
+    sym = _normalize_asset(ticker)
+    try:
+        return trader._coin_balance(sym) >= 1e-6
+    except Exception:
+        return False
+    
+def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
+    sym = _normalize_asset(ticker)
+    try:
+        return float(trader._coin_balance(sym))
+    except Exception:
+        return 0.0
+    
+
 # --- 포지션 감지 & 엔트리 시드 유틸 ---
 def detect_position_and_seed_entry(
     trader: UpbitTrader,
@@ -110,7 +134,7 @@ def detect_position_and_seed_entry(
     - in_position: 잔고(코인) > 0 이면 True
     - entry_price: 없으면 get_last_open_buy_order()로 복구
     """
-    bal = trader._coin_balance(ticker)
+    bal = _wallet_balance(trader, ticker)
     inpos = bal >= 1e-6
 
     if inpos and entry_price is None:
@@ -141,15 +165,18 @@ def run_live_loop(
     add_script_run_ctx(threading.current_thread())
 
     trade_conditions = load_trade_conditions(user_id)
-    in_position: bool = False
+    # =========================
+    # 시작 in_position 판정은 "지갑 기준"으로만
+    #  - DB 시드만으로 in_position=True로 시작하던 문제 제거
+    # =========================
+    in_position: bool = _wallet_has_position(trader, params.upbit_ticker)
     entry_price: Optional[float] = None
     # 신규 이벤트 중복 전송 방지 (bar, type)
     seen_signals = set()
 
-    # ⛳️ 1) 시작 시 무조건 DB 시드 시도 (잔고 여부와 무관하게)
-    entry_price = _seed_entry_price_from_db(params.upbit_ticker, user_id)
-    if entry_price is not None:
-        in_position = True
+    # 지갑에 포지션이 있을 때만 DB에서 엔트리 가격 보조 시드
+    if in_position:
+        entry_price = _seed_entry_price_from_db(params.upbit_ticker, user_id)
 
     # 전략 클래스 생성 (훅 포함)
     strategy_cls = type(
@@ -168,7 +195,8 @@ def run_live_loop(
             "signal_confirm_enabled": params.signal_confirm_enabled,
             "user_id": user_id,
             "ticker": params.upbit_ticker,
-            "has_wallet_position": staticmethod(lambda t: trader._coin_balance(t) >= 1e-6),
+            # 포지션 감지 훅도 정규화 기반으로 일원화
+            "has_wallet_position": staticmethod(lambda t: _wallet_has_position(trader, t)),
             # (ticker, user_id) 시그니처 그대로, float 또는 None 반환
             "get_wallet_entry_price": staticmethod(lambda t: (get_last_open_buy_order(t, user_id) or {}).get("price")),
         },
@@ -231,7 +259,7 @@ def run_live_loop(
                 # 월렛 가드: SL/TP 즉시 매도
                 # -----------------------------
                 try:
-                    coin_balance_live = trader._coin_balance(params.upbit_ticker)
+                    coin_balance_live = _wallet_balance(trader, params.upbit_ticker)
                     logger.info(f"[WG] balance={coin_balance_live} entry_price={entry_price}")
                     if coin_balance_live >= 1e-6 and (entry_price is not None):
                         sell_cond = trade_conditions.get("sell", {})
@@ -317,7 +345,7 @@ def run_live_loop(
                 macd_e = evt.get("macd")
                 signal_e = evt.get("signal")
 
-                coin_balance = trader._coin_balance(params.upbit_ticker)
+                coin_balance = _wallet_balance(trader, params.upbit_ticker)
                 logger.info(f"📊 현재 잔고: {coin_balance:.8f}")
 
                 if not in_position:
@@ -370,10 +398,10 @@ def run_live_loop(
                                 price=float(result["price"]),            # 실제 체결가
                                 macd=float(macd_e) if macd_e is not None else None,
                                 signal=float(signal_e) if signal_e is not None else None,
-                                have_position=False,
+                                have_position=True,
                                 overall_ok=True,                         # 체결됐으니 평가 OK로 마킹
                                 failed_keys=[],
-                                checks={"reason": cross_e},
+                                checks={"reason": cross_e, "snapshot": "BUY_EXECUTED"},
                                 # 스키마 변경 없이 링크키 보관(ts_live, bar_bt)
                                 notes=f"EXECUTED ts_live={latest_index_live} bar_bt={latest_bar_bt}"
                             )
