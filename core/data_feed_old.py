@@ -26,8 +26,7 @@ def _now_kst_naive() -> datetime:
     # KST 타임존 시각을 tz-naive로 반환 (벽시계)
     # 시스템이 KST가 아니라도, 'KST로 동작'한다고 가정할 때 적절
     # (진짜 KST 변환이 필요하면 pytz/zoneinfo로 변환 후 tz 제거)
-    n = datetime.now()
-    return n.replace(second=0, microsecond=0)
+    return datetime.now().replace(second=datetime.now().second, microsecond=0)
 
 def _floor_boundary(dt: datetime, interval: str) -> datetime:
     if interval == "day":
@@ -106,19 +105,16 @@ def stream_candles(
         df = df.rename(columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"})
         if "value" in df.columns:
             df = df.drop(columns=["value"])
-
-        # 인덱스 tz 정규화: tz-aware면 Asia/Seoul로 변환 후 tz 제거(naive)
+        # tz-aware가 오면 tz 제거하여 naive로 일관
         idx = pd.to_datetime(df.index)
         try:
+            # pandas >=2: DatetimeIndex.tz is property
             if getattr(idx, "tz", None) is not None:
-                # 서버/로컬 차이를 없애기 위해 KST로 통일 후 naive로 변환
-                idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
+                idx = idx.tz_convert(None)
         except Exception:
             pass
-
         df.index = idx
-        # 최신 값 우선으로 중복 제거 + 정렬
-        return df.dropna().sort_index().loc[~df.index.duplicated(keep="last")]
+        return df.dropna().sort_index()
 
     # ---- 초기 로드: 막 닫힌 경계까지 ----
     base_delay = retry_wait
@@ -196,9 +192,7 @@ def stream_candles(
             continue
 
         old_df = df
-        # 중복/정렬은 _optimize_dataframe_memory 내부에서 처리되지만
-        # 혹시 남은 중복에 대해 최신 값 우선으로 한 번 더 보정
-        df = _optimize_dataframe_memory(df, new, max_length).loc[~_optimize_dataframe_memory(df, new, max_length).index.duplicated(keep="last")].sort_index()
+        df = _optimize_dataframe_memory(df, new, max_length)
         del old_df
 
         last_open = df.index[-1]

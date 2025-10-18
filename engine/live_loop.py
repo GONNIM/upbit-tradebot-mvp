@@ -27,43 +27,76 @@ def load_trade_conditions(user_id: str):
         return json.load(f)
 
 
-def check_buy_conditions(evt, df, conds, threshold: float):
+def check_buy_conditions(evt, df, conds, threshold: float, macd_ref=None, signal_ref=None):
     def safe(col):
         # 길이 체크 버그 수정
         return df[col].iloc[-2] if col in df and len(df[col]) >= 2 else None
 
-    checks = []
+    # 경계/부동소수 오차 보정용
+    EPS = 1e-12
+
+    def as_num(x):
+        try:
+            v = float(x)
+            if v != v:
+                return None
+            return v
+        except Exception:
+            return None
+        
+    # 판정에 사용할 값: LOG 기준값 우선 → evt 값 폴백
+    macd_val   = as_num(macd_ref if macd_ref is not None else evt.get("macd"))
+    signal_val = as_num(signal_ref if signal_ref is not None else evt.get("signal"))
+
+    passed = []
+    failed = []
+    details = {}
 
     if conds.get("golden_cross"):
-        checks.append("golden_cross" if "golden" in (evt.get("reason", "").lower()) else None)
+        ok = "golden" in (evt.get("reason", "").lower())
+        (passed if ok else failed).append("golden_cross")
+        details["golden_cross"] = {"ok": ok, "reason": evt.get("reason")}
 
     if conds.get("macd_positive"):
-        macd = evt.get("macd")
-        checks.append("macd_positive" if (macd is not None and macd > threshold) else None)
+        ok = (macd_val is not None and macd_val >= (threshold - EPS))
+        (passed if ok else failed).append("macd_positive")
+        details["macd_positive"] = {"ok": ok, "macd": macd_val, "thr": threshold}
 
     if conds.get("signal_positive"):
-        sig = evt.get("signal")
-        checks.append("signal_positive" if (sig is not None and sig > threshold) else None)
+        ok = (signal_val is not None and signal_val >= (threshold - EPS))
+        (passed if ok else failed).append("signal_positive")
+        details["signal_positive"] = {"ok": ok, "signal": signal_val, "thr": threshold}
 
     if conds.get("bullish_candle"):
         open_, close_ = safe("Open"), safe("Close")
-        checks.append("bullish_candle" if (open_ is not None and close_ is not None and close_ > open_) else None)
+        ok = (open_ is not None and close_ is not None and close_ > open_)
+        (passed if ok else failed).append("bullish_candle")
+        details["bullish_candle"] = {"ok": ok, "open": open_, "close": close_}
 
     if conds.get("macd_trending_up") and "MACD" in df and len(df["MACD"]) >= 4:
         a, b, c = df["MACD"].iloc[-4], df["MACD"].iloc[-3], df["MACD"].iloc[-2]
-        checks.append("macd_trending_up" if (a < b < c) else None)
+        ok = (a < b < c)
+        (passed if ok else failed).append("macd_trending_up")
+        details["macd_trending_up"] = {"ok": ok, "a": a, "b": b, "c": c}
 
     if conds.get("above_ma20") and all(k in df for k in ["Close", "MA20"]):
         price, ma20 = safe("Close"), safe("MA20")
-        checks.append("above_ma20" if (price is not None and ma20 is not None and price > ma20) else None)
+        ok = (price is not None and ma20 is not None and price > ma20)
+        (passed if ok else failed).append("above_ma20")
+        details["above_ma20"] = {"ok": ok, "price": price, "ma20": ma20}
 
     if conds.get("above_ma60") and all(k in df for k in ["Close", "MA60"]):
         price, ma60 = safe("Close"), safe("MA60")
-        checks.append("above_ma60" if (price is not None and ma60 is not None and price > ma60) else None)
+        ok = (price is not None and ma60 is not None and price > ma60)
+        (passed if ok else failed).append("above_ma60")
+        details["above_ma60"] = {"ok": ok, "price": price, "ma60": ma60}
 
     enabled = [k for k, v in conds.items() if v]
-    passed = [c for c in checks if c]
-    return len(passed) == len(enabled), passed
+    passed_enabled = [k for k in passed if k in enabled]
+    failed_enabled = [k for k in enabled if k not in passed_enabled]
+    overall_ok = (len(failed_enabled) == 0)
+
+    return overall_ok, passed_enabled, failed_enabled, details
 
 
 def check_sell_conditions(evt, conds):
@@ -220,6 +253,12 @@ def run_live_loop(
                 MACDStrategy.log_events = []
                 MACDStrategy.trade_events = []
 
+                logger.info(
+                    "[BOOT] thresholds check | loop=%.6f | strategy_cls=%.6f",
+                    float(params.macd_threshold),
+                    float(getattr(strategy_cls, "macd_threshold", float('nan')))
+                )
+
                 df_bt = df.iloc[:-1].copy()
 
                 bt = Backtest(
@@ -355,9 +394,26 @@ def run_live_loop(
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
-                    ok, passed = check_buy_conditions(evt, df_bt, trade_conditions.get("buy", {}), params.macd_threshold)
+                    ok, passed, failed, det = check_buy_conditions(
+                        evt,
+                        df_bt,
+                        trade_conditions.get("buy", {}),
+                        params.macd_threshold,
+                        macd_ref=macd_log,
+                        signal_ref=signal_log
+                    )
                     if not ok:
-                        logger.info(f"⛔ BUY 조건 미충족({passed}) → 차단")
+                        # 실패 목록과 해당 값/임계값을 함께 남겨 원인 즉시 확인
+                        try:
+                            logger.info(
+                                "⛔ BUY 조건 미충족 | failed=%s | values=%s | thr=%.6f | evt_reason=%s",
+                                failed,
+                                {k: det.get(k) for k in failed},
+                                float(params.macd_threshold),
+                                evt.get("reason"),
+                            )
+                        except Exception:
+                            logger.info(f"⛔ BUY 조건 미충족({failed})")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
