@@ -21,6 +21,28 @@ _IV_MIN = {
     "minute30": 30, "minute60": 60, "day": 1440,
 }
 
+
+# 디터미니즘 체크 로그 헬퍼
+def log_det(df: pd.DataFrame, tag: str):
+    """
+    df가 현재 동일한 봉 집합인지 빠르게 검증하기 위한 로그.
+    - rows/first/last + OHLCV 체크섬을 남긴다.
+    - tag: 호출 지점 구분용(ex: PRE_INIT, LOOP_MERGED, ONCE_BEFORE_RETURN)
+    """
+    if df is None or df.empty:
+        logger.info(f"[DET] {tag} | rows=0 (empty)")
+        return
+    try:
+        rows = len(df)
+        first_i, last_i = df.index[0], df.index[-1]
+        # OHLCV만 사용, 소수 8자리 반올림 후 문자열 → 해시
+        payload = df[["Open","High","Low","Close","Volume"]].round(8).to_csv(index=True, header=False)
+        checksum = hash(payload)  # 파이썬 내장 해시(세션마다 달라질 수 있음, 같은 프로세스 비교용)
+        logger.info(f"[DET] {tag} | rows={rows} | first={first_i} | last={last_i} | checksum={checksum}")
+    except Exception as e:
+        logger.warning(f"[DET] {tag} | logging failed: {e}")
+
+
 def _iv_min(interval: str) -> int:
     return _IV_MIN.get(interval, 10)
 
@@ -202,14 +224,16 @@ def stream_candles(
         if new.empty:
             continue
 
-        old_df = df
         # 중복/정렬은 _optimize_dataframe_memory 내부에서 처리되지만
         # 혹시 남은 중복에 대해 최신 값 우선으로 한 번 더 보정
         # df = _optimize_dataframe_memory(df, new, max_length).loc[~_optimize_dataframe_memory(df, new, max_length).index.duplicated(keep="last")].sort_index()
         # ✅ 한 번만 계산한 결과를 재사용하여 중복 호출/레이스 위험 제거
         tmp = _optimize_dataframe_memory(df, new, max_length)
         df = tmp.loc[~tmp.index.duplicated(keep="last")].sort_index()
-        del old_df
+        del tmp
+
+        # 실시간 병합 후 DET 로깅 (로컬/서버 비교 핵심 지점)
+        log_det(df, "LOOP_MERGED")
 
         last_open = df.index[-1]
         # 사용자 혼란 방지용 동기화 로그 (bar_open / bar_close 명시)
@@ -266,6 +290,11 @@ def get_ohlcv_once(ticker: str, interval_code: str, count: int = 500) -> pd.Data
         idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
         df.index = idx
 
-    return df[["open","high","low","close","volume"]].rename(
-        columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}
-    )
+        out = df[["open","high","low","close","volume"]].rename(
+            columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}
+        )
+
+        # 원샷 조회 반환 직전 DET 로깅 (대시보드/전략 입력 정합성 확인)
+        log_det(out, "ONCE_BEFORE_RETURN")
+    return 
+
