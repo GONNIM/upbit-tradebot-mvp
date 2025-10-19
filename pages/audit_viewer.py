@@ -12,6 +12,8 @@ from urllib.parse import urlencode
 from streamlit_autorefresh import st_autorefresh
 from config import REFRESH_INTERVAL
 
+import time
+
 # -------------------
 # 기본 설정 & 사이드바 네비 숨기기
 # -------------------
@@ -58,7 +60,8 @@ default_tab = params.get("tab", "buy")  # buy|sell|trades|settings
 
 db_path = get_db_path(user_id)
 
-st.title("📑 감사 로그 뷰어")
+st.markdown(f"### 📑 감사 로그 뷰어")
+st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 # --- Context bar (sticky) ---
 st.markdown("""
 <style>
