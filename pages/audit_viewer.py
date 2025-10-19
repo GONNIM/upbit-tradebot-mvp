@@ -9,6 +9,8 @@ from services.db import fetch_buy_eval, fetch_trades_audit  # 기존 제공 함�
 from services.db import fetch_buy_eval, fetch_trades_audit, get_account
 from urllib.parse import urlencode
 
+from streamlit_autorefresh import st_autorefresh
+from config import REFRESH_INTERVAL
 
 # -------------------
 # 기본 설정 & 사이드바 네비 숨기기
@@ -40,6 +42,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ✅ 자동 새로고침
+st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_autorefresh")
 
 # -------------------
 # 쿼리 파라미터
