@@ -89,6 +89,7 @@ class MACDStrategy(Strategy):
         self._last_skippos_audit_bar = None
         self._last_sell_sig = None
         self._last_sell_audit_bar = None
+        self._last_sell_audit_ts = None
         self._sell_sample_n = 60
         self._boot_start_bar = len(self.data) - 1
         self._last_buy_sig = None      # BUY 상태 시그니처(변화 감지용)
@@ -638,6 +639,8 @@ class MACDStrategy(Strategy):
         if state["bar"] < getattr(self, "_boot_start_bar", 0):
             return
         
+        bar_ts = str(state["timestamp"])
+        
         sell_cond = self.conditions.get("sell", {})
 
         # =========================
@@ -753,7 +756,7 @@ class MACDStrategy(Strategy):
         #   - 디버깅/모니터링 단계에서 SELL 평가가 '안 올라오는 것처럼' 보이는 현상 해소
         #   - 이전에 기록한 bar와 현재 bar가 다르면 이번 bar에서 1회 적재 허용
         if not should_insert:
-            if getattr(self, "_last_sell_audit_bar", None) != state["bar"]:
+            if getattr(self, "_last_sell_audit_ts", None) != bar_ts:
                 should_insert = True
 
         # --- SELL 감사 적재 직전 ---
@@ -761,7 +764,7 @@ class MACDStrategy(Strategy):
             self.user_id,
             getattr(self, "ticker", "UNKNOWN"),
             getattr(self, "interval_sec", 60),
-            state["bar"],
+            bar_ts,
             sig,  # 상태 해시 사용(권장). 단순 바만 쓰려면 sig를 빼면 됨.
         )
 
@@ -786,10 +789,10 @@ class MACDStrategy(Strategy):
                 )
                 MACDStrategy._seen_sell_audits.add(audit_key)
                 self._last_sell_sig = sig
-                self._last_sell_audit_bar = state["bar"]
-                logger.info(f"[AUDIT-SELL] inserted | uid={getattr(self,'user_id',None)} bar={state['bar']} trigger={trigger_key}")
+                self._last_sell_audit_ts = bar_ts
+                logger.info(f"[AUDIT-SELL] inserted | uid={getattr(self,'user_id',None)} ts={bar_ts} trigger={trigger_key}")
             except Exception as e:
-                logger.error(f"[AUDIT-SELL] insert failed: {e} | uid={getattr(self,'user_id',None)} bar={state['bar']} checks_keys={list(checks.keys())}")
+                logger.error(f"[AUDIT-SELL] insert failed: {e} | uid={getattr(self,'user_id',None)} ts={bar_ts} checks_keys={list(checks.keys())}")
 
         # Stop Loss
         if sl_enabled and sl_hit:
