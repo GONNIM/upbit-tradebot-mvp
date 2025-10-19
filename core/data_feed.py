@@ -290,11 +290,14 @@ def get_ohlcv_once(ticker: str, interval_code: str, count: int = 500) -> pd.Data
         idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
         df.index = idx
 
-        out = df[["open","high","low","close","volume"]].rename(
-            columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}
-        )
+    out = df[["open","high","low","close","volume"]].rename(
+        columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}
+    )
 
-        # 원샷 조회 반환 직전 DET 로깅 (대시보드/전략 입력 정합성 확인)
+    try:
         log_det(out, "ONCE_BEFORE_RETURN")
-    return 
+    except Exception:
+        pass
+
+    return out
 
