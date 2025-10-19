@@ -92,6 +92,7 @@ class MACDStrategy(Strategy):
         self._last_sell_audit_ts = None
         self._sell_sample_n = 60
         self._boot_start_bar = len(self.data) - 1
+        self._boot_start_ts = self.data.index[-1]
         self._last_buy_sig = None      # BUY 상태 시그니처(변화 감지용)
         self._buy_sample_n = 60        # 샘플링 주기(원하면 0/None으로 끔)
 
@@ -519,10 +520,14 @@ class MACDStrategy(Strategy):
                                 user_id=self.user_id,
                                 ticker=ticker,
                                 interval_sec=getattr(self,"interval_sec",60),
-                                bar=state["bar"], price=state["price"],
-                                macd=state["macd"], signal=state["signal"],
-                                have_position=True, overall_ok=False,
-                                failed_keys=[], checks={"note":"blocked_by_position"},
+                                bar=state["bar"],
+                                price=state["price"],
+                                macd=state["macd"],
+                                signal=state["signal"],
+                                have_position=True,
+                                overall_ok=False,
+                                failed_keys=[],
+                                checks={"note":"blocked_by_position"},
                                 notes="BUY_SKIP_POS" + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
                             )
                             self._last_skippos_audit_bar = state["bar"]
@@ -534,9 +539,17 @@ class MACDStrategy(Strategy):
 
         # 정상 BUY 평가/체결
         state = self._current_state()
+        ts = pd.Timestamp(state["timestamp"])
         # ✅ 부팅 재생 바 스킵
-        if state["bar"] < getattr(self, "_boot_start_bar", 0):
-            return
+        # if state["bar"] < getattr(self, "_boot_start_bar", 0):
+        #     return
+        if getattr(self, "_boot_start_ts", None) is not None:
+            if ts < self._boot_start_ts:
+                # logger.info(f"[BUY] SKIP (boot replay) ts={ts} < boot_ts={self._boot_start_ts}")
+                return
+            
+        logger.info(f"[BUY] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
+        self._boot_start_ts = None
         
         buy_cond = self.conditions.get("buy", {})
         report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
@@ -546,7 +559,8 @@ class MACDStrategy(Strategy):
             return
 
         # ✅ 프로세스 내 동일 바 dedup
-        key = (self.user_id, ticker, getattr(self,"interval_sec",60), state["bar"])
+        # key = (self.user_id, ticker, getattr(self,"interval_sec",60), state["bar"])
+        key = (self.user_id, ticker, getattr(self,"interval_sec",60), str(state["timestamp"]))
         if key in MACDStrategy._seen_buy_audits:
             return
         
@@ -567,7 +581,8 @@ class MACDStrategy(Strategy):
             should_insert = True
             
         # 감사 적재(바 중복 방지)
-        if AUDIT_DEDUP_PER_BAR and self._last_buy_audit_bar == state["bar"]:
+        # if AUDIT_DEDUP_PER_BAR and self._last_buy_audit_bar == state["bar"]:
+        if AUDIT_DEDUP_PER_BAR and getattr(self, "_last_buy_audit_ts", None) == str(state["timestamp"]):
             logger.info(f"[AUDIT-BUY] DUP SKIP | bar={state['bar']}")
         else:
             if should_insert:
@@ -588,6 +603,7 @@ class MACDStrategy(Strategy):
                     )
                     MACDStrategy._seen_buy_audits.add(key)
                     self._last_buy_audit_bar = state["bar"]
+                    self._last_buy_audit_ts = str(state["timestamp"])
                     # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
                 except Exception as e:
                     logger.error(f"[AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
