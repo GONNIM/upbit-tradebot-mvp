@@ -373,7 +373,17 @@ def run_live_loop(
                     logger.warning(f"[EVENT] skip invalid event: {evt}")
                     continue
 
-                key = (ebar, etype)
+                # --- 중복 억제: '닫힌 바의 실제 타임스탬프'를 키로 사용 ---
+                # df_bt는 df.iloc[:-1] 이므로, ebar는 '막 닫힌 바'의 상대 인덱스.
+                # 상대 인덱스는 슬라이딩 윈도우에서 매 분 동일해질 수 있어 dedup 오작동.
+                # 따라서 실제 타임스탬프를 키로 사용해 분마다 고유해지도록 한다.
+                try:
+                    closed_ts = df_bt.index[ebar]
+                    key = (str(closed_ts), etype)
+                except Exception as _e:
+                    logger.warning(f"[EVENT] closed_ts resolve failed: {repr(_e)}; fallback to bar-num")
+                    key = (int(ebar), etype)
+
                 if key in seen_signals:
                     logger.info(f"[EVENT] duplicate skip: {key}")
                     logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
