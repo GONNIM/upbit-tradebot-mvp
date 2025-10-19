@@ -88,6 +88,7 @@ class MACDStrategy(Strategy):
         self._last_buy_audit_bar = None
         self._last_skippos_audit_bar = None
         self._last_sell_sig = None
+        self._last_sell_audit_bar = None
         self._sell_sample_n = 60
         self._boot_start_bar = len(self.data) - 1
         self._last_buy_sig = None      # BUY 상태 시그니처(변화 감지용)
@@ -748,6 +749,13 @@ class MACDStrategy(Strategy):
             elif self._sell_sample_n and (state["bar"] % self._sell_sample_n == 0):
                 should_insert = True
 
+        # ★ "매 바 1회" 강제 — 새 바가 열렸다면 최소 1회는 기록
+        #   - 디버깅/모니터링 단계에서 SELL 평가가 '안 올라오는 것처럼' 보이는 현상 해소
+        #   - 이전에 기록한 bar와 현재 bar가 다르면 이번 bar에서 1회 적재 허용
+        if not should_insert:
+            if getattr(self, "_last_sell_audit_bar", None) != state["bar"]:
+                should_insert = True
+
         # --- SELL 감사 적재 직전 ---
         audit_key = (
             self.user_id,
@@ -778,6 +786,7 @@ class MACDStrategy(Strategy):
                 )
                 MACDStrategy._seen_sell_audits.add(audit_key)
                 self._last_sell_sig = sig
+                self._last_sell_audit_bar = state["bar"]
                 logger.info(f"[AUDIT-SELL] inserted | uid={getattr(self,'user_id',None)} bar={state['bar']} trigger={trigger_key}")
             except Exception as e:
                 logger.error(f"[AUDIT-SELL] insert failed: {e} | uid={getattr(self,'user_id',None)} bar={state['bar']} checks_keys={list(checks.keys())}")
