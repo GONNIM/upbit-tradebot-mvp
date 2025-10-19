@@ -17,7 +17,7 @@ from pathlib import Path
 from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot, has_open_by_orders
 from services.init_db import get_db_path
 
-import inspect, os
+import inspect, os, math
 
 
 logging.basicConfig(
@@ -202,27 +202,101 @@ class MACDStrategy(Strategy):
     # -------------------
     # --- Cross Detection
     # -------------------
+    @staticmethod
+    def _is_finite(x):
+        try:
+            return math.isfinite(float(x))
+        except Exception:
+            return False
+    
+    @staticmethod
+    def _cross_delta(delta_prev: float, delta_now: float, *, eps_abs: float, eps_rel: float = 0.0) -> tuple[bool, bool]:
+        """
+        반환: (is_golden, is_dead)
+        - eps_abs: 절대 EPS
+        - eps_rel: 상대 EPS (스케일 보정용: 기준은 max(|delta_prev|, |delta_now|))
+        """
+        scale = max(abs(delta_prev), abs(delta_now), 1.0)
+        eps = max(eps_abs, eps_rel * scale) # 적응형 EPS
+        is_golden = (delta_prev <= +eps) and (delta_now > +eps)
+        is_dead = (delta_prev >= -eps) and (delta_now < -eps)
+        return is_golden, is_dead
+
     def _is_golden_cross(self):
+        # --- 안정성 가드 ---
         if len(self.macd_line) < 2 or len(self.signal_line) < 2:
             return False
-        return (
-            self.macd_line[-2] <= self.signal_line[-2]
-            and self.macd_line[-1] > self.signal_line[-1]
-        )
+        macd_prev, sig_prev = self.macd_line[-2], self.signal_line[-2]
+        macd_now, sig_now = self.macd_line[-1], self.signal_line[-1]
+        if not (self._is_finite(macd_prev) and self._is_finite(sig_prev) and self._is_finite(macd_now) and self._is_finite(sig_now)):
+            return False
+
+        # --- Δ 기반 판단 + 적응형 EPS ---
+        delta_prev = macd_prev - sig_prev
+        delta_now = macd_now - sig_now
+        is_golden, _ = self._cross_delta(delta_prev, delta_now, eps_abs=1e-10, eps_rel=1e-6)
+
+        if not is_golden:
+            return False
+        
+        # --- 의미 필터 ---
+        # 최소 분리도(교차 후 충분히 떨어졌는가)
+        sep_min_abs = 0.0
+        sep_min_rel = 0.0
+        if abs(delta_now) < max(sep_min_abs, sep_min_rel * max(abs(delta_prev), 1.0)):
+            return False
+        
+        # 최소 기울기(변화량이 충분한가)
+        slope_min = 0.0
+        if abs(delta_now - delta_prev) < slope_min:
+            return False
+        
+        # 디바운스: 마지막 교차로부터 N봉 이상
+        N = 0
+        if getattr(self, "bars_since_cross", None) is not None and self.bars_since_cross < N:
+            return False
+        
+        return True
 
     def _is_dead_cross(self):
+        # --- 안정성 가드 ---
         if len(self.macd_line) < 2 or len(self.signal_line) < 2:
             return False
-        return (
-            self.macd_line[-2] >= self.signal_line[-2]
-            and self.macd_line[-1] < self.signal_line[-1]
-        )
+        macd_prev, sig_prev = self.macd_line[-2], self.signal_line[-2]
+        macd_now,  sig_now  = self.macd_line[-1],  self.signal_line[-1]
+        if not (self._is_finite(macd_prev) and self._is_finite(sig_prev) and self._is_finite(macd_now) and self._is_finite(sig_now)):
+            return False
+
+        # --- Δ 기반 판단 + 적응형 EPS ---
+        delta_prev = macd_prev - sig_prev
+        delta_now = macd_now - sig_now
+        _, is_dead = self._cross_delta(delta_prev, delta_now, eps_abs=1e-10, eps_rel=1e-6)
+
+        # --- 의미 필터 ---
+        # 최소 분리도(교차 후 충분히 떨어졌는가)
+        sep_min_abs = 0.0
+        sep_min_rel = 0.0
+        if abs(delta_now) < max(sep_min_abs, sep_min_rel * max(abs(delta_prev), 1.0)):
+            return False
+        
+        # 최소 기울기(변화량이 충분한가)
+        slope_min = 0.0
+        if abs(delta_now - delta_prev) < slope_min:
+            return False
+        
+        # 디바운스: 마지막 교차로부터 N봉 이상
+        N = 0
+        if getattr(self, "bars_since_cross", None) is not None and self.bars_since_cross < N:
+            return False
+        
+        return is_dead
 
     # -------------------
     # --- Candle & Trend
     # -------------------
     def _is_bullish_candle(self):
-        return self.data.Close[-1] > self.data.Open[-1]
+        return (self._is_finite(self.data.Close[-1]) and self._is_finite(self.data.Open[-1])
+                and self.data.Close[-1] > self.data.Open[-1])
 
     def _is_macd_trending_up(self):
         if len(self.macd_line) < 3:
@@ -233,10 +307,12 @@ class MACDStrategy(Strategy):
         return a < b < c
 
     def _is_above_ma20(self):
-        return self.data.Close[-1] > self.ma20[-1]
+        return (self._is_finite(self.data.Close[-1]) and self._is_finite(self.ma20[-1])
+                and self.data.Close[-1] > self.ma20[-1])
 
     def _is_above_ma60(self):
-        return self.data.Close[-1] > self.ma60[-1]
+        return (self._is_finite(self.data.Close[-1]) and self._is_finite(self.ma60[-1])
+                and self.data.Close[-1] > self.ma60[-1])
 
     def _check_macd_pos(self, state, eps=1e-8) -> bool:
         return state["macd"] >= (self.macd_threshold - eps)
@@ -263,8 +339,9 @@ class MACDStrategy(Strategy):
     # --- Buy/Sell Logic
     # -------------------
     def next(self):
-        self._reconcile_entry_with_wallet()
+        self.bars_since_cross = getattr(self, "bars_since_cross", 1_000_000) + 1
 
+        self._reconcile_entry_with_wallet()
         self._maybe_reload_conditions()
         self._update_cross_state()
         self._evaluate_sell()
@@ -273,10 +350,12 @@ class MACDStrategy(Strategy):
     def _update_cross_state(self):
         state = self._current_state()
         if self._is_golden_cross():
+            self.bars_since_cross = 0
             self.golden_cross_pending = True
             self.last_cross_type = "Golden"
             position_color = "🟢"
         elif self._is_dead_cross():
+            self.bars_since_cross = 0
             self.golden_cross_pending = False
             self.last_cross_type = "Dead"
             position_color = "🛑"
@@ -576,7 +655,7 @@ class MACDStrategy(Strategy):
                         # bars_held 계산을 위해 최소한의 entry_bar 세팅
                         if self.entry_bar is None:
                             self.entry_bar = state["bar"]
-            except Exception:
+            except Exception as e:
                 logger.debug(f"[SELL] entry hydrate skipped: {e}")
 
         if self.entry_price is None:
