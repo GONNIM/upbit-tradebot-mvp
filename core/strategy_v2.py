@@ -320,9 +320,73 @@ class MACDStrategy(Strategy):
     def _check_macd_pos(self, state, eps=1e-8) -> bool:
         return state["macd"] >= (self.macd_threshold - eps)
 
+    def _is_macd_cross_up(self, thr: float, eps_abs: float = 1e-10, eps_rel: float = 1e-6) -> bool:
+        """
+        MACD가 thr(=self.macd_threshold)을 '아래→위'로 돌파했는지 감지.
+        내부의 _cross_delta를 재사용하여 노이즈에 강하게 판정.
+        """
+        if len(self.macd_line) < 2:
+            return False
+        macd_prev = self.macd_line[-2]
+        macd_now  = self.macd_line[-1]
+        if not (self._is_finite(macd_prev) and self._is_finite(macd_now)):
+            return False
+
+        # thr에 대한 상대 위치를 델타로 보고 상향 크로스만 True
+        delta_prev = macd_prev - thr
+        delta_now  = macd_now  - thr
+        is_up, _ = self._cross_delta(delta_prev, delta_now, eps_abs=eps_abs, eps_rel=eps_rel)
+        return is_up
+
+    def _is_macd_cross_down(self, thr: float, eps_abs: float = 1e-10, eps_rel: float = 1e-6) -> bool:
+        if len(self.macd_line) < 2:
+            return False
+        macd_prev = self.macd_line[-2]
+        macd_now  = self.macd_line[-1]
+        if not (self._is_finite(macd_prev) and self._is_finite(macd_now)):
+            return False
+        delta_prev = macd_prev - thr
+        delta_now  = macd_now  - thr
+        _, is_down = self._cross_delta(delta_prev, delta_now, eps_abs=eps_abs, eps_rel=eps_rel)
+        return is_down
+
     def _check_signal_pos(self, state, eps=1e-8) -> bool:
         return state["signal"] >= (self.macd_threshold - eps)
     
+    def _is_signal_cross_up(self, thr: float, eps_abs: float = 1e-10, eps_rel: float = 1e-6) -> bool:
+        """
+        Signal 라인이 thr(=self.macd_threshold)을 '아래→위'로 돌파했는지 감지.
+        _cross_delta 재사용으로 노이즈 억제.
+        """
+        if len(self.signal_line) < 2:
+            return False
+        sig_prev = self.signal_line[-2]
+        sig_now  = self.signal_line[-1]
+        if not (self._is_finite(sig_prev) and self._is_finite(sig_now)):
+            return False
+
+        delta_prev = sig_prev - thr
+        delta_now  = sig_now  - thr
+        is_up, _ = self._cross_delta(delta_prev, delta_now, eps_abs=eps_abs, eps_rel=eps_rel)
+        return is_up
+
+    def _is_signal_cross_down(self, thr: float, eps_abs: float = 1e-10, eps_rel: float = 1e-6) -> bool:
+        """
+        Signal 라인이 thr(=self.macd_threshold)을 '위→아래'로 돌파했는지 감지.
+        _cross_delta 재사용으로 노이즈 억제.
+        """
+        if len(self.signal_line) < 2:
+            return False
+        sig_prev = self.signal_line[-2]
+        sig_now  = self.signal_line[-1]
+        if not (self._is_finite(sig_prev) and self._is_finite(sig_now)):
+            return False
+
+        delta_prev = sig_prev - thr
+        delta_now  = sig_now  - thr
+        _, is_down = self._cross_delta(delta_prev, delta_now, eps_abs=eps_abs, eps_rel=eps_rel)
+        return is_down
+
     def _reconcile_entry_with_wallet(self):
         """지갑/포지션과 불일치할 때 고아 엔트리를 정리한다(선택적)."""
         try:
@@ -429,9 +493,9 @@ class MACDStrategy(Strategy):
             ("golden_cross", buy_cond.get("golden_cross", False),
              lambda: self.golden_cross_pending and self.last_cross_type == "Golden"),
             ("macd_positive", buy_cond.get("macd_positive", False),
-             lambda: self._check_macd_pos(state)),
+             lambda: self._is_macd_cross_up(self.macd_threshold)),
             ("signal_positive", buy_cond.get("signal_positive", False),
-             lambda: self._check_signal_pos(state)),
+             lambda: self._is_signal_cross_up(self.macd_threshold)),
             ("bullish_candle", buy_cond.get("bullish_candle", False),
              self._is_bullish_candle),
             ("macd_trending_up", buy_cond.get("macd_trending_up", False),
@@ -458,7 +522,7 @@ class MACDStrategy(Strategy):
             (passed if ok else failed).append(name)
 
         if self.signal_confirm_enabled:
-            ok = state["signal"] >= self.macd_threshold
+            ok = self._is_signal_cross_up(self.macd_threshold)
             details["signal_confirm"] = ok
             logger.info(
                 f"🧪 BUY 체크 'signal_confirm': enabled=True -> {'PASS' if ok else 'FAIL'} "
@@ -730,7 +794,7 @@ class MACDStrategy(Strategy):
 
         # MACD Negative
         macdneg_enabled = sell_cond.get("macd_negative", False)
-        macdneg_hit = state["macd"] < (self.macd_threshold - eps)
+        macdneg_hit = self._is_macd_cross_down(self.macd_threshold)
         add("macd_negative", macdneg_enabled, macdneg_hit, {"macd":state["macd"], "thr":self.macd_threshold})
 
         # Dead Cross
@@ -894,23 +958,23 @@ class MACDStrategy(Strategy):
             report[name] = {"enabled": 1 if enabled else 0, "pass": 1 if passed else 0, "value": raw}
 
         golden = self._is_golden_cross()
-        macd_pos = self._check_macd_pos(state, eps)
-        signal_pos = self._check_signal_pos(state, eps)
+        macd_pos_cross = self._is_macd_cross_up(self.macd_threshold)
+        signal_pos_cross = self._is_signal_cross_up(self.macd_threshold)
         bull = self._is_bullish_candle()
         trending = self._is_macd_trending_up()
         above20 = self._is_above_ma20()
         above60 = self._is_above_ma60()
 
-        add("golden_cross",   buy_cond.get("golden_cross", False),   golden,       {"macd":state["macd"], "signal":state["signal"]})
-        add("macd_positive",  buy_cond.get("macd_positive", False),  macd_pos,     {"macd":state["macd"], "thr":self.macd_threshold})
-        add("signal_positive",buy_cond.get("signal_positive", False),signal_pos,   {"signal":state["signal"], "thr":self.macd_threshold})
-        add("bullish_candle", buy_cond.get("bullish_candle", False), bull,         {"open":float(self.data.Open[-1]), "close":state["price"]})
-        add("macd_trending_up", buy_cond.get("macd_trending_up", False), trending, None)
-        add("above_ma20",     buy_cond.get("above_ma20", False),     above20,      {"ma20": float(self.ma20[-1])})
-        add("above_ma60",     buy_cond.get("above_ma60", False),     above60,      {"ma60": float(self.ma60[-1])})
+        add("golden_cross",     buy_cond.get("golden_cross", False),        golden,             {"macd":state["macd"], "signal":state["signal"]})
+        add("macd_positive",    buy_cond.get("macd_positive", False),       macd_pos_cross,     {"macd":state["macd"], "thr":self.macd_threshold})
+        add("signal_positive",  buy_cond.get("signal_positive", False),     signal_pos_cross,   {"signal":state["signal"], "thr":self.macd_threshold})
+        add("bullish_candle",   buy_cond.get("bullish_candle", False),      bull,               {"open":float(self.data.Open[-1]), "close":state["price"]})
+        add("macd_trending_up", buy_cond.get("macd_trending_up", False),    trending,           None)
+        add("above_ma20",       buy_cond.get("above_ma20", False),          above20,            {"ma20": float(self.ma20[-1])})
+        add("above_ma60",       buy_cond.get("above_ma60", False),          above60,            {"ma60": float(self.ma60[-1])})
 
         if self.signal_confirm_enabled:
-            gate_ok = state["signal"] >= (self.macd_threshold - eps)
+            gate_ok = self._is_signal_cross_up(self.macd_threshold)
             report["signal_confirm"] = {"enabled":1, "pass": 1 if gate_ok else 0, "value":{"signal":state["signal"], "thr":self.macd_threshold}}
 
         enabled_keys = [k for k,v in report.items() if v["enabled"]==1]

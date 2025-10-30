@@ -117,7 +117,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard : `{user_id}`님 --- v1.2025.10.19.2329")
+st.markdown(f"### 📊 Dashboard : `{user_id}`님 --- v1.2025.10.30.2153")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -202,26 +202,101 @@ account_krw = get_account(user_id) or 0
 # st.write(account_krw)
 coin_balance = get_coin_balance(user_id, params_obj.upbit_ticker) or 0.0
 
-
-# ✅ 자산 현황
+# ===================== 🔧 PATCH: 자산 현황(항상 ROI 표시) START =====================
 st.subheader("💰 자산 현황")
-initial_krw = get_initial_krw(user_id) or 0
-if account_krw:
-    total_value = account_krw
-    roi = ((total_value - initial_krw) / initial_krw) * 100 if initial_krw else 0.0
-    roi_msg = f"{roi:.2f} %"
+
+# ── 0) 안전한 값 정리
+cash = float(account_krw or 0.0)                # 보유 KRW (0원이어도 정상 처리)
+qty  = float(coin_balance or 0.0)               # 보유 코인 수량
+init_krw = float(get_initial_krw(user_id) or 0) # 기존 초기 KRW (DB)
+
+# ── 1) 현재가 확보: get_ohlcv_once를 "짧게" 호출해 마지막 종가를 사용
+#     - 외부 API 추가 없이, 이미 프로젝트에 있는 데이터피드만 이용
+def _infer_last_close(df) -> float | None:
+    if df is None or len(df) == 0:
+        return None
+    for col in ("close", "Close", "c", "price"):
+        if col in df.columns:
+            try:
+                return float(df[col].iloc[-1])
+            except Exception:
+                pass
+    # 컬럼명이 달라도 마지막 숫자형 한 칸이라도 잡아보는 최후의 시도
+    try:
+        last_row = df.iloc[-1]
+        for v in last_row.tolist()[::-1]:
+            if isinstance(v, (int, float)) and pd.notna(v):
+                return float(v)
+    except Exception:
+        return None
+    return None
+
+def get_last_price_local(ticker: str, interval_code: str) -> float | None:
+    try:
+        # 가벼운 2개 봉만 요청 → 마지막 종가 사용
+        from core.data_feed import get_ohlcv_once
+        _df = get_ohlcv_once(ticker, interval_code, count=2)
+        return _infer_last_close(_df)
+    except Exception:
+        return None
+
+_ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
+_interval = getattr(params_obj, "interval", params_obj.interval)
+
+last_price = get_last_price_local(_ticker, _interval)
+
+# 가격이 None이면 직전 성공값 사용(세션 캐시) → 화면 깜빡임/일시적 실패 방지
+if last_price is None:
+    last_price = st.session_state.get("last_price")
 else:
-    roi_msg = "미정"
+    st.session_state["last_price"] = last_price  # 캐시 갱신
+
+# ── 2) 포트폴리오 평가 (NAV = 현금 + 코인평가액)
+coin_val = (qty * float(last_price)) if (last_price is not None) else 0.0
+portfolio_value = cash + coin_val  # ★ 항상 계산 (현금 0원/코인만 있어도 OK)
+
+# ── 3) 기준선(baseline) 결정 로직
+#     - 우선순위: DB 초기 KRW(init_krw) > 세션 baseline > (없으면) 최초 1회 현재 NAV로 자동 스냅샷
+baseline = init_krw
+if baseline <= 0:
+    baseline = float(st.session_state.get("baseline_nav", 0.0))
+    if baseline <= 0 and portfolio_value > 0:
+        # 초기 KRW가 없더라도 화면 최초 진입 시점의 NAV를 기준선으로 자동 고정
+        baseline = portfolio_value
+        st.session_state["baseline_nav"] = baseline
+
+# ── 4) ROI 계산 (항상 수치 반환)
+#     - baseline이 0이라면 나눗셈 불가 → "0.00%"로 표시해 미정/N/A 방지
+roi = ((portfolio_value - baseline) / baseline) * 100.0 if baseline > 0 else 0.0
+roi_msg = f"{roi:.2f} %"
+
+# ── 5) 메트릭 표시
+_nbsp = "\u00A0"  # NBSP(공백) → delta 줄만 확보, 내용/화살표 없음
 
 col_krw, col_coin, col_pnl = st.columns(3)
 with col_krw:
-    st.metric("보유 KRW", f"{account_krw:,.0f} KRW")
+    st.metric("보유 KRW", f"{cash:,.0f} KRW", delta=_nbsp, delta_color="off")
 with col_coin:
-    st.metric(f"{params_obj.upbit_ticker} 보유량", f"{coin_balance:,.6f}")
+    # delta에 코인 평가액을 유지 (정보성 OK)
+    st.metric(f"{_ticker} 보유량", f"{qty:,.6f}", delta=f"평가 {coin_val:,.0f} KRW", delta_color="off")
 with col_pnl:
-    st.metric("📈 누적 수익률", roi_msg)
+    # ROI 방향 라벨 & delta 문자열 구성
+    if roi > 0:
+        delta_str = f"+{roi:.2f}% 상승"     # '+'로 시작 → 녹색 ▲
+        delta_color = "normal"             # +는 초록, -는 빨강 (기본)
+    elif roi < 0:
+        delta_str = f"{roi:.2f}% 하락"      # 음수 그대로 → 빨간 ▼
+        delta_color = "normal"
+    else:
+        delta_str = "0.00% 보합"            # 0 → 회색 • (화살표 없음)
+        delta_color = "off"                # 색/화살표 끔
+    st.metric("📈 누적 수익률", roi_msg, delta=delta_str, delta_color=delta_color)
+
+# (선택) 기준선 힌트: 어떤 기준으로 계산 중인지 투명하게 표기하고 싶다면 주석 해제
+# st.caption(f"기준선: {'초기 KRW' if init_krw > 0 else '세션 스냅샷'} = {baseline:,.0f} KRW · 현재 NAV = {portfolio_value:,.0f} KRW")
 
 st.divider()
+# ===================== 🔧 PATCH: 자산 현황(항상 ROI 표시) END =====================
 
 # ✅ 최근 거래 내역
 st.subheader("📝 최근 거래 내역")
