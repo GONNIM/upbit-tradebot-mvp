@@ -3,6 +3,12 @@ import queue
 import logging
 import time
 
+try:
+    import streamlit as st
+except Exception:
+    class _Dummy: session_state = {}
+    st = _Dummy()
+
 from engine.params import load_params
 from engine.live_loop import run_live_loop
 from engine.lock_manager import get_user_lock
@@ -11,8 +17,6 @@ from engine.global_state import (
     remove_engine_thread,
     update_engine_status,
     update_event_time,
-    get_engine_threads,
-    is_engine_really_running,
 )
 from core.trader import UpbitTrader
 from services.db import (
@@ -23,6 +27,10 @@ from services.db import (
 from config import MIN_FEE_RATIO, PARAMS_JSON_FILENAME, DEFAULT_USER_ID
 from utils.logging_util import log_to_file
 
+from engine.reconciler_singleton import get_reconciler
+from services.db import fetch_inflight_orders
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s | %(message)s",
@@ -31,73 +39,124 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+MODE_TEST = "TEST"
+MODE_LIVE = "LIVE"
+
+def current_mode() -> str:
+    """세션에 저장된 모드를 전역에서 참조 (기본 TEST)."""
+    m = str(st.session_state.get("mode", MODE_TEST)).upper()
+    return m if m in (MODE_TEST, MODE_LIVE) else MODE_TEST
+
+def is_live_mode() -> bool:
+    return current_mode() == MODE_LIVE
+
+def _user_key(user_id: str, captured_mode: str) -> str:
+    """user_id + 모드로 키 분리(TEST/LIVE 동시 실행 분리)."""
+    return f"{user_id}:{captured_mode}"
+
+
 class EngineManager:
     def __init__(self):
         self._locks = {}
         self._threads = {}
         self._events = {}
         self._global_lock = threading.Lock()
+        self._restart_counts = {}
+        self._live_engine_count = 0
 
-    def _ensure_user_resources(self, user_id):
+    def _ensure_user_resources(self, user_id, captured_mode: str):
+        key = _user_key(user_id, captured_mode)
         with self._global_lock:
-            if user_id not in self._locks:
-                self._locks[user_id] = threading.Lock()
-            if user_id not in self._events:
-                self._events[user_id] = threading.Event()
+            if key not in self._locks:
+                self._locks[key] = threading.Lock()
+            if key not in self._events:
+                self._events[key] = threading.Event()
 
     def is_running(self, user_id):
-        thread = self._threads.get(user_id)
-        return thread is not None and thread.is_alive()
+        m = current_mode()
+        key = _user_key(user_id, m)
+        t = self._threads.get(key)
+        return t is not None and t.is_alive()
 
-    def start_engine(self, user_id, test_mode=True, restart_count=0):
-        self._ensure_user_resources(user_id)
+    def start_engine(self, user_id: str, test_mode: bool | None = None, restart_count: int = 0) -> bool:
+        captured_mode = current_mode()
+        tm = (test_mode if test_mode is not None else (captured_mode != MODE_LIVE))
 
-        if self.is_running(user_id):
+        if captured_mode == "LIVE":
+            if self._live_engine_count == 0:
+                rec = get_reconciler()
+                rec.start()
+                rec.load_inflight_from_db(fetch_inflight_orders)
+            self._live_engine_count = 1
+
+        return self._start_engine_internal(user_id, tm, restart_count, captured_mode)
+    
+    def _start_engine_internal(self, user_id: str, test_mode: bool, restart_count: int, captured_mode: str) -> bool:
+        self._ensure_user_resources(user_id, captured_mode)
+
+        key = _user_key(user_id, captured_mode)
+        if self._threads.get(key) and self._threads[key].is_alive():
             return False
 
-        with self._locks[user_id]:
-            if self.is_running(user_id):
+        with self._locks[key]:
+            if self._threads.get(key) and self._threads[key].is_alive():
                 return False
 
-            stop_event = self._events[user_id] = threading.Event()
-            
-            # 🔄 재시작 카운터 추가
-            if not hasattr(self, '_restart_counts'):
-                self._restart_counts = {}
-            self._restart_counts[user_id] = restart_count
+            stop_event = self._events[key] = threading.Event()
+            self._restart_counts[key] = restart_count
             
             thread = threading.Thread(
                 target=self._engine_runner_with_recovery,
-                kwargs={
-                    "user_id": user_id,
-                    "stop_event": stop_event,
-                    "test_mode": test_mode,
-                    "restart_count": restart_count,
-                },
+                kwargs=dict(
+                    user_id=user_id,
+                    stop_event=stop_event,
+                    test_mode=test_mode,
+                    restart_count=restart_count,
+                    captured_mode=captured_mode,
+                ),
                 daemon=True,
-                name=f"engine_runner_{user_id}",
+                name=f"engine_runner_{user_id}_{captured_mode}",
             )
             thread.start()
-            self._threads[user_id] = thread
+            self._threads[key] = thread
             return True
 
     def stop_engine(self, user_id):
-        if user_id in self._events:
-            self._events[user_id].set()
-        if user_id in self._threads:
-            self._threads[user_id].join(timeout=2)
+        m = current_mode()
+        key = _user_key(user_id, m)
 
-        self._locks.pop(user_id, None)
-        self._threads.pop(user_id, None)
-        self._events.pop(user_id, None)
+        if key in self._events:
+            self._events[key].set()
+        if key in self._threads:
+            self._threads[key].join(timeout=2)
+
+        self._locks.pop(key, None)
+        self._threads.pop(key, None)
+        self._events.pop(key, None)
+        self._restart_counts.pop(key, None)
 
         set_engine_status(user_id, False)
         set_thread_status(user_id, False)
         update_engine_status(user_id, "stopped")
         remove_engine_thread(user_id)
-        log_to_file(f"🔌 엔진 종료 요청됨: user_id={user_id}", user_id)
+        log_to_file(f"🔌 엔진 종료 요청됨: user_id={user_id}, mode={m}", user_id)
 
-    def _engine_runner_with_recovery(self, user_id, stop_event, test_mode=True, restart_count=0):
+        if m == "LIVE":
+            self._live_engine_count = max(0, self._live_engine_count - 1)
+            if self._live_engine_count == 0:
+                try:
+                    get_reconciler().stop()
+                except Exception:
+                    pass
+
+    def _engine_runner_with_recovery(
+        self,
+        user_id: str,
+        stop_event: threading.Event,
+        test_mode: bool,
+        restart_count: int,
+        captured_mode: str,
+    ):
         """
         🔄 24시간 안정성: 예외 발생 시 자동 재시작 메커니즘
         최대 3회까지 재시도 (1분, 5분, 15분 간격)
@@ -106,8 +165,9 @@ class EngineManager:
         RESTART_DELAYS = [60, 300, 900]  # 1분, 5분, 15분
         
         try:
-            self._engine_runner(user_id, stop_event, test_mode)
+            self._engine_runner(user_id, stop_event, test_mode, captured_mode)
         except Exception as e:
+            key = _user_key(user_id, captured_mode)
             if restart_count < MAX_RESTART_ATTEMPTS and not stop_event.is_set():
                 delay = RESTART_DELAYS[restart_count] if restart_count < len(RESTART_DELAYS) else 900
                 msg = f"🔄 엔진 예외 발생, {delay}초 후 재시작 ({restart_count + 1}/{MAX_RESTART_ATTEMPTS}): {e}"
@@ -118,20 +178,31 @@ class EngineManager:
                 # 지연 후 재시작
                 time.sleep(delay)
                 if not stop_event.is_set():
-                    # 자기 자신을 재시작
-                    self.start_engine(user_id, test_mode, restart_count + 1)
+                    self._start_engine_internal(
+                        user_id=user_id,
+                        test_mode=test_mode,
+                        restart_count=restart_count + 1,
+                        captured_mode=captured_mode,
+                    )
             else:
                 msg = f"❌ 엔진 최종 실패: 재시작 횟수 초과 또는 사용자 중단 요청"
                 logger.critical(msg)
                 insert_log(user_id, "CRITICAL", msg)
                 log_to_file(msg, user_id)
 
-    def _engine_runner(self, user_id, stop_event, test_mode=True):
-        logger.info(f"[DEBUG] engine_runner 시작됨 → user_id={user_id}")
+    def _engine_runner(
+        self,
+        user_id: str,
+        stop_event: threading.Event,
+        test_mode: bool,
+        captured_mode: str,
+    ):
+        logger.info(f"[DEBUG] engine_runner 시작 → user_id={user_id}, mode={captured_mode}")
 
-        user_lock = get_user_lock(user_id)
+        lock_id = _user_key(user_id, captured_mode)
+        user_lock = get_user_lock(lock_id)
         if not user_lock.acquire(blocking=False):
-            msg = f"⚠️ 이미 실행 중인 트레이딩 엔진: {user_id} (Lock으로 차단됨)"
+            msg = f"⚠️ 이미 실행 중: {lock_id} (Lock 차단)"
             insert_log(user_id, "INFO", msg)
             log_to_file(msg, user_id)
             return
@@ -151,12 +222,11 @@ class EngineManager:
                 target=run_live_loop,
                 args=(params, q, trader, stop_event, test_mode, user_id),
                 daemon=True,
-                name=f"run_live_loop_{user_id}",
+                name=f"run_live_loop_{user_id}_{captured_mode}",
             )
 
             try:
                 from streamlit.runtime.scriptrunner import add_script_run_ctx
-
                 add_script_run_ctx(worker)
             except Exception:
                 logger.warning(f"⚠️ ScriptRunContext 주입 실패: {user_id}")
@@ -164,31 +234,29 @@ class EngineManager:
             worker.start()
             add_engine_thread(user_id, worker, stop_event)
 
-            insert_log(user_id, "INFO", f"🚀 트레이딩 엔진 시작됨: user_id={user_id}")
-            log_to_file(f"🚀 트레이딩 엔진 시작됨: user_id={user_id}", user_id)
+            insert_log(user_id, "INFO", f"🚀 엔진 시작: user_id={user_id}, mode={captured_mode}")
+            log_to_file(f"🚀 엔진 시작: user_id={user_id}, mode={captured_mode}", user_id)
 
             while not stop_event.is_set():
                 try:
                     event = q.get(timeout=0.5)
                     self._process_event(
-                        user_id, event, params.upbit_ticker, params.order_ratio
+                        user_id, event, params.upbit_ticker, params.order_ratio, captured_mode
                     )
                 except queue.Empty:
                     continue
                 except Exception as e:
-                    msg = f"이벤트 처리 중 예외: {e}"
+                    msg = f"이벤트 처리 예외(mode={captured_mode}): {e}"
                     insert_log(user_id, "ERROR", msg)
                     log_to_file(msg, user_id)
-
         except Exception as e:
-            msg = f"❌ 엔진 예외: {e}"
+            msg = f"❌ 엔진 예외(mode={captured_mode}): {e}"
             logger.exception(msg)
             insert_log(user_id, "ERROR", msg)
             log_to_file(msg, user_id)
             update_engine_status(user_id, "error", note=msg)
             # 🔄 예외 상위로 전파 (재시작 메커니즘 활성화)
             raise
-
         finally:
             stop_event.set()
             set_engine_status(user_id, False)
@@ -197,19 +265,18 @@ class EngineManager:
             remove_engine_thread(user_id)
             user_lock.release()
 
-            msg = f"🛑 트레이딩 엔진 종료됨: user_id={user_id}"
+            msg = f"🛑 엔진 종료: user_id={user_id}, mode={captured_mode}"
             log_to_file(msg, user_id)
             insert_log(user_id, "INFO", msg)
 
-    def _process_event(self, user_id, event, ticker, order_ratio):
+    def _process_event(self, user_id: str, event, ticker: str, order_ratio: float, captured_mode: str):
         try:
             event_type = event[1]
 
             if event_type == "LOG":
                 _, _, log_msg = event
-                insert_log(user_id, "LOG", log_msg)
-                log_to_file(log_msg, user_id)
-
+                insert_log(user_id, "LOG", f"[{captured_mode}] {log_msg}")
+                log_to_file(f"[{captured_mode}] {log_msg}", user_id)
             elif event_type in ("BUY", "SELL"):
                 ts, _, qty, price, cross, macd, signal = event[:7]
                 amount = qty * price
@@ -217,28 +284,25 @@ class EngineManager:
                 insert_log(
                     user_id,
                     event_type,
-                    f"{event_type} signal: {qty:.6f} @ {price:,.2f} = {amount:,.2f} (fee={fee:,.2f})",
+                    f"[{captured_mode}] {event_type}: {qty:.6f} @ {price:,.2f} = {amount:,.2f} (fee={fee:,.2f})",
                 )
                 insert_log(
                     user_id,
                     event_type,
-                    f"{event_type} signal: cross={cross} macd={macd} signal={signal}",
+                    f"[{captured_mode}] detail: cross={cross} macd={macd} signal={signal}",
                 )
                 update_event_time(user_id)
-
             elif event_type == "EXCEPTION":
                 _, exc_type, exc_value, tb = event
-                msg = f"❌ 예외 발생: {exc_type.__name__}: {exc_value}"
+                msg = f"[{captured_mode}] ❌ 예외: {exc_type.__name__}: {exc_value}"
                 insert_log(user_id, "ERROR", msg)
                 log_to_file(msg, user_id)
-
             else:
-                msg = f"⚠️ 알 수 없는 이벤트 무시됨: {event}"
+                msg = f"[{captured_mode}] ⚠️ 알 수 없는 이벤트: {event}"
                 insert_log(user_id, "WARN", msg)
                 log_to_file(msg, user_id)
-
         except Exception as e:
-            msg = f"❌ process_event() 예외: {e} | event={event}"
+            msg = f"[{captured_mode}] ❌ process_event 예외: {e} | event={event}"
             insert_log(user_id, "ERROR", msg)
             log_to_file(msg, user_id)
 

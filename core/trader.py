@@ -7,6 +7,7 @@ from services.db import (
     get_account,
     get_coin_balance,
     create_or_init_account,
+    now_kst,
     update_account,
     update_coin_position,
     insert_account_history,
@@ -40,7 +41,11 @@ class UpbitTrader:
 
     def _krw_balance(self) -> float:
         if self.test_mode:
-            return get_account(self.user_id)
+            try:
+                bal = get_account(self.user_id)
+                return float(bal or 0.0)
+            except Exception:
+                return 0.0
 
         try:
             balance = self.upbit.get_balance(ticker="KRW")
@@ -50,14 +55,18 @@ class UpbitTrader:
             return 0.0
 
     def _coin_balance(self, ticker: str) -> float:
+        symbol = ticker.split("-")[-1].strip().upper() if ticker else ticker
+
         if self.test_mode:
-            return get_coin_balance(self.user_id, ticker)
+            try:
+                return float(get_coin_balance(self.user_id, symbol) or 0.0)
+            except Exception:
+                return 0.0
 
         try:
-            cur = ticker.split("-")[1]
             for b in self.upbit.get_balances():
-                if b["currency"] == cur:
-                    return float(b["balance"])
+                if b.get("currency", "").upper() == symbol:
+                    return float(b.get("balance", 0.0))
             return 0.0
         except Exception as e:
             logger.error(f"[실거래] 코인 잔고 조회 실패: {e}")
@@ -144,14 +153,16 @@ class UpbitTrader:
     # ---------------------------
     def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
         krw_to_use = self._krw_balance() * self.risk_pct
-        # ✅ 수수료 포함한 실제 지불 가능 수량 계산
-        qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
-
-        # ✅ 금액 또는 수량이 0/음수면 주문 중단 (고가·수수료·반올림으로 qty==0 방지)
-        if krw_to_use <= 0 or qty <= 0:
-            logger.warning(f"[BUY] 주문 불가: krw_to_use={krw_to_use:.4f}, qty={qty} (price={price}, fee={MIN_FEE_RATIO})")
+        if krw_to_use <= 0:
+            logger.warning(f"[BUY] 주문 불가: krw_to_use={krw_to_use:.4f}")
             return {}
         
+        if not self.test_mode and krw_to_use < 5000:
+            logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
+            return {}
+        
+        # ✅ 수수료 포함한 실제 지불 가능 수량 계산
+        qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
         logger.info(f"[BUY] plan krw_to_use={krw_to_use:.4f} price={price:.8f} fee={MIN_FEE_RATIO} -> qty={qty}")
 
         if self.test_mode:
@@ -162,7 +173,7 @@ class UpbitTrader:
 
             # ✅ 음수 -0 방지 및 정수 변환
             raw_total = qty * price * (1 + MIN_FEE_RATIO)
-            new_krw = max(int(current_krw - raw_total + 1e-8), 0)
+            new_krw = max(current_krw - raw_total, 0.0)
             new_coin = current_coin + qty
 
             insert_order(
@@ -197,7 +208,18 @@ class UpbitTrader:
         try:
             # 🟢 실거래: Upbit는 KRW 금액(=krw_to_use)로 시장가 매수
             res = self.upbit.buy_market_order(ticker, krw_to_use)
-            insert_order(self.user_id, ticker, "BUY", price, 0, "requested")
+            uuid = (res or {}).get("uuid")
+            insert_order(
+                self.user_id, 
+                ticker, 
+                "BUY", 
+                price, 
+                0, 
+                "requested", 
+                provider_uuid=uuid, 
+                state="REQUESTED", 
+                requested_at=now_kst()
+            )
             # ✅ 실거래도 감사 선기록(요청 시점) — 잔고 사후값은 미확정이므로 before만 기록
             self._audit_trade(
                 side="BUY",
@@ -212,7 +234,14 @@ class UpbitTrader:
                 fee_ratio=MIN_FEE_RATIO,
                 risk_pct=self.risk_pct,
             )
-            return res
+            return {
+                "time": ts,
+                "side": "BUY",
+                "qty": 0.0,
+                "price": float(price),
+                "uuid": uuid,
+                "raw": res
+            }
         except Exception as e:
             logger.error(f"[실거래] 매수 주문 실패: {e}")
             return {}
@@ -233,7 +262,7 @@ class UpbitTrader:
             # ✅ 수익 계산 및 정수 변환 (음수 방지)
             raw_gain = qty * price
             fee = raw_gain * MIN_FEE_RATIO
-            total_gain = max(int(raw_gain - fee + 1e-8), 0)
+            total_gain = raw_gain - fee
 
             new_krw = current_krw + total_gain
             new_coin = max(current_coin - qty, 0.0)
@@ -269,7 +298,18 @@ class UpbitTrader:
 
         try:
             res = self.upbit.sell_market_order(ticker, qty)
-            insert_order(self.user_id, ticker, "SELL", price, qty, "requested")
+            uuid = (res or {}).get("uuid")
+            insert_order(
+                self.user_id, 
+                ticker, 
+                "SELL", 
+                price, 
+                qty, 
+                "requested", 
+                provider_uuid=uuid,
+                state="REQUESTED",
+                requested_at=now_kst()
+            )
             # ✅ 실거래도 감사 선기록(요청 시점)
             self._audit_trade(
                 side="SELL",
@@ -284,7 +324,14 @@ class UpbitTrader:
                 fee_ratio=MIN_FEE_RATIO,
                 risk_pct=self.risk_pct,
             )
-            return res
+            return {
+                "time": ts,
+                "side": "SELL",
+                "qty": float(qty),
+                "price": float(price),
+                "uuid": uuid,
+                "raw": res
+            }
         except Exception as e:
             logger.error(f"[실거래] 매도 주문 실패: {e}")
             return {}

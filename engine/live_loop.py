@@ -10,6 +10,8 @@ from backtesting import Backtest
 from services.db import get_last_open_buy_order, insert_buy_eval
 from config import TP_WITH_TS
 
+from engine.reconciler_singleton import get_reconciler
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,7 +31,6 @@ def load_trade_conditions(user_id: str):
 
 def check_buy_conditions(evt, df, conds, threshold: float, macd_ref=None, signal_ref=None):
     def safe(col):
-        # 길이 체크 버그 수정
         return df[col].iloc[-2] if col in df and len(df[col]) >= 2 else None
 
     # 경계/부동소수 오차 보정용
@@ -48,9 +49,7 @@ def check_buy_conditions(evt, df, conds, threshold: float, macd_ref=None, signal
     macd_val   = as_num(macd_ref if macd_ref is not None else evt.get("macd"))
     signal_val = as_num(signal_ref if signal_ref is not None else evt.get("signal"))
 
-    passed = []
-    failed = []
-    details = {}
+    passed, failed, details = [], [], {}
 
     if conds.get("golden_cross"):
         ok = "golden" in (evt.get("reason", "").lower())
@@ -197,7 +196,12 @@ def run_live_loop(
     from streamlit.runtime.scriptrunner import add_script_run_ctx
     add_script_run_ctx(threading.current_thread())
 
+    is_live = (not test_mode)
+    mode_tag = "LIVE" if is_live else "TEST"
+    logger.info(f"[BOOT] run_live_loop start | mode={mode_tag}")
+
     trade_conditions = load_trade_conditions(user_id)
+
     # =========================
     # 시작 in_position 판정은 "지갑 기준"으로만
     #  - DB 시드만으로 in_position=True로 시작하던 문제 제거
@@ -279,8 +283,10 @@ def run_live_loop(
                 latest_price_live = float(df.Close.iloc[-1])
 
                 # --- 지갑 기준 포지션/엔트리 확정 ---
-                in_position, entry_price = detect_position_and_seed_entry(trader, params.upbit_ticker, user_id, entry_price)
-                logger.info(f"[POS] resolved → in_position={in_position}, entry_price={entry_price}")
+                in_position, entry_price = detect_position_and_seed_entry(
+                    trader, params.upbit_ticker, user_id, entry_price
+                )
+                logger.info(f"[POS] ({mode_tag}) in_position={in_position}, entry_price={entry_price}")
 
                 # 최신 LOG만 전송
                 cross_log = macd_log = signal_log = price_log = None
@@ -291,7 +297,7 @@ def run_live_loop(
                             f"{df_bt.index[bar_idx]} | price={price_log:.2f} | "
                             f"cross={cross_log} | macd={macd_log:.5f} | signal={signal_log:.5f} | bar={bar_idx}"
                         )
-                        q.put((df.index[bar_idx], "LOG", msg))
+                        q.put((df.index[bar_idx], "LOG", f"[{mode_tag}] {msg}"))
                         break
 
                 # -----------------------------
@@ -348,6 +354,10 @@ def run_live_loop(
                                 q.put((latest_index_live, "SELL", result["qty"], result["price"], reason, None, None))
                                 entry_price = None
                                 in_position = False
+
+                                if is_live and result.get("uuid"):
+                                    get_reconciler().enqueue(result["uuid"], user_id=user_id, ticker=params.upbit_ticker, side="SELL")
+
                                 continue
                     else:
                         if coin_balance_live < 1e-6:
@@ -355,7 +365,7 @@ def run_live_loop(
                         if entry_price is None:
                             logger.info("[WG] skip: entry_price is None (DB 시드 실패)")
                 except Exception as e:
-                    logger.warning(f"[WG] wallet-guard check skipped: {e}")
+                    logger.warning(f"[WG:{mode_tag}] wallet-guard skipped: {e}")
 
                 # -----------------------------
                 # 전략 이벤트 처리
@@ -363,14 +373,13 @@ def run_live_loop(
                 events_on_latest = [e for e in trade_events if e.get("bar") == latest_bar_bt]
                 evt = events_on_latest[-1] if events_on_latest else None
                 if not evt:
-                    logger.info(f"↩️ 최신 bar 신호 없음 | in_position={in_position} entry={entry_price}")
-                    logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
+                    logger.info(f"↩️ 최신 bar 신호 없음 ({mode_tag}) | in_position={in_position} entry={entry_price}")
                     continue
 
                 ebar = evt.get("bar")
                 etype = evt.get("type")
                 if ebar is None or etype not in ("BUY", "SELL"):
-                    logger.warning(f"[EVENT] skip invalid event: {evt}")
+                    logger.warning(f"[EVENT:{mode_tag}] skip invalid event: {evt}")
                     continue
 
                 # --- 중복 억제: '닫힌 바의 실제 타임스탬프'를 키로 사용 ---
@@ -379,14 +388,13 @@ def run_live_loop(
                 # 따라서 실제 타임스탬프를 키로 사용해 분마다 고유해지도록 한다.
                 try:
                     closed_ts = df_bt.index[ebar]
-                    key = (str(closed_ts), etype)
+                    key = (str(closed_ts), etype, mode_tag)
                 except Exception as _e:
-                    logger.warning(f"[EVENT] closed_ts resolve failed: {repr(_e)}; fallback to bar-num")
-                    key = (int(ebar), etype)
+                    logger.warning(f"[EVENT:{mode_tag}] closed_ts resolve failed: {repr(_e)}; fallback to bar-num")
+                    key = (int(ebar), etype, mode_tag)
 
                 if key in seen_signals:
-                    logger.info(f"[EVENT] duplicate skip: {key}")
-                    logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
+                    logger.info(f"[EVENT:{mode_tag}] duplicate skip: {key} | in_position={in_position} | entry_price={entry_price}")
                     continue
                 seen_signals.add(key)
 
@@ -395,12 +403,12 @@ def run_live_loop(
                 signal_e = evt.get("signal")
 
                 coin_balance = _wallet_balance(trader, params.upbit_ticker)
-                logger.info(f"📊 현재 잔고: {coin_balance:.8f}")
+                logger.info(f"📊 [{mode_tag}] 현재 잔고: {coin_balance:.8f}")
 
                 if not in_position:
                     # 포지션 없으면 BUY만 허용
                     if etype != "BUY":
-                        logger.info("⛔ 포지션 없음 → SELL 무시")
+                        logger.info(f"⛔ ({mode_tag}) 포지션 없음 → SELL 무시")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
@@ -416,14 +424,14 @@ def run_live_loop(
                         # 실패 목록과 해당 값/임계값을 함께 남겨 원인 즉시 확인
                         try:
                             logger.info(
-                                "⛔ BUY 조건 미충족 | failed=%s | values=%s | thr=%.6f | evt_reason=%s",
+                                f"⛔ ({mode_tag}) BUY 조건 미충족 | failed=%s | values=%s | thr=%.6f | evt_reason=%s",
                                 failed,
                                 {k: det.get(k) for k in failed},
                                 float(params.macd_threshold),
                                 evt.get("reason"),
                             )
                         except Exception:
-                            logger.info(f"⛔ BUY 조건 미충족({failed})")
+                            logger.info(f"⛔ ({mode_tag}) BUY 조건 미충족({failed})")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
@@ -449,10 +457,13 @@ def run_live_loop(
                         meta=meta
                     )
                     if result:
-                        logger.info(f"✅ BUY 체결 완료({passed}) {result}")
+                        logger.info(f"✅ ({mode_tag}) BUY 체결 완료({passed}) {result}")
                         q.put((latest_index_live, "BUY", result["qty"], result["price"], cross_e, macd_e, signal_e))
                         in_position = True
                         entry_price = result["price"]
+
+                        if is_live and result.get("uuid"):
+                            get_reconciler().enqueue(result["uuid"], user_id=user_id, ticker=params.upbit_ticker, side="BUY")
 
                         # === 체결 직후 BUY 평가 스냅샷 남기기 (리포트 1:1 매칭용) ===
                         try:
@@ -467,25 +478,25 @@ def run_live_loop(
                                 have_position=True,
                                 overall_ok=True,                         # 체결됐으니 평가 OK로 마킹
                                 failed_keys=[],
-                                checks={"reason": cross_e, "snapshot": "BUY_EXECUTED"},
+                                checks={"reason": cross_e, "snapshot": f"BUY_EXECUTED_{mode_tag}"},
                                 # 스키마 변경 없이 링크키 보관(ts_live, bar_bt)
-                                notes=f"EXECUTED ts_live={latest_index_live} bar_bt={latest_bar_bt}"
+                                notes=f"EXECUTED({mode_tag}) ts_live={latest_index_live} bar_bt={latest_bar_bt}"
                             )
                             logger.info(
-                                f"[AUDIT-LINK] BUY EXEC snap | ts_live={latest_index_live} "
+                                f"[AUDIT-LINK:{mode_tag}] BUY EXEC snap | ts_live={latest_index_live} "
                                 f"bar_bt={latest_bar_bt} price={float(result['price']):.6f}"
                             )
                         except Exception as e:
-                            logger.warning(f"[AUDIT-LINK] insert_buy_eval (EXECUTED) failed: {e}")
+                            logger.warning(f"[AUDIT-LINK:{mode_tag}] insert_buy_eval (EXECUTED) failed: {e}")
                 else:
                     # 포지션 있으면 SELL만 허용
                     if etype != "SELL":
-                        logger.info("⛔ 포지션 있음 → BUY 무시")
+                        logger.info(f"⛔ ({mode_tag}) 포지션 있음 → BUY 무시")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
                     if not check_sell_conditions(evt, trade_conditions.get("sell", {})):
-                        logger.info(f"⛔ SELL 조건 미충족({cross_e}) → 차단 | evt={evt}")
+                        logger.info(f"⛔ ({mode_tag}) SELL 조건 미충족({cross_e}) → 차단 | evt={evt}")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
@@ -515,15 +526,20 @@ def run_live_loop(
                         meta=meta
                     )
                     if result:
-                        logger.info(f"✅ SELL 체결 완료({cross_e}) {result}")
+                        logger.info(f"✅ ({mode_tag}) SELL 체결 완료({cross_e}) {result}")
                         q.put((latest_index_live, "SELL", result["qty"], result["price"], cross_e, macd_e, signal_e))
                         in_position = False
                         entry_price = None
 
+                        if is_live and result.get("uuid"):
+                            get_reconciler().enqueue(result["uuid"], user_id=user_id, ticker=params.upbit_ticker, side="SELL")
+
                 logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
     except Exception:
-        logger.exception("❌ run_live_loop 예외 발생:")
-        q.put(("EXCEPTION", *sys.exc_info()))
+        logger.exception(f"❌ run_live_loop 예외 발생 ({mode_tag})")
+        ts = time.time()  # 또는 latest_index_live 사용 가능
+        exc_type, exc_value, tb = sys.exc_info()
+        q.put((ts, "EXCEPTION", exc_type, exc_value, tb))
     finally:
-        logger.info("🧹 run_live_loop 종료 완료 → stop_event set")
+        logger.info(f"🧹 run_live_loop 종료 ({mode_tag}) → stop_event set")
         stop_event.set()

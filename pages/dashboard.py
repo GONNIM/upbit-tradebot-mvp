@@ -43,6 +43,10 @@ params = st.query_params
 user_id = params.get("user_id", "")
 virtual_krw = int(params.get("virtual_krw", 0))
 
+mode = params.get("mode", "TEST").upper()
+st.session_state["mode"] = mode
+is_live = (mode == "LIVE")
+
 # ✅ 페이지 설정
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 st.markdown(style_main, unsafe_allow_html=True)
@@ -105,6 +109,19 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+st.markdown(
+    f"""
+    <div style="position:sticky;top:0;z-index:999;background:#0b0b0b;padding:8px 12px;border-bottom:1px solid #222;">
+      <span style="background:{('#22c55e' if is_live else '#64748b')};color:white;padding:4px 10px;border-radius:999px;font-weight:700;">
+        {mode}
+      </span>
+      <span style="color:#bbb;margin-left:8px">운용 중</span>
+      {"<span style='color:#fca5a5;margin-left:12px'>⚠️ LIVE 모드: 실거래 주의</span>" if is_live else ""}
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
 # ✅ 자동 새로고침
 st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_autorefresh")
 
@@ -117,7 +134,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard : `{user_id}`님 --- v1.2025.10.30.2153")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.10.2200")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -141,15 +158,15 @@ with col10:
     # ✅ 실행되지 않았을 경우: 실행 버튼 표시
     if not engine_status:
         start_trading = st.button(
-            "Upbit Trade Bot v1 (TEST) 엔진 실행하기", use_container_width=True
+            f"Upbit Trade Bot v1 ({mode}) 엔진 실행하기", use_container_width=True
         )
         if start_trading:
             if not st.session_state.get("engine_started", False):
                 if not engine_manager.is_running(user_id):  # ✅ 유저별 엔진 실행 여부 확인
                     st.write("🔄 엔진 실행을 시작합니다...")
-                    success = engine_manager.start_engine(user_id, test_mode=True)
+                    success = engine_manager.start_engine(user_id, test_mode=(not is_live))
                     if success:
-                        insert_log(user_id, "INFO", "✅ 트레이딩 엔진 실행됨")
+                        insert_log(user_id, "INFO", f"✅ 트레이딩 엔진 실행됨 ({mode})")
                         st.session_state.engine_started = True
                         st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
                         st.rerun()
@@ -161,7 +178,7 @@ with col10:
                 st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
 with col20:
     start_setting = st.button(
-        "Upbit Trade Bot v1 (TEST) 파라미터 설정하기", use_container_width=True
+        f"Upbit Trade Bot v1 ({mode}) 파라미터 설정하기", use_container_width=True
     )
     if start_setting:
         if engine_status:
@@ -174,6 +191,7 @@ with col20:
             {
                 "virtual_krw": st.session_state.virtual_krw,
                 "user_id": st.session_state.user_id,
+                "mode": mode,
             }
         )
 
@@ -389,8 +407,6 @@ if orders:
 else:
     st.info("최근 거래 내역이 없습니다.")
 
-st.divider()
-
 buy_logs = fetch_logs(user_id, level="BUY", limit=10)
 buy_logs = None
 if buy_logs:
@@ -472,20 +488,6 @@ if show_trade:
 
 st.divider()
 
-# log_summary = fetch_latest_log_signal(user_id, params_obj.upbit_ticker)
-# if log_summary:
-#     st.subheader("📌 최근 시그널 정보")
-#     cols = st.columns(6)
-#     cols[0].markdown(f"**시간**<br>{log_summary['시간']}", unsafe_allow_html=True)
-#     cols[1].markdown(f"**Ticker**<br>{log_summary['Ticker']}", unsafe_allow_html=True)
-#     cols[2].markdown(f"**Price**<br>{log_summary['price']}", unsafe_allow_html=True)
-#     cols[3].markdown(f"**Cross**<br>{log_summary['cross']}", unsafe_allow_html=True)
-#     cols[4].markdown(f"**MACD**<br>{log_summary['macd']}", unsafe_allow_html=True)
-#     cols[5].markdown(f"**Signal**<br>{log_summary['signal']}", unsafe_allow_html=True)
-# else:
-#     st.info("📭 아직 유효한 LOG 시그널이 없습니다.")
-# --- 최신 시그널 카드: tz-naive/aware 혼합 비교 에러 픽스 ---
-
 import pandas as pd
 
 # 화면 표시용 로컬 타임존 (원하면 설정에서 끌어와도 됨)
@@ -505,18 +507,20 @@ def _parse_dt(s: str) -> pd.Timestamp | None:
     except Exception:
         return None
 
-def _fmt_dt(ts: pd.Timestamp | None, tz: str = LOCAL_TZ) -> str | None:
-    """표시용 문자열: UTC → 로컬 타임존으로 변환 후 포맷."""
+def _fmt_dt(ts: pd.Timestamp | None, tz: str = LOCAL_TZ) -> str:
     if ts is None or pd.isna(ts):
-        return None
+        return ""
     try:
+        # tz 정보가 없으면 UTC로 로컬라이즈 후 변환
+        if getattr(ts, "tzinfo", None) is None:
+            ts = ts.tz_localize("UTC")
         return ts.tz_convert(tz).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
-        # 혹시 tz 정보가 없으면 로컬라이즈 후 변환
-        try:
-            return ts.tz_localize("UTC").tz_convert(tz).strftime("%Y-%m-%d %H:%M:%S")
-        except Exception:
-            return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+        # 최후의 보루: 강제 변환
+        ts2 = pd.to_datetime(ts, errors="coerce", utc=True)
+        if ts2 is None or pd.isna(ts2):
+            return ""
+        return ts2.tz_convert(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
     """
@@ -547,11 +551,10 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
     choose_trade = (trade_dt is not None) and ((log_dt is None) or (trade_dt >= log_dt))
 
     if choose_trade:
-        t_time, t_ticker, t_side, t_price = trade_row[0], trade_row[1], trade_row[2], trade_row[3]
+        t_ticker, t_side, t_price = trade_row[1], trade_row[2], trade_row[3]
         return {
             "source": "TRADE",
-            # "시간": _fmt_dt(_parse_dt(t_time)),
-            "시간": (t_time.tz_localize(None) if getattr(t_time, "tz", None) is not None else t_time).strftime("%Y-%m-%d %H:%M:%S"),
+            "시간": _fmt_dt(trade_dt),
             "Ticker": t_ticker,
             "Price": f"{float(t_price):.2f}",
             "Cross": "(Filled)",
@@ -562,8 +565,7 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
     else:
         return {
             "source": "LOG",
-            # "시간": _fmt_dt(log_dt),
-            "시간": (log_dt.tz_localize(None) if getattr(log_dt, "tz", None) is not None else log_dt).strftime("%Y-%m-%d %H:%M:%S"),
+            "시간": _fmt_dt(log_dt),
             "Ticker": log_row.get("Ticker"),
             "Price": log_row.get("price"),
             "Cross": log_row.get("cross"),
@@ -710,7 +712,7 @@ with btn_col1:
     if st.button("🛑 강제매수하기", use_container_width=True):
         if account_krw > 0 and coin_balance == 0:
             trader = UpbitTrader(
-                user_id, risk_pct=params_obj.order_ratio, test_mode=True
+                user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
             msg = force_buy_in(user_id, trader, params_obj.upbit_ticker)
             st.success(msg)
@@ -718,20 +720,20 @@ with btn_col2:
     if st.button("🛑 강제매도하기", use_container_width=True):
         if account_krw == 0 and coin_balance > 0:
             trader = UpbitTrader(
-                user_id, risk_pct=params_obj.order_ratio, test_mode=True
+                user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
             msg = force_liquidate(user_id, trader, params_obj.upbit_ticker)
             st.success(msg)
 with btn_col3:
     if st.button("🛑 트레이딩 엔진 종료", use_container_width=True):
         engine_manager.stop_engine(user_id)
-        insert_log(user_id, "INFO", "🛑 트레이딩 엔진 수동 종료됨")
+        insert_log(user_id, "INFO", f"🛑 트레이딩 엔진 수동 종료됨 ({mode})")
         st.session_state.engine_started = False
         time.sleep(0.2)
         st.rerun()
 with btn_col4:
     if st.button("💥 시스템 초기화", use_container_width=True):
-        params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id})
+        params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id, "mode": mode})
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./confirm_init_db?{params}">',
             unsafe_allow_html=True,
@@ -756,15 +758,11 @@ def get_interval_label(interval_code: str) -> str:
 
 
 def get_macd_exit_enabled() -> str:
-    if params_obj.macd_exit_enabled:
-        return "사용"
-    return "미사용"
+    return "사용" if params_obj.macd_exit_enabled else "미사용"
 
 
 def get_signal_confirm_enabled() -> str:
-    if params_obj.signal_confirm_enabled:
-        return "사용"
-    return "미사용"
+    return "사용" if params_obj.signal_confirm_enabled else "미사용"
 
 
 st.markdown(
@@ -861,7 +859,7 @@ with col1:
     st.subheader("⚙️ 매수 전략")
 with col2:
     if st.button("🛠️ 설정", use_container_width=True):
-        params = urlencode({"user_id": user_id})
+        params = urlencode({"user_id": user_id, "mode": mode})
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">',
             unsafe_allow_html=True,
@@ -926,6 +924,7 @@ with c4:
             "rows": int(audit_rows),
             "only_failed": int(bool(audit_only_failed)),
             "tab": default_tab,  # buy/sell/trades/settings 중 하나
+            "mode": mode
         })
 
         next_page = "audit_viewer"  # 👈 pages/audit_viewer.py 파일명 기준 (아래 Step 2)
@@ -941,7 +940,7 @@ with get_db(user_id) as conn:
 
 st.divider()
 
-from ui.charts import macd_altair_chart, debug_time_meta
+from ui.charts import macd_altair_chart, debug_time_meta, _minus_9h_index
 from core.data_feed import get_ohlcv_once
 
 # ...
@@ -949,7 +948,7 @@ ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
 interval_code = getattr(params_obj, "interval", params_obj.interval)
 
 df_live = get_ohlcv_once(ticker, interval_code, count=600)  # 최근 600봉
-st.markdown(f"### 📈 Price & MACD : `{ticker}`")
+st.markdown(f"### 📈 Price & MACD ({mode}) : `{ticker}`")
 macd_altair_chart(
     df_live,
     fast=params_obj.fast_period,
@@ -958,4 +957,5 @@ macd_altair_chart(
     max_bars=500,
 )
 
-# debug_time_meta(df_live, "live_raw")
+# debug_time_meta(df_live, "raw")  # tz: None 이고 값이 이미 KST일 가능성
+# debug_time_meta(_minus_9h_index(df_live), "kst-naive")  # tz: None이어야 정상

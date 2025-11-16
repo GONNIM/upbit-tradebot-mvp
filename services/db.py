@@ -4,10 +4,14 @@ from zoneinfo import ZoneInfo
 from contextlib import contextmanager
 
 import json
-
-from services.init_db import get_db_path
-
 from typing import Optional, Dict, Any
+from services.init_db import get_db_path, ensure_orders_extended_schema
+
+from config import DEFAULT_USER_ID
+
+
+def ensure_schema(user_id: str):
+    ensure_orders_extended_schema(user_id)
 
 
 DB_PREFIX = "tradebot"
@@ -74,16 +78,28 @@ def insert_order(
     current_krw=None,
     current_coin=None,
     profit_krw=None,
+    *,
+    provider_uuid: str | None = None,
+    state: str | None = None,
+    requested_at: str | None = None,
+    executed_at: str | None = None,
+    canceled_at: str | None = None,
+    executed_volume: float | None = None,
+    avg_price: float | None = None,
+    paid_fee: float | None = None,
 ):
+    ensure_schema(user_id)
     with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             INSERT INTO orders (
                 user_id, timestamp, ticker, side, price, volume, status,
-                current_krw, current_coin, profit_krw
+                current_krw, current_coin, profit_krw,
+                provider_uuid, state, requested_at, executed_at, canceled_at,
+                executed_volume, avg_price, paid_fee, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -96,6 +112,15 @@ def insert_order(
                 current_krw,
                 current_coin,
                 profit_krw,
+                provider_uuid,
+                state,
+                requested_at or (now_kst() if state == "REQUESTED" else None),
+                executed_at,
+                canceled_at,
+                executed_volume,
+                avg_price,
+                paid_fee,
+                now_kst(),
             ),
         )
         conn.commit()
@@ -117,18 +142,6 @@ def fetch_recent_orders(user_id, limit=10):
         return cursor.fetchall()
 
 
-# def delete_orders(user_id):
-#     with get_db(user_id) as conn:
-#         cursor = conn.cursor()
-#         cursor.execute(
-#             """
-#             DELETE FROM orders;
-#         """
-#         )
-#         deleted = cursor.rowcount
-#         conn.commit()
-
-#     print(f"🧹 Deleted {deleted} rows from orders table.")
 def delete_orders(user_id):
     with get_db(user_id) as conn:
         cursor = conn.cursor()
@@ -216,39 +229,6 @@ def fetch_logs(user_id, level="LOG", limit=20):
         return cursor.fetchall()
 
 
-# def get_last_status_log_from_db(user_id: str) -> str:
-#     """
-#     logs 테이블에서 level='INFO'이고 이모지로 시작하는 상태 메시지 중 가장 최근 항목 1개 반환
-#     """
-#     status_prefixes = ("🚀", "🔌", "🛑", "✅", "⚠️", "📡", "🔄", "❌", "🚨")
-
-#     with get_db(user_id) as conn:
-#         cursor = conn.cursor()
-#         # 이모지로 시작하는 메시지만 필터링
-#         emoji_conditions = " OR ".join(
-#             [f"message LIKE '{prefix}%'" for prefix in status_prefixes]
-#         )
-#         try:
-#             cursor.execute(
-#                 f"""
-#                 SELECT timestamp, message FROM logs
-#                 WHERE user_id = ? AND (level = 'INFO' OR level = 'BUY' OR level = 'SELL')
-#                 ORDER BY timestamp DESC
-#                 LIMIT 1
-#                 """,
-#                 (user_id,),
-#             )
-#             row = cursor.fetchone()
-#             if row:
-#                 ts, message = row
-#                 formatted_ts = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M:%S")
-#                 return f"[{formatted_ts}] {message}"
-#             else:
-#                 return "❌ 상태 로그 없음"
-#         except Exception as e:
-#             return f"❌ DB 조회 오류: {e}"
-#         finally:
-#             conn.close()
 def get_last_status_log_from_db(user_id: str) -> str:
     status_prefixes = ("🚀","🔌","🛑","✅","⚠️","📡","🔄","❌","🚨")
     with get_db(user_id) as conn:
@@ -281,19 +261,6 @@ def get_last_status_log_from_db(user_id: str) -> str:
             return f"❌ DB 조회 오류: {e}"
 
 
-# def delete_old_logs(user_id):
-#     with get_db(user_id) as conn:
-#         cursor = conn.cursor()
-#         cursor.execute(
-#             """
-#             DELETE FROM logs
-#             WHERE timestamp < DATETIME('now', 'start of day', 'localtime');
-#         """
-#         )
-#         deleted = cursor.rowcount
-#         conn.commit()
-
-#     print(f"🧹 Deleted {deleted} old logs.")
 def delete_old_logs(user_id):
     with get_db(user_id) as conn:
         cursor = conn.cursor()
@@ -875,3 +842,134 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
     except Exception as e:
         logger.warning(f"[DB] get_last_open_buy_order failed: {e}")
         return None
+
+
+def fetch_inflight_orders(user_id: str | None = None):
+    """
+    REQUESTED / PARTIALLY_FILLED 상태의 주문을 uuid 포함해서 리턴.
+    user_id None이면 전체 조회.
+    """
+    ensure_schema(user_id or "")
+    with get_db(user_id or DEFAULT_USER_ID) as conn:
+        cur = conn.cursor()
+        if user_id:
+            cur.execute("""
+                SELECT id, user_id, ticker, side, provider_uuid, state
+                FROM orders
+                WHERE user_id = ? AND provider_uuid IS NOT NULL
+                  AND state IN ('REQUESTED','PARTIALLY_FILLED')
+                ORDER BY id DESC
+            """, (user_id,))
+        else:
+            cur.execute("""
+                SELECT id, user_id, ticker, side, provider_uuid, state
+                FROM orders
+                WHERE provider_uuid IS NOT NULL
+                  AND state IN ('REQUESTED','PARTIALLY_FILLED')
+                ORDER BY id DESC
+            """)
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r[0],
+                "user_id": r[1],
+                "ticker": r[2],
+                "side": r[3],
+                "uuid": r[4],
+                "state": r[5],
+            } for r in rows
+        ]
+
+
+def update_order_progress(
+    user_id: str,
+    provider_uuid: str,
+    *,
+    executed_volume: float,
+    avg_price: float | None,
+    paid_fee: float | None,
+    state: str,                # 'PARTIALLY_FILLED' 등
+    executed_at: str | None = None,
+):
+    """
+    부분체결 진행 상황 갱신. 누적 수량·평단·수수료·상태·시각 업데이트.
+    """
+    ensure_schema(user_id)
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE orders
+            SET executed_volume = ?,
+                avg_price = ?,
+                paid_fee = ?,
+                state = ?,
+                executed_at = COALESCE(executed_at, ?),
+                updated_at = ?
+            WHERE user_id = ? AND provider_uuid = ?
+        """, (
+            executed_volume,
+            avg_price,
+            paid_fee,
+            state,
+            executed_at,
+            now_kst(),
+            user_id,
+            provider_uuid
+        ))
+        conn.commit()
+
+
+def update_order_completed(
+    user_id: str,
+    provider_uuid: str,
+    *,
+    final_state: str,       # 'FILLED' | 'CANCELED' | 'REJECTED'
+    executed_volume: float | None = None,
+    avg_price: float | None = None,
+    paid_fee: float | None = None,
+    executed_at: str | None = None,
+    canceled_at: str | None = None,
+):
+    """
+    최종 완료/취소/거절로 전환. 필요 시 누적치도 함께 덮어씀.
+    """
+    ensure_schema(user_id)
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE orders
+            SET state = ?,
+                executed_volume = COALESCE(?, executed_volume),
+                avg_price       = COALESCE(?, avg_price),
+                paid_fee        = COALESCE(?, paid_fee),
+                executed_at     = COALESCE(executed_at, ?),
+                canceled_at     = COALESCE(canceled_at, ?),
+                updated_at      = ?
+            WHERE user_id = ? AND provider_uuid = ?
+        """, (
+            final_state,
+            executed_volume,
+            avg_price,
+            paid_fee,
+            executed_at,
+            canceled_at,
+            now_kst(),
+            user_id,
+            provider_uuid
+        ))
+        conn.commit()
+
+
+def fetch_recent_fills(user_id: str, limit: int = 20):
+    ensure_schema(user_id)
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT timestamp, ticker, side, state, executed_volume, avg_price, paid_fee, requested_at, executed_at
+            FROM orders
+            WHERE user_id = ?
+              AND state IN ('FILLED','PARTIALLY_FILLED','CANCELED','REJECTED','REQUESTED')
+            ORDER BY id DESC
+            LIMIT ?
+        """, (user_id, limit))
+        return cur.fetchall()

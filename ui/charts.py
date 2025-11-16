@@ -80,6 +80,13 @@ def normalize_time_index_friendly(
         _df.index = _df.index.tz_localize(None)
     return _df.sort_index()
 
+# ✅ 인덱스가 tz-naive(KST로 찍혀있음)인 경우 9시간만 단순히 빼기
+def _minus_9h_index(df: pd.DataFrame) -> pd.DataFrame:
+    _df = df.copy()
+    if isinstance(_df.index, pd.DatetimeIndex) and _df.index.tz is None:
+        _df.index = pd.to_datetime(_df.index, errors="coerce") - pd.Timedelta(hours=9)
+    return _df
+
 def macd_altair_chart(
     df_raw: pd.DataFrame,
     *,
@@ -104,7 +111,7 @@ def macd_altair_chart(
 
     df = df_raw.tail(max_bars)
     df = compute_macd(df, fast=fast, slow=slow, signal=signal)
-    df = normalize_time_index_friendly(df)
+    df = _minus_9h_index(df)
 
     df_plot = df.reset_index().rename(columns={"index": "Time"})
     base = alt.Chart(df_plot).encode(x=alt.X("Time:T", axis=alt.Axis(format="%H:%M")))
@@ -171,7 +178,7 @@ def macd_mpl_chart(
 
     df = df_raw.tail(max_bars)
     df = compute_macd(df, fast=fast, slow=slow, signal=signal)
-    df = normalize_time_index_friendly(df)
+    df = _minus_9h_index(df)
 
     times = df.index
 

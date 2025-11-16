@@ -15,27 +15,7 @@ DB_PREFIX = "tradebot"
 
 def get_db_path(user_id):
     path = os.path.join(DB_DIR, f"{DB_PREFIX}_{user_id}.db")
-    # print(f"[DBPATH] resolved={os.path.abspath(path)}")  # 진단 로그
     return path
-
-
-# def init_db_if_needed(user_id):
-#     if not os.path.exists(get_db_path(user_id)):
-#         print(f"✅ intialize_db : {get_db_path(user_id)}")
-#         initialize_db(user_id)
-def init_db_if_needed(user_id):
-    db_path = get_db_path(user_id)
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
-
-    # if not os.path.exists(db_path):
-    #     print(f"✅ initialize_db : {db_path}")
-    # else:
-    #     print(f"ℹ️ DB exists: {db_path}")
-
-    # ✅ 신규/기존 구분 없이, 항상 코어 테이블 + 감사 테이블 보강
-    ensure_core_tables(user_id)
-    add_audit_tables(user_id)
-    # print(f"✅ Schema ensured: {db_path}")
 
 
 def reset_db(user_id):
@@ -60,76 +40,6 @@ def reset_db(user_id):
             print(f"⚠️ remove failed({f}): {e}")
 
     # [FIX] 깨끗한 새 파일로 스키마 생성
-    initialize_db(user_id)
-
-
-def reset_db_before(user_id):
-    """
-    기존 DB를 '완전 초기화'하고 스키마를 재생성한다.
-    - 코어 테이블 + 감사 테이블(audit_*) 모두 DROP
-    - WAL/SHM 파일 정리
-    - VACUUM으로 파일 축소
-    - initialize_db(user_id)로 스키마 재생성
-    """
-    db_path = get_db_path(user_id)
-
-    # 열려있는 커넥션이 있으면 WAL 체크포인트가 안 돼서 잔여가 남을 수 있음
-    # 가능하면 여기 오기 전 engine/thread를 반드시 중지(이미 호출함).
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-        conn.commit()
-    finally:
-        conn.close()
-
-    # 실제 존재하는 테이블만 동적으로 DROP (이름 불일치 문제 해결)
-    conn = sqlite3.connect(db_path)
-    cur = conn.cursor()
-
-    # 드롭 후보: core + 감사(audit_* + 구(비프리픽스) 이름들)
-    drop_candidates = {
-        # core
-        "users", "orders", "logs", "accounts", "account_history",
-        "account_positions", "position_history", "engine_status", "thread_status",
-        # audit (신/구 혼용 모두)
-        "audit_buy_eval", "audit_sell_eval", "audit_trades", "audit_settings",
-        "buy_eval", "sell_eval", "trades", "settings",
-    }
-
-    # 실제 존재 테이블 목록 수집
-    cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    existing = {r[0] for r in cur.fetchall()}
-
-    for t in (drop_candidates & existing):
-        try:
-            cur.execute(f"DROP TABLE IF EXISTS {t};")
-        except Exception as e:
-            print(f"⚠️ DROP 실패({t}): {e}")
-
-    conn.commit()
-    conn.close()
-
-    # WAL/SHM 잔여 파일 정리
-    wal = f"{db_path}-wal"
-    shm = f"{db_path}-shm"
-    for f in (wal, shm):
-        try:
-            if os.path.exists(f):
-                os.remove(f)
-                print(f"🧹 removed: {f}")
-        except Exception as e:
-            print(f"⚠️ remove failed({f}): {e}")
-
-    # VACUUM은 모든 연결이 닫힌 뒤 수행
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.execute("VACUUM;")
-        conn.close()
-        print("🧼 VACUUM done")
-    except Exception as e:
-        print(f"⚠️ VACUUM failed: {e}")
-
-    # 스키마 재생성 (코어 + 감사 테이블)
     initialize_db(user_id)
 
 
@@ -364,28 +274,37 @@ def add_audit_tables(user_id):
     # print(f"✅ Audit tables ready: {get_db_path(user_id)}")
 
 
-def _connect(user_id):
-    conn = sqlite3.connect(get_db_path(user_id))
+def _connect(user_id: str):
+    conn = sqlite3.connect(get_db_path(user_id), timeout=30, isolation_level=None)
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA busy_timeout=3000;")
     conn.execute("PRAGMA foreign_keys=ON;")
     return conn
 
-def ensure_core_tables(user_id: str):
-    conn = _connect(user_id)
+
+def _safe_alter(conn, sql: str):
+    try:
+        conn.execute(sql)
+    except Exception:
+        # 이미 존재/타입불일치 등은 조용히 무시 (idempotent)
+        pass
+
+
+def ensure_orders_extended_schema(user_id: str | None):
+    """
+    orders 테이블에 확장 칼럼/인덱스 보강:
+      - provider_uuid (거래소 주문 ID)
+      - state (REQUESTED/PARTIALLY_FILLED/FILLED/CANCELED/REJECTED/...)
+      - executed_volume / avg_price / paid_fee
+      - requested_at / executed_at / canceled_at / updated_at
+    """
+    # user_id가 아직 없을 수 있는 진입(예: 전역 보강) 대비: 안전한 기본 파일로 연결
+    uid = user_id or "default"
+    conn = _connect(uid)
     cur = conn.cursor()
 
-    # ✅ 핵심 테이블들 (모두 IF NOT EXISTS)
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE,
-        display_name TEXT,
-        virtual_krw INTEGER,
-        updated_at TEXT DEFAULT (DATETIME('now', 'localtime'))
-    );
-    """)
+    # orders 테이블 없으면 생성(기존 스키마 유지)
     cur.execute("""
     CREATE TABLE IF NOT EXISTS orders (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -401,6 +320,55 @@ def ensure_core_tables(user_id: str):
         profit_krw INTEGER DEFAULT 0
     );
     """)
+
+    # 확장 칼럼(조건부)
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN provider_uuid TEXT")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN state TEXT")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN executed_volume REAL")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN avg_price REAL")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN paid_fee REAL")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN requested_at TEXT")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN executed_at TEXT")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN canceled_at TEXT")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN updated_at TEXT")
+
+    # 인덱스(조건부)
+    _safe_alter(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_uuid ON orders(provider_uuid)")
+    _safe_alter(conn, "CREATE INDEX IF NOT EXISTS idx_orders_user_ticker ON orders(user_id, ticker)")
+    _safe_alter(conn, "CREATE INDEX IF NOT EXISTS idx_orders_state ON orders(state)")
+    _safe_alter(conn, "CREATE INDEX IF NOT EXISTS idx_orders_user_state ON orders(user_id, state)")
+    _safe_alter(conn, "CREATE INDEX IF NOT EXISTS idx_orders_ts ON orders(timestamp)")
+
+    conn.commit()
+    conn.close()
+
+
+def ensure_core_tables(user_id: str):
+    conn = _connect(user_id)
+    cur = conn.cursor()
+
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT UNIQUE,
+        display_name TEXT,
+        virtual_krw INTEGER,
+        updated_at TEXT DEFAULT (DATETIME('now', 'localtime'))
+    );""")
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS orders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT,
+        timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+        ticker TEXT,
+        side TEXT,
+        price REAL,
+        volume REAL,
+        status TEXT,
+        current_krw INTEGER DEFAULT 0,
+        current_coin REAL DEFAULT 0.0,
+        profit_krw INTEGER DEFAULT 0
+    );""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -408,23 +376,20 @@ def ensure_core_tables(user_id: str):
         timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
         level TEXT,
         message TEXT
-    );
-    """)
+    );""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS accounts (
         user_id TEXT PRIMARY KEY,
         virtual_krw INTEGER DEFAULT 1000000,
         updated_at TEXT DEFAULT (DATETIME('now', 'localtime'))
-    );
-    """)
+    );""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS account_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id TEXT,
         timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
         virtual_krw INTEGER
-    );
-    """)
+    );""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS account_positions (
         user_id TEXT,
@@ -432,8 +397,7 @@ def ensure_core_tables(user_id: str):
         virtual_coin REAL DEFAULT 0,
         updated_at TEXT DEFAULT (DATETIME('now', 'localtime')),
         PRIMARY KEY (user_id, ticker)
-    );
-    """)
+    );""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS position_history (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -441,27 +405,51 @@ def ensure_core_tables(user_id: str):
         timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
         ticker TEXT,
         virtual_coin REAL
-    );
-    """)
+    );""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS engine_status (
         user_id TEXT PRIMARY KEY,
         is_running INTEGER DEFAULT 0,
         last_heartbeat TEXT DEFAULT (DATETIME('now', 'localtime'))
-    );
-    """)
+    );""")
     cur.execute("""
     CREATE TABLE IF NOT EXISTS thread_status (
         user_id TEXT PRIMARY KEY,
         is_thread_running INTEGER DEFAULT 0,
         last_heartbeat TEXT DEFAULT (DATETIME('now', 'localtime'))
-    );
-    """)
+    );""")
 
-    # 인덱스
     cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_ts ON orders(user_id, timestamp);")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_logs_user_ts ON logs(user_id, timestamp);")
 
     conn.commit()
     conn.close()
+
+
+def ensure_all_schemas(user_id: str):
+    """
+    코어 + 감사 + orders 확장 스키마를 한 번에 보장
+    """
+    ensure_core_tables(user_id)
+    add_audit_tables(user_id)
+    ensure_orders_extended_schema(user_id)
+
+
+def init_db_if_needed(user_id):
+    """
+    기존 코드를 대체: 신규/기존 관계없이 항상 스키마를 최신으로 보강
+    """
+    db_path = get_db_path(user_id)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    ensure_all_schemas(user_id)
+
+
+def init_db_if_needed_old(user_id):
+    db_path = get_db_path(user_id)
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    # ✅ 신규/기존 구분 없이, 항상 코어 테이블 + 감사 테이블 보강
+    ensure_core_tables(user_id)
+    add_audit_tables(user_id)
+    # print(f"✅ Schema ensured: {db_path}")

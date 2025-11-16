@@ -135,7 +135,7 @@ def make_sidebar(user_id) -> Optional[LiveParams]:
                 )
                 st.rerun()
 
-        st.subheader("가상 보유자산")
+        st.subheader("운용자산")
         st.info(f"{st.session_state.virtual_amount:,.0f} KRW")
 
         if not submitted:

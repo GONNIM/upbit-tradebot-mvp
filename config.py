@@ -25,7 +25,7 @@ MIN_FEE_RATIO = 0.0005
 
 PARAMS_JSON_FILENAME = "latest_params.json"
 CONDITIONS_JSON_FILENAME = "buy_sell_conditions.json"
-DEFAULT_USER_ID = "gon1972"
+DEFAULT_USER_ID = "mcmax33"
 
 # 리프레시 간격 (초)
 REFRESH_INTERVAL = 5

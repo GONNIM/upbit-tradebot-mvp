@@ -2,16 +2,32 @@ from urllib.parse import urlencode
 import streamlit as st
 import streamlit_authenticator as stauth
 from ui.style import style_main
-from config import MIN_CASH
+from config import MIN_CASH, ACCESS, SECRET
 from services.db import get_user, save_user
-from services.init_db import reset_db
-import os
 import yaml
 from yaml.loader import SafeLoader
 from services.init_db import init_db_if_needed
 from services.health_monitor import start_health_monitoring
-
 from utils.smoke_test import render_db_smoke_test
+
+from services.upbit_api import validate_upbit_keys
+
+
+def _mask(s: str, head=4, tail=4):
+    if not s:
+        return ""
+    if len(s) <= head + tail:
+        return "*" * len(s)
+    return f"{s[:head]}{'*' * (len(s) - head - tail)}{s[-tail:]}"
+
+
+# 모드/검증 상태 기본값
+st.session_state.setdefault("mode", "TEST")
+st.session_state.setdefault("_last_mode", "TEST")          # 마지막 모드 기억
+st.session_state.setdefault("upbit_verified", False)       # 검증 결과
+st.session_state.setdefault("upbit_accounts", [])          # 잔고 캐시
+st.session_state.setdefault("upbit_verify_error", "")      # 에러 메시지
+st.session_state.setdefault("_auto_checked_in_live", False)# 이번 LIVE 세션 자동검증 여부
 
 
 # Setup page
@@ -53,6 +69,8 @@ authenticator = stauth.Authenticate(
     config["cookie"]["expiry_days"],
 )
 
+st.session_state.setdefault("mode", "TEST")
+
 # 로그인 UI
 login_placeholder = st.empty()
 with login_placeholder.container():
@@ -66,6 +84,33 @@ with login_placeholder.container():
         },
     )
 
+    _has_toggle = hasattr(st, "toggle")
+    if _has_toggle:
+        live_on = st.toggle(
+            "LIVE 모드",
+            value=(st.session_state.get("mode") == "LIVE"),
+            help="OFF면 TEST, ON이면 LIVE로 동작합니다.",
+        )
+        st.session_state["mode"] = "LIVE" if live_on else "TEST"
+    else:
+        _mode_choice = st.radio(
+            "운용 모드 선택",
+            ["TEST", "LIVE"],
+            index=0,
+            horizontal=True,
+            help="기본값은 TEST입니다.",
+        )
+        st.session_state["mode"] = _mode_choice
+
+    # 모드 변경 감지
+    current_mode = st.session_state.get("mode", "TEST")
+    mode_changed = current_mode != st.session_state.get("_last_mode", "TEST")
+    if mode_changed:
+        # 모드가 바뀌면 LIVE 자동검증 플래그 초기화
+        st.session_state["_auto_checked_in_live"] = False
+        st.session_state["_last_mode"] = current_mode
+
+
 authentication_status = st.session_state.get("authentication_status")
 name = st.session_state.get("name")
 username = st.session_state.get("username")
@@ -77,7 +122,11 @@ elif authentication_status is None:
     st.warning("아이디와 비밀번호를 입력해 주세요.")
 elif authentication_status:
     login_placeholder.empty()
-    st.success(f"환영합니다, {name}님!")
+    
+    _mode = st.session_state.get("mode", "TEST")
+    mode_suffix = "LIVE" if _mode == "LIVE" else "TEST"
+    
+    st.success(f"환영합니다, {name}님!  (모드: {mode_suffix})")
 
     # 2025-08-04 DB 분리
     init_db_if_needed(username)
@@ -90,32 +139,78 @@ elif authentication_status:
     st.session_state.setdefault("virtual_krw", 0)
     st.session_state.setdefault("virtual_over", False)
 
-    st.title("🤖 Upbit Trade Bot v1 (TEST)")
+    if _mode == "LIVE":
+        with st.container(border=True):
+            st.subheader("🔐 Upbit 계정 검증 (LIVE 전용)")
+            ak, sk = ACCESS, SECRET
+            if not ak or not sk:
+                st.error("config 또는 secrets에서 ACCESS/SECRET을 찾을 수 없습니다.")
+            else:
+                st.caption(f"ACCESS: {_mask(ak)} / SECRET: {_mask(sk)}")
+                col1, col2 = st.columns([1,1])
+                with col1:
+                    do_verify = st.button("계정 검증 실행", use_container_width=True)
+                with col2:
+                    if st.session_state.get("upbit_verified"):
+                        st.success("검증 성공 ✅", icon="✅")
+                    else:
+                        st.info("검증이 필요합니다.", icon="ℹ️")
+                    
+                if do_verify:
+                    with st.spinner("Upbit 키 검증 중..."):
+                        ok, data = validate_upbit_keys(ak, sk)
+                    if ok:
+                        st.session_state.upbit_verified = True
+                        st.session_state.upbit_accounts = data or []
+                        st.success("Upbit 계정 검증 성공! 잔고 정보를 표로 표시합니다.")
+                        # if st.session_state.upbit_accounts:
+                            # 잔고 표
+                        st.dataframe(st.session_state.upbit_accounts, use_container_width=True, hide_index=True)
+                        # else:
+                            # st.error("잔고가 비어있거나 0원으로 조회되었습니다.")
+                    else:
+                        st.session_state.upbit_verified = False
+                        st.session_state.upbit_accounts = []
+                        st.error(f"Upbit 계정 검증 실패: {data}")
+
+                # 잔고 표시 (성공 시)
+                if st.session_state.get("upbit_verified") and st.session_state.get("upbit_accounts"):
+                    st.dataframe(st.session_state.upbit_accounts, use_container_width=True, hide_index=True)
+
+    st.title(f"🤖 Upbit Trade Bot v1 ({mode_suffix})")
     start_trading = None
     user_info = get_user(username)
     st.write(f"{username} / {user_info}")
+
+    disabled_live_gate = (_mode == "LIVE" and not st.session_state.get("upbit_verified"))
 
     if user_info:
         _, virtual_krw, _ = user_info
         st.balloons()
         st.session_state.virtual_krw = virtual_krw
-        start_trading = st.button(
-            "Upbit Trade Bot v1 (TEST) 입장하기", use_container_width=True
-        )
+        if disabled_live_gate:
+            st.warning("LIVE 입장 전 Upbit 계정 검증이 필요합니다.")
+
+        if st.session_state.get("upbit_verified") and st.session_state.upbit_accounts:
+            start_trading = st.button(
+                f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기", use_container_width=True
+            )
     else:
-        st.subheader("🔧 가상 보유자산 설정")
+        st.subheader("🔧 운용자산 설정")
         with st.form("input_form"):
             cash = st.number_input(
-                "가상 보유자산(KRW)", 10_000, 100_000_000_000, 1_000_000, 10_000
+                "운용자산(KRW)", 10_000, 100_000_000_000, 1_000_000, 10_000
             )
             submitted = st.form_submit_button(
-                "🧪 TEST 가상 보유자산 설정하기", use_container_width=True
+                f"🧪 {mode_suffix} 운용자산 설정하기",
+                use_container_width=True,
+                disabled=disabled_live_gate,
             )
 
         if submitted:
             if MIN_CASH > cash:
                 st.error(
-                    f"설정한 가상 보유자산이 최소주문가능금액({MIN_CASH} KRW)보다 작습니다."
+                    f"설정한 운용자산이 최소주문가능금액({MIN_CASH} KRW)보다 작습니다."
                 )
                 st.stop()
 
@@ -128,11 +223,16 @@ elif authentication_status:
                 st.session_state.name,
                 st.session_state.virtual_krw,
             )
-            st.subheader("가상 보유자산")
+            st.subheader("운용자산")
             st.info(f"{st.session_state.virtual_krw:.0f} KRW")
 
+            if disabled_live_gate:
+                st.warning("LIVE 입장 전 Upbit 계정 검증이 필요합니다.")
+
             start_trading = st.button(
-                "Upbit Trade Bot v1 (TEST) 입장하기", use_container_width=True
+                f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기",
+                use_container_width=True,
+                disabled=disabled_live_gate,
             )
 
     # 페이지 이동 처리
@@ -143,6 +243,7 @@ elif authentication_status:
             {
                 "virtual_krw": st.session_state.virtual_krw,
                 "user_id": st.session_state.user_id,
+                "mode": st.session_state.get("mode", "TEST"),
             }
         )
 
@@ -153,7 +254,7 @@ elif authentication_status:
         st.switch_page(next_page)
 
     start_setting = st.button(
-        "Upbit Trade Bot v1 (TEST) 파라미터 설정하기", use_container_width=True
+        f"Upbit Trade Bot v1 ({mode_suffix}) 파라미터 설정하기", use_container_width=True
     )
     if start_setting:
         next_page = "set_config"
@@ -162,6 +263,7 @@ elif authentication_status:
             {
                 "virtual_krw": st.session_state.virtual_krw,
                 "user_id": st.session_state.user_id,
+                "mode": st.session_state.get("mode", "TEST"),
             }
         )
 
@@ -172,4 +274,3 @@ elif authentication_status:
         st.switch_page(next_page)
 
     render_db_smoke_test(user_id=username, ticker="KRW-BTC", interval_sec=60)
-

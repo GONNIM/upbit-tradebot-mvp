@@ -25,6 +25,9 @@ params = st.query_params
 user_id = params.get("user_id", "")
 virtual_krw = int(params.get("virtual_krw", 0))
 
+mode = params.get("mode", "TEST").upper()
+st.session_state["mode"] = mode 
+
 if virtual_krw < MIN_CASH:
     st.switch_page("app.py")
 
@@ -69,7 +72,7 @@ st.markdown(
 )
 
 # --- 제목 ---
-st.title(f"🤖 Upbit Trade Bot v1 (TEST) - {user_id}")
+st.title(f"🤖 Upbit Trade Bot v1 ({mode}) - {user_id}")
 
 # --- 전략 파라미터 입력 폼 ---
 params = make_sidebar(user_id)
@@ -96,7 +99,7 @@ if params:
         exist_params = load_params(json_path)
         st.write(exist_params)
         start_trading = st.button(
-            "Upbit Trade Bot v1 (TEST) - Go Dashboard", use_container_width=True
+            f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
         )
     except Exception as e:
         st.error(f"❌ 파라미터 저장 실패: {e}")
@@ -106,9 +109,15 @@ else:
     exist_params = load_params(json_path)
     if exist_params:
         st.write(exist_params)
-        start_trading = st.button(
-            "Upbit Trade Bot v1 (TEST) - Go Dashboard", use_container_width=True
-        )
+
+        if st.session_state.get("upbit_verified") and st.session_state.get("upbit_accounts"):
+            start_trading = st.button(
+                f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
+            )
+        else:
+            go_back = st.button(
+                f"Upbit Trade Bot v1 ({mode}) - Go Back", use_container_width=True
+            )
     else:
         st.info("⚙️ 왼쪽 사이드바에서 전략 파라미터를 먼저 설정하세요.")
         st.info("🧪 파라미터 설정 완료하신 후 파라미터를 저장하세요.")
@@ -124,6 +133,14 @@ if start_trading:
     params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id})
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
+        unsafe_allow_html=True,
+    )
+    st.stop()
+
+if go_back:
+    next_page = ""
+    st.markdown(
+        f'<meta http-equiv="refresh" content="0; url=./{next_page}">',
         unsafe_allow_html=True,
     )
     st.stop()
