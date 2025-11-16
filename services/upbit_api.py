@@ -49,50 +49,55 @@ def get_server_public_ip():
 
 def validate_upbit_keys(access_key: str, secret_key: str, timeout: float = 5.0):
     """
-    키 유효성 검증:
-      - GET /v1/accounts 로 호출
-      - 200이면 성공(잔고 리스트 반환)
-      - 401/422 등은 실패(메시지 반환)
-    반환: (ok: bool, data_or_error: dict|str)
+    키 유효성 검증 + 상세 디버깅
     """
     server_ip = get_server_public_ip()
-    print(f"[DEBUG] 현재 서버 공인 IP: {server_ip}")
-
+    
     headers = {
         "Authorization": _bearer(access_key, secret_key),
     }
+    
+    debug_info = {
+        "server_ip": server_ip,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    
     try:
         r = requests.get(f"{UPBIT_API_BASE}/v1/accounts", headers=headers, timeout=timeout)
+        debug_info["status_code"] = r.status_code
+        debug_info["response_body"] = r.text[:500]  # 처음 500자만
     except requests.RequestException as e:
-        return False, f"네트워크 오류: {e}"
+        return False, f"네트워크 오류: {e}\n서버 IP: {server_ip}"
 
-    print(f"[DEBUG] Status: {r.status_code}")
-    print(f"[DEBUG] Body: {r.text}")
-    
     if r.status_code == 200:
         try:
             data = r.json()
-            print(f"[DEBUG] Parsed JSON: {data}")
-            print(f"[DEBUG] Type: {type(data)}, Length: {len(data) if isinstance(data, list) else 'N/A'}")
-            return True, data # 계좌/잔고 배열
+            return True, data
         except Exception as e:
-            print(f"[DEBUG] JSON parse error: {e}")
-            return True, [] # 응답이 비정상 JSON이면 빈 배열
+            return True, []
     elif r.status_code == 401:
-        # Upbit는 401에서 상세메시지(body) 제공
         try:
             j = r.json()
-            error_msg = j.get("error", {}).get("message", "인증 실패(401)")
+            error_msg = j.get("error", {}).get("message", "인증 실패")
+            
+            # IP 제한 에러 상세 안내
             if "IP" in error_msg or "ip" in error_msg.lower():
-                error_msg = f"{error_msg}\n현재 서버 IP: {server_ip}"
+                return False, (
+                    f"🚫 IP 접근 제한 오류\n\n"
+                    f"현재 서버 IP: {server_ip}\n\n"
+                    f"해결 방법:\n"
+                    f"1. Upbit 웹사이트 로그인\n"
+                    f"2. Open API 관리 페이지 이동\n"
+                    f"3. 위 IP 주소를 화이트리스트에 추가\n\n"
+                    f"원본 메시지: {error_msg}"
+                )
             return False, error_msg
         except Exception:
-            return False, f"인증 실패(401)\n현재 서버 IP: {server_ip}"
+            return False, f"인증 실패(401)\n서버 IP: {server_ip}"
     else:
-        # 기타 상태코드
         try:
             j = r.json()
             msg = j.get("error", {}).get("message")
         except Exception:
             msg = None
-        return False, msg or f"검증 실패(status={r.status_code})"
+        return False, msg or f"검증 실패(status={r.status_code})\n서버 IP: {server_ip}"
