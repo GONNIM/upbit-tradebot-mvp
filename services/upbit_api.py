@@ -75,15 +75,19 @@ def validate_upbit_keys(access_key: str, secret_key: str, timeout: float = 5.0):
             print(f"[DEBUG] Parsed JSON: {data}")
             print(f"[DEBUG] Type: {type(data)}, Length: {len(data) if isinstance(data, list) else 'N/A'}")
             return True, data # 계좌/잔고 배열
-        except Exception:
+        except Exception as e:
+            print(f"[DEBUG] JSON parse error: {e}")
             return True, [] # 응답이 비정상 JSON이면 빈 배열
     elif r.status_code == 401:
         # Upbit는 401에서 상세메시지(body) 제공
         try:
             j = r.json()
-            return False, j.get("error", {}).get("message", "인증 실패(401)")
+            error_msg = j.get("error", {}).get("message", "인증 실패(401)")
+            if "IP" in error_msg or "ip" in error_msg.lower():
+                error_msg = f"{error_msg}\n현재 서버 IP: {server_ip}"
+            return False, error_msg
         except Exception:
-            return False, "인증 실패(401)"
+            return False, f"인증 실패(401)\n현재 서버 IP: {server_ip}"
     else:
         # 기타 상태코드
         try:
