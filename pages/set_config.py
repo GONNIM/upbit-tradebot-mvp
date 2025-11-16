@@ -110,13 +110,18 @@ else:
     if exist_params:
         st.write(exist_params)
 
-        if st.session_state.get("upbit_verified") and st.session_state.get("upbit_accounts"):
+        if mode == "LIVE":
+            if st.session_state.get("upbit_verified") and st.session_state.get("upbit_accounts"):
+                start_trading = st.button(
+                    f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
+                )
+            else:
+                go_back = st.button(
+                    f"Upbit Trade Bot v1 ({mode}) - Go Back", use_container_width=True
+                )
+        else:
             start_trading = st.button(
                 f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
-            )
-        else:
-            go_back = st.button(
-                f"Upbit Trade Bot v1 ({mode}) - Go Back", use_container_width=True
             )
     else:
         st.info("⚙️ 왼쪽 사이드바에서 전략 파라미터를 먼저 설정하세요.")
