@@ -123,6 +123,8 @@ else:
             start_trading = st.button(
                 f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
             )
+
+            go_back = False
     else:
         st.info("⚙️ 왼쪽 사이드바에서 전략 파라미터를 먼저 설정하세요.")
         st.info("🧪 파라미터 설정 완료하신 후 파라미터를 저장하세요.")
