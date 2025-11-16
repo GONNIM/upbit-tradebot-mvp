@@ -24,6 +24,29 @@ def _bearer(access_key: str, secret_key: str) -> str:
     return f"Bearer {token}"
 
 
+def get_server_public_ip():
+    """서버의 공인 IP 주소 확인"""
+    try:
+        services = [
+            "https://api.ipify.org?format=json",
+            "https://ifconfig.me/ip",
+            "https://icanhazip.com",
+        ]
+        for service in services:
+            try:
+                r = requests.get(service, timeout=3)
+                if r.status_code == 200:
+                    if "json" in service:
+                        return r.json().get("ip")
+                    else:
+                        return r.text.strip()
+            except:
+                continue
+        return "IP 확인 실패"
+    except Exception as e:
+        return f"오류: {e}"
+
+
 def validate_upbit_keys(access_key: str, secret_key: str, timeout: float = 5.0):
     """
     키 유효성 검증:
@@ -32,6 +55,9 @@ def validate_upbit_keys(access_key: str, secret_key: str, timeout: float = 5.0):
       - 401/422 등은 실패(메시지 반환)
     반환: (ok: bool, data_or_error: dict|str)
     """
+    server_ip = get_server_public_ip()
+    print(f"[DEBUG] 현재 서버 공인 IP: {server_ip}")
+
     headers = {
         "Authorization": _bearer(access_key, secret_key),
     }
@@ -41,7 +67,6 @@ def validate_upbit_keys(access_key: str, secret_key: str, timeout: float = 5.0):
         return False, f"네트워크 오류: {e}"
 
     print(f"[DEBUG] Status: {r.status_code}")
-    print(f"[DEBUG] Headers: {r.headers}")
     print(f"[DEBUG] Body: {r.text}")
     
     if r.status_code == 200:

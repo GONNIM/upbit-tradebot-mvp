@@ -10,7 +10,7 @@ from services.init_db import init_db_if_needed
 from services.health_monitor import start_health_monitoring
 from utils.smoke_test import render_db_smoke_test
 
-from services.upbit_api import validate_upbit_keys
+from services.upbit_api import validate_upbit_keys, get_server_public_ip
 
 
 def _mask(s: str, head=4, tail=4):
@@ -151,6 +151,11 @@ elif authentication_status:
                 with col1:
                     do_verify = st.button("계정 검증 실행", use_container_width=True)
                 with col2:
+                    with st.expander("🔍 서버 정보"):
+                        server_ip = get_server_public_ip()
+                        st.code(f"서버 공인 IP: {server_ip}")
+                        st.caption("이 IP를 Upbit API 설정에 등록해야 합니다.")
+
                     if st.session_state.get("upbit_verified"):
                         st.success("검증 성공 ✅", icon="✅")
                     else:
