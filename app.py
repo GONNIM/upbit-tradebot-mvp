@@ -168,11 +168,11 @@ elif authentication_status:
                         st.session_state.upbit_verified = True
                         st.session_state.upbit_accounts = data or []
                         st.success("Upbit 계정 검증 성공! 잔고 정보를 표로 표시합니다.")
-                        # if st.session_state.upbit_accounts:
+                        if st.session_state.upbit_accounts:
                             # 잔고 표
-                        st.dataframe(st.session_state.upbit_accounts, use_container_width=True, hide_index=True)
-                        # else:
-                            # st.error("잔고가 비어있거나 0원으로 조회되었습니다.")
+                            st.dataframe(st.session_state.upbit_accounts, use_container_width=True, hide_index=True)
+                        else:
+                            st.error("잔고가 비어있거나 0원으로 조회되었습니다.")
                     else:
                         st.session_state.upbit_verified = False
                         st.session_state.upbit_accounts = []
