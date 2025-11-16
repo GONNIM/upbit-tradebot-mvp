@@ -196,7 +196,12 @@ elif authentication_status:
         if disabled_live_gate:
             st.warning("LIVE 입장 전 Upbit 계정 검증이 필요합니다.")
 
-        if st.session_state.get("upbit_verified") and st.session_state.upbit_accounts:
+        if _mode == "LIVE":
+            if st.session_state.get("upbit_verified") and st.session_state.upbit_accounts:
+                start_trading = st.button(
+                    f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기", use_container_width=True
+                )
+        else:
             start_trading = st.button(
                 f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기", use_container_width=True
             )
