@@ -134,7 +134,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.16.1733")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.16.1808")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -581,20 +581,30 @@ latest = get_latest_any_signal(
 st.subheader("📌 최종 시그널 정보 (가장 최신)")
 if latest:
     cols = st.columns(6)
-    cols[0].markdown(f"**시간**<br>{latest['시간']}", unsafe_allow_html=True)
-    cols[1].markdown(f"**Ticker**<br>{latest['Ticker']}", unsafe_allow_html=True)
-    cols[2].markdown(f"**Price**<br>{latest['Price']}", unsafe_allow_html=True)
-    cols[3].markdown(f"**Cross**<br>{latest['Cross']}", unsafe_allow_html=True)
+    
+    # ✅ None/빈 값 처리
+    시간 = latest.get('시간') or '-'
+    Ticker = latest.get('Ticker') or '-'
+    Price = latest.get('Price') or '-'
+    Cross = latest.get('Cross') or '-'
+    
+    cols[0].markdown(f"**시간**<br>{시간}", unsafe_allow_html=True)
+    cols[1].markdown(f"**Ticker**<br>{Ticker}", unsafe_allow_html=True)
+    cols[2].markdown(f"**Price**<br>{Price}", unsafe_allow_html=True)
+    cols[3].markdown(f"**Cross**<br>{Cross}", unsafe_allow_html=True)
+    
     if latest["source"] == "TRADE":
-        cols[4].markdown(f"**Side**<br>{latest['Extra']['side']}", unsafe_allow_html=True)
+        side = latest.get('Extra', {}).get('side', '-')
+        cols[4].markdown(f"**Side**<br>{side}", unsafe_allow_html=True)
         cols[5].markdown(f"**Source**<br>TRADE", unsafe_allow_html=True)
     else:
-        cols[4].markdown(f"**MACD**<br>{latest['MACD']}", unsafe_allow_html=True)
-        cols[5].markdown(f"**Signal**<br>{latest['Signal']}", unsafe_allow_html=True)
+        macd = latest.get('MACD') or '-'
+        signal = latest.get('Signal') or '-'
+        cols[4].markdown(f"**MACD**<br>{macd}", unsafe_allow_html=True)
+        cols[5].markdown(f"**Signal**<br>{signal}", unsafe_allow_html=True)
         st.caption("Source: LOG (닫힌 바 기준 스냅샷)")
 else:
     st.info("📭 아직 표시할 최신 시그널/체결 정보가 없습니다.")
-
 st.divider()
 
 # ✅ 로그 기록

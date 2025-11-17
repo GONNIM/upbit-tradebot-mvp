@@ -299,13 +299,15 @@ def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
                 try:
                     parts = message.split(" | ")
                     time_str = parts[0].strip()
+                    import re
+                    clean_timestamp = re.sub(r'^\[(TEST|LIVE)\]\s*', '', time_str)
                     price = parts[1].split("=")[1].strip()
                     cross = parts[2].split("=")[1].strip()
                     macd = parts[3].split("=")[1].strip()
                     signal = parts[4].split("=")[1].strip()
 
                     return {
-                        "시간": time_str,
+                        "시간": clean_timestamp,
                         "Ticker": ticker,
                         "price": price,
                         "cross": cross,

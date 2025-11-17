@@ -275,8 +275,8 @@ class EngineManager:
 
             if event_type == "LOG":
                 _, _, log_msg = event
-                insert_log(user_id, "LOG", f"[{captured_mode}] {log_msg}")
-                log_to_file(f"[{captured_mode}] {log_msg}", user_id)
+                insert_log(user_id, "LOG", f"{log_msg}")
+                log_to_file(f"{log_msg}", user_id)
             elif event_type in ("BUY", "SELL"):
                 ts, _, qty, price, cross, macd, signal = event[:7]
                 amount = qty * price
@@ -284,25 +284,25 @@ class EngineManager:
                 insert_log(
                     user_id,
                     event_type,
-                    f"[{captured_mode}] {event_type}: {qty:.6f} @ {price:,.2f} = {amount:,.2f} (fee={fee:,.2f})",
+                    f"{event_type}: {qty:.6f} @ {price:,.2f} = {amount:,.2f} (fee={fee:,.2f})",
                 )
                 insert_log(
                     user_id,
                     event_type,
-                    f"[{captured_mode}] detail: cross={cross} macd={macd} signal={signal}",
+                    f"detail: cross={cross} macd={macd} signal={signal}",
                 )
                 update_event_time(user_id)
             elif event_type == "EXCEPTION":
                 _, exc_type, exc_value, tb = event
-                msg = f"[{captured_mode}] ❌ 예외: {exc_type.__name__}: {exc_value}"
+                msg = f"❌ 예외: {exc_type.__name__}: {exc_value}"
                 insert_log(user_id, "ERROR", msg)
                 log_to_file(msg, user_id)
             else:
-                msg = f"[{captured_mode}] ⚠️ 알 수 없는 이벤트: {event}"
+                msg = f"⚠️ 알 수 없는 이벤트: {event}"
                 insert_log(user_id, "WARN", msg)
                 log_to_file(msg, user_id)
         except Exception as e:
-            msg = f"[{captured_mode}] ❌ process_event 예외: {e} | event={event}"
+            msg = f"❌ process_event 예외: {e} | event={event}"
             insert_log(user_id, "ERROR", msg)
             log_to_file(msg, user_id)
 
