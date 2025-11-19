@@ -178,10 +178,6 @@ elif authentication_status:
                         st.session_state.upbit_accounts = []
                         st.error(f"Upbit 계정 검증 실패: {data}")
 
-                # 잔고 표시 (성공 시)
-                if st.session_state.get("upbit_verified") and st.session_state.get("upbit_accounts"):
-                    st.dataframe(st.session_state.upbit_accounts, use_container_width=True, hide_index=True)
-
     st.title(f"🤖 Upbit Trade Bot v1 ({mode_suffix})")
     start_trading = None
     user_info = get_user(username)
