@@ -1,0 +1,17 @@
+{
+	"python.defaultInterpreterPath": "/Users/gonnim/.pyenv/versions/3.12.8/envs/upbit-tradebot-mvp/bin/python",
+	"python.terminal.activateEnvironment": true,
+	"python.terminal.activateEnvInCurrentTerminal": true,
+	"terminal.integrated.env.osx": {
+		"PYENV_VERSION": "upbit-tradebot-mvp",
+		"ANTHROPIC_AUTH_TOKEN": "9f86c24d533948b3af389b1c03d795d5.8GSchhcDov1ydtDv",
+		"ANTHROPIC_BASE_URL": "https://api.z.ai/api/anthropic",
+		"ANTHROPIC_MODEL": "glm-4.5",
+		"ANTHROPIC_SMALL_FAST_MODEL": "glm-4.5-air"
+	},
+	"python.analysis.autoImportCompletions": true,
+	"python.linting.enabled": true,
+	"python.analysis.extraPaths": [
+		"./services"
+	]
+}
