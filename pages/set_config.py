@@ -58,7 +58,13 @@ except (TypeError, ValueError):
 
 raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
 mode = str(raw_mode).upper()
-st.session_state["mode"] = mode 
+st.session_state["mode"] = mode
+
+verified_param = _get_param(qp, "verified", "0")
+capital_param = _get_param(qp, "capital_set", "0")
+
+upbit_ok = str(verified_param) == "1"
+capital_ok = str(capital_param) == "1"
 
 if virtual_krw < MIN_CASH:
     st.warning(
@@ -70,9 +76,6 @@ if virtual_krw < MIN_CASH:
     st.stop()
 
 if mode == "LIVE":
-    upbit_ok = bool(st.session_state.get("upbit_verified"))
-    capital_ok = bool(st.session_state.get("live_capital_set"))
-    
     if not upbit_ok or not capital_ok:
         st.error(
             "LIVE 모드 진입 조건이 충족되지 않았습니다.\n\n"

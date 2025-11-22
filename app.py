@@ -355,8 +355,12 @@ elif authentication_status:
         )
         st.stop()
 
+    live_ready = bool(st.session_state.get("upbit_verified")) and bool(st.session_state.get("live_capital_set"))
+
     start_setting = st.button(
-        f"Upbit Trade Bot v1 ({mode_suffix}) 파라미터 설정하기", use_container_width=True
+        f"Upbit Trade Bot v1 ({mode_suffix}) 파라미터 설정하기",
+        use_container_width=True,
+        disabled=(_mode == "LIVE" and not live_ready)
     )
 
     if start_setting:
@@ -366,6 +370,8 @@ elif authentication_status:
                 "virtual_krw": st.session_state.virtual_krw,
                 "user_id": st.session_state.user_id,
                 "mode": st.session_state.get("mode", "TEST"),
+                "verified": int(bool(st.session_state.get("upbit_verified"))),
+                "capital_set": int(bool(st.session_state.get("live_capital_set"))),
             }
         )
         st.markdown(
