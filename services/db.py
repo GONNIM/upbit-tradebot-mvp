@@ -41,19 +41,31 @@ def now_kst() -> str:
 
 # ✅ 사용자 정보
 def save_user(username: str, display_name: str, virtual_krw: int):
+    now = now_kst()
+
     with get_db(username) as conn:
         cursor = conn.cursor()
+
         cursor.execute(
             """
-            INSERT INTO users (username, display_name, virtual_krw, updated_at)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(username) DO UPDATE SET
-                display_name = excluded.display_name,
-                virtual_krw = excluded.virtual_krw,
-                updated_at = excluded.updated_at;
-        """,
-            (username, display_name, virtual_krw, now_kst()),
+            UPDATE users
+               SET display_name = ?,
+                   virtual_krw   = ?,
+                   updated_at    = ?
+             WHERE username = ?
+            """,
+            (display_name, virtual_krw, now, username),
         )
+
+        if cursor.rowcount == 0:
+            cursor.execute(
+                """
+                INSERT INTO users (username, display_name, virtual_krw, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (username, display_name, virtual_krw, now),
+            )
+
         conn.commit()
 
 

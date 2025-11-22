@@ -29,7 +29,14 @@ mode = params.get("mode", "TEST").upper()
 st.session_state["mode"] = mode 
 
 if virtual_krw < MIN_CASH:
+    st.warning("운용자산이 최소 주문 가능 금액보다 작습니다. 처음 화면으로 이동합니다.")
     st.switch_page("app.py")
+
+if mode == "LIVE":
+    # LIVE 모드에서는 Upbit 검증과 운용자산 설정이 app.py에서 끝난 상태여야 한다
+    if not st.session_state.get("upbit_verified") or not st.session_state.get("live_capital_set"):
+        st.warning("LIVE 모드 진입 전 Upbit 검증 및 LIVE 운용자산 설정이 필요합니다.")
+        st.switch_page("app.py")
 
 # --- 계정 생성 또는 조회 ---
 if get_account(user_id) is None:
@@ -111,7 +118,11 @@ else:
         st.write(exist_params)
 
         if mode == "LIVE":
-            if st.session_state.get("upbit_verified") and st.session_state.get("upbit_accounts"):
+            if (
+                st.session_state.get("upbit_verified")
+                and st.session_state.get("upbit_accounts")
+                and st.session_state.get("live_capital_set")
+            ):
                 start_trading = st.button(
                     f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
                 )
@@ -123,7 +134,6 @@ else:
             start_trading = st.button(
                 f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
             )
-
             go_back = False
     else:
         st.info("⚙️ 왼쪽 사이드바에서 전략 파라미터를 먼저 설정하세요.")
