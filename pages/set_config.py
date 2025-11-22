@@ -133,6 +133,7 @@ st.title(f"🤖 Upbit Trade Bot v1 ({mode}) - {user_id}")
 # --- 전략 파라미터 입력 폼 ---
 params = make_sidebar(user_id)
 start_trading = None
+go_back = False
 
 if params:
     try:
