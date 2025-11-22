@@ -20,16 +20,71 @@ from utils.logging_util import init_log_file
 # --- 기본 설정 ---
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 
-# --- URL 파라미터 확인 ---
-params = st.query_params
-user_id = params.get("user_id", "")
-virtual_krw = int(params.get("virtual_krw", 0))
+st.markdown(
+    """
+    <style>
+    div.block-container { padding-top: 1rem; }
+    h1 { margin-top: 0 !important; }
+    [data-testid="stSidebarHeader"],
+    [data-testid="stSidebarNavItems"],
+    [data-testid="stSidebarNavSeparator"] { display: none !important; }
+    div.stButton > button, div.stForm > form > button {
+        height: 60px !important;
+        font-size: 30px !important;
+        font-weight: 900 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-mode = params.get("mode", "TEST").upper()
-st.session_state["mode"] = mode 
+# --- URL 파라미터 확인 ---
+qp = st.query_params
+
+def _get_param(qp, key, default=None):
+    v = qp.get(key, default)
+    if isinstance(v, list):
+        return v[0]
+    return v
+
+user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
+
+try:
+    virtual_krw = int(raw_v)
+except (TypeError, ValueError):
+    virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+
+raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
+mode = str(raw_mode).upper()
+st.session_state["mode"] = mode
+
+verified_param = _get_param(qp, "verified", "0")
+capital_param = _get_param(qp, "capital_set", "0")
+
+upbit_ok = str(verified_param) == "1"
+capital_ok = str(capital_param) == "1"
 
 if virtual_krw < MIN_CASH:
-    st.switch_page("app.py")
+    st.warning(
+        f"현재 운용자산({virtual_krw} KRW)가 최소 주문 가능 금액({MIN_CASH} KRW)보다 작습니다.\n"
+        "처음 화면(app.py)에서 운용자산을 다시 설정해 주세요."
+    )
+    if st.button("처음 화면으로 돌아가기"):
+        st.switch_page("app.py")
+    st.stop()
+
+if mode == "LIVE":
+    if not upbit_ok or not capital_ok:
+        st.error(
+            "LIVE 모드 진입 조건이 충족되지 않았습니다.\n\n"
+            f"- upbit_verified: {upbit_ok}\n"
+            f"- live_capital_set: {capital_ok}\n\n"
+            "app.py에서 LIVE 계정 검증 및 운용자산 설정을 먼저 완료해 주세요."
+        )
+        if st.button("처음 화면으로 돌아가기"):
+            st.switch_page("app.py")
+        st.stop()
 
 # --- 계정 생성 또는 조회 ---
 if get_account(user_id) is None:
@@ -77,6 +132,7 @@ st.title(f"🤖 Upbit Trade Bot v1 ({mode}) - {user_id}")
 # --- 전략 파라미터 입력 폼 ---
 params = make_sidebar(user_id)
 start_trading = None
+go_back = False
 
 if params:
     try:
@@ -111,7 +167,7 @@ else:
         st.write(exist_params)
 
         if mode == "LIVE":
-            if st.session_state.get("upbit_verified") and st.session_state.get("upbit_accounts"):
+            if (upbit_ok and capital_ok):
                 start_trading = st.button(
                     f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
                 )
@@ -123,8 +179,6 @@ else:
             start_trading = st.button(
                 f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
             )
-
-            go_back = False
     else:
         st.info("⚙️ 왼쪽 사이드바에서 전략 파라미터를 먼저 설정하세요.")
         st.info("🧪 파라미터 설정 완료하신 후 파라미터를 저장하세요.")
@@ -137,7 +191,11 @@ if start_trading:
 
     # 🔁 페이지 이동 처리
     next_page = "dashboard"
-    params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id})
+    params = urlencode({
+        "virtual_krw": virtual_krw,
+         "user_id": user_id,
+         "mode": mode,
+    })
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
         unsafe_allow_html=True,

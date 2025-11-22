@@ -39,11 +39,24 @@ logger = logging.getLogger(__name__)
 
 
 # ✅ 쿼리 파라미터 처리
-params = st.query_params
-user_id = params.get("user_id", "")
-virtual_krw = int(params.get("virtual_krw", 0))
+qp = st.query_params
 
-mode = params.get("mode", "TEST").upper()
+def _get_param(qp, key, default=None):
+    v = qp.get(key, default)
+    if isinstance(v, list):
+        return v[0]
+    return v
+
+user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+raw_vk = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
+
+try:
+    virtual_krw = int(raw_vk)
+except (TypeError, ValueError):
+    virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+
+raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
+mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 is_live = (mode == "LIVE")
 
@@ -134,7 +147,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.19.2104")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.22.1603")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
