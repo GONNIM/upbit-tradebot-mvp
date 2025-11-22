@@ -43,7 +43,6 @@ qp = st.query_params
 
 def _get_param(qp, key, default=None):
     v = qp.get(key, default)
-
     if isinstance(v, list):
         return v[0]
     return v
@@ -192,7 +191,11 @@ if start_trading:
 
     # 🔁 페이지 이동 처리
     next_page = "dashboard"
-    params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id})
+    params = urlencode({
+        "virtual_krw": virtual_krw,
+         "user_id": user_id,
+         "mode": mode,
+    })
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
         unsafe_allow_html=True,
