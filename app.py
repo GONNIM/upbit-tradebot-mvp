@@ -38,7 +38,7 @@ def _extract_krw_balance(accounts) -> list:
                 return float(balance_str)
             except ValueError:
                 return 0.0
-        return 0.0
+    return 0.0
     
 
 # 모드/검증 상태 기본값
@@ -342,7 +342,6 @@ elif authentication_status:
     # 페이지 이동 처리
     if start_trading:
         next_page = "dashboard"
-
         params = urlencode(
             {
                 "virtual_krw": st.session_state.virtual_krw,
@@ -350,20 +349,18 @@ elif authentication_status:
                 "mode": st.session_state.get("mode", "TEST"),
             }
         )
-
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
             unsafe_allow_html=True,
         )
-        st.switch_page(next_page)
+        st.stop()
 
     start_setting = st.button(
         f"Upbit Trade Bot v1 ({mode_suffix}) 파라미터 설정하기", use_container_width=True
     )
-    
+
     if start_setting:
         next_page = "set_config"
-
         params = urlencode(
             {
                 "virtual_krw": st.session_state.virtual_krw,
@@ -371,11 +368,10 @@ elif authentication_status:
                 "mode": st.session_state.get("mode", "TEST"),
             }
         )
-
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
             unsafe_allow_html=True,
         )
-        st.switch_page(next_page)
+        st.stop()
 
     # render_db_smoke_test(user_id=username, ticker="KRW-BTC", interval_sec=60)
