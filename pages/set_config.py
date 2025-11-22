@@ -20,6 +20,24 @@ from utils.logging_util import init_log_file
 # --- 기본 설정 ---
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    div.block-container { padding-top: 1rem; }
+    h1 { margin-top: 0 !important; }
+    [data-testid="stSidebarHeader"],
+    [data-testid="stSidebarNavItems"],
+    [data-testid="stSidebarNavSeparator"] { display: none !important; }
+    div.stButton > button, div.stForm > form > button {
+        height: 60px !important;
+        font-size: 30px !important;
+        font-weight: 900 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # --- URL 파라미터 확인 ---
 qp = st.query_params
 
@@ -52,9 +70,16 @@ if virtual_krw < MIN_CASH:
     st.stop()
 
 if mode == "LIVE":
-    # LIVE 모드에서는 Upbit 검증과 운용자산 설정이 app.py에서 끝난 상태여야 한다
-    if not st.session_state.get("upbit_verified") or not st.session_state.get("live_capital_set"):
-        st.warning("LIVE 모드 진입 전 Upbit 검증 및 LIVE 운용자산 설정이 필요합니다.")
+    upbit_ok = bool(st.session_state.get("upbit_verified"))
+    capital_ok = bool(st.session_state.get("live_capital_set"))
+    
+    if not upbit_ok or not capital_ok:
+        st.error(
+            "LIVE 모드 진입 조건이 충족되지 않았습니다.\n\n"
+            f"- upbit_verified: {upbit_ok}\n"
+            f"- live_capital_set: {capital_ok}\n\n"
+            "app.py에서 LIVE 계정 검증 및 운용자산 설정을 먼저 완료해 주세요."
+        )
         if st.button("처음 화면으로 돌아가기"):
             st.switch_page("app.py")
         st.stop()
