@@ -43,14 +43,21 @@ mode = str(raw_mode).upper()
 st.session_state["mode"] = mode 
 
 if virtual_krw < MIN_CASH:
-    st.warning("운용자산이 최소 주문 가능 금액보다 작습니다. 처음 화면으로 이동합니다.")
-    st.switch_page("app.py")
+    st.warning(
+        f"현재 운용자산({virtual_krw} KRW)가 최소 주문 가능 금액({MIN_CASH} KRW)보다 작습니다.\n"
+        "처음 화면(app.py)에서 운용자산을 다시 설정해 주세요."
+    )
+    if st.button("처음 화면으로 돌아가기"):
+        st.switch_page("app.py")
+    st.stop()
 
 if mode == "LIVE":
     # LIVE 모드에서는 Upbit 검증과 운용자산 설정이 app.py에서 끝난 상태여야 한다
     if not st.session_state.get("upbit_verified") or not st.session_state.get("live_capital_set"):
         st.warning("LIVE 모드 진입 전 Upbit 검증 및 LIVE 운용자산 설정이 필요합니다.")
-        st.switch_page("app.py")
+        if st.button("처음 화면으로 돌아가기"):
+            st.switch_page("app.py")
+        st.stop()
 
 # --- 계정 생성 또는 조회 ---
 if get_account(user_id) is None:
