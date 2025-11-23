@@ -39,7 +39,30 @@ def _extract_krw_balance(accounts) -> list:
             except ValueError:
                 return 0.0
     return 0.0
+
+
+def _has_any_coin_position(accounts) -> bool:
+    """
+    Upbit balances(list[dict])에서
+    KRW 이외 코인 중 '실제 보유 중인 포지션'이 있는지 체크.
+    - balance > 0 이고 avg_buy_price > 0 인 경우만 포지션으로 본다.
+    """
+    if not accounts:
+        return False
     
+    for acc in accounts:
+        cur = str(acc.get("currency", "")).upper()
+        if cur == "KRW":
+            continue
+        try:
+            bal = float(acc.get("balance") or 0.0)
+            avg_price = float(acc.get("avg_buy_price") or 0.0)
+        except ValueError:
+            continue
+        if bal > 0 and avg_price > 0:
+            return True
+    return False
+
 
 # 모드/검증 상태 기본값
 st.session_state.setdefault("mode", "TEST")
@@ -222,17 +245,19 @@ elif authentication_status:
 
     if _mode == "LIVE":
         krw_balance = st.session_state.get("live_krw_balance", 0.0)
+        accounts = st.session_state.get("upbit_accounts", [])
+        has_coin_pos = _has_any_coin_position(accounts)
 
         if not st.session_state.get("upbit_verified"):
             st.warning("LIVE 입장 전 Upbit 계정 검증이 필요합니다.")
             start_trading = None
-        elif krw_balance <= 0:
-            st.error("Upbit 계정의 KRW 잔고가 0원입니다. 잔고를 충전한 후 다시 시도하세요.")
+        elif krw_balance <= 0 and not has_coin_pos:
+            st.error("Upbit 계정의 KRW 잔고가 0원이고, 보유 중인 코인 포지션도 없습니다.")
             start_trading = None
-        elif krw_balance < MIN_CASH:
+        elif krw_balance < MIN_CASH and not has_coin_pos:
             st.error(
                 f"Upbit 계정의 KRW 잔고({krw_balance:,.0f} KRW)가 "
-                f"최소 주문 가능 금액({MIN_CASH} KRW)보다 작습니다."
+                f"최소 주문 가능 금액({MIN_CASH} KRW)보다 작고, 보유 코인 포지션이 없습니다."
             )
             start_trading = None
         else:
@@ -247,8 +272,12 @@ elif authentication_status:
             st.caption(
                 f"현재 Upbit 계정 KRW 잔고: **{krw_balance:,.0f} KRW**\n\n"
                 "이 범위 내에서만 LIVE 운용자산을 설정할 수 있습니다."
+                if not has_coin_pos
+                else "※ KRW 잔고는 부족하지만 보유 코인 포지션이 있어 LIVE 입장이 허용되었습니다.\n"
+                     "운용자산은 평가액 기준으로 관리 목적으로만 사용됩니다."
             )
             
+            max_capital = max(int(krw_balance), int(MIN_CASH))
             default_value = min(virtual_krw, krw_balance) if virtual_krw > 0 else krw_balance
 
             live_capital = st.number_input(
@@ -262,7 +291,7 @@ elif authentication_status:
             save_live_capital = st.button("LIVE 운용자산 저장하기", use_container_width=True)
 
             if save_live_capital:
-                if live_capital > krw_balance:
+                if live_capital > krw_balance and not has_coin_pos:
                     st.error("설정한 운용자산이 KRW 잔고보다 클 수 없습니다.")
                 else:
                     st.session_state.virtual_krw = live_capital
