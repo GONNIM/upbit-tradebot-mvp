@@ -147,7 +147,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.22.1603")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1313")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -567,7 +567,7 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
         t_ticker, t_side, t_price = trade_row[1], trade_row[2], trade_row[3]
         return {
             "source": "TRADE",
-            "시간": _fmt_dt(trade_dt),
+            "시간": _parse_dt(trade_dt),
             "Ticker": t_ticker,
             "Price": f"{float(t_price):.2f}",
             "Cross": "(Filled)",
@@ -578,7 +578,7 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
     else:
         return {
             "source": "LOG",
-            "시간": _fmt_dt(log_dt),
+            "시간": _parse_dt(log_dt),
             "Ticker": log_row.get("Ticker"),
             "Price": log_row.get("price"),
             "Cross": log_row.get("cross"),
