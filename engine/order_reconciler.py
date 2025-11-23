@@ -1,7 +1,12 @@
 import threading, time, logging
 from typing import Dict, Optional, Any
 import pyupbit
-from services.db import update_order_progress, update_order_completed
+from services.db import (
+    update_order_progress,
+    update_order_completed,
+    update_account_from_balances,
+    update_position_from_balances,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -181,8 +186,8 @@ class OrderReconciler:
                 f"vol={exec_vol} avg={avg_px} fee={fee}"
             )
 
-            # balances = self.upbit.get_balances()
-            # update_account_from_balances(user_id, balances)
-            # update_position_from_balances(user_id, ticker, balances)
+            balances = self.upbit.get_balances()
+            update_account_from_balances(user_id, balances)
+            update_position_from_balances(user_id, ticker, balances)
         except Exception as e:
             logger.error(f"[OR] finalize failed uuid={uuid}: {e}")

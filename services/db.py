@@ -1026,3 +1026,78 @@ def fetch_order_statuses(user_id: str, limit: int = 20):
             (user_id, limit),
         )
         return cur.fetchall()
+
+
+def update_account_from_balances(user_id: str, balances: list[dict[str, Any]]):
+    """
+    Upbit.get_balances() 응답을 기준으로 accounts / account_history 갱신
+    - balances 예시:
+      [
+        {
+          "currency": "KRW",
+          "balance": "12345.0",
+          "locked": "0.0",
+          ...
+        },
+        ...
+      ]
+    """
+    ensure_schema(user_id)
+
+    krw_total = 0.0
+    try:
+        for b in balances or []:
+            if str(b.get("currency", "")).upper() == "KRW":
+                bal = float(b.get("balance") or 0.0)
+                locked = float(b.get("locked") or 0.0)
+                # 필요에 따라 locked 포함/제외 가능. 여기선 "전체 잔고" 기준으로.
+                krw_total = bal + locked
+                break
+    except Exception as e:
+        logger.warning(f"[DB] update_account_from_balances parse failed: {e}")
+
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        # 없으면 생성
+        cur.execute(
+            "INSERT OR IGNORE INTO accounts (user_id, virtual_krw) VALUES (?, ?)",
+            (user_id, int(krw_total)),
+        )
+        # 항상 최신 값으로 덮어쓰기
+        cur.execute(
+            """
+            UPDATE accounts
+            SET virtual_krw = ?, updated_at = ?
+            WHERE user_id = ?
+            """,
+            (int(krw_total), now_kst(), user_id),
+        )
+        conn.commit()
+
+    # 히스토리도 동일하게 누적
+    insert_account_history(user_id, int(krw_total))
+
+
+def update_position_from_balances(user_id: str, ticker: str, balances: list[dict[str, Any]]):
+    """
+    Upbit.get_balances() 응답으로 특정 ticker(KRW-WLFI 등)의 보유 수량을
+    account_positions / position_history 에 반영.
+    """
+    ensure_schema(user_id)
+
+    sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
+    total_coin = 0.0
+
+    try:
+        for b in balances or []:
+            if str(b.get("currency", "")).upper() == sym:
+                bal = float(b.get("balance") or 0.0)
+                locked = float(b.get("locked") or 0.0)
+                total_coin = bal + locked
+                break
+    except Exception as e:
+        logger.warning(f"[DB] update_position_from_balances parse failed: {e}")
+
+    # 우리 쪽 DB에는 일관되게 'KRW-심볼' 형태로 저장
+    market_code = f"KRW-{sym}"
+    update_coin_position(user_id, market_code, total_coin)
