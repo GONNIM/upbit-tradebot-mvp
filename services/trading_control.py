@@ -71,17 +71,26 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         return f"[TEST] {ticker} 강제청산 완료: {result['qty']:.6f} @ {result['price']:,f}"
 
     uuid = result.get("uuid")
-    insert_log(
-        user_id,
-        "SELL",
-        f"🚨 [LIVE] 강제청산 요청 전송: {result['qty']:.6f} {ticker} @ 예상가≈{result['price']:,f} KRW (uuid={uuid})",
+    if not uuid:
+        msg = (
+            f"❌ [LIVE] 강제청산 요청 실패: Upbit 응답에 uuid가 없습니다. "
+            f"(qty≈{qty:.6f}, raw={result.get('raw')})"
+        )
+        insert_log(user_id, "ERROR", msg)
+        return msg
+    
+    msg = (
+        f"[LIVE] {ticker} 강제청산 요청 전송: "
+        f"시장가(예상가≈{price:,.2f} KRW, 수량≈{qty:.6f})\n"
+        f" → 주문 UUID: {uuid}\n"
+        f" → 실제 체결 여부는 '실시간 주문 상태' 영역에서 확인하세요."
     )
+    insert_log(user_id, "SELL", f"🚨 {msg}")
 
-    if uuid:
-        try:
-            get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="SELL")
-        except Exception as e:
-            insert_log(user_id, "ERROR", f"⚠️ 강제청산 reconciler enqueue 실패: {e}")
+    try:
+        get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="SELL")
+    except Exception as e:
+        insert_log(user_id, "ERROR", f"⚠️ 강제청산 reconciler enqueue 실패: {e}")
 
     return f"[LIVE] {ticker} 강제청산 요청 완료 (uuid={uuid})"
 
@@ -128,7 +137,6 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         return msg
 
     used_krw = result.get("used_krw")
-
     # 🔹 방어 로직: used_krw가 없으면 현재 잔고 * risk_pct로 추정
     if used_krw is None:
         try:
@@ -146,6 +154,15 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         return f"[TEST] {ticker} 강제매수 완료: {result['qty']:.6f} @ {result['price']:,f}"
 
     uuid = result.get("uuid")
+
+    if not uuid:
+        msg = (
+            f"❌ [LIVE] 강제매수 요청 실패: Upbit 응답에 uuid가 없습니다. "
+            f"(사용 KRW ≈ {used_krw:,.0f}, raw={result.get('raw')})"
+        )
+        insert_log(user_id, "ERROR", msg)
+        return msg
+
     insert_log(
         user_id,
         "BUY",
@@ -153,10 +170,10 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         f"(사용 KRW ≈ {used_krw:,.0f}, uuid={uuid})",
     )
 
-    if uuid:
-        try:
-            get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="BUY")
-        except Exception as e:
-            insert_log(user_id, "ERROR", f"⚠️ 강제매수 reconciler enqueue 실패: {e}")
+
+    try:
+        get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="BUY")
+    except Exception as e:
+        insert_log(user_id, "ERROR", f"⚠️ 강제매수 reconciler enqueue 실패: {e}")
 
     return f"[LIVE] {ticker} 강제매수 요청 완료 (uuid={uuid})"

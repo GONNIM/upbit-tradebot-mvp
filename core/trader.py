@@ -214,14 +214,27 @@ class UpbitTrader:
                 "side": "BUY",
                 "qty": qty,
                 "price": price,
-                "used_krw": krw_to_use
+                "used_krw": krw_to_use,
             }
 
         try:
             # 🟢 LIVE: KRW 금액 기준 시장가 매수, 수량/평단은 Reconciler가 나중에 확정
             res = self.upbit.buy_market_order(ticker, krw_to_use)
-            uuid = (res or {}).get("uuid")
+            logger.info(f"[BUY-LIVE] raw response: {res}")
 
+            if not res or not isinstance(res, dict):
+                logger.error(f"[BUY-LIVE] invalid response from Upbit (res={res})")
+                return {}
+
+            if "error" in res:
+                logger.error(f"[BUY-LIVE] Upbit error response: {res['error']}")
+                return {}
+        
+            uuid = (res or {}).get("uuid")
+            if not uuid:
+                logger.error(f"[BUY-LIVE] no uuid in response: {res}")
+                return {}
+            
             insert_order(
                 self.user_id, 
                 ticker, 
@@ -231,7 +244,7 @@ class UpbitTrader:
                 "requested", 
                 provider_uuid=uuid, 
                 state="REQUESTED", 
-                requested_at=now_kst()
+                requested_at=now_kst(),
             )
             
             self._audit_trade(
@@ -317,13 +330,26 @@ class UpbitTrader:
                 "time": ts,
                 "side": "SELL",
                 "qty": qty,
-                "price": price
+                "price": price,
             }
 
         try:
             # 🟢 LIVE: 수량 기준 시장가 매도, 실제 avg_price/fee는 Reconciler에서
             res = self.upbit.sell_market_order(ticker, qty)
+            logger.info(f"[SELL-LIVE] raw response: {res}") 
+
+            if not res or not isinstance(res, dict):
+                logger.error(f"[SELL-LIVE] invalid response from Upbit (res={res})")
+                return {}
+            
+            if "error" in res:
+                logger.error(f"[SELL-LIVE] Upbit error response: {res['error']}")
+                return {}
+            
             uuid = (res or {}).get("uuid")
+            if not uuid:
+                logger.error(f"[SELL-LIVE] no uuid in response: {res}")
+                return {}
 
             insert_order(
                 self.user_id, 
@@ -334,7 +360,7 @@ class UpbitTrader:
                 "requested", 
                 provider_uuid=uuid,
                 state="REQUESTED",
-                requested_at=now_kst()
+                requested_at=now_kst(),
             )
 
             self._audit_trade(
@@ -357,7 +383,7 @@ class UpbitTrader:
                 "qty": float(qty),
                 "price": float(price),
                 "uuid": uuid,
-                "raw": res
+                "raw": res,
             }
         except Exception as e:
             logger.error(f"[실거래] 매도 주문 실패: {e}")

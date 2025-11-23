@@ -147,7 +147,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1523")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1551")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -738,7 +738,12 @@ with btn_col1:
                 user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
             msg = force_buy_in(user_id, trader, params_obj.upbit_ticker)
-            st.success(msg)
+            if msg.startswith("❌"):
+                st.error(msg, icon="⚠️")
+            elif msg.startswith("[TEST]"):
+                st.success(msg, icon="✅")
+            else:
+                st.info(msg, icon="📡")
 with btn_col2:
     if st.button("🛑 강제매도하기", use_container_width=True):
         if account_krw == 0 and coin_balance > 0:
@@ -746,7 +751,12 @@ with btn_col2:
                 user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
             msg = force_liquidate(user_id, trader, params_obj.upbit_ticker)
-            st.success(msg)
+            if msg.startswith("❌"):
+                st.error(msg, icon="⚠️")
+            elif msg.startswith("[TEST]"):
+                st.success(msg, icon="✅")
+            else:
+                st.info(msg, icon="📡")
 with btn_col3:
     if st.button("🛑 트레이딩 엔진 종료", use_container_width=True):
         engine_manager.stop_engine(user_id)
