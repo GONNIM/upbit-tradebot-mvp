@@ -681,6 +681,9 @@ def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:
     """
     orders 테이블의 체결 레코드로 순포지션(매수-매도 체결 수량)을 계산.
     양수면 '열린 포지션'으로 간주.
+    - 🔹 기존에는 status IN ('FILLED','PARTIALLY_FILLED') 로 필터했는데,
+      이제 Reconciler가 state 컬럼에 'FILLED','PARTIALLY_FILLED' 를 기록하므로
+      state 컬럼 기준으로 변경하는 것이 일관됨.
     """
     from services.init_db import get_db_path
     import sqlite3
@@ -695,7 +698,7 @@ def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:
         FROM orders
         WHERE user_id = ?
           AND ticker  = ?
-          AND status IN ('FILLED','PARTIALLY_FILLED')  -- 미체결/취소 제외
+          AND status IN ('FILLED','PARTIALLY_FILLED')
     """
     con = sqlite3.connect(db_path)
     try:

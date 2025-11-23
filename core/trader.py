@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 class UpbitTrader:
     """
     실거래 또는 테스트모드에서 가상거래를 수행하는 트레이더 클래스.
+    - test_mode=True  : 모든 잔고/포지션/체결은 로컬 DB(accounts, account_positions, orders)에만 반영
+    - test_mode=False : 실제 Upbit API 호출 + orders 테이블에는 '요청/체결상태'만 기록
+                         (실제 체결 세부정보는 OrderReconciler가 채움)
     """
 
     def __init__(self, user_id: str, risk_pct: float = 0.1, test_mode: bool = True):
@@ -152,6 +155,12 @@ class UpbitTrader:
     # 매수 / 매도
     # ---------------------------
     def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
+        """
+        시장가 매수
+        - TEST 모드: 즉시 체결 + DB에 completed 기록
+        - LIVE 모드 : Upbit에 KRW 금액 기준 시장가 주문 → orders에는 'REQUESTED' + uuid만 기록
+                      실제 체결 결과는 OrderReconciler가 update_order_*()로 업데이트
+        """
         krw_to_use = self._krw_balance() * self.risk_pct
         if krw_to_use <= 0:
             logger.warning(f"[BUY] 주문 불가: krw_to_use={krw_to_use:.4f}")
@@ -161,7 +170,6 @@ class UpbitTrader:
             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
             return {}
         
-        # ✅ 수수료 포함한 실제 지불 가능 수량 계산
         qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
         logger.info(f"[BUY] plan krw_to_use={krw_to_use:.4f} price={price:.8f} fee={MIN_FEE_RATIO} -> qty={qty}")
 
@@ -171,7 +179,6 @@ class UpbitTrader:
 
             self._simulate_buy(ticker, qty, price, current_krw, current_coin)
 
-            # ✅ 음수 -0 방지 및 정수 변환
             raw_total = qty * price * (1 + MIN_FEE_RATIO)
             new_krw = max(current_krw - raw_total, 0.0)
             new_coin = current_coin + qty
@@ -188,7 +195,6 @@ class UpbitTrader:
                 profit_krw=0,
             )
 
-            # ✅ 주문 레이어 감사(풍부한 컨텍스트)
             self._audit_trade(
                 side="BUY",
                 ticker=ticker,
@@ -203,12 +209,13 @@ class UpbitTrader:
                 risk_pct=self.risk_pct,
             )
 
-            return {"time": ts, "side": "BUY", "qty": qty, "price": price}
+            return {"time": ts, "side": "BUY", "qty": qty, "price": price, "used_krw": krw_to_use}
 
         try:
-            # 🟢 실거래: Upbit는 KRW 금액(=krw_to_use)로 시장가 매수
+            # 🟢 LIVE: KRW 금액 기준 시장가 매수, 수량/평단은 Reconciler가 나중에 확정
             res = self.upbit.buy_market_order(ticker, krw_to_use)
             uuid = (res or {}).get("uuid")
+
             insert_order(
                 self.user_id, 
                 ticker, 
@@ -220,7 +227,7 @@ class UpbitTrader:
                 state="REQUESTED", 
                 requested_at=now_kst()
             )
-            # ✅ 실거래도 감사 선기록(요청 시점) — 잔고 사후값은 미확정이므로 before만 기록
+            
             self._audit_trade(
                 side="BUY",
                 ticker=ticker,
@@ -234,6 +241,7 @@ class UpbitTrader:
                 fee_ratio=MIN_FEE_RATIO,
                 risk_pct=self.risk_pct,
             )
+
             return {
                 "time": ts,
                 "side": "BUY",
@@ -247,6 +255,12 @@ class UpbitTrader:
             return {}
 
     def sell_market(self, qty: float, ticker: str, price: float, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
+        """
+        시장가 매도
+        - TEST: 즉시 체결
+        - LIVE: Upbit에 수량 기준 시장가 주문 → orders에는 'REQUESTED' + uuid 기록
+                실제 체결 결과(최종 수량/평단/수수료)는 OrderReconciler가 update_order_*()로 채움
+        """
         if qty <= 0:
             logger.warning("[SELL] 수량이 0 이하입니다. 매도 생략")
             return {}
@@ -259,7 +273,6 @@ class UpbitTrader:
 
             self._simulate_sell(ticker, qty, price, current_krw, current_coin)
 
-            # ✅ 수익 계산 및 정수 변환 (음수 방지)
             raw_gain = qty * price
             fee = raw_gain * MIN_FEE_RATIO
             total_gain = raw_gain - fee
@@ -276,10 +289,9 @@ class UpbitTrader:
                 "completed",
                 current_krw=new_krw,
                 current_coin=new_coin,
-                profit_krw=total_gain,  # 매도 수익
+                profit_krw=total_gain,
             )
 
-            # ✅ 주문 레이어 감사(풍부한 컨텍스트)
             self._audit_trade(
                 side="SELL",
                 ticker=ticker,
@@ -297,8 +309,10 @@ class UpbitTrader:
             return {"time": ts, "side": "SELL", "qty": qty, "price": price}
 
         try:
+            # 🟢 LIVE: 수량 기준 시장가 매도, 실제 avg_price/fee는 Reconciler에서
             res = self.upbit.sell_market_order(ticker, qty)
             uuid = (res or {}).get("uuid")
+
             insert_order(
                 self.user_id, 
                 ticker, 
@@ -310,7 +324,7 @@ class UpbitTrader:
                 state="REQUESTED",
                 requested_at=now_kst()
             )
-            # ✅ 실거래도 감사 선기록(요청 시점)
+
             self._audit_trade(
                 side="SELL",
                 ticker=ticker,
@@ -324,6 +338,7 @@ class UpbitTrader:
                 fee_ratio=MIN_FEE_RATIO,
                 risk_pct=self.risk_pct,
             )
+
             return {
                 "time": ts,
                 "side": "SELL",
@@ -344,12 +359,10 @@ class UpbitTrader:
         current_krw: float,
         current_coin: float,
     ):
-        """코인 매수 처리: 수수료는 외부에서 고려된 qty 기준으로 계산"""
         amount = qty * price
         fee = amount * MIN_FEE_RATIO
         total_spent = amount + fee
 
-        # 이미 fee 포함 qty로 계산했기 때문에 잔고 과차감 방지
         new_krw = max(current_krw - total_spent, 0.0)
         new_coin = current_coin + qty
 
@@ -367,7 +380,6 @@ class UpbitTrader:
         current_krw: float,
         current_coin: float,
     ):
-        """코인 매도 처리: qty 기준 수수료 차감"""
         amount = qty * price
         fee = amount * MIN_FEE_RATIO
         total_gain = amount - fee
