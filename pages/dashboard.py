@@ -147,7 +147,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1313")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1403")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -516,7 +516,7 @@ def _parse_dt(s: str) -> pd.Timestamp | None:
         return None
     try:
         ts = pd.to_datetime(s, errors="coerce", utc=True)  # <- 핵심: utc=True
-        return ts
+        return ts.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
 

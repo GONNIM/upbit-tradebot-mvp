@@ -52,7 +52,8 @@ def is_live_mode() -> bool:
 
 def _user_key(user_id: str, captured_mode: str) -> str:
     """user_id + 모드로 키 분리(TEST/LIVE 동시 실행 분리)."""
-    return f"{user_id}:{captured_mode}"
+    # return f"{user_id}:{captured_mode}"
+    return user_id
 
 
 class EngineManager:
@@ -63,6 +64,7 @@ class EngineManager:
         self._global_lock = threading.Lock()
         self._restart_counts = {}
         self._live_engine_count = 0
+        self._engine_mode: dict[str, str] = {}  # user_id -> mode
 
     def _ensure_user_resources(self, user_id, captured_mode: str):
         key = _user_key(user_id, captured_mode)
@@ -82,7 +84,7 @@ class EngineManager:
         captured_mode = current_mode()
         tm = (test_mode if test_mode is not None else (captured_mode != MODE_LIVE))
 
-        if captured_mode == "LIVE":
+        if captured_mode == MODE_LIVE:
             if self._live_engine_count == 0:
                 rec = get_reconciler()
                 rec.start()
@@ -104,6 +106,8 @@ class EngineManager:
 
             stop_event = self._events[key] = threading.Event()
             self._restart_counts[key] = restart_count
+
+            self._engine_mode[user_id] = captured_mode
             
             thread = threading.Thread(
                 target=self._engine_runner_with_recovery,
@@ -122,8 +126,10 @@ class EngineManager:
             return True
 
     def stop_engine(self, user_id):
-        m = current_mode()
-        key = _user_key(user_id, m)
+        ui_mode = current_mode()
+        key = _user_key(user_id, ui_mode)
+
+        running_mode = self._engine_mode.get(key, ui_mode)
 
         if key in self._events:
             self._events[key].set()
@@ -134,14 +140,18 @@ class EngineManager:
         self._threads.pop(key, None)
         self._events.pop(key, None)
         self._restart_counts.pop(key, None)
+        self._engine_modes.pop(key, None)
 
         set_engine_status(user_id, False)
         set_thread_status(user_id, False)
         update_engine_status(user_id, "stopped")
         remove_engine_thread(user_id)
-        log_to_file(f"🔌 엔진 종료 요청됨: user_id={user_id}, mode={m}", user_id)
 
-        if m == "LIVE":
+        msg = f"🔌 엔진 종료 요청됨: user_id={user_id}, mode={running_mode}"
+        log_to_file(msg, user_id)
+        insert_log(user_id, "INFO", msg)
+
+        if running_mode == MODE_LIVE:
             self._live_engine_count = max(0, self._live_engine_count - 1)
             if self._live_engine_count == 0:
                 try:
@@ -175,7 +185,6 @@ class EngineManager:
                 insert_log(user_id, "ERROR", msg)
                 log_to_file(msg, user_id)
                 
-                # 지연 후 재시작
                 time.sleep(delay)
                 if not stop_event.is_set():
                     self._start_engine_internal(
