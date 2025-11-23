@@ -129,6 +129,13 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
 
     used_krw = result.get("used_krw")
 
+    # 🔹 방어 로직: used_krw가 없으면 현재 잔고 * risk_pct로 추정
+    if used_krw is None:
+        try:
+            used_krw = trader._krw_balance() * trader.risk_pct
+        except Exception:
+            used_krw = 0.0
+
     if trader.test_mode:
         insert_log(
             user_id,

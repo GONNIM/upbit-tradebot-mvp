@@ -209,7 +209,13 @@ class UpbitTrader:
                 risk_pct=self.risk_pct,
             )
 
-            return {"time": ts, "side": "BUY", "qty": qty, "price": price, "used_krw": krw_to_use}
+            return {
+                "time": ts,
+                "side": "BUY",
+                "qty": qty,
+                "price": price,
+                "used_krw": krw_to_use
+            }
 
         try:
             # 🟢 LIVE: KRW 금액 기준 시장가 매수, 수량/평단은 Reconciler가 나중에 확정
@@ -248,7 +254,8 @@ class UpbitTrader:
                 "qty": 0.0,
                 "price": float(price),
                 "uuid": uuid,
-                "raw": res
+                "raw": res,
+                "used_krw": float(krw_to_use),
             }
         except Exception as e:
             logger.error(f"[실거래] 매수 주문 실패: {e}")
@@ -306,7 +313,12 @@ class UpbitTrader:
                 risk_pct=self.risk_pct,
             )
 
-            return {"time": ts, "side": "SELL", "qty": qty, "price": price}
+            return {
+                "time": ts,
+                "side": "SELL",
+                "qty": qty,
+                "price": price
+            }
 
         try:
             # 🟢 LIVE: 수량 기준 시장가 매도, 실제 avg_price/fee는 Reconciler에서
