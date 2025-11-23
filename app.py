@@ -300,8 +300,8 @@ elif authentication_status:
 
             live_capital = st.number_input(
                 "LIVE 운용자산(KRW)",
-                min_value=int(MIN_CASH),
-                max_value=int(krw_balance),
+                min_value=min_capital,
+                max_value=max_capital,
                 value=int(default_value),
                 step=10_000,
             )
