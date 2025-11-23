@@ -14,6 +14,7 @@ from services.db import (
     insert_position_history,
     insert_order,  # ✅ 거래 기록 추가
     insert_trade_audit,
+    insert_log,
 )
 
 
@@ -223,16 +224,31 @@ class UpbitTrader:
             logger.info(f"[BUY-LIVE] raw response: {res}")
 
             if not res or not isinstance(res, dict):
-                logger.error(f"[BUY-LIVE] invalid response from Upbit (res={res})")
+                msg = f"[BUY-LIVE] invalid response from Upbit (res={res})"
+                logger.error(msg)
+                insert_log(self.user_id, "ERROR", f"❌ 업비트 시장가 매수 응답 비정상: {res}")
                 return {}
 
             if "error" in res:
-                logger.error(f"[BUY-LIVE] Upbit error response: {res['error']}")
+                err = res["error"]
+                err_msg = err.get("message") if isinstance(err, dict) else str(err)
+                logger.error(f"[BUY-LIVE] Upbit error response: {err}")
+                insert_log(
+                    self.user_id,
+                    "ERROR",
+                    f"❌ 업비트 시장가 매수 실패: {err_msg}",
+                )
                 return {}
         
             uuid = (res or {}).get("uuid")
             if not uuid:
-                logger.error(f"[BUY-LIVE] no uuid in response: {res}")
+                msg = f"[BUY-LIVE] no uuid in response: {res}"
+                logger.error(msg)
+                insert_log(
+                    self.user_id,
+                    "ERROR",
+                    "❌ 업비트 시장가 매수 응답에 uuid 없음 → 주문 추적 불가",
+                )
                 return {}
             
             insert_order(
@@ -261,6 +277,15 @@ class UpbitTrader:
                 risk_pct=self.risk_pct,
             )
 
+            insert_log(
+                self.user_id,
+                "INFO",
+                (
+                    f"🚨 [LIVE] 시장가 매수 요청 전송: {ticker} "
+                    f"(예상가≈{price:,.2f} KRW, 사용 KRW ≈ {krw_to_use:,.0f}, uuid={uuid})"
+                ),
+            )
+
             return {
                 "time": ts,
                 "side": "BUY",
@@ -272,6 +297,7 @@ class UpbitTrader:
             }
         except Exception as e:
             logger.error(f"[실거래] 매수 주문 실패: {e}")
+            insert_log(self.user_id, "ERROR", f"❌ 업비트 시장가 매수 예외: {e}")
             return {}
 
     def sell_market(self, qty: float, ticker: str, price: float, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
@@ -339,17 +365,33 @@ class UpbitTrader:
             logger.info(f"[SELL-LIVE] raw response: {res}") 
 
             if not res or not isinstance(res, dict):
-                logger.error(f"[SELL-LIVE] invalid response from Upbit (res={res})")
+                msg = f"[SELL-LIVE] invalid response from Upbit (res={res})"
+                logger.error(msg)
+                insert_log(self.user_id, "ERROR", f"❌ 업비트 시장가 매도 응답 비정상: {res}")
                 return {}
             
             if "error" in res:
-                logger.error(f"[SELL-LIVE] Upbit error response: {res['error']}")
+                err = res["error"]
+                err_msg = err.get("message") if isinstance(err, dict) else str(err)
+                logger.error(f"[SELL-LIVE] Upbit error response: {err}")
+                insert_log(
+                    self.user_id,
+                    "ERROR",
+                    f"❌ 업비트 시장가 매도 실패: {err_msg}",
+                )
                 return {}
             
             uuid = (res or {}).get("uuid")
             if not uuid:
-                logger.error(f"[SELL-LIVE] no uuid in response: {res}")
+                msg = f"[SELL-LIVE] no uuid in response: {res}"
+                logger.error(msg)
+                insert_log(
+                    self.user_id,
+                    "ERROR",
+                    "❌ 업비트 시장가 매도 응답에 uuid 없음 → 주문 추적 불가",
+                )
                 return {}
+
 
             insert_order(
                 self.user_id, 
@@ -377,6 +419,15 @@ class UpbitTrader:
                 risk_pct=self.risk_pct,
             )
 
+            insert_log(
+                self.user_id,
+                "INFO",
+                (
+                    f"🚨 [LIVE] 시장가 매도 요청 전송: {ticker} "
+                    f"(예상가≈{price:,.2f} KRW, 수량≈{qty:.6f}, uuid={uuid})"
+                ),
+            )
+
             return {
                 "time": ts,
                 "side": "SELL",
@@ -387,6 +438,7 @@ class UpbitTrader:
             }
         except Exception as e:
             logger.error(f"[실거래] 매도 주문 실패: {e}")
+            insert_log(self.user_id, "ERROR", f"❌ 업비트 시장가 매도 예외: {e}")
             return {}
 
     def _simulate_buy(

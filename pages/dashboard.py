@@ -29,6 +29,20 @@ from services.trading_control import force_liquidate, force_buy_in
 
 from pathlib import Path
 
+import pyupbit.request_api as rq
+
+upbit_logger = logging.getLogger("pyupbit.http")
+
+_original_send_post = rq._send_post_request
+
+def debug_send_post(url, headers=None, data=None):
+    upbit_logger.info(f"[HTTP-POST] url={url} data={data} headers={headers}")
+    res = _original_send_post(url, headers=headers, data=data)
+    upbit_logger.info(f"[HTTP-POST] result={repr(res)[:500]}")
+    return res
+
+rq._send_post_request = debug_send_post
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -147,7 +161,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1551")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1622")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
