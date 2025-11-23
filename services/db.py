@@ -990,3 +990,39 @@ def fetch_recent_fills(user_id: str, limit: int = 20):
             LIMIT ?
         """, (user_id, limit))
         return cur.fetchall()
+
+
+# ✅ 최신 주문 상태 조회
+def fetch_order_statuses(user_id: str, limit: int = 20):
+    """
+    UI/디버깅용으로 orders 테이블의 최근 주문 상태를 조회.
+    - id, ticker, side, state, executed_volume, avg_price, paid_fee, provider_uuid 등 표시
+    """
+    ensure_schema(user_id)
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                id,
+                timestamp,
+                ticker,
+                side,
+                state,
+                status,
+                volume,
+                executed_volume,
+                avg_price,
+                paid_fee,
+                provider_uuid,
+                requested_at,
+                executed_at,
+                canceled_at
+            FROM orders
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+        return cur.fetchall()

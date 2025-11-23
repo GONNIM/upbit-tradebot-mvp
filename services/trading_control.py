@@ -19,7 +19,7 @@ def get_last_price_from_logs(user_id: str) -> float:
                 return float(price_part.replace(",", ""))
             except Exception:
                 continue
-    return 0.0  # fallback
+    return 0.0 # fallback
 
 
 def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str) -> str:
@@ -40,9 +40,13 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str) -> str:
     try:
         price = float(price_raw)
     except (TypeError, ValueError):
-        msg = f"❌ 강제청산 실패: 가격 파싱 오류 → price={price_raw}"
-        insert_log(user_id, "ERROR", msg)
-        return msg
+        fallback_price = get_last_price_from_logs(user_id)
+        if fallback_price > 0:
+            price = fallback_price
+        else:
+            msg = f"❌ 강제청산 실패: 가격 파싱 오류 → price={price_raw}"
+            insert_log(user_id, "ERROR", msg)
+            return msg
 
     if price <= 0:
         msg = "❌ 강제청산 실패: 최근 가격을 가져올 수 없습니다."
@@ -80,12 +84,10 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         return msg
     
     msg = (
-        f"[LIVE] {ticker} 강제청산 요청 전송: "
-        f"시장가(예상가≈{price:,.2f} KRW, 수량≈{qty:.6f})\n"
-        f" → 주문 UUID: {uuid}\n"
-        f" → 실제 체결 여부는 '실시간 주문 상태' 영역에서 확인하세요."
+        f"🚨 [LIVE] 강제청산 요청 전송: {ticker} 시장가, "
+        f"예상가≈{price:,.2f} KRW, 수량≈{qty:.6f} (uuid={uuid})"
     )
-    insert_log(user_id, "SELL", f"🚨 {msg}")
+    insert_log(user_id, "SELL", msg)
 
     try:
         get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="SELL")
@@ -114,9 +116,13 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
     try:
         price = float(price_raw)
     except (TypeError, ValueError):
-        msg = f"❌ 강제매수 실패: 가격 파싱 오류 → price={price_raw}"
-        insert_log(user_id, "ERROR", msg)
-        return msg
+        fallback_price = get_last_price_from_logs(user_id)
+        if fallback_price > 0:
+            price = fallback_price
+        else:
+            msg = f"❌ 강제매수 실패: 가격 파싱 오류 → price={price_raw}"
+            insert_log(user_id, "ERROR", msg)
+            return msg
 
     if price <= 0:
         msg = "❌ 강제매수 실패: 최근 가격을 가져올 수 없습니다."
@@ -154,7 +160,6 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         return f"[TEST] {ticker} 강제매수 완료: {result['qty']:.6f} @ {result['price']:,f}"
 
     uuid = result.get("uuid")
-
     if not uuid:
         msg = (
             f"❌ [LIVE] 강제매수 요청 실패: Upbit 응답에 uuid가 없습니다. "
@@ -169,7 +174,6 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         f"🚨 [LIVE] 강제매수 요청 전송: {ticker} 시장가, 예상가≈{price:,.2f} KRW "
         f"(사용 KRW ≈ {used_krw:,.0f}, uuid={uuid})",
     )
-
 
     try:
         get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="BUY")

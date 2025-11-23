@@ -161,7 +161,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1735")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1823")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -1006,3 +1006,9 @@ macd_altair_chart(
 
 # debug_time_meta(df_live, "raw")  # tz: None 이고 값이 이미 KST일 가능성
 # debug_time_meta(_minus_9h_index(df_live), "kst-naive")  # tz: None이어야 정상
+
+from services.db import fetch_order_statuses
+
+rows = fetch_order_statuses(user_id, limit=10)
+for r in rows:
+    print(r)
