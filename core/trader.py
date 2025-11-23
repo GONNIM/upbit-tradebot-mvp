@@ -17,6 +17,8 @@ from services.db import (
     insert_log,
 )
 
+import math
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -162,12 +164,15 @@ class UpbitTrader:
         - LIVE 모드 : Upbit에 KRW 금액 기준 시장가 주문 → orders에는 'REQUESTED' + uuid만 기록
                       실제 체결 결과는 OrderReconciler가 update_order_*()로 업데이트
         """
-        krw_to_use = self._krw_balance() * self.risk_pct
-        if krw_to_use <= 0:
-            logger.warning(f"[BUY] 주문 불가: krw_to_use={krw_to_use:.4f}")
+        avail = self._krw_balance()
+        if avail <= 0:
+            logger.warning(f"[BUY] 주문 불가: 잔고={avail:.4f}")
             return {}
-        
-        if not self.test_mode and krw_to_use < 5000:
+
+        # 🔧 위험비율 적용 + 2% 안전마진 + 원 단위 내림
+        krw_to_use = math.floor(avail * self.risk_pct * 0.98)
+
+        if krw_to_use < 5000:
             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
             return {}
         
