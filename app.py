@@ -407,15 +407,13 @@ elif authentication_status:
 
     if start_setting:
         next_page = "set_config"
-        params = urlencode(
-            {
-                "virtual_krw": st.session_state.virtual_krw,
-                "user_id": st.session_state.user_id,
-                "mode": st.session_state.get("mode", "TEST"),
-                "verified": int(bool(st.session_state.get("upbit_verified"))),
-                "capital_set": int(bool(st.session_state.get("live_capital_set"))),
-            }
-        )
+        params = urlencode({
+            "virtual_krw": st.session_state.virtual_krw,
+            "user_id": st.session_state.user_id,
+            "mode": st.session_state.get("mode", "TEST"),
+            "verified": int(bool(st.session_state.get("upbit_verified"))),
+            "capital_set": int(bool(st.session_state.get("live_capital_set"))),
+        })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
             unsafe_allow_html=True,

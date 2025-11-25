@@ -1,4 +1,5 @@
 import json
+from turtle import up
 import streamlit as st
 import pandas as pd
 import time
@@ -73,6 +74,12 @@ raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
 mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 is_live = (mode == "LIVE")
+
+verified_param = _get_param(qp, "verified", "0")
+capital_param = _get_param(qp, "capital_set", "0")
+
+upbit_ok = str(verified_param) == "1"
+capital_ok = str(capital_param) == "1"
 
 def get_current_balances(user_id: str, params_obj, is_live: bool):
     """
@@ -188,7 +195,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.25.2105")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.25.2118")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -240,17 +247,13 @@ with col20:
             st.stop()
 
         next_page = "set_config"
-
-        params = urlencode(
-            {
-                "virtual_krw": st.session_state.virtual_krw,
-                "user_id": st.session_state.user_id,
-                "mode": mode,
-                "verified": int(bool(st.session_state.get("upbit_verified"))),
-                "capital_set": int(bool(st.session_state.get("live_capital_set"))),
-            }
-        )
-
+        params = urlencode({
+            "virtual_krw": st.session_state.virtual_krw,
+            "user_id": st.session_state.user_id,
+            "mode": mode,
+            "verified": upbit_ok,
+            "capital_set": capital_ok,
+        })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
             unsafe_allow_html=True,
