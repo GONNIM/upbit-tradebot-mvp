@@ -188,7 +188,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.23.1930")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.25.2105")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -246,6 +246,8 @@ with col20:
                 "virtual_krw": st.session_state.virtual_krw,
                 "user_id": st.session_state.user_id,
                 "mode": mode,
+                "verified": int(bool(st.session_state.get("upbit_verified"))),
+                "capital_set": int(bool(st.session_state.get("live_capital_set"))),
             }
         )
 
@@ -934,7 +936,11 @@ with col1:
     st.subheader("⚙️ 매수 전략")
 with col2:
     if st.button("🛠️ 설정", use_container_width=True):
-        params = urlencode({"user_id": user_id, "mode": mode})
+        params = urlencode({
+            "virtual_krw": virtual_krw,
+            "user_id": user_id,
+            "mode": mode,
+        })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">',
             unsafe_allow_html=True,

@@ -10,11 +10,29 @@ from urllib.parse import urlencode
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 st.markdown(style_main, unsafe_allow_html=True)
 
-params = st.query_params
-user_id = params.get("user_id", "")
+qp = st.query_params
+
+def _get_param(qp, key, default=None):
+    v = qp.get(key, default)
+    if isinstance(v, list):
+        return v[0]
+    return v
+
+user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
+
+try:
+    virtual_krw = int(raw_v)
+except (TypeError, ValueError):
+    virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+
+raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
+mode = str(raw_mode).upper()
+st.session_state["mode"] = mode
 
 if user_id == "":
     st.switch_page("app.py")
+    
 
 # --- 사용자 설정 저장 경로 ---
 target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
@@ -73,9 +91,11 @@ def save_conditions():
 
 def go_dashboard():
     next_page = "dashboard"
-
-    params = urlencode({"user_id": user_id})
-
+    params = urlencode({
+        "user_id": user_id,
+        "virtual_krw": virtual_krw,
+        "mode": mode,
+    })
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">',
         unsafe_allow_html=True,

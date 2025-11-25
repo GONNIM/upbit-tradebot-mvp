@@ -386,13 +386,11 @@ elif authentication_status:
     # 페이지 이동 처리
     if start_trading:
         next_page = "dashboard"
-        params = urlencode(
-            {
-                "virtual_krw": st.session_state.virtual_krw,
-                "user_id": st.session_state.user_id,
-                "mode": st.session_state.get("mode", "TEST"),
-            }
-        )
+        params = urlencode({
+            "user_id": st.session_state.user_id,
+            "virtual_krw": st.session_state.virtual_krw,
+            "mode": st.session_state.get("mode", "TEST"),
+        })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
             unsafe_allow_html=True,
