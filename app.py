@@ -390,6 +390,8 @@ elif authentication_status:
             "user_id": st.session_state.user_id,
             "virtual_krw": st.session_state.virtual_krw,
             "mode": st.session_state.get("mode", "TEST"),
+            "verified": int(bool(st.session_state.get("upbit_verified"))),
+            "capital_set": int(bool(st.session_state.get("live_capital_set"))),
         })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',

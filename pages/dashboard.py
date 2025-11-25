@@ -80,6 +80,12 @@ capital_param = _get_param(qp, "capital_set", "0")
 upbit_ok = str(verified_param) == "1"
 capital_ok = str(capital_param) == "1"
 
+if is_live:
+    if "upbit_verified" in st.session_state:
+        upbit_ok = upbit_ok or bool(st.session_state["upbit_verified"])
+    if "live_capital_set" in st.session_state:
+        capital_ok = capital_ok or bool(st.session_state["live_capital_set"])
+
 def get_current_balances(user_id: str, params_obj, is_live: bool):
     """
     자산 현황용 현재 잔고 조회.
@@ -194,7 +200,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.25.2122")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.25.2133")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
