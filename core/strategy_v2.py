@@ -168,7 +168,15 @@ class MACDStrategy(Strategy):
                     False,
                 ),
                 "sell": dict.fromkeys(
-                    ["trailing_stop", "take_profit", "stop_loss", "macd_negative", "dead_cross"], False
+                    [
+                        "trailing_stop",
+                        "take_profit",
+                        "stop_loss",
+                        "macd_negative",
+                        "signal_negative",
+                        "dead_cross"
+                    ],
+                    False,
                 ),
             }
 
@@ -797,6 +805,11 @@ class MACDStrategy(Strategy):
         macdneg_hit = self._is_macd_cross_down(self.macd_threshold)
         add("macd_negative", macdneg_enabled, macdneg_hit, {"macd":state["macd"], "thr":self.macd_threshold})
 
+        # Signal Negative
+        signalneg_enabled = sell_cond.get("signal_negative", False)
+        signalneg_hit = self._is_signal_cross_down(self.macd_threshold)
+        add("signal_negative", signalneg_enabled, signalneg_hit, {"signal":state["signal"], "thr":self.macd_threshold})
+
         # Dead Cross
         dead_enabled = sell_cond.get("dead_cross", False)
         dead_hit = self._is_dead_cross()
@@ -812,6 +825,8 @@ class MACDStrategy(Strategy):
             trigger_key = "Take Profit"
         elif macdneg_enabled and macdneg_hit:
             trigger_key = "MACD Negative"
+        elif signalneg_enabled and signalneg_hit:
+            trigger_key = "Signal Negative"
         elif dead_enabled and dead_hit:
             trigger_key = "Dead Cross"
 
@@ -905,6 +920,12 @@ class MACDStrategy(Strategy):
             self._sell_action(state, "MACD Negative")
             return
         
+        # Signal Negative
+        if signalneg_enabled and signalneg_hit:
+            logger.info("📉 Signal < threshold → SELL")
+            self._sell_action(state, "Signal Negative")
+            return
+
         # Dead Cross
         if dead_enabled and self._is_dead_cross():
             logger.info("🛑 Dead Cross → SELL")

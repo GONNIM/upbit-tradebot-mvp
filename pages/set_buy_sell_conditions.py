@@ -32,7 +32,7 @@ st.session_state["mode"] = mode
 
 if user_id == "":
     st.switch_page("app.py")
-    
+
 
 # --- 사용자 설정 저장 경로 ---
 target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
@@ -55,6 +55,7 @@ SELL_CONDITIONS = {
     "take_profit": "💰  Take Profit",
     "stop_loss": "🔻  Stop Loss",
     "macd_negative": "📉  MACD < threshold",
+    "signal_negative": "➖  Signal < threshold",
     "dead_cross": "🔴  Dead Cross",
 }
 

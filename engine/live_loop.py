@@ -108,6 +108,8 @@ def check_sell_conditions(evt, conds):
         return True
     if "macd negative" in reason and conds.get("macd_negative"):
         return True
+    if "signal negative" in reason and conds.get("signal_negative"):
+        return True
     if "dead cross" in reason and conds.get("dead_cross"):
         return True
     return False
