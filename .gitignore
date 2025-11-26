@@ -39,3 +39,8 @@ env/
 # 민감 정보 YAML
 credentials.yaml
 data/*.db*
+
+/claude/
+/docs/
+README.md
+CLAUDE.md
