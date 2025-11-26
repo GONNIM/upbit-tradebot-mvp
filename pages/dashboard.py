@@ -29,6 +29,20 @@ from services.trading_control import force_liquidate, force_buy_in
 
 from pathlib import Path
 
+import pyupbit.request_api as rq
+
+upbit_logger = logging.getLogger("pyupbit.http")
+
+_original_send_post = rq._send_post_request
+
+def debug_send_post(url, headers=None, data=None):
+    upbit_logger.info(f"[HTTP-POST] url={url} data={data} headers={headers}")
+    res = _original_send_post(url, headers=headers, data=data)
+    upbit_logger.info(f"[HTTP-POST] result={repr(res)[:500]}")
+    return res
+
+rq._send_post_request = debug_send_post
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +73,45 @@ raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
 mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 is_live = (mode == "LIVE")
+
+verified_param = _get_param(qp, "verified", "0")
+capital_param = _get_param(qp, "capital_set", "0")
+
+upbit_ok = str(verified_param) == "1"
+capital_ok = str(capital_param) == "1"
+
+if is_live:
+    if "upbit_verified" in st.session_state:
+        upbit_ok = upbit_ok or bool(st.session_state["upbit_verified"])
+    if "live_capital_set" in st.session_state:
+        capital_ok = capital_ok or bool(st.session_state["live_capital_set"])
+
+def get_current_balances(user_id: str, params_obj, is_live: bool):
+    """
+    자산 현황용 현재 잔고 조회.
+    - TEST 모드: 기존처럼 DB(virtual_krw, account_positions) 기준
+    - LIVE 모드: Upbit 실계좌 우선, 실패 시 DB로 폴백
+    """
+    ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
+
+    if is_live:
+        # 🔹 읽기 전용 용도로 트레이더 하나 생성
+        trader_view = UpbitTrader(
+            user_id,
+            risk_pct=getattr(params_obj, "order_ratio", 1.0),
+            test_mode=False,   # ← 반드시 False (실계좌)
+        )
+        try:
+            krw_live = float(trader_view._krw_balance())
+            coin_live = float(trader_view._coin_balance(ticker))
+            return krw_live, coin_live
+        except Exception as e:
+            logger.warning(f"[DASH] live balance fetch failed, fallback to DB: {e}")
+
+    # 🔹 TEST 모드 + LIVE 실패 시 공통 폴백: DB 스냅샷
+    acc = get_account(user_id) or 0.0
+    coin = get_coin_balance(user_id, ticker) or 0.0
+    return float(acc), float(coin)
 
 # ✅ 페이지 설정
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
@@ -147,7 +200,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.22.1603")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.26.2051")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -199,15 +252,13 @@ with col20:
             st.stop()
 
         next_page = "set_config"
-
-        params = urlencode(
-            {
-                "virtual_krw": st.session_state.virtual_krw,
-                "user_id": st.session_state.user_id,
-                "mode": mode,
-            }
-        )
-
+        params = urlencode({
+            "virtual_krw": st.session_state.virtual_krw,
+            "user_id": st.session_state.user_id,
+            "mode": mode,
+            "verified": upbit_ok,
+            "capital_set": capital_ok,
+        })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
             unsafe_allow_html=True,
@@ -229,9 +280,10 @@ st.caption(f"DB file: `{get_db_path(user_id)}`")
 
 json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
 params_obj = load_params(json_path)
-account_krw = get_account(user_id) or 0
+# account_krw = get_account(user_id) or 0
 # st.write(account_krw)
-coin_balance = get_coin_balance(user_id, params_obj.upbit_ticker) or 0.0
+# coin_balance = get_coin_balance(user_id, params_obj.upbit_ticker) or 0.0
+account_krw, coin_balance = get_current_balances(user_id, params_obj, is_live)
 
 # ===================== 🔧 PATCH: 자산 현황(항상 ROI 표시) START =====================
 st.subheader("💰 자산 현황")
@@ -516,7 +568,7 @@ def _parse_dt(s: str) -> pd.Timestamp | None:
         return None
     try:
         ts = pd.to_datetime(s, errors="coerce", utc=True)  # <- 핵심: utc=True
-        return ts
+        return ts.strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         return None
 
@@ -567,7 +619,7 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
         t_ticker, t_side, t_price = trade_row[1], trade_row[2], trade_row[3]
         return {
             "source": "TRADE",
-            "시간": _fmt_dt(trade_dt),
+            "시간": _parse_dt(trade_dt),
             "Ticker": t_ticker,
             "Price": f"{float(t_price):.2f}",
             "Cross": "(Filled)",
@@ -578,7 +630,7 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
     else:
         return {
             "source": "LOG",
-            "시간": _fmt_dt(log_dt),
+            "시간": _parse_dt(log_dt),
             "Ticker": log_row.get("Ticker"),
             "Price": log_row.get("price"),
             "Cross": log_row.get("cross"),
@@ -738,7 +790,12 @@ with btn_col1:
                 user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
             msg = force_buy_in(user_id, trader, params_obj.upbit_ticker)
-            st.success(msg)
+            if msg.startswith("❌"):
+                st.error(msg, icon="⚠️")
+            elif msg.startswith("[TEST]"):
+                st.success(msg, icon="✅")
+            else:
+                st.info(msg, icon="📡")
 with btn_col2:
     if st.button("🛑 강제매도하기", use_container_width=True):
         if account_krw == 0 and coin_balance > 0:
@@ -746,7 +803,12 @@ with btn_col2:
                 user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
             msg = force_liquidate(user_id, trader, params_obj.upbit_ticker)
-            st.success(msg)
+            if msg.startswith("❌"):
+                st.error(msg, icon="⚠️")
+            elif msg.startswith("[TEST]"):
+                st.success(msg, icon="✅")
+            else:
+                st.info(msg, icon="📡")
 with btn_col3:
     if st.button("🛑 트레이딩 엔진 종료", use_container_width=True):
         engine_manager.stop_engine(user_id)
@@ -824,6 +886,7 @@ SELL_CONDITIONS = {
     "take_profit": "💰  Take Profit",
     "stop_loss": "🔻  Stop Loss",
     "macd_negative": "📉  MACD < threshold",
+    "signal_negative": "➖  Signal < threshold",
     "dead_cross": "🔴  Dead Cross",
 }
 
@@ -882,7 +945,11 @@ with col1:
     st.subheader("⚙️ 매수 전략")
 with col2:
     if st.button("🛠️ 설정", use_container_width=True):
-        params = urlencode({"user_id": user_id, "mode": mode})
+        params = urlencode({
+            "virtual_krw": virtual_krw,
+            "user_id": user_id,
+            "mode": mode,
+        })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">',
             unsafe_allow_html=True,
@@ -982,3 +1049,9 @@ macd_altair_chart(
 
 # debug_time_meta(df_live, "raw")  # tz: None 이고 값이 이미 KST일 가능성
 # debug_time_meta(_minus_9h_index(df_live), "kst-naive")  # tz: None이어야 정상
+
+from services.db import fetch_order_statuses
+
+rows = fetch_order_statuses(user_id, limit=10)
+for r in rows:
+    print(r)

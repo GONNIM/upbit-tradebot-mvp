@@ -48,15 +48,25 @@ st.markdown(
 # ✅ 자동 새로고침
 st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_autorefresh")
 
-# -------------------
-# 쿼리 파라미터
-# -------------------
-params = st.query_params
-user_id = params.get("user_id", "")
-ticker  = params.get("ticker", "")
-rows    = int(params.get("rows", 2000))
-only_failed = str(params.get("only_failed", "0")) in ("1", "true", "True")
-default_tab = params.get("tab", "buy")  # buy|sell|trades|settings
+# ✅ 쿼리 파라미터 처리
+qp = st.query_params
+
+def _get_param(qp, key, default=None):
+    v = qp.get(key, default)
+    if isinstance(v, list):
+        return v[0]
+    return v
+
+user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+ticker = _get_param(qp, "ticker", st.session_state.get("ticker", ""))
+rows = int(_get_param(qp, "rows", st.session_state.get("rows", 2000)))
+only_failed = str(_get_param(qp, "only_failed", st.session_state.get("only_failed", ""))) in ("1", "true", "True")
+default_tab = _get_param(qp, "tab", st.session_state.get("tab", "buy"))  # buy|sell|trades|settings
+
+raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
+mode = str(raw_mode).upper()
+st.session_state["mode"] = mode
+is_live = (mode == "LIVE")
 
 db_path = get_db_path(user_id)
 
@@ -106,7 +116,13 @@ st.markdown(f"""
 col_go, _ = st.columns([1, 5])
 with col_go:
     # dashboard는 user_id와 virtual_krw를 쿼리로 받음 → virtual_krw 없으면 계정 KRW로 대체
-    virtual_krw = int(params.get("virtual_krw", 0) or 0)
+    raw_vk = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
+
+    try:
+        virtual_krw = int(raw_vk)
+    except (TypeError, ValueError):
+        virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+
     if virtual_krw == 0:
         try:
             virtual_krw = int(get_account(user_id) or 0)
@@ -115,7 +131,11 @@ with col_go:
 
     if st.button("⬅️ 대시보드로 가기", use_container_width=True):
         next_page = "dashboard"
-        qs = urlencode({"user_id": user_id, "virtual_krw": virtual_krw})
+        qs = urlencode({
+            "user_id": user_id,
+            "virtual_krw": virtual_krw,
+            "mode": mode,
+        })
         st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{qs}">', unsafe_allow_html=True)
         st.switch_page(next_page)
 

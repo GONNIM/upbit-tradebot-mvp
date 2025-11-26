@@ -681,6 +681,9 @@ def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:
     """
     orders 테이블의 체결 레코드로 순포지션(매수-매도 체결 수량)을 계산.
     양수면 '열린 포지션'으로 간주.
+    - 🔹 기존에는 status IN ('FILLED','PARTIALLY_FILLED') 로 필터했는데,
+      이제 Reconciler가 state 컬럼에 'FILLED','PARTIALLY_FILLED' 를 기록하므로
+      state 컬럼 기준으로 변경하는 것이 일관됨.
     """
     from services.init_db import get_db_path
     import sqlite3
@@ -695,7 +698,7 @@ def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:
         FROM orders
         WHERE user_id = ?
           AND ticker  = ?
-          AND status IN ('FILLED','PARTIALLY_FILLED')  -- 미체결/취소 제외
+          AND status IN ('FILLED','PARTIALLY_FILLED')
     """
     con = sqlite3.connect(db_path)
     try:
@@ -987,3 +990,114 @@ def fetch_recent_fills(user_id: str, limit: int = 20):
             LIMIT ?
         """, (user_id, limit))
         return cur.fetchall()
+
+
+# ✅ 최신 주문 상태 조회
+def fetch_order_statuses(user_id: str, limit: int = 20):
+    """
+    UI/디버깅용으로 orders 테이블의 최근 주문 상태를 조회.
+    - id, ticker, side, state, executed_volume, avg_price, paid_fee, provider_uuid 등 표시
+    """
+    ensure_schema(user_id)
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                id,
+                timestamp,
+                ticker,
+                side,
+                state,
+                status,
+                volume,
+                executed_volume,
+                avg_price,
+                paid_fee,
+                provider_uuid,
+                requested_at,
+                executed_at,
+                canceled_at
+            FROM orders
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        )
+        return cur.fetchall()
+
+
+def update_account_from_balances(user_id: str, balances: list[dict[str, Any]]):
+    """
+    Upbit.get_balances() 응답을 기준으로 accounts / account_history 갱신
+    - balances 예시:
+      [
+        {
+          "currency": "KRW",
+          "balance": "12345.0",
+          "locked": "0.0",
+          ...
+        },
+        ...
+      ]
+    """
+    ensure_schema(user_id)
+
+    krw_total = 0.0
+    try:
+        for b in balances or []:
+            if str(b.get("currency", "")).upper() == "KRW":
+                bal = float(b.get("balance") or 0.0)
+                locked = float(b.get("locked") or 0.0)
+                # 필요에 따라 locked 포함/제외 가능. 여기선 "전체 잔고" 기준으로.
+                krw_total = bal + locked
+                break
+    except Exception as e:
+        logger.warning(f"[DB] update_account_from_balances parse failed: {e}")
+
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        # 없으면 생성
+        cur.execute(
+            "INSERT OR IGNORE INTO accounts (user_id, virtual_krw) VALUES (?, ?)",
+            (user_id, int(krw_total)),
+        )
+        # 항상 최신 값으로 덮어쓰기
+        cur.execute(
+            """
+            UPDATE accounts
+            SET virtual_krw = ?, updated_at = ?
+            WHERE user_id = ?
+            """,
+            (int(krw_total), now_kst(), user_id),
+        )
+        conn.commit()
+
+    # 히스토리도 동일하게 누적
+    insert_account_history(user_id, int(krw_total))
+
+
+def update_position_from_balances(user_id: str, ticker: str, balances: list[dict[str, Any]]):
+    """
+    Upbit.get_balances() 응답으로 특정 ticker(KRW-WLFI 등)의 보유 수량을
+    account_positions / position_history 에 반영.
+    """
+    ensure_schema(user_id)
+
+    sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
+    total_coin = 0.0
+
+    try:
+        for b in balances or []:
+            if str(b.get("currency", "")).upper() == sym:
+                bal = float(b.get("balance") or 0.0)
+                locked = float(b.get("locked") or 0.0)
+                total_coin = bal + locked
+                break
+    except Exception as e:
+        logger.warning(f"[DB] update_position_from_balances parse failed: {e}")
+
+    # 우리 쪽 DB에는 일관되게 'KRW-심볼' 형태로 저장
+    market_code = f"KRW-{sym}"
+    update_coin_position(user_id, market_code, total_coin)

@@ -47,6 +47,25 @@ def _get_param(qp, key, default=None):
         return v[0]
     return v
 
+def _get_bool_param(qp, key, default: bool = False) -> bool:
+    """
+    ⚠️ 기존 버그 포인트:
+        - URL에서 verified=True 로 들어오는데
+        - 코드에서는 str(value) == "1" 만 True 로 인식했음.
+        - 그래서 "True" / "true" / "1" 다 호환되게 파싱 필요.
+
+    이 함수는 다음을 모두 True 로 취급:
+        "1", "true", "t", "yes", "y", True (bool)
+    나머지는 False.
+    """
+    v = _get_param(qp, key, None)
+    if v is None:
+        return default
+    if isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    return s in ("1", "true", "t", "yes", "y")
+
 user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
 
@@ -59,11 +78,16 @@ raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
 mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 
-verified_param = _get_param(qp, "verified", "0")
-capital_param = _get_param(qp, "capital_set", "0")
+verified_param = _get_bool_param(qp, "verified", default=False)
+capital_param = _get_bool_param(qp, "capital_set", default=False)
 
-upbit_ok = str(verified_param) == "1"
-capital_ok = str(capital_param) == "1"
+upbit_ok = bool(verified_param)
+capital_ok = bool(capital_param)
+
+if "upbit_verified" in st.session_state:
+    upbit_ok = upbit_ok or bool(st.session_state.get("upbit_verified"))
+if "live_capital_set" in st.session_state:
+    capital_ok = capital_ok or bool(st.session_state.get("live_capital_set"))
 
 if virtual_krw < MIN_CASH:
     st.warning(
@@ -192,9 +216,11 @@ if start_trading:
     # 🔁 페이지 이동 처리
     next_page = "dashboard"
     params = urlencode({
+        "user_id": user_id,
         "virtual_krw": virtual_krw,
-         "user_id": user_id,
-         "mode": mode,
+        "mode": mode,
+        "verified": int(upbit_ok),
+        "capital_set": int(capital_ok),
     })
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',

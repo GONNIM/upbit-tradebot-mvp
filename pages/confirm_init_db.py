@@ -14,10 +14,27 @@ from ui.style import style_main
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 st.markdown(style_main, unsafe_allow_html=True)
 
-# --- URL 파라미터 확인 ---
-params = st.query_params
-user_id = params.get("user_id", "")
-virtual_krw = int(params.get("virtual_krw", 0))
+# ✅ 쿼리 파라미터 처리
+qp = st.query_params
+
+def _get_param(qp, key, default=None):
+    v = qp.get(key, default)
+    if isinstance(v, list):
+        return v[0]
+    return v
+
+user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
+
+try:
+    virtual_krw = int(raw_v)
+except (TypeError, ValueError):
+    virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+
+raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
+mode = str(raw_mode).upper()
+st.session_state["mode"] = mode
+
 
 if virtual_krw < MIN_CASH:
     st.switch_page("app.py")
@@ -48,9 +65,11 @@ def initialize_confirm():
 
 def initialize_cancel():
     next_page = "dashboard"
-
-    params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id})
-
+    params = urlencode({
+        "user_id": user_id,
+        "virtual_krw": virtual_krw,
+        "mode": mode,
+    })
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">',
         unsafe_allow_html=True,
