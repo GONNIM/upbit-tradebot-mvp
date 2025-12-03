@@ -30,6 +30,15 @@ DEFAULT_USER_ID = "mcmax33"
 # 리프레시 간격 (초)
 REFRESH_INTERVAL = 5
 
+# ============================================================
+# 🧠 Strategy 공통 설정
+#  - 여기서부터는 "어떤 전략을 쓸지"에 대한 전역 상수만 정의
+# ============================================================
+# ✅ 현재 지원하는 전략 목록
+STRATEGY_TYPES = ["MACD", "EMA"]
+# ✅ 기본 전략 타입 (로그인/최초 진입 시 기본값)
+DEFAULT_STRATEGY_TYPE = "MACD"
+
 # Strategy
 MIN_HOLDING_PERIOD = 5
 VOLATILITY_WINDOW = 20

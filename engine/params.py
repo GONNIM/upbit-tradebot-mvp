@@ -1,5 +1,11 @@
 from pydantic import BaseModel, Field, field_validator
-from config import MIN_CASH, MIN_FEE_RATIO, PARAMS_JSON_FILENAME
+from config import (
+    MIN_CASH,
+    MIN_FEE_RATIO,
+    PARAMS_JSON_FILENAME,
+    STRATEGY_TYPES,
+    DEFAULT_STRATEGY_TYPE,
+)
 import json
 import os
 
@@ -27,6 +33,19 @@ class LiveParams(BaseModel):
 
     order_ratio: float = 1.0
 
+    # =====================================================
+    # 🧠 전략 타입 (MACD / EMA)
+    #  - 기본값: DEFAULT_STRATEGY_TYPE (현재 "MACD")
+    #  - UI(set_config.py)에서 선택한 값을 저장/로드
+    # =====================================================
+    strategy_type: str = Field(
+        DEFAULT_STRATEGY_TYPE,
+        description="전략 타입 (예: MACD, EMA)",
+    )
+
+    # --------------------
+    # Validators
+    # --------------------
     @field_validator("ticker")
     def _validate_ticker(cls, v: str) -> str:  # noqa: N805
         v = v.upper().strip()
@@ -39,21 +58,51 @@ class LiveParams(BaseModel):
             raise ValueError("Ticker must be alphabetic, e.g. BTC, ETH")
         return v
 
+    @field_validator("strategy_type")
+    def _validate_strategy_type(cls, v: str) -> str:  # noqa: N805
+        """
+        - 대소문자 무시하고 STRATEGY_TYPES 안에 있는지만 체크
+        - 내부적으로는 항상 대문자로 저장
+        """
+        if not v:
+            return DEFAULT_STRATEGY_TYPE
+        v_norm = v.upper().strip()
+        allowed = [s.upper() for s in STRATEGY_TYPES]
+        if v_norm not in allowed:
+            raise ValueError(f"strategy_type must be one of {allowed} (got {v!r})")
+        return v_norm
+    
+    # --------------------
+    # Convenience
+    # --------------------
     @property
     def upbit_ticker(self) -> str:
         return self.ticker if "-" in self.ticker else f"KRW-{self.ticker}"
 
+    @property
+    def is_macd(self) -> bool:
+        return self.strategy_type == "MACD"
 
-def load_params(path: str) -> LiveParams:
+    @property
+    def is_ema(self) -> bool:
+        return self.strategy_type == "EMA"
+    
+
+def load_params(path: str) -> LiveParams | None:
+    """
+    latest_params.json → LiveParams 로드
+    - 기존 파일에 strategy_type이 없어도 기본값(DEFAULT_STRATEGY_TYPE)으로 채워짐
+    """
     if not os.path.exists(path):
         return None
     with open(path) as f:
-        return LiveParams(**json.load(f))
+        data = json.load(f)
+        return LiveParams(**data)
 
 
 def save_params(params: LiveParams, path: str = PARAMS_JSON_FILENAME):
     with open(path, "w") as f:
-        json.dump(params.model_dump(), f, indent=2)
+        json.dump(params.model_dump(), f, indent=2, ensure_ascii=False)
 
 
 def delete_params(path: str = PARAMS_JSON_FILENAME):
