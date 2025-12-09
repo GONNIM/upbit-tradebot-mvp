@@ -8,7 +8,8 @@ from config import (
     AUDIT_LOG_SKIP_POS,
     AUDIT_SKIP_POS_SAMPLE_N,
     AUDIT_DEDUP_PER_BAR,
-    TP_WITH_TS
+    TP_WITH_TS,
+    DEFAULT_STRATEGY_TYPE,
 )
 import json
 from pathlib import Path
@@ -28,6 +29,39 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# 공통 유틸
+# ============================================================
+
+def _get_strategy_tag(obj) -> str:
+    """
+    전략 타입 문자열을 가져온다.
+    - Strategy 인스턴스에 strategy_type 속성이 있으면 그걸 사용
+    - 없으면 DEFAULT_STRATEGY_TYPE (현재 MACD) 사용
+    """
+    try:
+        st = getattr(obj, "strategy_type", None)
+        if not st:
+            return DEFAULT_STRATEGY_TYPE
+        return str(st).upper().strip()
+    except Exception:
+        return DEFAULT_STRATEGY_TYPE
+
+
+def _make_conditions_path(obj, uid: str) -> Path:
+    """
+    user_id + strategy_type + CONDITIONS_JSON_FILENAME 조합으로
+    컨디션 파일 경로 생성.
+    예: mcmax33_MACD_buy_sell_conditions.json
+        mcmax33_EMA_buy_sell_conditions.json
+    """
+    st = _get_strategy_tag(obj)
+    return Path(f"{uid}_{st}_{CONDITIONS_JSON_FILENAME}")
+
+
+# ============================================================
+# MACD Strategy
+# ============================================================
 class MACDStrategy(Strategy):
     fast_period = 12
     slow_period = 26
@@ -35,7 +69,7 @@ class MACDStrategy(Strategy):
     take_profit = 0.03
     stop_loss = 0.01
     macd_threshold = 0.0
-    min_holding_period = 5  # 🕒 최소 보유 기간
+    min_holding_period = 0  # 🕒 최소 보유 기간
     signal_confirm_enabled = SIGNAL_CONFIRM_ENABLED  # Default: False
     volatility_window = 20
 
@@ -99,7 +133,9 @@ class MACDStrategy(Strategy):
         MACDStrategy.log_events = []
         MACDStrategy.trade_events = []
 
-        self._cond_path = Path(f"{getattr(self, 'user_id', 'UNKNOWN')}_{CONDITIONS_JSON_FILENAME}")
+        # ✅ 전략 타입까지 반영된 컨디션 파일 경로
+        uid = getattr(self, 'user_id', 'UNKNOWN')
+        self._cond_path = _make_conditions_path(self, uid)
         self._cond_mtime = self._cond_path.stat().st_mtime if self._cond_path.exists() else None
 
         self.conditions = self._load_conditions()
@@ -108,10 +144,10 @@ class MACDStrategy(Strategy):
         try:
             insert_settings_snapshot(
                 user_id=self.user_id,
-                ticker=getattr(self,"ticker","UNKNOWN"),
-                interval_sec=getattr(self,"interval_sec",60),
+                ticker=getattr(self, "ticker", "UNKNOWN"),
+                interval_sec=getattr(self, "interval_sec", 60),
                 tp=self.take_profit, sl=self.stop_loss,
-                ts_pct=getattr(self,"trailing_stop_pct", None),
+                ts_pct=getattr(self, "trailing_stop_pct", None),
                 signal_gate=self.signal_confirm_enabled,
                 threshold=self.macd_threshold,
                 buy_dict=self.conditions.get("buy", {}),
@@ -146,7 +182,7 @@ class MACDStrategy(Strategy):
     # -------------------
     def _load_conditions(self):
         uid = getattr(self, 'user_id', 'UNKNOWN')
-        path = Path(f"{uid}_{CONDITIONS_JSON_FILENAME}")
+        path = _make_conditions_path(self, uid)
         if path.exists():
             with path.open("r", encoding="utf-8") as f:
                 conditions = json.load(f)
@@ -428,18 +464,18 @@ class MACDStrategy(Strategy):
             self.bars_since_cross = 0
             self.golden_cross_pending = True
             self.last_cross_type = "Golden"
-            position_color = "🟢"
+            # position_color = "🟢"
         elif self._is_dead_cross():
             self.bars_since_cross = 0
             self.golden_cross_pending = False
             self.last_cross_type = "Dead"
-            position_color = "🛑"
+            # position_color = "🛑"
         elif self.golden_cross_pending:
             self.last_cross_type = "Pending"
-            position_color = "🔵"
+            # position_color = "🔵"
         else:
             self.last_cross_type = "Neutral"
-            position_color = "⚪"
+            # position_color = "⚪"
 
         MACDStrategy.log_events.append(
             (
@@ -569,13 +605,6 @@ class MACDStrategy(Strategy):
         blocked = inpos or (False if self.ignore_wallet_gate else bool(wallet_open)) or (False if self.ignore_db_gate else bool(db_open))
 
         state = self._current_state()
-        # logger.info(
-        #     "[BUY-GATE] inpos=%s db_open=%s wallet_open=%s hist_flat=%s "
-        #     "ignore_db=%s ignore_wallet=%s entry_price=%s -> blocked=%s",
-        #     inpos, db_open, wallet_open, hist_flat,
-        #     self.ignore_db_gate, self.ignore_wallet_gate,
-        #     getattr(self, 'entry_price', None), blocked
-        # )
 
         # --- 3) 고아 엔트리 정리 ---
         if (not blocked) and (getattr(self, "entry_price", None) is not None) and (not inpos):
@@ -612,9 +641,7 @@ class MACDStrategy(Strategy):
         # 정상 BUY 평가/체결
         state = self._current_state()
         ts = pd.Timestamp(state["timestamp"])
-        # ✅ 부팅 재생 바 스킵
-        # if state["bar"] < getattr(self, "_boot_start_bar", 0):
-        #     return
+
         if getattr(self, "_boot_start_ts", None) is not None:
             if ts < self._boot_start_ts:
                 # logger.info(f"[BUY] SKIP (boot replay) ts={ts} < boot_ts={self._boot_start_ts}")
@@ -796,7 +823,6 @@ class MACDStrategy(Strategy):
 
         # Take Profit (TS 꺼져 있을 때만 즉시 매도)
         tp_enabled = sell_cond.get("take_profit", False)
-        # tp_hit = (state["price"] >= tp_price - eps) and (not ts_enabled)
         tp_hit = (state["price"] >= tp_price - eps) and (TP_WITH_TS or (not ts_enabled))
         add("take_profit", tp_enabled, tp_hit, {"price":state["price"], "tp_price":tp_price, "ts_enabled":ts_enabled})
 
@@ -1004,3 +1030,656 @@ class MACDStrategy(Strategy):
         overall_ok = (len(enabled_keys) > 0) and (len(failed_keys)==0)
 
         return report, enabled_keys, failed_keys, overall_ok
+
+
+# ============================================================
+# EMA Strategy (간단 버전)
+#  - 핵심: 단기/장기 EMA GC/DC + 기준 EMA 위/아래
+#  - Audit/게이트 로직은 MACDStrategy 흐름을 최대한 재사용
+# ============================================================
+class EMAStrategy(Strategy):
+    # 기본 파라미터 (필요 시 LiveParams에서 override)
+    fast_period = 20
+    slow_period = 200
+    base_period = 200
+
+    take_profit = 0.03
+    stop_loss = 0.01
+    min_holding_period = 5
+    volatility_window = 20
+
+    ignore_db_gate = False
+    ignore_wallet_gate = False
+
+    _seen_buy_audits = set()
+    _seen_sell_audits = set()
+
+    @staticmethod
+    def _norm_ticker(ticker: str) -> str:
+        try:
+            return (ticker or "").split("-")[-1].strip().upper()
+        except Exception:
+            return ticker
+
+    def init(self):
+        logger.info("EMAStrategy init")
+        logger.info(f"[BOOT] strategy_file={os.path.abspath(inspect.getfile(self.__class__))}")
+        logger.info(f"[BOOT] __name__={__name__} __package__={__package__}")
+
+        close = self.data.Close
+        self.ema_fast = self.I(lambda s: pd.Series(s).ewm(span=self.fast_period, adjust=False).mean().values, close)
+        self.ema_slow = self.I(lambda s: pd.Series(s).ewm(span=self.slow_period, adjust=False).mean().values, close)
+        self.ema_base = self.I(lambda s: pd.Series(s).ewm(span=self.base_period, adjust=False).mean().values, close)
+        self.volatility = self.I(
+            lambda h, l: pd.Series(h - l).rolling(self.volatility_window).mean().values,
+            self.data.High, self.data.Low
+        )
+
+        self.entry_price = None
+        self.entry_bar = None
+        self.highest_price = None
+        self.trailing_armed = False
+        self._last_cross_type = None
+        self._last_sell_bar = None
+        self.trailing_stop_pct = TRAILING_STOP_PERCENT
+
+        self._last_buy_audit_ts = None
+        self._last_sell_audit_ts = None
+        self._sell_sample_n = 60
+        self._buy_sample_n = 60
+        self._last_buy_sig = None
+        self._last_sell_sig = None
+        self._boot_start_bar = len(self.data) - 1
+        self._boot_start_ts = self.data.index[-1]
+
+        EMAStrategy.log_events = []
+        EMAStrategy.trade_events = []
+
+        uid = getattr(self, "user_id", "UNKNOWN")
+        self._cond_path = _make_conditions_path(self, uid)
+        self._cond_mtime = self._cond_path.stat().st_mtime if self._cond_path.exists() else None
+
+        self.conditions = self._load_conditions()
+        self._log_conditions()
+
+        try:
+            insert_settings_snapshot(
+                user_id=self.user_id,
+                ticker=getattr(self, "ticker", "UNKNOWN"),
+                interval_sec=getattr(self, "interval_sec", 60),
+                tp=self.take_profit, sl=self.stop_loss,
+                ts_pct=getattr(self, "trailing_stop_pct", None),
+                signal_gate=False,
+                threshold=0.0,
+                buy_dict=self.conditions.get("buy", {}),
+                sell_dict=self.conditions.get("sell", {})
+            )
+        except Exception as e:
+            logger.warning(f"[AUDIT][EMA] settings snapshot failed (ignored): {e}")
+
+    def _maybe_reload_conditions(self):
+        try:
+            if self._cond_path and self._cond_path.exists():
+                mtime = self._cond_path.stat().st_mtime
+                if self._cond_mtime != mtime:
+                    with self._cond_path.open("r", encoding="utf-8") as f:
+                        self.conditions = json.load(f)
+                    self._cond_mtime = mtime
+                    logger.info(f"[EMA] 🔄 Condition reloaded: {self._cond_path}")
+                    self._log_conditions()
+        except Exception as e:
+            logger.warning(f"[EMA] ⚠️ Condition hot-reload failed (ignored): {e}")
+
+    def _load_conditions(self):
+        uid = getattr(self, 'user_id', 'UNKNOWN')
+        path = _make_conditions_path(self, uid)
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                conditions = json.load(f)
+                logger.info(f"[EMA] 📂 Condition 파일 로드 완료: {path}")
+                return conditions
+        else:
+            logger.warning(f"[EMA] ⚠️ Condition 파일 없음. 기본값 사용: {path}")
+            return {
+                "buy": dict.fromkeys(
+                    [
+                        "ema_gc",          # 단기/장기 EMA 골든크로스
+                        "above_base_ema",  # 기준 EMA(200) 위
+                        "bullish_candle",  # 양봉 필터
+                    ],
+                    False,
+                ),
+                "sell": dict.fromkeys(
+                    [
+                        "ema_dc",          # 단기/장기 EMA 데드크로스
+                        "take_profit",
+                        "stop_loss",
+                        "trailing_stop",
+                    ],
+                    False,
+                ),
+            }
+
+    def _log_conditions(self):
+        logger.info("[EMA] 📋 매수/매도 전략 Condition 상태:")
+        for key, conds in self.conditions.items():
+            for cond, value in conds.items():
+                status = "✅ ON" if value else "❌ OFF"
+                logger.info(f"[EMA]  - {key}.{cond}: {status}")
+
+    # -------------------
+    # 상태 / 크로스
+    # -------------------
+    @staticmethod
+    def _is_finite(x):
+        try:
+            return math.isfinite(float(x))
+        except Exception:
+            return False
+
+    @staticmethod
+    def _cross_delta(delta_prev: float, delta_now: float, *, eps_abs: float, eps_rel: float = 0.0) -> tuple[bool, bool]:
+        scale = max(abs(delta_prev), abs(delta_now), 1.0)
+        eps = max(eps_abs, eps_rel * scale)
+        is_golden = (delta_prev <= +eps) and (delta_now > +eps)
+        is_dead = (delta_prev >= -eps) and (delta_now < -eps)
+        return is_golden, is_dead
+
+    def _current_state(self):
+        idx = len(self.data) - 1
+        return {
+            "bar": idx,
+            "price": float(self.data.Close[-1]),
+            "ema_fast": float(self.ema_fast[-1]),
+            "ema_slow": float(self.ema_slow[-1]),
+            "ema_base": float(self.ema_base[-1]),
+            "volatility": float(self.volatility[-1]),
+            "timestamp": self.data.index[-1],
+        }
+
+    def _is_bullish_candle(self):
+        return (self._is_finite(self.data.Close[-1]) and self._is_finite(self.data.Open[-1])
+                and self.data.Close[-1] > self.data.Open[-1])
+
+    def _is_ema_gc(self):
+        if len(self.ema_fast) < 2 or len(self.ema_slow) < 2:
+            return False
+        pf, ps = self.ema_fast[-2], self.ema_slow[-2]
+        cf, cs = self.ema_fast[-1], self.ema_slow[-1]
+        if not (self._is_finite(pf) and self._is_finite(ps) and self._is_finite(cf) and self._is_finite(cs)):
+            return False
+        delta_prev = pf - ps
+        delta_now  = cf - cs
+        is_golden, _ = self._cross_delta(delta_prev, delta_now, eps_abs=1e-10, eps_rel=1e-6)
+        return is_golden
+
+    def _is_ema_dc(self):
+        if len(self.ema_fast) < 2 or len(self.ema_slow) < 2:
+            return False
+        pf, ps = self.ema_fast[-2], self.ema_slow[-2]
+        cf, cs = self.ema_fast[-1], self.ema_slow[-1]
+        if not (self._is_finite(pf) and self._is_finite(ps) and self._is_finite(cf) and self._is_finite(cs)):
+            return False
+        delta_prev = pf - ps
+        delta_now  = cf - cs
+        _, is_dead = self._cross_delta(delta_prev, delta_now, eps_abs=1e-10, eps_rel=1e-6)
+        return is_dead
+
+    def _is_above_base_ema(self):
+        return self._is_finite(self.data.Close[-1]) and self._is_finite(self.ema_base[-1]) and self.data.Close[-1] > self.ema_base[-1]
+
+    def _reconcile_entry_with_wallet(self):
+        try:
+            sz = getattr(getattr(self, "position", None), "size", 0) or 0
+            if sz == 0 and self.entry_price is not None:
+                has_wallet_pos = None
+                if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+                    has_wallet_pos = bool(self.has_wallet_position(self._norm_ticker(self.ticker)))
+                if has_wallet_pos is None or has_wallet_pos is False:
+                    logger.warning("[EMA] 🧹 고아 엔트리 정리: 포지션/지갑에 보유 없음 → entry 리셋")
+                    self._reset_entry()
+        except Exception as e:
+            logger.debug(f"[EMA][reconcile] skip ({e})")
+
+    # -------------------
+    # MAIN LOOP
+    # -------------------
+    def next(self):
+        self._reconcile_entry_with_wallet()
+        self._maybe_reload_conditions()
+        self._update_cross_state()
+        self._evaluate_sell()
+        self._evaluate_buy()
+
+    def _update_cross_state(self):
+        state = self._current_state()
+        if self._is_ema_gc():
+            self._last_cross_type = "Golden"
+        elif self._is_ema_dc():
+            self._last_cross_type = "Dead"
+        else:
+            self._last_cross_type = "Neutral"
+
+        EMAStrategy.log_events.append(
+            (
+                state["bar"],
+                "LOG",
+                self._last_cross_type,
+                state["ema_fast"],
+                state["ema_slow"],
+                state["price"],
+            )
+        )
+
+    def _is_flat_by_history(self) -> bool | None:
+        try:
+            if not hasattr(self, "fetch_orders") or not callable(self.fetch_orders):
+                return None
+            orders = self.fetch_orders(self.user_id, getattr(self, "ticker", "UNKNOWN"), limit=100) or []
+            if not isinstance(orders, list):
+                return None
+            if len(orders) == 0:
+                return True
+
+            try:
+                orders = sorted(
+                    orders,
+                    key=lambda o: o.get("timestamp") or o.get("created_at") or 0,
+                    reverse=True
+                )
+            except Exception:
+                pass
+
+            for o in orders:
+                side = str(o.get("side", "")).upper()
+                state = str(o.get("state") or o.get("status") or "").lower()
+                if state == "completed":
+                    if side == "SELL":
+                        return True
+                    if side == "BUY":
+                        return False
+            return True
+        except Exception as e:
+            logger.debug(f"[EMA][HIST] flat-by-history check skipped: {e}")
+            return None
+
+    # -------------------
+    # BUY
+    # -------------------
+    def _buy_checks_report(self, state, buy_cond):
+        report = {}
+
+        def add(name, enabled, passed, raw=None):
+            report[name] = {"enabled": 1 if enabled else 0, "pass": 1 if passed else 0, "value": raw}
+
+        gc = self._is_ema_gc()
+        above = self._is_above_base_ema()
+        bull = self._is_bullish_candle()
+
+        add("ema_gc",         buy_cond.get("ema_gc", False),         gc,    {"ema_fast": state["ema_fast"], "ema_slow": state["ema_slow"]})
+        add("above_base_ema", buy_cond.get("above_base_ema", False), above, {"price": state["price"], "ema_base": state["ema_base"]})
+        add("bullish_candle", buy_cond.get("bullish_candle", False), bull,  {"open": float(self.data.Open[-1]), "close": state["price"]})
+
+        enabled_keys = [k for k, v in report.items() if v["enabled"] == 1]
+        failed_keys  = [k for k in enabled_keys if report[k]["pass"] == 0]
+        overall_ok = (len(enabled_keys) > 0) and (len(failed_keys) == 0)
+        return report, enabled_keys, failed_keys, overall_ok
+
+    def _evaluate_buy(self):
+        ticker = getattr(self, "ticker", "UNKNOWN")
+        inpos = bool(getattr(getattr(self, "position", None), "size", 0) > 0)
+
+        try:
+            db_open = has_open_by_orders(self.user_id, ticker)
+        except Exception as e:
+            logger.error(f"[EMA][BUY-GATE] has_open_by_orders 실패: {e}")
+            db_open = False
+
+        wallet_open = None
+        if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+            try:
+                wallet_open = bool(self.has_wallet_position(self._norm_ticker(ticker)))
+            except Exception:
+                wallet_open = None      
+
+        blocked = inpos or (False if self.ignore_wallet_gate else bool(wallet_open)) or (False if self.ignore_db_gate else bool(db_open))
+
+        state = self._current_state()
+
+        if (not blocked) and (getattr(self, "entry_price", None) is not None) and (not inpos):
+            self._reset_entry()
+            logger.info("[EMA] 🧹 고아 엔트리 정리: 엔진은 미보유 → entry 리셋")
+
+        if blocked:
+            if AUDIT_LOG_SKIP_POS:
+                if not (AUDIT_DEDUP_PER_BAR and getattr(self, "_last_skippos_audit_bar", None) == state["bar"]):
+                    if (AUDIT_SKIP_POS_SAMPLE_N is None) or (AUDIT_SKIP_POS_SAMPLE_N <= 0) or (state["bar"] % AUDIT_SKIP_POS_SAMPLE_N == 0):
+                        try:
+                            insert_buy_eval(
+                                user_id=self.user_id,
+                                ticker=ticker,
+                                interval_sec=getattr(self, "interval_sec", 60),
+                                bar=state["bar"],
+                                price=state["price"],
+                                macd=state["ema_fast"],   # 컬럼 재사용
+                                signal=state["ema_slow"],
+                                have_position=True,
+                                overall_ok=False,
+                                failed_keys=[],
+                                checks={"note": "blocked_by_position"},
+                                notes="[EMA] BUY_SKIP_POS" + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
+                            )
+                            self._last_skippos_audit_bar = state["bar"]
+                        except Exception as e:
+                            logger.error(f"[EMA][AUDIT-BUY] insert failed(SKIP_POS): {e} | bar={state['bar']}")
+            logger.debug(f"[EMA][BUY] SKIP (보유 차단) | bar={state['bar']} price={state['price']:.6f}")
+            return
+
+        state = self._current_state()
+        ts = pd.Timestamp(state["timestamp"])
+
+        if getattr(self, "_boot_start_ts", None) is not None:
+            if ts < self._boot_start_ts:
+                return
+            
+        logger.info(f"[EMA][BUY] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
+        self._boot_start_ts = None
+        
+        buy_cond = self.conditions.get("buy", {})
+        report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
+
+        if len(enabled_keys) == 0:
+            return
+
+        key = (self.user_id, ticker, getattr(self, "interval_sec", 60), str(state["timestamp"]))
+        if key in EMAStrategy._seen_buy_audits:
+            return
+        
+        import hashlib
+        pass_map = {k: 1 if report.get(k, {}).get("pass", 0) == 1 else 0 for k in enabled_keys}
+        buy_sig = hashlib.md5(json.dumps({
+            "pass_map": pass_map,
+            "cross": self._last_cross_type,
+        }, sort_keys=True, default=str).encode()).hexdigest()
+
+        should_insert = False
+        if (self._last_buy_sig is None) or (buy_sig != self._last_buy_sig):
+            should_insert = True
+        elif self._buy_sample_n and (state["bar"] % self._buy_sample_n == 0):
+            should_insert = True
+
+        if AUDIT_DEDUP_PER_BAR and getattr(self, "_last_buy_audit_ts", None) == str(state["timestamp"]):
+            logger.info(f"[EMA][AUDIT-BUY] DUP SKIP | bar={state['bar']}")
+        else:
+            if should_insert:
+                try:
+                    insert_buy_eval(
+                        user_id=self.user_id,
+                        ticker=ticker,
+                        interval_sec=getattr(self, "interval_sec", 60),
+                        bar=state["bar"],
+                        price=state["price"],
+                        macd=state["ema_fast"],
+                        signal=state["ema_slow"],
+                        have_position=False,
+                        overall_ok=overall_ok,
+                        failed_keys=failed_keys,
+                        checks=report,
+                        notes="[EMA] " + ("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
+                    )
+                    EMAStrategy._seen_buy_audits.add(key)
+                    self._last_buy_audit_ts = str(state["timestamp"])
+                    self._last_buy_sig = buy_sig
+                except Exception as e:
+                    logger.error(f"[EMA][AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
+
+        if not overall_ok:
+            return
+
+        reasons = [k for k in enabled_keys if report[k]["pass"] == 1]
+        self._buy_action(state, reasons=reasons, details=report)
+
+    def _buy_action(self, state, reasons, details=None):
+        if getattr(self, "_last_buy_bar", None) == state["bar"]:
+            logger.info(f"[EMA] ⏹️ DUPLICATE BUY SKIP | bar={state['bar']} reasons={' + '.join(reasons) if reasons else ''}")
+            return
+
+        self.buy()
+
+        self.entry_price = state["price"]
+        self.entry_bar = state["bar"]
+        self.highest_price = self.entry_price
+        try:
+            sell_cond = self.conditions.get("sell", {}) if hasattr(self, "conditions") else {}
+            self.trailing_armed = bool(sell_cond.get("trailing_stop", False))
+        except Exception:
+            self.trailing_armed = False
+
+        reason_str = "+".join(reasons) if reasons else "BUY"
+        self._emit_trade("BUY", state, reason=reason_str)
+        self._last_buy_bar = state["bar"]
+
+    # -------------------
+    # SELL
+    # -------------------
+    def _evaluate_sell(self):
+        ticker = getattr(self, "ticker", "UNKNOWN")
+        if not self.position:
+            try:
+                if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+                    if not self.has_wallet_position(self._norm_ticker(ticker)):
+                        return
+            except Exception:
+                return
+
+        state = self._current_state()
+        if state["bar"] < getattr(self, "_boot_start_bar", 0):
+            return
+        
+        bar_ts = str(state["timestamp"])
+        sell_cond = self.conditions.get("sell", {})
+
+        if self.entry_price is None:
+            try:
+                if hasattr(self, "get_wallet_entry_price") and callable(self.get_wallet_entry_price):
+                    ep = self.get_wallet_entry_price(self._norm_ticker(ticker))
+                    if ep is None:
+                        ep = self.get_wallet_entry_price(ticker)
+                    if ep is not None:
+                        self.entry_price = float(ep)
+                        if self.entry_bar is None:
+                            self.entry_bar = state["bar"]
+            except Exception as e:
+                logger.debug(f"[EMA][SELL] entry hydrate skipped: {e}")
+
+        if self.entry_price is None:
+            logger.debug("[EMA] entry_price is None. Jump TP / SL Calculation.")
+            return
+
+        tp_price = self.entry_price * (1 + self.take_profit)
+        sl_price = self.entry_price * (1 - self.stop_loss)
+        bars_held = state["bar"] - self.entry_bar if self.entry_bar is not None else 0
+
+        eps = 1e-8
+        checks = {}
+
+        def add(name, enabled, passed, raw=None):
+            checks[name] = {"enabled": 1 if enabled else 0, "pass": 1 if passed else 0, "value": raw}
+
+        # Stop Loss
+        sl_enabled = sell_cond.get("stop_loss", False)
+        sl_hit = state["price"] <= sl_price + eps
+        add("stop_loss", sl_enabled, sl_hit, {"price": state["price"], "sl_price": sl_price})
+
+        # Trailing Stop
+        ts_enabled = sell_cond.get("trailing_stop", False)
+        if ts_enabled:
+            ts_armed = bool(self.trailing_armed)
+            if (self.highest_price is None) or (state["price"] > self.highest_price):
+                self.highest_price = state["price"]
+            highest = self.highest_price
+            trailing_limit = (highest * (1 - self.trailing_stop_pct)) if highest is not None else None
+            ts_hit = (
+                ts_armed
+                and (trailing_limit is not None)
+                and (bars_held >= self.min_holding_period)
+                and (state["price"] <= trailing_limit + eps)
+            )
+        else:
+            ts_armed, highest, trailing_limit, ts_hit = False, self.highest_price, None, False
+
+        add("trailing_stop", ts_enabled, ts_hit, {
+            "armed": ts_armed, "highest": highest, "limit": trailing_limit,
+            "pct": getattr(self, "trailing_stop_pct", None),
+            "bars_held": bars_held, "min_hold": self.min_holding_period
+        })
+
+        # Take Profit
+        tp_enabled = sell_cond.get("take_profit", False)
+        tp_hit = state["price"] >= tp_price - eps
+        add("take_profit", tp_enabled, tp_hit, {"price": state["price"], "tp_price": tp_price})
+
+        # EMA Dead Cross
+        ema_dc_enabled = sell_cond.get("ema_dc", False)
+        ema_dc_hit = self._is_ema_dc()
+        add("ema_dc", ema_dc_enabled, ema_dc_hit, {"ema_fast": state["ema_fast"], "ema_slow": state["ema_slow"]})
+
+        trigger_key = None
+        if sl_enabled and sl_hit:
+            trigger_key = "Stop Loss"
+        elif ts_enabled and ts_hit:
+            trigger_key = "Trailing Stop"
+        elif tp_enabled and tp_hit:
+            trigger_key = "Take Profit"
+        elif ema_dc_enabled and ema_dc_hit:
+            trigger_key = "EMA Dead Cross"
+
+        import hashlib
+        sig = hashlib.md5(json.dumps({
+            "armed": ts_armed,
+            "highest": round((self.highest_price or 0.0), 6),
+            "pass_map": {k: v["pass"] for k, v in checks.items() if v.get("enabled") == 1}
+        }, sort_keys=True, default=str).encode()).hexdigest()
+
+        should_insert = (trigger_key is not None)
+        if not should_insert:
+            if sig != self._last_sell_sig:
+                should_insert = True
+            elif self._sell_sample_n and (state["bar"] % self._sell_sample_n == 0):
+                should_insert = True
+
+        if not should_insert:
+            if getattr(self, "_last_sell_audit_ts", None) != bar_ts:
+                should_insert = True
+
+        audit_key = (
+            self.user_id,
+            getattr(self, "ticker", "UNKNOWN"),
+            getattr(self, "interval_sec", 60),
+            bar_ts,
+            sig,
+        )
+
+        if audit_key in EMAStrategy._seen_sell_audits:
+            should_insert = False
+
+        if should_insert:
+            try:
+                insert_sell_eval(
+                    user_id=self.user_id,
+                    ticker=getattr(self, "ticker", "UNKNOWN"),
+                    interval_sec=getattr(self, "interval_sec", 60),
+                    bar=state["bar"], price=state["price"],
+                    macd=state["ema_fast"],
+                    signal=state["ema_slow"],
+                    tp_price=tp_price, sl_price=sl_price,
+                    highest=self.highest_price, ts_pct=getattr(self, "trailing_stop_pct", None),
+                    ts_armed=self.trailing_armed, bars_held=bars_held,
+                    checks=checks,
+                    triggered=(trigger_key is not None),
+                    trigger_key=trigger_key,
+                    notes="[EMA]"
+                )
+                EMAStrategy._seen_sell_audits.add(audit_key)
+                self._last_sell_sig = sig
+                self._last_sell_audit_ts = bar_ts
+                logger.info(f"[EMA][AUDIT-SELL] inserted | uid={getattr(self, 'user_id', None)} ts={bar_ts} trigger={trigger_key}")
+            except Exception as e:
+                logger.error(f"[EMA][AUDIT-SELL] insert failed: {e} | uid={getattr(self, 'user_id', None)} ts={bar_ts} checks_keys={list(checks.keys())}")
+
+        if sl_enabled and sl_hit:
+            logger.info("[EMA] 🛑 SL HIT → SELL")
+            self._sell_action(state, "Stop Loss")
+            return
+
+        if ts_enabled:
+            if self.trailing_armed and (self.highest_price is not None):
+                trailing_limit = self.highest_price * (1 - self.trailing_stop_pct)
+                logger.info(
+                    f"[EMA] 🔧 TS CHECK | price={state['price']:.2f} high={self.highest_price:.2f} "
+                    f"limit={trailing_limit:.2f} pct={self.trailing_stop_pct:.3f}"
+                )
+                if bars_held >= self.min_holding_period and state["price"] <= trailing_limit + eps:
+                    logger.info("[EMA] 🛑 TS HIT → SELL")
+                    self._sell_action(state, "Trailing Stop")
+                    return
+
+        if tp_enabled and tp_hit:
+            logger.info("[EMA] 💰 TP HIT → SELL")
+            self._sell_action(state, "Take Profit")
+            return
+
+        if ema_dc_enabled and ema_dc_hit:
+            logger.info("[EMA] 🛑 EMA Dead Cross → SELL")
+            self._sell_action(state, "EMA Dead Cross")
+            return
+
+    def _sell_action(self, state, reason):
+        if getattr(self, "_last_sell_bar", None) == state["bar"]:
+            logger.info(f"[EMA] ⏹️ DUPLICATE SELL SKIP | bar={state['bar']} reason={reason}")
+            return
+        self._last_sell_bar = state["bar"]
+
+        self.position.close()
+        self._emit_trade("SELL", state, reason=reason)
+        self._reset_entry()
+
+    def _reset_entry(self):
+        self.entry_price = None
+        self.entry_bar = None
+        self.highest_price = None
+        self.trailing_armed = False
+
+    def _emit_trade(self, kind: str, state: dict, reason: str = ""):
+        evt = {
+            "bar": state["bar"],
+            "type": kind,
+            "reason": reason,
+            "timestamp": state["timestamp"],
+            "price": state["price"],
+            "macd": state["ema_fast"],   # 컬럼 재사용
+            "signal": state["ema_slow"],
+            "entry_price": self.entry_price,
+            "entry_bar": self.entry_bar,
+            "bars_held": state["bar"] - (self.entry_bar if self.entry_bar is not None else state["bar"]),
+            "tp": (self.entry_price * (1 + self.take_profit)) if self.entry_price else None,
+            "sl": (self.entry_price * (1 - self.stop_loss)) if self.entry_price else None,
+            "highest": self.highest_price,
+            "ts_pct": getattr(self, "trailing_stop_pct", None),
+            "ts_armed": getattr(self, "trailing_armed", False),
+        }
+        EMAStrategy.trade_events.append(evt)
+
+
+# ============================================================
+# 전략 선택 팩토리
+# ============================================================
+
+def get_strategy_class(strategy_type: str):
+    """
+    params.strategy_type 값(MACD / EMA)에 따라 Strategy 클래스를 선택.
+    """
+    st = (strategy_type or DEFAULT_STRATEGY_TYPE).upper()
+    if st == "EMA":
+        return EMAStrategy
+    return MACDStrategy

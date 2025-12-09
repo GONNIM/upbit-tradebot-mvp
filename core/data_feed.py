@@ -17,8 +17,14 @@ logger = logging.getLogger(__name__)
 
 # --------- 시간/경계 유틸 (KST naive로 일관) ---------
 _IV_MIN = {
-    "minute1": 1, "minute3": 3, "minute5": 5, "minute10": 10, "minute15": 15,
-    "minute30": 30, "minute60": 60, "day": 1440,
+    "minute1": 1,
+    "minute3": 3,
+    "minute5": 5,
+    "minute10": 10,
+    "minute15": 15,
+    "minute30": 30,
+    "minute60": 60,
+    "day": 1440,
 }
 
 
@@ -149,6 +155,71 @@ def stream_candles(
         # 최신 값 우선으로 중복 제거 + 정렬
         return df.dropna().sort_index().loc[~df.index.duplicated(keep="last")]
 
+    # ★ 초기 히스토리 수집용 헬퍼
+    def _fetch_initial_history(to_param: str) -> pd.DataFrame:
+        """
+        Upbit는 분봉 기준 한 번에 최대 200개만 반환하므로,
+        max_length가 200을 넘는 경우 여러 번 나눠서 과거 히스토리를 모은다.
+        - MACD/EMA를 HTS 수준으로 맞추기 위한 긴 히스토리(예: 3분봉 1500~2000개) 확보용.
+        """
+        iv_min = _iv_min(interval)
+        remaining = max_length
+        current_to = to_param
+        chunks: list[pd.DataFrame] = []
+        base_delay_local = retry_wait
+
+        while remaining > 0:
+            if stop_event and stop_event.is_set():
+                _log("WARN", "stream_candles 중단됨: 초기 히스토리 수집 중 stop_event 감지")
+                break
+
+            per_call = min(200, remaining)  # Upbit 분봉 최대 200개
+            df_part = None
+
+            for attempt in range(1, max_retry + 1):
+                try:
+                    df_part = pyupbit.get_ohlcv(
+                        ticker,
+                        interval=interval,
+                        count=per_call,
+                        to=current_to,
+                    )
+                    if df_part is not None and not df_part.empty:
+                        break
+                except Exception as e:
+                    _log("ERROR", f"[초기-multi] API 예외 발생: {e}")
+
+                delay = min(base_delay_local * (2 ** (attempt - 1)), 60) + random.uniform(0, 5)
+                _log("WARN", f"[초기-multi] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
+                time.sleep(delay)
+            else:
+                _log("ERROR", "[초기-multi] API 연속 실패 → 초기 히스토리 수집 중단")
+                break
+
+            if df_part is None or df_part.empty:
+                break
+
+            chunks.append(df_part)
+            got = len(df_part)
+            remaining -= got
+            if got <= 0:
+                break
+
+            # 다음 요청용 'to'는 이번 기준시간에서 got*interval 만큼 과거로 이동
+            try:
+                dt_to = datetime.strptime(current_to, "%Y-%m-%d %H:%M:%S")
+                dt_to -= timedelta(minutes=iv_min * got)
+                current_to = _fmt_to_param(dt_to)
+            except Exception:
+                # 파싱 실패 시 추가 페이징은 하지 않고 종료
+                break
+
+        if not chunks:
+            return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
+
+        raw = pd.concat(chunks)
+        return raw
+    
     # ---- 초기 로드: 막 닫힌 경계까지 ----
     base_delay = retry_wait
     df = None
@@ -156,20 +227,25 @@ def stream_candles(
     bar_close = _floor_boundary(now, interval)
     to_param = _fmt_to_param(bar_close)
 
-    for attempt in range(1, max_retry + 1):
-        if stop_event and stop_event.is_set():
-            _log("WARN", "stream_candles 중단됨: 초기 수집 중 stop_event 감지")
-            return
-        try:
-            df = pyupbit.get_ohlcv(ticker, interval=interval, count=max_length, to=to_param)
-            if df is not None and not df.empty:
-                break
-        except Exception as e:
-            _log("ERROR", f"[초기] API 예외 발생: {e}")
+    # ★ max_length에 따라 단일 호출 vs multi-call 분기
+    if max_length <= 200:
+        for attempt in range(1, max_retry + 1):
+            if stop_event and stop_event.is_set():
+                _log("WARN", "stream_candles 중단됨: 초기 수집 중 stop_event 감지")
+                return
+            try:
+                df = pyupbit.get_ohlcv(ticker, interval=interval, count=max_length, to=to_param)
+                if df is not None and not df.empty:
+                    break
+            except Exception as e:
+                _log("ERROR", f"[초기] API 예외 발생: {e}")
 
-        delay = min(base_delay * (2 ** (attempt - 1)), 60) + random.uniform(0, 5)
-        _log("WARN", f"[초기] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
-        time.sleep(delay)
+            delay = min(base_delay * (2 ** (attempt - 1)), 60) + random.uniform(0, 5)
+            _log("WARN", f"[초기] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
+            time.sleep(delay)
+    else:
+        # ★ MACD/EMA 안정화를 위해 긴 히스토리(max_length) 확보
+        df = _fetch_initial_history(to_param)
 
     if df is None or df.empty:
         _log("ERROR", "[초기] 데이터 수집 실패, 빈 DataFrame으로 시작")
@@ -300,4 +376,3 @@ def get_ohlcv_once(ticker: str, interval_code: str, count: int = 500) -> pd.Data
         pass
 
     return out
-

@@ -2,13 +2,27 @@ import threading, queue, logging, sys, time, json
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
-from core.strategy_v2 import MACDStrategy
+from requests import get
+
+from core.strategy_v2 import (
+    MACDStrategy,
+    EMAStrategy,
+    get_strategy_class,
+)
 from core.data_feed import stream_candles
 from core.trader import UpbitTrader
 from engine.params import LiveParams
 from backtesting import Backtest
-from services.db import get_last_open_buy_order, insert_buy_eval
-from config import TP_WITH_TS
+from services.db import (
+    get_last_open_buy_order,
+    insert_buy_eval,
+)
+from config import (
+    TP_WITH_TS,
+    CONDITIONS_JSON_FILENAME,
+    DEFAULT_STRATEGY_TYPE,
+    ENGINE_EXEC_MODE,
+)
 
 from engine.reconciler_singleton import get_reconciler
 
@@ -21,33 +35,270 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def load_trade_conditions(user_id: str):
-    path = Path(f"{user_id}_buy_sell_conditions.json")
-    if not path.exists():
-        return {"buy": {}, "sell": {}}
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+# ============================================================
+# 히스토리 길이 (MACD/EMA 안정화용)
+#   - WARMUP: 전략 실행을 시작하기 위한 최소 바 수
+#   - MAX   : DF에 유지할 최대 히스토리 길이 (EMA/MACD 정확도용)
+# ============================================================
+
+WARMUP_LEN_BY_INTERVAL: Dict[str, int] = {
+    # "실제로 API에서 한 번에 가져오는 초기 히스토리 + 몇 분 정도 더 지나면"
+    # 도달 가능한 수준으로 잡는다.
+    "minute1": 600,   # 1분봉: 대략 600~800개 정도는 금방 도달
+    "minute3": 600,
+    "minute5": 500,
+    "minute10": 400,
+    "minute15": 300,
+    "minute30": 300,
+    "minute60": 300,
+    "day": 200,
+}
+
+MAX_HISTORY_LEN_BY_INTERVAL: Dict[str, int] = {
+    # EMA/MACD를 HTS와 비슷하게 맞추기 위한 "이상적인 최대 히스토리"
+    "minute1": 2000,
+    "minute3": 2000,
+    "minute5": 1500,
+    "minute10": 1500,
+    "minute15": 1200,
+    "minute30": 800,
+    "minute60": 600,
+    "day": 400,
+}
 
 
-def check_buy_conditions(evt, df, conds, threshold: float, macd_ref=None, signal_ref=None):
+def _min_history_bars_for(params: LiveParams) -> int:
+    """
+    전략 실행/매매를 시작하기 위한 '최소 웜업 바 수'.
+    - 지나치게 큰 값을 쓰면 무한 WARMUP에 갇힘
+    - interval 기준 기본값 + 파라미터 기반 보정
+    """
+    iv = getattr(params, "interval", None)
+    if isinstance(iv, str) and iv in WARMUP_LEN_BY_INTERVAL:
+        base = WARMUP_LEN_BY_INTERVAL[iv]
+    else:
+        base = 300  # 폴백
+
+    # 파라미터 기반 보정 (느린 EMA가 너무 길면 웜업도 조금 올려준다)
+    slow = getattr(params, "slow_period", 26) or 26
+    base_ema = getattr(params, "base_ema_period", slow)
+    logical_min = max(slow * 3, base_ema * 2)  # 최소 이 정도는 있어야 형태가 나옴
+
+    return max(base, logical_min, 200)  # 최종 최소선 200
+
+
+def _max_history_bars_for(params: LiveParams) -> int:
+    """
+    DF에 유지할 최대 히스토리 길이.
+    - EMA/MACD 정확도와 HTS 비교 목적
+    """
+    iv = getattr(params, "interval", None)
+    if isinstance(iv, str) and iv in MAX_HISTORY_LEN_BY_INTERVAL:
+        base = MAX_HISTORY_LEN_BY_INTERVAL[iv]
+    else:
+        base = 1000  # 폴백
+
+    slow = getattr(params, "slow_period", 26) or 26
+    base_ema = getattr(params, "base_ema_period", slow)
+
+    # 느린 EMA/기준 EMA의 8~10배 정도는 가지고 있자
+    logical_max = max(slow * 8, base_ema * 6, 800)
+
+    return max(base, logical_max)
+
+
+# ============================================================
+# 공통 유틸
+# ============================================================
+def _normalize_asset(ticker: str) -> str:
+    return ticker.split("-")[-1].strip().upper() if ticker else ticker
+
+
+def _wallet_has_position(trader: UpbitTrader, ticker: str) -> bool:
+    sym = _normalize_asset(ticker)
+    try:
+        return trader._coin_balance(sym) >= 1e-6
+    except Exception:
+        return False
+
+
+def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
+    sym = _normalize_asset(ticker)
+    try:
+        return float(trader._coin_balance(sym))
+    except Exception:
+        return 0.0
+
+
+def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[float]:
+    """DB에서 최근 completed BUY의 체결가를 복구. raw와 결과를 INFO로 항상 남김."""
+    try:
+        raw = get_last_open_buy_order(ticker, user_id)  # {'price': float} | None
+        logger.info(f"[SEED] raw_last_open={raw}")
+        price = (raw or {}).get("price")
+        if price is None:
+            logger.info("[SEED] result=None (no price)")
+            return None
+        p = float(price)
+        logger.info(f"🔁 Seed entry_price from DB: {p}")
+        return p
+    except Exception as e:
+        logger.warning(f"[SEED] failed: {e}")
+        return None
+
+
+def detect_position_and_seed_entry(
+    trader: UpbitTrader,
+    ticker: str,
+    user_id: str,
+    entry_price: Optional[float],
+) -> Tuple[bool, Optional[float]]:
+    """
+    지갑 잔고로 실제 포지션 유무를 판단하고, 엔트리 가격이 없으면 DB에서 1회 시드.
+    - in_position: 잔고(코인) > 0 이면 True
+    - entry_price: 없으면 get_last_open_buy_order()로 복구
+    """
+    bal = _wallet_balance(trader, ticker)
+    inpos = bal >= 1e-6
+
+    if inpos and entry_price is None:
+        seed = get_last_open_buy_order(ticker, user_id)  # {"price": float} | None
+        ep = (seed or {}).get("price")
+        if ep is not None:
+            entry_price = float(ep)
+            logger.info(f"[POS] inpos=True, entry_price seeded={entry_price}")
+        else:
+            logger.info("[POS] inpos=True, but no entry price in DB")
+
+    if (not inpos) and (entry_price is not None):
+        logger.info("[POS] inpos=False → entry_price reset")
+        entry_price = None
+
+    return inpos, entry_price
+
+
+# ============================================================
+# 조건 파일 경로 & 로드
+# ============================================================
+def _strategy_tag(strategy_type: str) -> str:
+    """
+    strategy_type 문자열을 MACD / EMA 형태로 정규화.
+    (DEFAULT_STRATEGY_TYPE 폴백)
+    """
+    if not strategy_type:
+        return DEFAULT_STRATEGY_TYPE.upper()
+    return strategy_type.upper().strip()
+
+
+def _conditions_path_for(user_id: str, strategy_type: str) -> Tuple[Path, Optional[Path]]:
+    """
+    전략에서 사용하는 조건 JSON과 같은 규칙으로 파일 경로를 계산한다.
+    - 주요 경로: {user_id}_{STRATEGY}_{CONDITIONS_JSON_FILENAME}
+        예: mcmax33_MACD_buy_sell_conditions.json
+    - 레거시 폴백: {user_id}_buy_sell_conditions.json
+    """
+    tag = _strategy_tag(strategy_type)
+    main = Path(f"{user_id}_{tag}_{CONDITIONS_JSON_FILENAME}")
+    legacy = Path(f"{user_id}_{CONDITIONS_JSON_FILENAME}")
+    return main, (legacy if legacy.exists() and not main.exists() else None)
+
+
+def load_trade_conditions(user_id: str, strategy_type: str) -> Tuple[Dict[str, Any], Path, Optional[float]]:
+    """
+    매수/매도 조건 JSON 로드.
+    - 우선순위:
+        1) {user_id}_{STRATEGY}_{CONDITIONS_JSON_FILENAME}
+        2) (없을 경우) {user_id}_{CONDITIONS_JSON_FILENAME}
+    - 반환: (conditions_dict, 사용된_path, mtime | None)
+    """
+    main_path, legacy_path = _conditions_path_for(user_id, strategy_type)
+
+    path_to_use = None
+    if main_path.exists():
+        path_to_use = main_path
+    elif legacy_path is not None and legacy_path.exists():
+        path_to_use = legacy_path
+
+    if path_to_use is None:
+        logger.warning(
+            f"[COND] condition file not found for user={user_id}, strategy={strategy_type} "
+            f"(expected: {main_path} or legacy)"
+        )
+        return {"buy": {}, "sell": {}}, main_path, None
+
+    try:
+        with path_to_use.open("r", encoding="utf-8") as f:
+            conds = json.load(f)
+        mtime = path_to_use.stat().st_mtime
+        logger.info(f"[COND] loaded: {path_to_use} (mtime={mtime})")
+        return conds, path_to_use, mtime
+    except Exception as e:
+        logger.warning(f"[COND] failed to load {path_to_use}: {e}")
+        return {"buy": {}, "sell": {}}, path_to_use, None
+
+
+# ============================================================
+# 조건 체크 (MACD / EMA 공통 인터페이스)
+# ============================================================
+def _as_num(x):
+    try:
+        v = float(x)
+        if v != v:  # NaN
+            return None
+        return v
+    except Exception:
+        return None
+    
+
+def check_buy_conditions(
+    strategy_type: str,
+    evt: Dict[str, Any],
+    df, 
+    conds: Dict[str, bool],
+    threshold: float,
+    macd_ref=None,
+    signal_ref=None
+) -> Tuple[bool, list[str], list[str], Dict[str, Any]]:
+    """
+    BUY 조건 검증.
+    - MACD: 기존 detailed 체크 유지
+    - EMA: 전략 내부에서 이미 조건 검사 후 이벤트를 발생시키므로,
+           여기서는 추가로 막지 않는다 (ok=True, 로그 구조만 맞춤)
+    """
+    st = _strategy_tag(strategy_type)
+
+    # =====================================
+    # EMA: 전략이 이미 조건 검사 → 통과만 시켜줌
+    # =====================================
+    if st == "EMA":
+        # evt["reason"]에 ema_gc / above_base_ema / bullish_candle 등이 포함되어 있음
+        reasons = str(evt.get("reason") or "")
+        enabled = [k for k, v in conds.items() if v]
+        # 로그 형식만 맞춰주고 실제 차단은 하지 않는다.
+        report = {
+            k: {
+                "enabled": 1 if conds.get(k) else 0,
+                "pass": 1 if (k in reasons) else 0,
+                "value": None,
+            }
+            for k in enabled
+        }
+        failed = [k for k in enabled if report[k]["pass"] == 0]
+        overall_ok = True  # EMA에서는 전략 쪽 판정이 진실이므로 여기서 막지 않는다.
+        return overall_ok, enabled, failed, report
+    
+    # =====================================
+    # MACD: 기존 로직 유지
+    # =====================================
     def safe(col):
         return df[col].iloc[-2] if col in df and len(df[col]) >= 2 else None
 
     # 경계/부동소수 오차 보정용
     EPS = 1e-12
 
-    def as_num(x):
-        try:
-            v = float(x)
-            if v != v:
-                return None
-            return v
-        except Exception:
-            return None
-        
     # 판정에 사용할 값: LOG 기준값 우선 → evt 값 폴백
-    macd_val   = as_num(macd_ref if macd_ref is not None else evt.get("macd"))
-    signal_val = as_num(signal_ref if signal_ref is not None else evt.get("signal"))
+    macd_val = _as_num(macd_ref if macd_ref is not None else evt.get("macd"))
+    signal_val = _as_num(signal_ref if signal_ref is not None else evt.get("signal"))
 
     passed, failed, details = [], [], {}
 
@@ -98,8 +349,24 @@ def check_buy_conditions(evt, df, conds, threshold: float, macd_ref=None, signal
     return overall_ok, passed_enabled, failed_enabled, details
 
 
-def check_sell_conditions(evt, conds):
+def check_sell_conditions(
+    strategy_type: str,
+    evt: Dict[str, Any],
+    conds: Dict
+) -> bool:
+    """
+    SELL 조건 검증.
+    - MACD: reason 문자열과 conds 조합으로 필터
+    - EMA: 전략 내부에서 이미 SELL 조건 검사 후 이벤트를 생성하므로,
+           여기서는 추가로 막지 않는다 (True 반환)
+    """
+    st = _strategy_tag(strategy_type)
     reason = evt.get("reason", "").lower()
+
+    # EMA: 전략 책임
+    if st == "EMA":
+        return True
+
     if "trailing" in reason and conds.get("trailing_stop"):
         return True
     if "take profit" in reason and conds.get("take_profit"):
@@ -112,81 +379,210 @@ def check_sell_conditions(evt, conds):
         return True
     if "dead cross" in reason and conds.get("dead_cross"):
         return True
+    
     return False
 
 
-def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[float]:
-    """DB에서 최근 completed BUY의 체결가를 복구. raw와 결과를 INFO로 항상 남김."""
-    try:
-        raw = get_last_open_buy_order(ticker, user_id)  # {'price': float} | None
-        logger.info(f"[SEED] raw_last_open={raw}")
-        price = (raw or {}).get("price")
-        if price is None:
-            logger.info("[SEED] result=None (no price)")
-            return None
-        p = float(price)
-        logger.info(f"🔁 Seed entry_price from DB: {p}")
-        return p
-    except Exception as e:
-        logger.warning(f"[SEED] failed: {e}")
-        return None
-
-
-# =========================
-# 잔고 조회 정규화 유틸
-#  - Upbit 잔고 키가 'KRW-WLFI'가 아니라 'WLFI'로 관리되는 경우를 처리
-#  - 포지션 감지 오류(in_position=False로 오판) 방지
-# =========================
-def _normalize_asset(ticker: str) -> str:
-    return ticker.split("-")[-1].strip().upper() if ticker else ticker
-
-
-def _wallet_has_position(trader: UpbitTrader, ticker: str) -> bool:
-    sym = _normalize_asset(ticker)
-    try:
-        return trader._coin_balance(sym) >= 1e-6
-    except Exception:
-        return False
-    
-def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
-    sym = _normalize_asset(ticker)
-    try:
-        return float(trader._coin_balance(sym))
-    except Exception:
-        return 0.0
-    
-
-# --- 포지션 감지 & 엔트리 시드 유틸 ---
-def detect_position_and_seed_entry(
-    trader: UpbitTrader,
-    ticker: str,
+# ============================================================
+# ★ 전략 클래스 빌더 (LIVE / REPLAY 공용)
+# ============================================================
+def _build_live_strategy_cls(
+    params: LiveParams,
     user_id: str,
-    entry_price: Optional[float],
-) -> Tuple[bool, Optional[float]]:
+    strategy_tag: str,
+    trader: Optional[UpbitTrader] = None,
+    wallet_enabled: bool = True,
+):
     """
-    지갑 잔고로 실제 포지션 유무를 판단하고, 엔트리 가격이 없으면 DB에서 1회 시드.
-    - in_position: 잔고(코인) > 0 이면 True
-    - entry_price: 없으면 get_last_open_buy_order()로 복구
+    - 기존 run_live_loop 안의 strategy_cls 구성 로직을 함수로 분리.
+    - wallet_enabled=False 이면 지갑 훅을 더미로 구성 (REPLAY에서 사용).
     """
-    bal = _wallet_balance(trader, ticker)
-    inpos = bal >= 1e-6
+    base_cls = get_strategy_class(strategy_tag)
 
-    if inpos and entry_price is None:
-        seed = get_last_open_buy_order(ticker, user_id)  # {"price": float} | None
-        ep = (seed or {}).get("price")
-        if ep is not None:
-            entry_price = float(ep)
-            logger.info(f"[POS] inpos=True, entry_price seeded={entry_price}")
-        else:
-            logger.info("[POS] inpos=True, but no entry price in DB")
+    # log_events / trade_events가 어디에 쌓일지 결정
+    if issubclass(base_cls, EMAStrategy):
+        events_cls = EMAStrategy
+    elif issubclass(base_cls, MACDStrategy):
+        events_cls = MACDStrategy
+    else:
+        raise RuntimeError(f"Unsupported base strategy class: {base_cls}")
+    
+    live_attrs: Dict[str, Any] = {
+        # 공통 메타
+        "user_id": user_id,
+        "ticker": params.upbit_ticker,
+        "strategy_type": strategy_tag,
+    }
 
-    if (not inpos) and (entry_price is not None):
-        logger.info("[POS] inpos=False → entry_price reset")
-        entry_price = None
+    # ★ 지갑 훅 (LIVE에서는 실제, REPLAY에서는 더미)
+    if wallet_enabled and trader is not None:
+        live_attrs.update(
+            has_wallet_position=staticmethod(lambda t: _wallet_has_position(trader, t)),
+            get_wallet_entry_price=staticmethod(
+                lambda t: (get_last_open_buy_order(t, user_id) or {}).get("price")
+            ),
+        )
+    else:
+        # REPLAY / 테스트용: 항상 포지션 없음 + 엔트리 가격 없음으로 가정
+        live_attrs.update(
+            has_wallet_position=staticmethod(lambda t: False),
+            get_wallet_entry_price=staticmethod(lambda t: None),
+        )
 
-    return inpos, entry_price
+    # MACD 전략일 경우 MACD 관련 파라미터 반영
+    if issubclass(base_cls, MACDStrategy):
+        live_attrs.update(
+            fast_period=params.fast_period,
+            slow_period=params.slow_period,
+            signal_period=params.signal_period,
+            take_profit=params.take_profit,
+            stop_loss=params.stop_loss,
+            macd_threshold=params.macd_threshold,
+            min_holding_period=params.min_holding_period,
+            macd_crossover_threshold=params.macd_crossover_threshold,
+            macd_exit_enabled=params.macd_exit_enabled,
+            signal_confirm_enabled=params.signal_confirm_enabled,
+        )
+
+    # EMA 전략 파라미터 반영 🔽 추가
+    if issubclass(base_cls, EMAStrategy):
+        live_attrs.update(
+            fast_period=params.fast_period,
+            slow_period=params.slow_period,
+            base_ema_period=getattr(params, "base_ema_period", EMAStrategy.base_period),
+            take_profit=params.take_profit,
+            stop_loss=params.stop_loss,
+        )
+
+    strategy_cls = type("LiveStrategy", (base_cls,), live_attrs)
+    return base_cls, events_cls, strategy_cls
 
 
+def _resolve_engine_mode(params: LiveParams) -> str:
+    """
+    실행 모드 결정 우선순위:
+    1) params.engine_exec_mode (있으면)
+    2) config.ENGINE_EXEC_MODE (전역 기본값)
+    """
+    mode = getattr(params, "engine_exec_mode", None) or ENGINE_EXEC_MODE
+    return (mode or "BACKTEST").upper().strip()
+
+
+def _run_engine_once(
+    df,
+    params: LiveParams,
+    strategy_cls,
+    events_cls,
+    mode_tag: str,
+    base_cls,
+    user_id: str,
+    strategy_tag: str,
+):
+    """
+    내부 엔진 실행 래퍼.
+    - BACKTEST 모드: 기존 _run_backtest_once 그대로 사용
+    - REPLAY 모드  : run_replay_on_dataframe(...)를 사용해서 같은 형태의 결과를 맞춰 리턴
+    """
+    exec_mode = _resolve_engine_mode(params)
+
+    # 1) 기존 방식 그대로 (현재 LIVE 루프에서 쓰던 것)
+    if exec_mode == "BACKTEST":
+        return _run_backtest_once(
+            df=df,
+            params=params,
+            strategy_cls=strategy_cls,
+            events_cls=events_cls,
+            mode_tag=mode_tag,
+            base_cls=base_cls,
+        )
+
+    # 2) REPLAY 방식: 우리가 만든 run_replay_on_dataframe 재사용
+    #    - 여기서는 UpbitTrader/Wallet 등을 전혀 보지 않고
+    #      순수하게 전략 + DF만으로 log_events / trade_events 계산
+    replay_result = run_replay_on_dataframe(
+        params=params,
+        df=df,
+        user_id=user_id,
+        strategy_type=strategy_tag,
+    )
+
+    df_bt = replay_result["df_bt"]
+    latest_bar_bt = replay_result["latest_bar"]
+    log_events = replay_result["log_events"]
+    trade_events = replay_result["trade_events"]
+    last_log = replay_result.get("last_log") or {}
+
+    cross_log = last_log.get("cross")
+    macd_log = last_log.get("macd")
+    signal_log = last_log.get("signal")
+    price_log = last_log.get("price")
+
+    return df_bt, latest_bar_bt, log_events, trade_events, cross_log, macd_log, signal_log, price_log
+
+
+# ============================================================
+# ★ Backtest 한 번 실행하는 헬퍼 (LIVE / REPLAY 공용)
+# ============================================================
+def _run_backtest_once(
+    df,
+    params: LiveParams,
+    strategy_cls,
+    events_cls,
+    mode_tag: str,
+    base_cls,
+):
+    """
+    - df: 마지막 캔들을 포함한 전체 DF (LIVE와 동일 포맷)
+    - 반환:
+        df_bt: 마지막 캔들 제거된 DF (Backtest용)
+        latest_bar_bt: df_bt 기준 마지막 bar index
+        log_events, trade_events: 전략이 쌓은 이벤트
+        cross_log, macd_log, signal_log, price_log: 마지막 bar 기준 LOG 스냅샷
+    """
+    # --- 이벤트 버퍼 초기화 ---
+    events_cls.log_events = []
+    events_cls.trade_events = []
+
+    logger.info(
+        "[BOOT] thresholds check | macd_thr=%.6f | base_cls=%s | mode=%s",
+        float(getattr(params, "macd_threshold", 0.0)),
+        base_cls.__name__,
+        mode_tag,
+    )
+
+    # 마지막 캔들은 "미완성"이므로 백테스트에서는 제외
+    df_bt = df.iloc[:-1].copy()
+
+    bt = Backtest(
+        df_bt,
+        strategy_cls,
+        cash=params.cash,
+        commission=params.commission,
+        exclusive_orders=True,
+    )
+    bt.run()
+    logger.info("✅ %s Backtest 실행 완료", mode_tag)
+
+    log_events = events_cls.log_events
+    trade_events = events_cls.trade_events
+
+    latest_bar_bt = len(df_bt) - 1
+
+    # 최신 LOG 찾기 (기존 로직 재사용)
+    cross_log = macd_log = signal_log = price_log = None
+    if latest_bar_bt >= 0:
+        for event in reversed(log_events):
+            # event: (bar_idx, "LOG", cross, macd, signal, price)
+            if event[1] == "LOG" and event[0] == latest_bar_bt:
+                _, _, cross_log, macd_log, signal_log, price_log = event
+                break
+
+    return df_bt, latest_bar_bt, log_events, trade_events, cross_log, macd_log, signal_log, price_log
+
+
+# ============================================================
+# 메인 Live Loop
+# ============================================================
 def run_live_loop(
     params: LiveParams,
     q: queue.Queue,
@@ -195,116 +591,150 @@ def run_live_loop(
     test_mode: bool,
     user_id: str,
 ) -> None:
-    from streamlit.runtime.scriptrunner import add_script_run_ctx
-    add_script_run_ctx(threading.current_thread())
+    """
+    실시간 운용 루프.
+    - 전략 선택: params.strategy_type (MACD / EMA)
+    - 공통 인터페이스:
+        * base_cls.log_events / trade_events 에서 이벤트 읽기
+        * Wallet 기반 포지션/엔트리 관리
+        * 조건 JSON은 전략과 동일 규칙으로 로드
+    """
+    try:
+        from streamlit.runtime.scriptrunner import add_script_run_ctx
+        add_script_run_ctx(threading.current_thread())
+    except Exception:
+        logger.debug("[BOOT] Streamlit ScriptRunContext 바인딩 스킵 (non-Streamlit 환경)")
 
     is_live = (not test_mode)
     mode_tag = "LIVE" if is_live else "TEST"
-    logger.info(f"[BOOT] run_live_loop start | mode={mode_tag}")
+    strategy_tag = _strategy_tag(params.strategy_type)
 
-    trade_conditions = load_trade_conditions(user_id)
+    logger.info(f"[BOOT] run_live_loop start | mode={mode_tag} | strategy={strategy_tag}")
 
-    # =========================
-    # 시작 in_position 판정은 "지갑 기준"으로만
-    #  - DB 시드만으로 in_position=True로 시작하던 문제 제거
-    # =========================
+    # ★ MACD/EMA 안정화를 위한 최소 히스토리 길이 & 최대 DF 길이 계산
+    min_hist = _min_history_bars_for(params)
+    hist_max = _max_history_bars_for(params)
+    logger.info(
+        f"[BOOT] history_warmup | interval={getattr(params, 'interval', None)} "
+        f"| interval_sec={getattr(params, 'interval_sec', None)} "
+        f"| min_hist={min_hist} | hist_max={hist_max}"
+    )
+
+
+    # --- 조건 JSON 로드 & mtime 추적 ---
+    trade_conditions, cond_path, cond_mtime = load_trade_conditions(user_id, strategy_tag)
+
     in_position: bool = _wallet_has_position(trader, params.upbit_ticker)
     entry_price: Optional[float] = None
-    # 신규 이벤트 중복 전송 방지 (bar, type)
     seen_signals = set()
 
-    # 지갑에 포지션이 있을 때만 DB에서 엔트리 가격 보조 시드
     if in_position:
         entry_price = _seed_entry_price_from_db(params.upbit_ticker, user_id)
 
-    # 전략 클래스 생성 (훅 포함)
-    strategy_cls = type(
-        "LiveStrategy",
-        (MACDStrategy,),
-        {
-            "fast_period": params.fast_period,
-            "slow_period": params.slow_period,
-            "signal_period": params.signal_period,
-            "take_profit": params.take_profit,
-            "stop_loss": params.stop_loss,
-            "macd_threshold": params.macd_threshold,
-            "min_holding_period": params.min_holding_period,
-            "macd_crossover_threshold": params.macd_crossover_threshold,
-            "macd_exit_enabled": params.macd_exit_enabled,
-            "signal_confirm_enabled": params.signal_confirm_enabled,
-            "user_id": user_id,
-            "ticker": params.upbit_ticker,
-            # 포지션 감지 훅도 정규화 기반으로 일원화
-            "has_wallet_position": staticmethod(lambda t: _wallet_has_position(trader, t)),
-            # (ticker, user_id) 시그니처 그대로, float 또는 None 반환
-            "get_wallet_entry_price": staticmethod(lambda t: (get_last_open_buy_order(t, user_id) or {}).get("price")),
-        },
+    # --- 전략 클래스 선택 & LiveStrategy 구성 ---
+    base_cls, events_cls, strategy_cls = _build_live_strategy_cls(
+        params,
+        user_id,
+        strategy_tag,
+        trader=trader,
+        wallet_enabled=True,
+    )
+
+    logger.info(
+        f"[BOOT] strategy_cls={strategy_cls.__name__} (base={base_cls.__name__}) "
+        f"| ticker={params.upbit_ticker} | interval={params.interval}"
     )
 
     try:
         while not stop_event.is_set():
-            for df in stream_candles(params.upbit_ticker, params.interval, q, stop_event=stop_event):
+            for df in stream_candles(
+                params.upbit_ticker,
+                params.interval,
+                q,
+                stop_event=stop_event,
+                max_length=hist_max,
+            ):
                 if stop_event.is_set():
                     break
+
+                # --- 조건 파일 hot reload (선택적) ---
+                try:
+                    if cond_path is not None and cond_path.exists():
+                        mtime_now = cond_path.stat().st_mtime
+                        if cond_mtime is not None and mtime_now != cond_mtime:
+                            with cond_path.open("r", encoding="utf-8") as f:
+                                trade_conditions = json.load(f)
+                            cond_mtime = mtime_now
+                            logger.info(f"[COND] reloaded: {cond_path} (mtime={mtime_now})")
+                except Exception as e:
+                    logger.warning(f"[COND] hot reload skipped: {e}")
 
                 if df is None or df.empty:
                     logger.info("❌ 데이터프레임 비어있음 → 5초 후 재시도")
                     time.sleep(5)
                     continue
 
-                if len(df) < 3:
+                # ★ MACD/EMA 웜업 가드:
+                #    최소 히스토리 개수에 도달하기 전까지는 전략 실행/매매를 하지 않는다.
+                if len(df) < min_hist:
+                    logger.info(
+                        f"[WARMUP] hist_len={len(df)} < required={min_hist} → "
+                        f"전략 실행/매매 스킵 (MACD/EMA 안정화 대기)"
+                    )
                     time.sleep(1)
                     continue
 
-                MACDStrategy.log_events = []
-                MACDStrategy.trade_events = []
+                # if len(df) < 3:
+                    # time.sleep(1)
+                    # continue
 
-                logger.info(
-                    "[BOOT] thresholds check | loop=%.6f | strategy_cls=%.6f",
-                    float(params.macd_threshold),
-                    float(getattr(strategy_cls, "macd_threshold", float('nan')))
-                )
-
-                df_bt = df.iloc[:-1].copy()
-
-                bt = Backtest(
+                # ★ 공통 Backtest 실행 로직 호출
+                (
                     df_bt,
-                    strategy_cls,
-                    cash=params.cash,
-                    commission=params.commission,
-                    exclusive_orders=True,
+                    latest_bar_bt,
+                    log_events,
+                    trade_events,
+                    cross_log,
+                    macd_log,
+                    signal_log,
+                    price_log,
+                ) = _run_engine_once(
+                    df=df,
+                    params=params,
+                    strategy_cls=strategy_cls,
+                    events_cls=events_cls,
+                    mode_tag=mode_tag,
+                    base_cls=base_cls,
+                    user_id=user_id,
+                    strategy_tag=strategy_tag,
                 )
-                bt.run()
-                logger.info("✅ LiveStrategy Backtest 실행 완료")
 
-                log_events = MACDStrategy.log_events
-                trade_events = MACDStrategy.trade_events
-
-                latest_bar_bt = len(df_bt) - 1
                 latest_index_live = df.index[-1]
                 latest_price_live = float(df.Close.iloc[-1])
 
+                # --- 최신 LOG 전송 (MACD / EMA 공통) ---
+                if latest_bar_bt >= 0 and cross_log is not None:
+                    log_ts = df_bt.index[latest_bar_bt]
+                    try:
+                        msg = (
+                            f"{log_ts} | price={price_log:.2f} | "
+                            f"cross={cross_log} | macd={macd_log:.5f} | signal={signal_log:.5f} | bar={latest_bar_bt}"
+                        )
+                    except Exception:
+                        # price_log / macd_log 등이 None인 경우 방어
+                        msg = (
+                            f"{log_ts} | price={price_log} | "
+                            f"cross={cross_log} | macd={macd_log} | signal={signal_log} | bar={latest_bar_bt}"
+                        )
+                    q.put((log_ts, "LOG", f"[{mode_tag}] {msg}"))
+                
                 # --- 지갑 기준 포지션/엔트리 확정 ---
                 in_position, entry_price = detect_position_and_seed_entry(
                     trader, params.upbit_ticker, user_id, entry_price
                 )
                 logger.info(f"[POS] ({mode_tag}) in_position={in_position}, entry_price={entry_price}")
 
-                # 최신 LOG만 전송
-                cross_log = macd_log = signal_log = price_log = None
-                for event in reversed(log_events):
-                    if event[1] == "LOG" and event[0] == latest_bar_bt:
-                        bar_idx, _, cross_log, macd_log, signal_log, price_log = event
-                        msg = (
-                            f"{df_bt.index[bar_idx]} | price={price_log:.2f} | "
-                            f"cross={cross_log} | macd={macd_log:.5f} | signal={signal_log:.5f} | bar={bar_idx}"
-                        )
-                        q.put((df.index[bar_idx], "LOG", f"[{mode_tag}] {msg}"))
-                        break
-
-                # -----------------------------
-                # 월렛 가드: SL/TP 즉시 매도
-                # -----------------------------
+                # --- Wallet-Guard (SL/TP 즉시 매도) ---
                 try:
                     coin_balance_live = _wallet_balance(trader, params.upbit_ticker)
                     logger.info(f"[WG] balance={coin_balance_live} entry_price={entry_price}")
@@ -353,13 +783,29 @@ def run_live_loop(
                                 meta=meta
                             )
                             if result:
-                                q.put((latest_index_live, "SELL", result["qty"], result["price"], reason, None, None))
+                                q.put(
+                                    (
+                                        latest_index_live,
+                                        "SELL",
+                                        result["qty"],
+                                        result["price"],
+                                        reason,
+                                        None,
+                                        None
+                                    )
+                                )
                                 entry_price = None
                                 in_position = False
 
                                 if is_live and result.get("uuid"):
-                                    get_reconciler().enqueue(result["uuid"], user_id=user_id, ticker=params.upbit_ticker, side="SELL")
-
+                                    get_reconciler().enqueue(
+                                        result["uuid"],
+                                        user_id=user_id,
+                                        ticker=params.upbit_ticker,
+                                        side="SELL"
+                                    )
+                                
+                                # 월렛 가드는 SELL 후 바로 다음 루프로
                                 continue
                     else:
                         if coin_balance_live < 1e-6:
@@ -369,9 +815,7 @@ def run_live_loop(
                 except Exception as e:
                     logger.warning(f"[WG:{mode_tag}] wallet-guard skipped: {e}")
 
-                # -----------------------------
-                # 전략 이벤트 처리
-                # -----------------------------
+                # --- 전략 이벤트 처리 (MACD / EMA 공통 형식) ---
                 events_on_latest = [e for e in trade_events if e.get("bar") == latest_bar_bt]
                 evt = events_on_latest[-1] if events_on_latest else None
                 if not evt:
@@ -384,10 +828,7 @@ def run_live_loop(
                     logger.warning(f"[EVENT:{mode_tag}] skip invalid event: {evt}")
                     continue
 
-                # --- 중복 억제: '닫힌 바의 실제 타임스탬프'를 키로 사용 ---
-                # df_bt는 df.iloc[:-1] 이므로, ebar는 '막 닫힌 바'의 상대 인덱스.
-                # 상대 인덱스는 슬라이딩 윈도우에서 매 분 동일해질 수 있어 dedup 오작동.
-                # 따라서 실제 타임스탬프를 키로 사용해 분마다 고유해지도록 한다.
+                # dedup key는 "닫힌 봉의 실제 타임스탬프" 기준
                 try:
                     closed_ts = df_bt.index[ebar]
                     key = (str(closed_ts), etype, mode_tag)
@@ -407,14 +848,17 @@ def run_live_loop(
                 coin_balance = _wallet_balance(trader, params.upbit_ticker)
                 logger.info(f"📊 [{mode_tag}] 현재 잔고: {coin_balance:.8f}")
 
+                # ======================
+                # BUY 처리 (포지션 없음)
+                # ======================
                 if not in_position:
-                    # 포지션 없으면 BUY만 허용
                     if etype != "BUY":
                         logger.info(f"⛔ ({mode_tag}) 포지션 없음 → SELL 무시")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
                     ok, passed, failed, det = check_buy_conditions(
+                        strategy_tag,
                         evt,
                         df_bt,
                         trade_conditions.get("buy", {}),
@@ -423,7 +867,6 @@ def run_live_loop(
                         signal_ref=signal_log
                     )
                     if not ok:
-                        # 실패 목록과 해당 값/임계값을 함께 남겨 원인 즉시 확인
                         try:
                             logger.info(
                                 f"⛔ ({mode_tag}) BUY 조건 미충족 | failed=%s | values=%s | thr=%.6f | evt_reason=%s",
@@ -460,14 +903,29 @@ def run_live_loop(
                     )
                     if result:
                         logger.info(f"✅ ({mode_tag}) BUY 체결 완료({passed}) {result}")
-                        q.put((latest_index_live, "BUY", result["qty"], result["price"], cross_e, macd_e, signal_e))
+                        q.put(
+                            (
+                                latest_index_live,
+                                "BUY",
+                                result["qty"],
+                                result["price"],
+                                cross_e,
+                                macd_e,
+                                signal_e
+                            )
+                        )
                         in_position = True
                         entry_price = result["price"]
 
                         if is_live and result.get("uuid"):
-                            get_reconciler().enqueue(result["uuid"], user_id=user_id, ticker=params.upbit_ticker, side="BUY")
+                            get_reconciler().enqueue(
+                                result["uuid"],
+                                user_id=user_id,
+                                ticker=params.upbit_ticker,
+                                side="BUY"
+                            )
 
-                        # === 체결 직후 BUY 평가 스냅샷 남기기 (리포트 1:1 매칭용) ===
+                        # 체결 직후 BUY 평가 스냅샷 (리포트 1:1 매칭용)
                         try:
                             insert_buy_eval(
                                 user_id=user_id,
@@ -480,9 +938,14 @@ def run_live_loop(
                                 have_position=True,
                                 overall_ok=True,                         # 체결됐으니 평가 OK로 마킹
                                 failed_keys=[],
-                                checks={"reason": cross_e, "snapshot": f"BUY_EXECUTED_{mode_tag}"},
-                                # 스키마 변경 없이 링크키 보관(ts_live, bar_bt)
-                                notes=f"EXECUTED({mode_tag}) ts_live={latest_index_live} bar_bt={latest_bar_bt}"
+                                checks={
+                                    "reason": cross_e,
+                                    "snapshot": f"BUY_EXECUTED_{mode_tag}"
+                                },
+                                notes=(
+                                    f"EXECUTED({mode_tag}) "
+                                    f"ts_live={latest_index_live} bar_bt={latest_bar_bt}"
+                                ),
                             )
                             logger.info(
                                 f"[AUDIT-LINK:{mode_tag}] BUY EXEC snap | ts_live={latest_index_live} "
@@ -490,20 +953,34 @@ def run_live_loop(
                             )
                         except Exception as e:
                             logger.warning(f"[AUDIT-LINK:{mode_tag}] insert_buy_eval (EXECUTED) failed: {e}")
+                # ======================
+                # SELL 처리 (포지션 있음)
+                # ======================
                 else:
-                    # 포지션 있으면 SELL만 허용
                     if etype != "SELL":
                         logger.info(f"⛔ ({mode_tag}) 포지션 있음 → BUY 무시")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
-                    if not check_sell_conditions(evt, trade_conditions.get("sell", {})):
+                    if not check_sell_conditions(
+                        strategy_tag,
+                        evt,
+                        trade_conditions.get("sell", {}),
+                    ):
                         logger.info(f"⛔ ({mode_tag}) SELL 조건 미충족({cross_e}) → 차단 | evt={evt}")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
-                    tp_p = entry_price * (1 + params.take_profit) if entry_price is not None else None
-                    sl_p = entry_price * (1 - params.stop_loss) if entry_price is not None else None
+                    tp_p = (
+                        entry_price * (1 + params.take_profit)
+                        if entry_price is not None
+                        else None
+                    )
+                    sl_p = (
+                        entry_price * (1 - params.stop_loss)
+                        if entry_price is not None
+                        else None
+                    )
 
                     meta = {
                         "interval": params.interval,
@@ -529,19 +1006,102 @@ def run_live_loop(
                     )
                     if result:
                         logger.info(f"✅ ({mode_tag}) SELL 체결 완료({cross_e}) {result}")
-                        q.put((latest_index_live, "SELL", result["qty"], result["price"], cross_e, macd_e, signal_e))
+                        q.put(
+                            (
+                                latest_index_live,
+                                "SELL",
+                                result["qty"],
+                                result["price"],
+                                cross_e,
+                                macd_e,
+                                signal_e
+                            )
+                        )
                         in_position = False
                         entry_price = None
 
                         if is_live and result.get("uuid"):
-                            get_reconciler().enqueue(result["uuid"], user_id=user_id, ticker=params.upbit_ticker, side="SELL")
+                            get_reconciler().enqueue(
+                                result["uuid"],
+                                user_id=user_id,
+                                ticker=params.upbit_ticker,
+                                side="SELL"
+                            )
 
                 logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
     except Exception:
         logger.exception(f"❌ run_live_loop 예외 발생 ({mode_tag})")
-        ts = time.time()  # 또는 latest_index_live 사용 가능
+        ts = time.time()
         exc_type, exc_value, tb = sys.exc_info()
         q.put((ts, "EXCEPTION", exc_type, exc_value, tb))
     finally:
         logger.info(f"🧹 run_live_loop 종료 ({mode_tag}) → stop_event set")
         stop_event.set()
+
+
+# ============================================================
+# ★ 오프라인 REPLAY 전용 엔트리포인트
+# ============================================================
+def run_replay_on_dataframe(
+    params: LiveParams,
+    df,
+    user_id: str,
+    strategy_type: Optional[str] = None,
+):
+    """
+    REPLAY / 오프라인 검증용:
+    - UpbitTrader / Wallet / DB / Reconciler / Streamlit에 전혀 의존하지 않음.
+    - LIVE에서 사용하는 LiveStrategy + Backtesting 조합을 그대로 사용하되,
+      순수하게 log_events / trade_events / df_bt만 반환한다.
+    - 목적:
+        * "이 전략이 과거 구간에서 어느 캔들에 BUY/SELL 신호를 냈는지"
+          를 Upbit 차트와 1:1로 대조하기 위함.
+    """
+    mode_tag = "REPLAY"
+    strategy_tag = _strategy_tag(strategy_type or params.strategy_type)
+
+    # ★ wallet_enabled=False / trader=None → 지갑 훅은 더미로 구성
+    base_cls, events_cls, strategy_cls = _build_live_strategy_cls(
+        params=params,
+        user_id=user_id,
+        strategy_tag=strategy_tag,
+        trader=None,
+        wallet_enabled=False,
+    )
+
+    (
+        df_bt,
+        latest_bar_bt,
+        log_events,
+        trade_events,
+        cross_log,
+        macd_log,
+        signal_log,
+        price_log,
+    ) = _run_backtest_once(
+        df=df,
+        params=params,
+        strategy_cls=strategy_cls,
+        events_cls=events_cls,
+        mode_tag=mode_tag,
+        base_cls=base_cls,
+    )
+
+    logger.info(
+        f"[REPLAY] completed | user_id={user_id} | strategy={strategy_tag} "
+        f"| bars={len(df_bt)} | trades={len(trade_events)}"
+    )
+
+    # 호출 측에서 분석하기 좋게 dict로 정리해서 반환
+    return {
+        "df_bt": df_bt,                      # 마지막 봉 제외된 백테스트 기준 DF
+        "latest_bar": latest_bar_bt,         # df_bt 기준 마지막 bar index
+        "log_events": log_events,            # (bar_idx, "LOG", cross, macd, signal, price)
+        "trade_events": trade_events,        # {"bar": int, "type": "BUY/SELL", ...}
+        "last_log": {                        # 마지막 bar 기준 LOG 스냅샷
+            "cross": cross_log,
+            "macd": macd_log,
+            "signal": signal_log,
+            "price": price_log,
+        },
+    }
