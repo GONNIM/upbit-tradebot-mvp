@@ -1,7 +1,11 @@
 import streamlit as st
 from engine.params import LiveParams
 from typing import Optional
-from config import PARAMS_JSON_FILENAME
+from config import (
+    PARAMS_JSON_FILENAME,
+    STRATEGY_TYPES,
+    DEFAULT_STRATEGY_TYPE,
+)
 from engine.params import load_params
 
 INTERVAL_OPTIONS: dict[str, str] = {
@@ -16,37 +20,59 @@ INTERVAL_OPTIONS: dict[str, str] = {
 }
 
 CASH_OPTIONS = {
-    "10-percent": {
-        "button": "10%",
-        "ratio": 0.1,
-    },
-    "25-percent": {
-        "button": "25%",
-        "ratio": 0.25,
-    },
-    "50-percent": {
-        "button": "50%",
-        "ratio": 0.5,
-    },
-    "100-percent": {
-        "button": "100%",
-        "ratio": 1,
-    },
+    "10-percent": { "button": "10%", "ratio": 0.1 },
+    "25-percent": { "button": "25%", "ratio": 0.25 },
+    "50-percent": { "button": "50%", "ratio": 0.5 },
+    "100-percent": { "button": "100%", "ratio": 1 },
 }
 
 
-def make_sidebar(user_id) -> Optional[LiveParams]:
+def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
     json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
     load_params_obj = load_params(json_path)
+    # 파일에서 읽어온 마지막 저장값 (공통 기본값)
     DEFAULT_PARAMS = load_params_obj.dict() if load_params_obj else {}
 
+    # ---------- 전략 타입 / 엔진 모드 ----------
+    allowed_strategies = [s.upper() for s in STRATEGY_TYPES]
+
+    # 1) set_config.py 에서 넘어온 strategy_type 을 최우선 사용
+    current_strategy_raw = strategy_type or DEFAULT_PARAMS.get("strategy_type") or DEFAULT_STRATEGY_TYPE
+    current_strategy = str(current_strategy_raw).upper().strip()
+
+    # 방어: 이상한 값이면 그냥 DEFAULT_STRATEGY_TYPE 로
+    if current_strategy not in allowed_strategies:
+        current_strategy = str(DEFAULT_STRATEGY_TYPE).upper().strip()
+
+    is_macd = (current_strategy == "MACD")
+    is_ema = (current_strategy == "EMA")
+
+    current_mode = (
+        DEFAULT_PARAMS.get("engine_exec_mode") or "REPLAY"
+    ).upper().strip()
+    if current_mode not in ("BACKTEST", "REPLAY"):
+        current_mode = "REPLAY"
+
+    # 🔑 전략별 UI 기본값을 세션에 따로 보관하기 위한 키
+    strategy_key = f"ui_defaults_{current_strategy}"
+
+    # 이 전략에 대해 이미 사용자가 한 번 저장한 값이 있다면 → 그걸 우선 사용
+    # 없다면 → 파일에서 불러온 DEFAULT_PARAMS 사용
+    STRATEGY_DEFAULTS = st.session_state.get(strategy_key, DEFAULT_PARAMS)
+    
     """Render sidebar form and return validated params (or None)."""
     with st.sidebar:
         st.header("⚙️ 파라미터 설정")
+        st.markdown(
+            f"**전략:** `{current_strategy}` &nbsp;&nbsp; "
+            f"**엔진 모드:** `{current_mode}`"
+        )
+
         with st.form("input_form"):
             ticker = st.text_input(
                 "거래 종목", value=DEFAULT_PARAMS.get("ticker", "PEPE")
             )
+
             interval_default = [
                 k
                 for k, v in INTERVAL_OPTIONS.items()
@@ -62,28 +88,64 @@ def make_sidebar(user_id) -> Optional[LiveParams]:
                 ),
             )
 
+            # ---------- EMA / MACD 별 기본값 분기 ----------
+            if is_ema:
+                fast_default = DEFAULT_PARAMS.get("fast_period", 20)
+                slow_default = DEFAULT_PARAMS.get("slow_period", 200)
+                base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)
+                # EMA는 signal_period를 UI로 안 받되 값은 필요하므로 그대로 유지
+                signal_val = int(DEFAULT_PARAMS.get("signal_period", 9))
+            else:
+                fast_default = DEFAULT_PARAMS.get("fast_period", 12)
+                slow_default = DEFAULT_PARAMS.get("slow_period", 26)
+                base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)  # MACD에선 사실상 의미 없음
+                signal_val = st.number_input(
+                    "신호선 기간", 1, 50, value=DEFAULT_PARAMS.get("signal_period", 9)
+                )
+
             fast = st.number_input(
-                "단기 EMA", 1, 50, value=DEFAULT_PARAMS.get("fast_period", 12)
+                "단기 EMA",
+                1,
+                100,
+                value=fast_default,
             )
             slow = st.number_input(
-                "장기 EMA", 5, 240, value=DEFAULT_PARAMS.get("slow_period", 26)
+                "장기 EMA",
+                1,
+                240,
+                value=slow_default,
             )
-            signal = st.number_input(
-                "신호선 기간", 1, 50, value=DEFAULT_PARAMS.get("signal_period", 9)
-            )
-            macd_threshold = st.number_input(
-                "MACD 기준값",
-                -100.0,
-                100.0,
-                value=DEFAULT_PARAMS.get("macd_threshold", 0.0),
-                step=1.0,
-            )
+
+            # Base EMA: EMA일 때만 UI에 노출
+            if is_ema:
+                base_ema_period = st.number_input(
+                    "Base EMA",
+                    1,
+                    500,
+                    value=base_ema_default,
+                )
+            else:
+                # MACD에서는 내부적으로만 유지
+                base_ema_period = base_ema_default
+            
+            # ---------- MACD 전용 threshold ----------
+            if is_macd:
+                macd_threshold = st.number_input(
+                    "MACD 기준값",
+                    -100.0,
+                    100.0,
+                    value=DEFAULT_PARAMS.get("macd_threshold", 0.0),
+                    step=1.0,
+                )
+            else:
+                # EMA에서는 threshold 사용 안 함
+                macd_threshold = DEFAULT_PARAMS.get("macd_threshold", 0.0)
 
             tp_default = DEFAULT_PARAMS.get("take_profit", 0.03) * 100
             tp = (
                 st.number_input(
                     "Take Profit (%)",
-                    0.5,
+                    0.1,
                     50.0,
                     value=tp_default,
                     step=0.5,
@@ -102,19 +164,23 @@ def make_sidebar(user_id) -> Optional[LiveParams]:
                 / 100
             )
 
-            macd_exit_enabled = st.checkbox(
-                "📌 매도 전략: MACD EXIT",
-                help="TP/SL 도달 전 Dead Cross + MACD 기준 초과 시 매도합니다.",
-                value=DEFAULT_PARAMS.get("macd_exit_enabled", True),
-                disabled=True,
-            )
-
-            signal_confirm_enabled = st.checkbox(
-                "📌 옵션 전략: MACD 기준선 통과 매매 타점",
-                help="기본 전략(Golden Cross + MACD 기준 초과) 이후, Signal 선까지 MACD 기준 초과 시 매수합니다.",
-                value=DEFAULT_PARAMS.get("signal_confirm_enabled", False),
-                disabled=True,
-            )
+            # MACD 전용 옵션 (EMA에서는 강제 False)
+            if is_macd:
+                macd_exit_enabled = st.checkbox(
+                    "📌 매도 전략: MACD EXIT",
+                    help="TP/SL 도달 전 Dead Cross + MACD 기준 초과 시 매도합니다.",
+                    value=DEFAULT_PARAMS.get("macd_exit_enabled", True),
+                    disabled=True,
+                )
+                signal_confirm_enabled = st.checkbox(
+                    "📌 옵션 전략: MACD 기준선 통과 매매 타점",
+                    help="기본 전략(Golden Cross + MACD 기준 초과) 이후, Signal 선까지 MACD 기준 초과 시 매수합니다.",
+                    value=DEFAULT_PARAMS.get("signal_confirm_enabled", False),
+                    disabled=True,
+                )
+            else:
+                macd_exit_enabled = False
+                signal_confirm_enabled = False
 
             st.write("주문총액 (KRW)")
             st.info(f"{st.session_state.order_amount:,.0f}")
@@ -142,12 +208,12 @@ def make_sidebar(user_id) -> Optional[LiveParams]:
             return None
 
     try:
-        return LiveParams(
+        params = LiveParams(
             ticker=ticker,
             interval=INTERVAL_OPTIONS[interval_name],
             fast_period=int(fast),
             slow_period=int(slow),
-            signal_period=int(signal),
+            signal_period=int(signal_val),
             macd_threshold=macd_threshold,
             take_profit=tp,
             stop_loss=sl,
@@ -155,7 +221,15 @@ def make_sidebar(user_id) -> Optional[LiveParams]:
             order_ratio=st.session_state.order_ratio,
             macd_exit_enabled=macd_exit_enabled,
             signal_confirm_enabled=signal_confirm_enabled,
+            base_ema_period=int(base_ema_period),
+            strategy_type=current_strategy,
+            engine_exec_mode=current_mode,
         )
+
+        # 🔁 이 전략 타입에 대한 마지막 입력값을 세션에 따로 저장
+        st.session_state[strategy_key] = params.dict()
+
+        return params
     except Exception as exc:  # pylint: disable=broad-except
         st.error(f"❌ 파라미터 오류: {exc}")
         return None

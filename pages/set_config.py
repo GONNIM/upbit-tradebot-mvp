@@ -3,8 +3,14 @@ import streamlit as st
 from urllib.parse import urlencode
 from datetime import datetime
 
-from config import MIN_CASH, PARAMS_JSON_FILENAME
+from config import (
+    MIN_CASH,
+    PARAMS_JSON_FILENAME,
+    STRATEGY_TYPES,         # ✅ 전략 선택용 (예: ["MACD", "EMA"])
+    DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
+)
 from engine.params import load_params, save_params
+from pages.audit_viewer import query
 from ui.sidebar import make_sidebar
 from services.db import (
     get_account,
@@ -41,11 +47,13 @@ st.markdown(
 # --- URL 파라미터 확인 ---
 qp = st.query_params
 
+
 def _get_param(qp, key, default=None):
     v = qp.get(key, default)
     if isinstance(v, list):
         return v[0]
     return v
+
 
 def _get_bool_param(qp, key, default: bool = False) -> bool:
     """
@@ -65,6 +73,7 @@ def _get_bool_param(qp, key, default: bool = False) -> bool:
         return v
     s = str(v).strip().lower()
     return s in ("1", "true", "t", "yes", "y")
+
 
 user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
@@ -122,7 +131,6 @@ if "order_ratio" not in st.session_state:
 if "order_amount" not in st.session_state:
     st.session_state.order_amount = virtual_krw
 
-
 # --- UI 스타일 ---
 st.markdown(
     """
@@ -153,18 +161,56 @@ st.markdown(
 # --- 제목 ---
 st.title(f"🤖 Upbit Trade Bot v1 ({mode}) - {user_id}")
 
+# ============================================================
+# 🧠 전략 타입 선택 (MACD / EMA)
+#   - strategy_type 를 공통 파라미터로 승격
+#   - 기존 latest_params.json 에 값이 있으면 그걸 기본값으로 사용
+#   - 여기서 선택한 값은 최종 LiveParams.strategy_type 에 강제로 주입
+# ============================================================
+json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+exist_for_strategy = load_params(json_path)
+
+if exist_for_strategy:
+    default_strategy = exist_for_strategy.strategy_type
+else:
+    default_strategy = DEFAULT_STRATEGY_TYPE
+
+# STRATEGY_TYPES 는 ["MACD", "EMA"] 같은 형태라고 가정
+# 대소문자 섞여 있어도 index 계산이 되도록 안전하게 처리
+try:
+    default_idx = [s.upper() for s in STRATEGY_TYPES].index(default_strategy.upper())
+except ValueError:
+    default_idx = 0
+
+selected_strategy_type = st.sidebar.selectbox(
+    "전략 타입 (Strategy Type)",
+    STRATEGY_TYPES,
+    index=default_idx,
+    key="strategy_type",
+    help="MACD: 모멘텀 기반 / EMA: 추세 추종 실험 전략",
+)
+
+st.sidebar.caption(f"현재 선택된 전략: **{selected_strategy_type}**")
+
 # --- 전략 파라미터 입력 폼 ---
-params = make_sidebar(user_id)
+#  make_sidebar() 는 기존대로 ticker, 기간, MACD 파라미터 등만 그리고,
+#  여기서 선택한 전략 타입은 아래에서 params.strategy_type 에 주입한다.
+params = make_sidebar(user_id, selected_strategy_type)
 start_trading = None
 go_back = False
 
 if params:
     try:
-        json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+        # ✅ 여기서 최종적으로 전략 타입을 덮어쓴다.
+        #   - make_sidebar 가 strategy_type 을 아직 모른다 해도 문제 없음
+        #   - LiveParams.validator 가 알아서 MACD/EMA 이외 값은 막아준다.
+        params.strategy_type = selected_strategy_type
+
         exist_params = load_params(json_path)
         save_params(params, json_path)
         set_engine_status(user_id, False)
         set_thread_status(user_id, False)
+
         if exist_params:
             st.success("✅ 전략 파라미터 수정 저장 완료!!!")
             st.caption(
@@ -177,7 +223,11 @@ if params:
             )
 
         exist_params = load_params(json_path)
-        st.write(exist_params)
+        if exist_params:
+            # Pydantic model 이라면 strategy_type 포함 전체 스냅샷 확인 가능
+            # st.write(exist_params)
+            st.json(exist_params.__dict__)
+
         start_trading = st.button(
             f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
         )
@@ -185,10 +235,11 @@ if params:
         st.error(f"❌ 파라미터 저장 실패: {e}")
         st.stop()
 else:
-    json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
     exist_params = load_params(json_path)
     if exist_params:
-        st.write(exist_params)
+        # st.write(exist_params)
+        st.json(exist_params.__dict__)
+        st.caption(f"현재 전략 타입: **{exist_params.strategy_type}**")
 
         if mode == "LIVE":
             if (upbit_ok and capital_ok):
@@ -215,15 +266,20 @@ if start_trading:
 
     # 🔁 페이지 이동 처리
     next_page = "dashboard"
-    params = urlencode({
+
+    # ✅ URL 에도 strategy_type 을 태워서 넘겨두면
+    #    dashboard 측에서 필요 시 바로 읽어 쓸 수 있음 (옵션)
+    query_string = urlencode({
         "user_id": user_id,
         "virtual_krw": virtual_krw,
         "mode": mode,
         "verified": int(upbit_ok),
         "capital_set": int(capital_ok),
+        "strategy": selected_strategy_type,
     })
+
     st.markdown(
-        f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
+        f'<meta http-equiv="refresh" content="0; url=./{next_page}?{query_string}">',
         unsafe_allow_html=True,
     )
     st.stop()

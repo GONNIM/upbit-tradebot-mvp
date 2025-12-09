@@ -376,7 +376,7 @@ class EngineManager:
                 )
                 update_event_time(user_id)
             elif event_type == "EXCEPTION":
-                _, exc_type, exc_value, tb = event
+                _, _, exc_type, exc_value, tb = event
                 msg = f"❌ 예외: {exc_type.__name__}: {exc_value}"
                 insert_log(user_id, "ERROR", msg)
                 log_to_file(msg, user_id)

@@ -1,4 +1,5 @@
 import json
+from operator import is_
 import streamlit as st
 import pandas as pd
 import time
@@ -21,7 +22,12 @@ from services.db import (
     get_db
 )
 
-from config import PARAMS_JSON_FILENAME, REFRESH_INTERVAL, CONDITIONS_JSON_FILENAME
+from config import (
+    PARAMS_JSON_FILENAME,
+    REFRESH_INTERVAL,
+    CONDITIONS_JSON_FILENAME,
+    DEFAULT_STRATEGY_TYPE
+)
 from ui.style import style_main
 
 from core.trader import UpbitTrader
@@ -86,6 +92,7 @@ if is_live:
     if "live_capital_set" in st.session_state:
         capital_ok = capital_ok or bool(st.session_state["live_capital_set"])
 
+
 def get_current_balances(user_id: str, params_obj, is_live: bool):
     """
     자산 현황용 현재 잔고 조회.
@@ -112,6 +119,7 @@ def get_current_balances(user_id: str, params_obj, is_live: bool):
     acc = get_account(user_id) or 0.0
     coin = get_coin_balance(user_id, ticker) or 0.0
     return float(acc), float(coin)
+
 
 # ✅ 페이지 설정
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
@@ -200,7 +208,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.11.26.2051")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.09.2203")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -280,10 +288,21 @@ st.caption(f"DB file: `{get_db_path(user_id)}`")
 
 json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
 params_obj = load_params(json_path)
+# 🔍 디버그: 실제로 대시보드가 읽은 파라미터 확인
+# st.code(f"[DEBUG] json_path={json_path}", language="text")
+# st.json(params_obj.model_dump())
+# st.write("strategy_type from params_obj:", params_obj.strategy_type)
+
 # account_krw = get_account(user_id) or 0
 # st.write(account_krw)
 # coin_balance = get_coin_balance(user_id, params_obj.upbit_ticker) or 0.0
 account_krw, coin_balance = get_current_balances(user_id, params_obj, is_live)
+
+# ★ 현재 전략 태그 (MACD / EMA) – LiveParams에서 이미 대문자로 보장됨
+raw_strategy = getattr(params_obj, "strategy_type", None) or DEFAULT_STRATEGY_TYPE
+strategy_tag = str(raw_strategy).upper()
+is_macd = (strategy_tag == "MACD")
+is_ema = (strategy_tag == "EMA")
 
 # ===================== 🔧 PATCH: 자산 현황(항상 ROI 표시) START =====================
 st.subheader("💰 자산 현황")
@@ -850,28 +869,61 @@ def get_signal_confirm_enabled() -> str:
     return "사용" if params_obj.signal_confirm_enabled else "미사용"
 
 
+# ★ 전략 요약 HTML 동적으로 구성
+strategy_html_parts = [
+    f"<b>Strategy:</b> {strategy_tag}",
+    f"<b>Mode:</b> {mode}",
+    f"<b>Ticker:</b> {params_obj.ticker}",
+    f"<b>Interval:</b> {get_interval_label(params_obj.interval)}",
+]
+
+if is_macd:
+    # MACD 전략일 때만 MACD 상세 파라미터 표시
+    strategy_html_parts.append(
+        f"<b>MACD:</b> Fast={params_obj.fast_period}, "
+        f"Slow={params_obj.slow_period}, Signal={params_obj.signal_period}, "
+        f"기준값={params_obj.macd_threshold}"
+    )
+    strategy_html_parts.append(
+        f"<b>MACD Exit:</b> {get_macd_exit_enabled()}, Signal Confirm: {get_signal_confirm_enabled()}"
+    )
+elif is_ema:
+    # EMA 전략일 때는 EMA 관점으로 표기 (fast/slow는 그대로 재사용, Base=200 고정 운용)
+    strategy_html_parts.append(
+        f"<b>EMA:</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}, Base=200"
+    )
+
+strategy_html_parts.append(
+    f"<b>TP/SL:</b> {params_obj.take_profit*100:.1f}% / {params_obj.stop_loss*100:.1f}%"
+)
+strategy_html_parts.append(
+    f"<b>Order 비율:</b> {params_obj.order_ratio*100:.0f}%"
+)
+strategy_html_parts.append(
+    f"<b>최소 진입 Bar:</b> {params_obj.min_holding_period}"
+)
+strategy_html_parts.append(
+    f"<b>Cross Over:</b> {params_obj.macd_crossover_threshold}"
+)
+
 st.markdown(
-    f"""
-    <div style="padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500">
-        <b>Ticker:</b> {params_obj.ticker} &nbsp;|&nbsp;
-        <b>Interval:</b> {get_interval_label(params_obj.interval)} &nbsp;|&nbsp;
-        <b>MACD:</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}, Signal={params_obj.signal_period}, 기준값={params_obj.macd_threshold} &nbsp;|&nbsp;
-        <b>TP/SL:</b> {params_obj.take_profit*100:.1f}% / {params_obj.stop_loss*100:.1f}% &nbsp;|&nbsp;
-        <b>Order 비율:</b> {params_obj.order_ratio*100:.0f}% &nbsp;|&nbsp;
-        <b>최소 진입 Bar:</b> {params_obj.min_holding_period} &nbsp;|&nbsp;
-        <b>Cross Over:</b> {params_obj.macd_crossover_threshold}
-    </div>
-    """,
+    "<div style=\"padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500\">"
+    + " &nbsp;|&nbsp; ".join(strategy_html_parts) +
+    "</div>",
     unsafe_allow_html=True,
 )
 st.write("")
 
 st.divider()
 
-target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
+# ★ 전략별 Condition JSON 파일명:
+#   - MACD: {user_id}_MACD_buy_sell_conditions.json
+#   - EMA : {user_id}_EMA_buy_sell_conditions.json
+target_filename = f"{user_id}_{strategy_tag}_{CONDITIONS_JSON_FILENAME}"
 SAVE_PATH = Path(target_filename)
 
-BUY_CONDITIONS = {
+# ★ MACD용 조건 정의
+MACD_BUY_CONDITIONS = {
     "golden_cross": "🟢  Golden Cross",
     "macd_positive": "✳️  MACD > threshold",
     "signal_positive": "➕  Signal > threshold",
@@ -881,7 +933,7 @@ BUY_CONDITIONS = {
     "above_ma60": "🧮  Above MA60",
 }
 
-SELL_CONDITIONS = {
+MACD_SELL_CONDITIONS = {
     "trailing_stop": "🧮 Trailing Stop - Peak (-10%)",
     "take_profit": "💰  Take Profit",
     "stop_loss": "🔻  Stop Loss",
@@ -889,6 +941,27 @@ SELL_CONDITIONS = {
     "signal_negative": "➖  Signal < threshold",
     "dead_cross": "🔴  Dead Cross",
 }
+
+EMA_BUY_CONDITIONS = {
+    "ema_gc": "🟢 EMA Golden Cross",
+    "above_base_ema": "📈 Price > Base EMA",
+    "bullish_candle": "📈 Bullish Candle",
+}
+
+EMA_SELL_CONDITIONS = {
+    "ema_dc": "🔴 EMA Dead Cross",
+    "trailing_stop": "🧮 Trailing Stop",
+    "take_profit": "💰 Take Profit",
+    "stop_loss": "🔻 Stop Loss",
+}
+
+# ★ 현재 전략에 맞는 조건 세트 선택
+if is_ema:
+    BUY_CONDITIONS = EMA_BUY_CONDITIONS
+    SELL_CONDITIONS = EMA_SELL_CONDITIONS
+else:
+    BUY_CONDITIONS = MACD_BUY_CONDITIONS
+    SELL_CONDITIONS = MACD_SELL_CONDITIONS
 
 
 # --- 상태 불러오기 ---
@@ -942,13 +1015,16 @@ st.markdown(
 
 col1, col2 = st.columns([6, 1])
 with col1:
-    st.subheader("⚙️ 매수 전략")
+    # ★ 현재 전략 이름도 같이 표기
+    st.subheader(f"⚙️ 매수 전략 (Strategy: {strategy_tag})")
 with col2:
     if st.button("🛠️ 설정", use_container_width=True):
         params = urlencode({
             "virtual_krw": virtual_krw,
             "user_id": user_id,
             "mode": mode,
+            # ★ set_buy_sell_conditions 쪽에서 전략 분기할 수 있도록 넘겨줌
+            "strategy": strategy_tag,
         })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">',
@@ -967,7 +1043,7 @@ st.markdown(
 )
 st.write("")
 
-st.subheader("⚙️ 매도 전략")
+st.subheader(f"⚙️ 매도 전략 (Strategy: {strategy_tag})")
 st.markdown(
     "<table class='strategy-table'>"
     "<colgroup><col><col></colgroup>"  # 칼럼 비율 고정
@@ -1014,7 +1090,9 @@ with c4:
             "rows": int(audit_rows),
             "only_failed": int(bool(audit_only_failed)),
             "tab": default_tab,  # buy/sell/trades/settings 중 하나
-            "mode": mode
+            "mode": mode,
+            # ★ 감사로그에서도 전략별 필터링을 하고 싶다면 strategy도 전달 (지금은 써도 되고 안 써도 됨)
+            "strategy": strategy_tag,
         })
 
         next_page = "audit_viewer"  # 👈 pages/audit_viewer.py 파일명 기준 (아래 Step 2)
@@ -1038,7 +1116,8 @@ ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
 interval_code = getattr(params_obj, "interval", params_obj.interval)
 
 df_live = get_ohlcv_once(ticker, interval_code, count=600)  # 최근 600봉
-st.markdown(f"### 📈 Price & MACD ({mode}) : `{ticker}`")
+# ★ 차트 제목도 전략 표시
+st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag}")
 macd_altair_chart(
     df_live,
     fast=params_obj.fast_period,

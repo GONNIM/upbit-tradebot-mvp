@@ -1,9 +1,14 @@
 import streamlit as st
 import json
 from pathlib import Path
-from ui.style import style_main
-from config import CONDITIONS_JSON_FILENAME
 from urllib.parse import urlencode
+
+from ui.style import style_main
+from config import (
+    CONDITIONS_JSON_FILENAME,
+    STRATEGY_TYPES,         # ✅ 전략 리스트 (예: ["MACD", "EMA"])
+    DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
+)
 
 
 # --- 페이지 설정 ---
@@ -12,11 +17,34 @@ st.markdown(style_main, unsafe_allow_html=True)
 
 qp = st.query_params
 
+
 def _get_param(qp, key, default=None):
     v = qp.get(key, default)
     if isinstance(v, list):
         return v[0]
     return v
+
+
+def _strategy_tag_from_qs() -> str:
+    """
+    URL / 세션에서 strategy_type 을 읽어서
+    MACD / EMA 형태로 정규화.
+    """
+    # URL이 최우선
+    raw = _get_param(qp, "strategy", st.session_state.get("strategy_type", DEFAULT_STRATEGY_TYPE))
+    if not raw:
+        return DEFAULT_STRATEGY_TYPE.upper()
+
+    tag = str(raw).upper().strip()
+    allowed = [s.upper() for s in STRATEGY_TYPES]
+    if tag not in allowed:
+        # 이상한 값이 들어오면 디폴트로 폴백
+        tag = DEFAULT_STRATEGY_TYPE.upper()
+
+    # 세션에도 동일하게 박아두기 (다른 페이지에서 재사용)
+    st.session_state["strategy_type"] = tag
+    return tag
+
 
 user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
@@ -33,14 +61,26 @@ st.session_state["mode"] = mode
 if user_id == "":
     st.switch_page("app.py")
 
+# ============================================================
+# 🧠 전략 타입 결정 (MACD / EMA)
+#   - URL ?strategy=MACD / EMA 를 우선
+#   - 없으면 세션 / DEFAULT_STRATEGY_TYPE
+# ============================================================
+strategy_tag = _strategy_tag_from_qs()  # "MACD" or "EMA"
 
 # --- 사용자 설정 저장 경로 ---
-target_filename = f"{user_id}_{CONDITIONS_JSON_FILENAME}"
+# ✅ 엔진의 load_trade_conditions 와 동일 규칙:
+#     {user_id}_{STRATEGY}_{CONDITIONS_JSON_FILENAME}
+#     예) mcmax33_MACD_buy_sell_conditions.json
+target_filename = f"{user_id}_{strategy_tag}_{CONDITIONS_JSON_FILENAME}"
 SAVE_PATH = Path(target_filename)
 
-
-# --- 조건 목록 ---
-BUY_CONDITIONS = {
+# ============================================================
+# 전략별 조건 목록 정의
+#   - MACD 전용 조건 (기존 그대로)
+#   - EMA 전용 조건 (예시)
+# ============================================================
+MACD_BUY_CONDITIONS = {
     "golden_cross": "🟢  Golden Cross",
     "macd_positive": "✳️  MACD > threshold",
     "signal_positive": "➕  Signal > threshold",
@@ -50,7 +90,7 @@ BUY_CONDITIONS = {
     "above_ma60": "🧮  Above MA60",
 }
 
-SELL_CONDITIONS = {
+MACD_SELL_CONDITIONS = {
     "trailing_stop": "🧮 Trailing Stop - Peak (-10%)",
     "take_profit": "💰  Take Profit",
     "stop_loss": "🔻  Stop Loss",
@@ -59,9 +99,38 @@ SELL_CONDITIONS = {
     "dead_cross": "🔴  Dead Cross",
 }
 
+EMA_BUY_CONDITIONS = {
+    "ema_gc": "🟢 EMA Golden Cross",
+    "above_base_ema": "📈 Price > Base EMA",
+    "bullish_candle": "📈 Bullish Candle",
+}
+
+EMA_SELL_CONDITIONS = {
+    "ema_dc": "🔴 EMA Dead Cross",
+    "trailing_stop": "🧮 Trailing Stop",
+    "take_profit": "💰 Take Profit",
+    "stop_loss": "🔻 Stop Loss",
+}
+
+if strategy_tag == "EMA":
+    BUY_CONDITIONS = EMA_BUY_CONDITIONS
+    SELL_CONDITIONS = EMA_SELL_CONDITIONS
+else:
+    # 기본은 MACD
+    BUY_CONDITIONS = MACD_BUY_CONDITIONS
+    SELL_CONDITIONS = MACD_SELL_CONDITIONS
+
 
 # --- 상태 불러오기 ---
 def load_conditions():
+    """
+    현재 strategy_tag 에 대응하는 파일에서 조건 로드.
+    파일 구조:
+        {
+            "buy": {condition_key: bool, ...},
+            "sell": {condition_key: bool, ...}
+        }
+    """
     if SAVE_PATH.exists():
         with SAVE_PATH.open("r", encoding="utf-8") as f:
             saved = json.load(f)
@@ -71,7 +140,7 @@ def load_conditions():
                 st.session_state[key] = buy_saved.get(key, False)
             for key in SELL_CONDITIONS:
                 st.session_state[key] = sell_saved.get(key, False)
-        st.info("✅ 저장된 매수/매도 전략 Condition 설정을 불러왔습니다.")
+        st.info(f"✅ [{strategy_tag}] 저장된 매수/매도 전략 Condition 설정을 불러왔습니다.")
     else:
         for key in BUY_CONDITIONS:
             st.session_state.setdefault(key, False)
@@ -87,7 +156,7 @@ def save_conditions():
     }
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
-    st.success("✅ 매수/매도 전략 Condition 설정이 저장되었습니다.")
+    st.success(f"✅ [{strategy_tag}] 매수/매도 전략 Condition 설정이 저장되었습니다.")
 
 
 def go_dashboard():
@@ -96,6 +165,7 @@ def go_dashboard():
         "user_id": user_id,
         "virtual_krw": virtual_krw,
         "mode": mode,
+        "strategy": strategy_tag,
     })
     st.markdown(
         f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">',
@@ -105,9 +175,11 @@ def go_dashboard():
 
 
 # --- 최초 로딩 시 상태 불러오기 ---
-if "loaded" not in st.session_state:
+# 전략이 바뀌어도 각 전략별로 다시 로딩되도록 key를 분리
+loaded_key = f"loaded_{strategy_tag}"
+if not st.session_state.get(loaded_key, False):
     load_conditions()
-    st.session_state["loaded"] = True
+    st.session_state[loaded_key] = True
 
 # --- 토글 UI 스타일 추가 ---
 st.markdown(
@@ -143,20 +215,23 @@ st.markdown(
 )
 
 # --- 제목 및 UI ---
-st.markdown("### 📊 매수 전략 Condition 설정")
+st.markdown(f"### 📊 [{strategy_tag}] 매수/매도 전략 Condition 설정")
 st.subheader("📋 매수 전략 Option 선택")
 for key, label in BUY_CONDITIONS.items():
     st.session_state[key] = st.toggle(
-        label, value=st.session_state.get(key, False), key=f"toggle_{key}"
+        label,
+        value=st.session_state.get(key, False),
+        key=f"toggle_{strategy_tag}_buy_{key}", 
     )
 
 st.divider()
 
-st.markdown("### 📉 매도 전략 Condition 설정")
 st.subheader("📋 매도 전략 Option 선택")
 for key, label in SELL_CONDITIONS.items():
     st.session_state[key] = st.toggle(
-        label, value=st.session_state.get(key, False), key=f"toggle_{key}"
+        label,
+        value=st.session_state.get(key, False),
+        key=f"toggle_{strategy_tag}_sell_{key}",
     )
 
 st.divider()
@@ -171,6 +246,7 @@ st.subheader("⚙️ 현재 매수/매도 전략 Option 상태")
 st.markdown("**📈 매수 전략 상태**")
 for key, label in BUY_CONDITIONS.items():
     st.write(f"{label}: {'✅ ON' if st.session_state[key] else '❌ OFF'}")
+    
 st.markdown("**📉 매도 전략 상태**")
 for key, label in SELL_CONDITIONS.items():
     st.write(f"{label}: {'✅ ON' if st.session_state[key] else '❌ OFF'}")

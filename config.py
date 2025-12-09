@@ -65,3 +65,8 @@ AUDIT_BUY_SAMPLE_N = 60          # 동일 상태가 지속되어도 N bar마다 
 AUDIT_BUY_COOLDOWN_BARS = 15     # 동일 상태에서 최소 대기 bar 수
 AUDIT_SELL_SAMPLE_N = 60         # (SELL 평가 샘플링 간격; 필요 시)
 AUDIT_SELL_COOLDOWN_BARS = 10    # SELL 평가 쿨다운
+
+# 엔진 실행 모드: 
+# - "BACKTEST" : 지금처럼 _run_backtest_once만 사용
+# - "REPLAY"   : run_replay_on_dataframe(...) 기반으로 동작
+ENGINE_EXEC_MODE = "REPLAY"  # 또는 "BACKTEST"
