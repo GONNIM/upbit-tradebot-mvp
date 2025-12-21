@@ -111,23 +111,151 @@ def _max_history_bars_for(params: LiveParams) -> int:
 # 공통 유틸
 # ============================================================
 def _normalize_asset(ticker: str) -> str:
-    return ticker.split("-")[-1].strip().upper() if ticker else ticker
+    """
+    KRW-PEPE → PEPE, 이미 단일심볼이면 그대로.
+    """
+    if not ticker:
+        return ""
+    t = ticker.strip().upper()
+    if "-" not in t:
+        return t.split("-")[-1]
+    return t
 
 
 def _wallet_has_position(trader: UpbitTrader, ticker: str) -> bool:
-    sym = _normalize_asset(ticker)
+    """
+    - 실질 포지션 여부는 '코인 잔고 > 0' 기준으로만 판정
+    - KRW 잔고는 여기 관여 X
+    """
     try:
-        return trader._coin_balance(sym) >= 1e-6
-    except Exception:
+        # ✅ normalize 하지 말고, 전체 ticker("KRW-PEPE")를 그대로 넘긴다.
+        bal = float(trader._coin_balance(ticker))
+        logger.info(f"[WALLET-HAS-POS] ticker={ticker} coin_bal={bal}")
+        return bal >= 1e-6
+    except Exception as e:
+        logger.warning(f"[WALLET-HAS-POS] _coin_balance({ticker}) failed: {e}")
         return False
 
 
 def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
-    sym = _normalize_asset(ticker)
+    """
+    - 포지션 판단용 '코인 수량'만 반환
+    - 이 값으로 in_position 을 판단
+    """
     try:
-        return float(trader._coin_balance(sym))
-    except Exception:
+        # ✅ 마찬가지로 ticker 그대로 사용
+        bal = float(trader._coin_balance(ticker))
+        logger.info(f"[WALLET-BAL] ticker={ticker} coin_bal={bal}")
+        return bal
+    except Exception as e:
+        logger.warning(f"[WALLET-BAL] _coin_balance({ticker}) failed: {e}")
         return 0.0
+
+
+# ============================================================
+# 거래 시간 제한 (Trading Hours Restriction)
+# ============================================================
+def _parse_time(time_str: str):
+    """
+    HH:MM 문자열을 time 객체로 변환
+    예: "09:00" -> time(9, 0)
+    """
+    from datetime import time
+    try:
+        h, m = map(int, time_str.split(":"))
+        return time(h, m)
+    except Exception as e:
+        logger.warning(f"[TIME] Invalid time format: {time_str}, using 00:00. Error: {e}")
+        return time(0, 0)
+
+
+def _is_trading_hours(params: LiveParams) -> bool:
+    """
+    현재 시간이 거래 가능 시간인지 판단 (KST 기준)
+
+    Returns:
+        True: 거래 가능 시간
+        False: 거래 쉬는시간
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # 기능 비활성화 시 항상 True (24시간 거래)
+    if not getattr(params, "enable_trading_hours", False):
+        return True
+
+    # REPLAY 모드에서는 항상 True (백테스트용)
+    if getattr(params, "engine_exec_mode", "BACKTEST") == "REPLAY":
+        return True
+
+    # 현재 시간 (KST)
+    now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+    current_time = now_kst.time()
+
+    # 설정된 시작/종료 시간
+    start_time = _parse_time(getattr(params, "trading_start_time", "00:00"))
+    end_time = _parse_time(getattr(params, "trading_end_time", "23:59"))
+
+    # 시작 < 종료 (예: 09:00 ~ 18:00, 같은 날 내)
+    if start_time < end_time:
+        is_allowed = start_time <= current_time < end_time
+    # 시작 > 종료 (예: 21:00 ~ 06:00, 자정 넘김)
+    else:
+        is_allowed = current_time >= start_time or current_time < end_time
+
+    return is_allowed
+
+
+def _can_buy_now(params: LiveParams, has_position: bool) -> Tuple[bool, str]:
+    """
+    현재 매수 가능 여부 판단
+
+    Returns:
+        (can_buy: bool, reason: str)
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # 거래 시간 체크
+    if not _is_trading_hours(params):
+        now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+        current_time_str = now_kst.strftime("%H:%M")
+        start = getattr(params, "trading_start_time", "00:00")
+        end = getattr(params, "trading_end_time", "23:59")
+
+        return False, f"⏰ 거래 쉬는시간 ({current_time_str}) - 거래 시간: {start}~{end}"
+
+    return True, "✅ 거래 가능 시간"
+
+
+def _can_sell_now(params: LiveParams, has_position: bool) -> Tuple[bool, str]:
+    """
+    현재 매도 가능 여부 판단
+
+    Returns:
+        (can_sell: bool, reason: str)
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # 포지션 없으면 매도할 게 없음
+    if not has_position:
+        return False, "포지션 없음"
+
+    # 거래 시간 체크
+    if not _is_trading_hours(params):
+        allow_sell = getattr(params, "allow_sell_during_off_hours", True)
+
+        if allow_sell:
+            now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+            current_time_str = now_kst.strftime("%H:%M")
+            return True, f"⏰ 거래 쉬는시간 ({current_time_str})이지만 포지션 보유 중 - 매도 허용"
+        else:
+            now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+            current_time_str = now_kst.strftime("%H:%M")
+            return False, f"⏰ 거래 쉬는시간 ({current_time_str}) - 매도 차단"
+
+    return True, "✅ 거래 가능 시간"
 
 
 def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[float]:
@@ -406,12 +534,19 @@ def _build_live_strategy_cls(
         events_cls = MACDStrategy
     else:
         raise RuntimeError(f"Unsupported base strategy class: {base_cls}")
-    
+
+    # interval_sec 계산
+    interval_sec = getattr(params, "interval_sec", 60)
+
     live_attrs: Dict[str, Any] = {
         # 공통 메타
         "user_id": user_id,
         "ticker": params.upbit_ticker,
-        "strategy_type": strategy_tag,
+        "upbit_ticker": params.upbit_ticker,
+        "interval_sec": interval_sec,
+        "min_holding_period": params.min_holding_period,
+        "macd_crossover_threshold": params.macd_crossover_threshold,
+        "strategy_type": strategy_tag,  # ✅ 전략 타입 (조건 파일 로드에 필요)
     }
 
     # ★ 지갑 훅 (LIVE에서는 실제, REPLAY에서는 더미)
@@ -452,6 +587,12 @@ def _build_live_strategy_cls(
             base_ema_period=getattr(params, "base_ema_period", EMAStrategy.base_period),
             take_profit=params.take_profit,
             stop_loss=params.stop_loss,
+            # ✅ 매수/매도 별도 EMA 파라미터 추가
+            use_separate_ema=getattr(params, "use_separate_ema", True),
+            fast_buy=getattr(params, "fast_buy", None),
+            slow_buy=getattr(params, "slow_buy", None),
+            fast_sell=getattr(params, "fast_sell", None),
+            slow_sell=getattr(params, "slow_sell", None),
         )
 
     strategy_cls = type("LiveStrategy", (base_cls,), live_attrs)
@@ -484,10 +625,11 @@ def _run_engine_once(
     - REPLAY 모드  : run_replay_on_dataframe(...)를 사용해서 같은 형태의 결과를 맞춰 리턴
     """
     exec_mode = _resolve_engine_mode(params)
+    logger.info(f"🔍 [DEBUG] _run_engine_once: exec_mode={exec_mode!r} | params.engine_exec_mode={getattr(params, 'engine_exec_mode', 'N/A')}")
 
     # 1) 기존 방식 그대로 (현재 LIVE 루프에서 쓰던 것)
     if exec_mode == "BACKTEST":
-        return _run_backtest_once(
+        df_bt, latest_bar_bt, log_events, trade_events, cross_log, macd_log, signal_log, price_log, last_log = _run_backtest_once(
             df=df,
             params=params,
             strategy_cls=strategy_cls,
@@ -495,6 +637,7 @@ def _run_engine_once(
             mode_tag=mode_tag,
             base_cls=base_cls,
         )
+        return df_bt, latest_bar_bt, log_events, trade_events, cross_log, macd_log, signal_log, price_log, last_log
 
     # 2) REPLAY 방식: 우리가 만든 run_replay_on_dataframe 재사용
     #    - 여기서는 UpbitTrader/Wallet 등을 전혀 보지 않고
@@ -539,6 +682,8 @@ def _run_backtest_once(
         log_events, trade_events: 전략이 쌓은 이벤트
         cross_log, macd_log, signal_log, price_log: 마지막 bar 기준 LOG 스냅샷
     """
+    logger.info(f"🔍 [DEBUG] _run_backtest_once CALLED | mode={mode_tag} | len(df)={len(df)}")
+
     # --- 이벤트 버퍼 초기화 ---
     events_cls.log_events = []
     events_cls.trade_events = []
@@ -568,16 +713,45 @@ def _run_backtest_once(
 
     latest_bar_bt = len(df_bt) - 1
 
-    # 최신 LOG 찾기 (기존 로직 재사용)
-    cross_log = macd_log = signal_log = price_log = None
+    # ✅ 최신 LOG 찾기 - 전략별 분기
+    last_log = {}
     if latest_bar_bt >= 0:
         for event in reversed(log_events):
-            # event: (bar_idx, "LOG", cross, macd, signal, price)
             if event[1] == "LOG" and event[0] == latest_bar_bt:
-                _, _, cross_log, macd_log, signal_log, price_log = event
+                strategy_tag = params.strategy_type.upper() if params.strategy_type else "MACD"
+
+                if strategy_tag == "EMA":
+                    # EMA 확장 포맷: (bar, "LOG", cross, ema_fast_buy, ema_slow_buy, ema_fast_sell, ema_slow_sell, ema_base, price)
+                    if len(event) >= 9:
+                        _, _, cross_log, ema_fast_buy, ema_slow_buy, ema_fast_sell, ema_slow_sell, ema_base, price_log = event
+                        last_log = {
+                            "cross": cross_log,
+                            "ema_fast_buy": ema_fast_buy,
+                            "ema_slow_buy": ema_slow_buy,
+                            "ema_fast_sell": ema_fast_sell,
+                            "ema_slow_sell": ema_slow_sell,
+                            "ema_base": ema_base,
+                            "price": price_log,
+                        }
+                else:
+                    # MACD 포맷: (bar, "LOG", cross, macd, signal, price)
+                    if len(event) >= 6:
+                        _, _, cross_log, macd_log, signal_log, price_log = event
+                        last_log = {
+                            "cross": cross_log,
+                            "macd": macd_log,
+                            "signal": signal_log,
+                            "price": price_log,
+                        }
                 break
 
-    return df_bt, latest_bar_bt, log_events, trade_events, cross_log, macd_log, signal_log, price_log
+    # 기존 호환성을 위해 개별 변수도 반환 (MACD용)
+    cross_log = last_log.get("cross")
+    macd_log = last_log.get("macd") or last_log.get("ema_fast_sell")  # EMA는 매도용 사용
+    signal_log = last_log.get("signal") or last_log.get("ema_slow_sell")
+    price_log = last_log.get("price")
+
+    return df_bt, latest_bar_bt, log_events, trade_events, cross_log, macd_log, signal_log, price_log, last_log
 
 
 # ============================================================
@@ -688,6 +862,8 @@ def run_live_loop(
                     # time.sleep(1)
                     # continue
 
+                logger.info(f"🔍 [DEBUG] About to call _run_engine_once | len(df)={len(df)} | min_hist={min_hist}")
+
                 # ★ 공통 Backtest 실행 로직 호출
                 (
                     df_bt,
@@ -698,6 +874,7 @@ def run_live_loop(
                     macd_log,
                     signal_log,
                     price_log,
+                    last_log,
                 ) = _run_engine_once(
                     df=df,
                     params=params,
@@ -712,19 +889,35 @@ def run_live_loop(
                 latest_index_live = df.index[-1]
                 latest_price_live = float(df.Close.iloc[-1])
 
-                # --- 최신 LOG 전송 (MACD / EMA 공통) ---
+                # --- 최신 LOG 전송 - 전략별 분기 ---
                 if latest_bar_bt >= 0 and cross_log is not None:
                     log_ts = df_bt.index[latest_bar_bt]
                     try:
-                        msg = (
-                            f"{log_ts} | price={price_log:.2f} | "
-                            f"cross={cross_log} | macd={macd_log:.5f} | signal={signal_log:.5f} | bar={latest_bar_bt}"
-                        )
-                    except Exception:
-                        # price_log / macd_log 등이 None인 경우 방어
+                        if strategy_tag == "EMA":
+                            # EMA 전략: 매수/매도/기준 EMA 모두 표시
+                            ema_fast_buy = last_log.get("ema_fast_buy", 0.0)
+                            ema_slow_buy = last_log.get("ema_slow_buy", 0.0)
+                            ema_fast_sell = last_log.get("ema_fast_sell", 0.0)
+                            ema_slow_sell = last_log.get("ema_slow_sell", 0.0)
+                            ema_base = last_log.get("ema_base", 0.0)
+                            msg = (
+                                f"{log_ts} | price={price_log:.2f} | cross={cross_log} | "
+                                f"ema_fast_buy={ema_fast_buy:.5f} | ema_slow_buy={ema_slow_buy:.5f} | "
+                                f"ema_fast_sell={ema_fast_sell:.5f} | ema_slow_sell={ema_slow_sell:.5f} | "
+                                f"ema_base={ema_base:.5f} | bar={latest_bar_bt}"
+                            )
+                        else:
+                            # MACD 전략
+                            msg = (
+                                f"{log_ts} | price={price_log:.2f} | "
+                                f"cross={cross_log} | macd={macd_log:.5f} | signal={signal_log:.5f} | bar={latest_bar_bt}"
+                            )
+                    except Exception as e:
+                        # 방어 코드
+                        logger.warning(f"[LOG] message formatting failed: {e}")
                         msg = (
                             f"{log_ts} | price={price_log} | "
-                            f"cross={cross_log} | macd={macd_log} | signal={signal_log} | bar={latest_bar_bt}"
+                            f"cross={cross_log} | strategy={strategy_tag} | bar={latest_bar_bt}"
                         )
                     q.put((log_ts, "LOG", f"[{mode_tag}] {msg}"))
                 
@@ -733,6 +926,10 @@ def run_live_loop(
                     trader, params.upbit_ticker, user_id, entry_price
                 )
                 logger.info(f"[POS] ({mode_tag}) in_position={in_position}, entry_price={entry_price}")
+
+                # --- 거래 시간 제한 체크 ---
+                can_buy, buy_reason = _can_buy_now(params, in_position)
+                can_sell, sell_reason = _can_sell_now(params, in_position)
 
                 # --- Wallet-Guard (SL/TP 즉시 매도) ---
                 try:
@@ -857,6 +1054,12 @@ def run_live_loop(
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
+                    # ✅ 거래 시간 제한 체크
+                    if not can_buy:
+                        logger.info(f"⏰ ({mode_tag}) [BUY-SKIP] {buy_reason}")
+                        logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
+                        continue
+
                     ok, passed, failed, det = check_buy_conditions(
                         strategy_tag,
                         evt,
@@ -959,6 +1162,12 @@ def run_live_loop(
                 else:
                     if etype != "SELL":
                         logger.info(f"⛔ ({mode_tag}) 포지션 있음 → BUY 무시")
+                        logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
+                        continue
+
+                    # ✅ 거래 시간 제한 체크
+                    if not can_sell:
+                        logger.warning(f"⏰ ({mode_tag}) [SELL-SKIP] {sell_reason}")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
@@ -1078,6 +1287,7 @@ def run_replay_on_dataframe(
         macd_log,
         signal_log,
         price_log,
+        last_log,
     ) = _run_backtest_once(
         df=df,
         params=params,
@@ -1096,12 +1306,7 @@ def run_replay_on_dataframe(
     return {
         "df_bt": df_bt,                      # 마지막 봉 제외된 백테스트 기준 DF
         "latest_bar": latest_bar_bt,         # df_bt 기준 마지막 bar index
-        "log_events": log_events,            # (bar_idx, "LOG", cross, macd, signal, price)
+        "log_events": log_events,            # (bar_idx, "LOG", cross, ...)
         "trade_events": trade_events,        # {"bar": int, "type": "BUY/SELL", ...}
-        "last_log": {                        # 마지막 bar 기준 LOG 스냅샷
-            "cross": cross_log,
-            "macd": macd_log,
-            "signal": signal_log,
-            "price": price_log,
-        },
+        "last_log": last_log,                # 전략별 LOG 스냅샷 (MACD or EMA)
     }

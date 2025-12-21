@@ -40,7 +40,7 @@ STRATEGY_TYPES = ["MACD", "EMA"]
 DEFAULT_STRATEGY_TYPE = "MACD"
 
 # Strategy
-MIN_HOLDING_PERIOD = 5
+MIN_HOLDING_PERIOD = 1
 VOLATILITY_WINDOW = 20
 TRAILING_STOP_PERCENT = 0.1
 
@@ -69,4 +69,4 @@ AUDIT_SELL_COOLDOWN_BARS = 10    # SELL 평가 쿨다운
 # 엔진 실행 모드: 
 # - "BACKTEST" : 지금처럼 _run_backtest_once만 사용
 # - "REPLAY"   : run_replay_on_dataframe(...) 기반으로 동작
-ENGINE_EXEC_MODE = "REPLAY"  # 또는 "BACKTEST"
+ENGINE_EXEC_MODE = "BACKTEST"  # 또는 "BACKTEST"

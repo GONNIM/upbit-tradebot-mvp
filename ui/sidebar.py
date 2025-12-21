@@ -5,6 +5,7 @@ from config import (
     PARAMS_JSON_FILENAME,
     STRATEGY_TYPES,
     DEFAULT_STRATEGY_TYPE,
+    ENGINE_EXEC_MODE,
 )
 from engine.params import load_params
 
@@ -29,7 +30,10 @@ CASH_OPTIONS = {
 
 def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
     json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
-    load_params_obj = load_params(json_path)
+    # ✅ 전략별 파라미터를 로드하도록 strategy_type 전달
+    #    -> MACD / EMA 각각 다른 fast/slow 값을 유지할 수 있음
+    load_params_obj = load_params(json_path, strategy_type=strategy_type)
+
     # 파일에서 읽어온 마지막 저장값 (공통 기본값)
     DEFAULT_PARAMS = load_params_obj.dict() if load_params_obj else {}
 
@@ -51,7 +55,8 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
         DEFAULT_PARAMS.get("engine_exec_mode") or "REPLAY"
     ).upper().strip()
     if current_mode not in ("BACKTEST", "REPLAY"):
-        current_mode = "REPLAY"
+        current_mode = "BACKTEST"
+    current_mode = ENGINE_EXEC_MODE
 
     # 🔑 전략별 UI 기본값을 세션에 따로 보관하기 위한 키
     strategy_key = f"ui_defaults_{current_strategy}"
@@ -90,43 +95,92 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
 
             # ---------- EMA / MACD 별 기본값 분기 ----------
             if is_ema:
-                fast_default = DEFAULT_PARAMS.get("fast_period", 20)
-                slow_default = DEFAULT_PARAMS.get("slow_period", 200)
+                st.divider()
+                st.subheader("📊 EMA 매수/매도 설정")
+
+                # 매수/매도 별도 설정 여부
+                use_separate = st.checkbox(
+                    "매수/매도 EMA 별도 설정",
+                    value=DEFAULT_PARAMS.get("use_separate_ema", True),
+                    help="체크 시 매수와 매도에 각각 다른 EMA 쌍을 사용합니다."
+                )
+
+                if use_separate:
+                    # 별도 설정 모드
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.markdown("**🟢 매수 EMA**")
+                        fast_buy = st.number_input(
+                            "Fast (매수)",
+                            min_value=1,
+                            max_value=500,
+                            value=DEFAULT_PARAMS.get("fast_buy", 60),
+                            help="매수 판단용 단기 EMA"
+                        )
+                        slow_buy = st.number_input(
+                            "Slow (매수)",
+                            min_value=1,
+                            max_value=500,
+                            value=DEFAULT_PARAMS.get("slow_buy", 200),
+                            help="매수 판단용 장기 EMA"
+                        )
+
+                    with col2:
+                        st.markdown("**🔴 매도 EMA**")
+                        fast_sell = st.number_input(
+                            "Fast (매도)",
+                            min_value=1,
+                            max_value=500,
+                            value=DEFAULT_PARAMS.get("fast_sell", 20),
+                            help="매도 판단용 단기 EMA"
+                        )
+                        slow_sell = st.number_input(
+                            "Slow (매도)",
+                            min_value=1,
+                            max_value=500,
+                            value=DEFAULT_PARAMS.get("slow_sell", 60),
+                            help="매도 판단용 장기 EMA"
+                        )
+
+                    st.info(f"매수: {fast_buy}/{slow_buy} GC | 매도: {fast_sell}/{slow_sell} DC")
+                else:
+                    # 공통 설정 모드 (기존)
+                    st.markdown("**공통 EMA (매수/매도 동일)**")
+                    fast = st.number_input("단기 EMA", 1, 500, value=DEFAULT_PARAMS.get("fast_period", 20))
+                    slow = st.number_input("장기 EMA", 1, 500, value=DEFAULT_PARAMS.get("slow_period", 200))
+
+                    # 내부적으로 매수/매도 동일하게 설정
+                    fast_buy = fast_sell = fast
+                    slow_buy = slow_sell = slow
+
                 base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)
                 # EMA는 signal_period를 UI로 안 받되 값은 필요하므로 그대로 유지
                 signal_val = int(DEFAULT_PARAMS.get("signal_period", 9))
             else:
-                fast_default = DEFAULT_PARAMS.get("fast_period", 12)
-                slow_default = DEFAULT_PARAMS.get("slow_period", 26)
-                base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)  # MACD에선 사실상 의미 없음
+                # MACD 전략은 기존 로직 유지
+                use_separate = False
+                fast = st.number_input("단기 EMA", 1, 100, value=DEFAULT_PARAMS.get("fast_period", 12))
+                slow = st.number_input("장기 EMA", 1, 240, value=DEFAULT_PARAMS.get("slow_period", 26))
+                fast_buy = fast_sell = fast
+                slow_buy = slow_sell = slow
+                base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)
                 signal_val = st.number_input(
                     "신호선 기간", 1, 50, value=DEFAULT_PARAMS.get("signal_period", 9)
                 )
 
-            fast = st.number_input(
-                "단기 EMA",
-                1,
-                100,
-                value=fast_default,
-            )
-            slow = st.number_input(
-                "장기 EMA",
-                1,
-                240,
-                value=slow_default,
-            )
-
-            # Base EMA: EMA일 때만 UI에 노출
-            if is_ema:
-                base_ema_period = st.number_input(
-                    "Base EMA",
-                    1,
-                    500,
-                    value=base_ema_default,
-                )
-            else:
-                # MACD에서는 내부적으로만 유지
-                base_ema_period = base_ema_default
+            # # Base EMA: EMA일 때만 UI에 노출
+            # if is_ema:
+            #     base_ema_period = st.number_input(
+            #         "Base EMA",
+            #         1,
+            #         500,
+            #         value=base_ema_default,
+            #     )
+            # else:
+            #     # MACD에서는 내부적으로만 유지
+            #     base_ema_period = base_ema_default
+            base_ema_period = base_ema_default
             
             # ---------- MACD 전용 threshold ----------
             if is_macd:
@@ -148,7 +202,7 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                     0.1,
                     50.0,
                     value=tp_default,
-                    step=0.5,
+                    step=0.1,
                 )
                 / 100
             )
@@ -156,12 +210,68 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             sl = (
                 st.number_input(
                     "Stop Loss (%)",
-                    0.5,
+                    0.1,
                     50.0,
                     value=sl_default,
-                    step=0.5,
+                    step=0.1,
                 )
                 / 100
+            )
+
+            # ========== 거래 시간 제한 ==========
+            st.divider()
+            st.subheader("⏰ 거래 시간 제한")
+
+            # 1️⃣ 시간 입력 UI (항상 표시)
+            col_start, col_end = st.columns(2)
+
+            with col_start:
+                from datetime import datetime
+                start_time_str = DEFAULT_PARAMS.get("trading_start_time", "09:00")
+                try:
+                    start_time_obj = datetime.strptime(start_time_str, "%H:%M").time()
+                except Exception:
+                    start_time_obj = datetime.strptime("09:00", "%H:%M").time()
+
+                trading_start_time = st.time_input(
+                    "거래 시작 시간",
+                    value=start_time_obj,
+                    help="매일 이 시간부터 거래 시작 (KST)"
+                ).strftime("%H:%M")
+
+            with col_end:
+                end_time_str = DEFAULT_PARAMS.get("trading_end_time", "02:00")
+                try:
+                    end_time_obj = datetime.strptime(end_time_str, "%H:%M").time()
+                except Exception:
+                    end_time_obj = datetime.strptime("02:00", "%H:%M").time()
+
+                trading_end_time = st.time_input(
+                    "거래 종료 시간",
+                    value=end_time_obj,
+                    help="매일 이 시간에 거래 중지 (KST)"
+                ).strftime("%H:%M")
+
+            # 2️⃣ 기능 활성화 체크박스
+            enable_trading_hours = st.checkbox(
+                "✅ 거래 시간 제한 활성화",
+                value=DEFAULT_PARAMS.get("enable_trading_hours", False),
+                help="체크 시 위 시간대에만 거래합니다 (새벽 슬리피지 방지)"
+            )
+
+            # 3️⃣ 포지션 보호 옵션
+            allow_sell_during_off_hours = st.checkbox(
+                "⭐ 포지션 보유 시 거래 쉬는시간에도 매도 허용 (권장)",
+                value=DEFAULT_PARAMS.get("allow_sell_during_off_hours", True),
+                help="체크 권장: 포지션 보호를 위해 TP/SL/TS는 항상 작동해야 함"
+            )
+
+            # 4️⃣ 설정 요약 표시
+            st.info(
+                f"**{'🟢 활성화' if enable_trading_hours else '⚪ 비활성화'}**\n\n"
+                f"**거래 시간**: {trading_start_time} ~ {trading_end_time} (KST)\n\n"
+                f"**휴식 시간**: {trading_end_time} ~ {trading_start_time}\n\n"
+                f"{'✅ 포지션 보유 시 매도는 항상 허용됨' if allow_sell_during_off_hours else '⚠️ 포지션 보유 시에도 매도 차단 (비권장)'}"
             )
 
             # MACD 전용 옵션 (EMA에서는 강제 False)
@@ -208,11 +318,22 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             return None
 
     try:
+        # fast_period, slow_period는 기존 호환성을 위해 유지
+        # EMA 전략에서는 fast_sell/slow_sell을 기본값으로 사용
+        if is_ema:
+            final_fast = int(fast_sell)
+            final_slow = int(slow_sell)
+        else:
+            # MACD는 fast/slow 변수 사용
+            final_fast = int(fast)
+            final_slow = int(slow)
+
         params = LiveParams(
             ticker=ticker,
             interval=INTERVAL_OPTIONS[interval_name],
-            fast_period=int(fast),
-            slow_period=int(slow),
+            # 기존 공통 파라미터
+            fast_period=final_fast,
+            slow_period=final_slow,
             signal_period=int(signal_val),
             macd_threshold=macd_threshold,
             take_profit=tp,
@@ -224,6 +345,17 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             base_ema_period=int(base_ema_period),
             strategy_type=current_strategy,
             engine_exec_mode=current_mode,
+            # 거래 시간 제한
+            enable_trading_hours=enable_trading_hours,
+            trading_start_time=trading_start_time,
+            trading_end_time=trading_end_time,
+            allow_sell_during_off_hours=allow_sell_during_off_hours,
+            # EMA 매수/매도 별도 설정
+            use_separate_ema=use_separate if is_ema else False,
+            fast_buy=int(fast_buy) if (is_ema and use_separate) else None,
+            slow_buy=int(slow_buy) if (is_ema and use_separate) else None,
+            fast_sell=int(fast_sell) if (is_ema and use_separate) else None,
+            slow_sell=int(slow_sell) if (is_ema and use_separate) else None,
         )
 
         # 🔁 이 전략 타입에 대한 마지막 입력값을 세션에 따로 저장

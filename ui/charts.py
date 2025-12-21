@@ -5,8 +5,10 @@ import streamlit as st
 
 __all__ = [
     "compute_macd",
+    "compute_ema",
     "prep_for_chart",
     "macd_altair_chart",
+    "ema_altair_chart",
     "macd_mpl_chart",
 ]
 
@@ -24,6 +26,35 @@ def compute_macd(
     out["MACD"] = ema_fast - ema_slow
     out["Signal"] = out["MACD"].ewm(span=signal, adjust=False).mean()
     out["Hist"] = out["MACD"] - out["Signal"]
+    return out
+
+def compute_ema(
+    df: pd.DataFrame,
+    close_col: str = "Close",
+    use_separate: bool = True,
+    fast_buy: int = 60,
+    slow_buy: int = 200,
+    fast_sell: int = 20,
+    slow_sell: int = 60,
+    base: int = 200,
+) -> pd.DataFrame:
+    """EMA 라인 계산 (매수/매도 별도 or 공통)."""
+    out = df.copy()
+
+    if use_separate:
+        # 매수/매도 별도 EMA
+        out["EMA_Fast_Buy"] = out[close_col].ewm(span=fast_buy, adjust=False).mean()
+        out["EMA_Slow_Buy"] = out[close_col].ewm(span=slow_buy, adjust=False).mean()
+        out["EMA_Fast_Sell"] = out[close_col].ewm(span=fast_sell, adjust=False).mean()
+        out["EMA_Slow_Sell"] = out[close_col].ewm(span=slow_sell, adjust=False).mean()
+    else:
+        # 공통 EMA (fast_sell, slow_sell 사용)
+        out["EMA_Fast"] = out[close_col].ewm(span=fast_sell, adjust=False).mean()
+        out["EMA_Slow"] = out[close_col].ewm(span=slow_sell, adjust=False).mean()
+
+    # 기준 EMA
+    out["EMA_Base"] = out[close_col].ewm(span=base, adjust=False).mean()
+
     return out
 
 def normalize_time_index(
@@ -157,6 +188,138 @@ def macd_altair_chart(
     layers.append(macd_panel)
 
     chart = alt.vconcat(*layers).resolve_scale(x="shared")
+    st.altair_chart(chart.interactive(), use_container_width=use_container_width)
+
+def ema_altair_chart(
+    df_raw: pd.DataFrame,
+    *,
+    use_separate: bool = True,
+    fast_buy: int = 60,
+    slow_buy: int = 200,
+    fast_sell: int = 20,
+    slow_sell: int = 60,
+    base: int = 200,
+    max_bars: int = 500,
+    show_price: bool = True,
+    height_price: int = 400,
+    height_ema: int = 150,
+    use_container_width: bool = True,
+    source_tz: str = "UTC",
+    target_tz: str = "Asia/Seoul",
+) -> None:
+    """
+    Altair EMA 차트 렌더링.
+    df_raw: 컬럼에 Open/High/Low/Close 포함, DatetimeIndex(UTC 권장).
+    use_separate: True면 매수/매도 별도 EMA, False면 공통 EMA.
+    """
+    if df_raw is None or df_raw.empty:
+        st.info("차트 표시할 데이터가 없습니다.")
+        return
+
+    df = df_raw.tail(max_bars)
+    df = compute_ema(
+        df,
+        use_separate=use_separate,
+        fast_buy=fast_buy,
+        slow_buy=slow_buy,
+        fast_sell=fast_sell,
+        slow_sell=slow_sell,
+        base=base,
+    )
+    df = _minus_9h_index(df)
+
+    df_plot = df.reset_index().rename(columns={"index": "Time"})
+    base_chart = alt.Chart(df_plot).encode(x=alt.X("Time:T", axis=alt.Axis(format="%H:%M")))
+
+    # 가격 차트 레이어들
+    price_layers = []
+
+    if show_price:
+        # 캔들 차트: 고저선
+        rule = base_chart.mark_rule().encode(
+            y=alt.Y("Low:Q", scale=alt.Scale(zero=False), title="Price"),
+            y2="High:Q",
+        )
+        # 캔들 차트: 몸통
+        body = base_chart.mark_bar().encode(
+            y="Open:Q",
+            y2="Close:Q",
+            color=alt.condition("datum.Close >= datum.Open", alt.value("#26a69a"), alt.value("#ef5350")),
+        )
+        price_layers.extend([rule, body])
+
+    # EMA 라인들을 가격 차트와 같은 Y축에 추가
+    if use_separate:
+        # 매수/매도 별도 EMA
+        ema_fast_buy_line = base_chart.mark_line(strokeWidth=2, color="#4caf50").encode(
+            y="EMA_Fast_Buy:Q",
+        )
+        ema_slow_buy_line = base_chart.mark_line(strokeWidth=2, color="#1b5e20").encode(
+            y="EMA_Slow_Buy:Q",
+        )
+        ema_fast_sell_line = base_chart.mark_line(strokeWidth=2, color="#ff9800").encode(
+            y="EMA_Fast_Sell:Q",
+        )
+        ema_slow_sell_line = base_chart.mark_line(strokeWidth=2, color="#d32f2f").encode(
+            y="EMA_Slow_Sell:Q",
+        )
+        ema_base_line = base_chart.mark_line(strokeWidth=2.5, color="#2196f3", strokeDash=[5, 5]).encode(
+            y="EMA_Base:Q",
+        )
+
+        # Tooltip
+        tooltip_chart = base_chart.mark_rule(opacity=0).encode(
+            tooltip=[
+                alt.Tooltip("Time:T", title="Time", format="%Y-%m-%d %H:%M"),
+                alt.Tooltip("Close:Q", title="Close", format=".2f"),
+                alt.Tooltip("EMA_Fast_Buy:Q", title="Fast Buy", format=".2f"),
+                alt.Tooltip("EMA_Slow_Buy:Q", title="Slow Buy", format=".2f"),
+                alt.Tooltip("EMA_Fast_Sell:Q", title="Fast Sell", format=".2f"),
+                alt.Tooltip("EMA_Slow_Sell:Q", title="Slow Sell", format=".2f"),
+                alt.Tooltip("EMA_Base:Q", title="Base", format=".2f"),
+            ],
+        )
+
+        price_layers.extend([
+            ema_fast_buy_line,
+            ema_slow_buy_line,
+            ema_fast_sell_line,
+            ema_slow_sell_line,
+            ema_base_line,
+            tooltip_chart,
+        ])
+    else:
+        # 공통 EMA
+        ema_fast_line = base_chart.mark_line(strokeWidth=2, color="#4caf50").encode(
+            y="EMA_Fast:Q",
+        )
+        ema_slow_line = base_chart.mark_line(strokeWidth=2, color="#d32f2f").encode(
+            y="EMA_Slow:Q",
+        )
+        ema_base_line = base_chart.mark_line(strokeWidth=2.5, color="#2196f3", strokeDash=[5, 5]).encode(
+            y="EMA_Base:Q",
+        )
+
+        # Tooltip
+        tooltip_chart = base_chart.mark_rule(opacity=0).encode(
+            tooltip=[
+                alt.Tooltip("Time:T", title="Time", format="%Y-%m-%d %H:%M"),
+                alt.Tooltip("Close:Q", title="Close", format=".2f"),
+                alt.Tooltip("EMA_Fast:Q", title="Fast", format=".2f"),
+                alt.Tooltip("EMA_Slow:Q", title="Slow", format=".2f"),
+                alt.Tooltip("EMA_Base:Q", title="Base", format=".2f"),
+            ],
+        )
+
+        price_layers.extend([
+            ema_fast_line,
+            ema_slow_line,
+            ema_base_line,
+            tooltip_chart,
+        ])
+
+    # 모든 레이어를 하나의 차트로 결합
+    chart = alt.layer(*price_layers).properties(height=height_price)
     st.altair_chart(chart.interactive(), use_container_width=use_container_width)
 
 def macd_mpl_chart(

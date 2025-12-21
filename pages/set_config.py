@@ -9,7 +9,7 @@ from config import (
     STRATEGY_TYPES,         # ✅ 전략 선택용 (예: ["MACD", "EMA"])
     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
 )
-from engine.params import load_params, save_params
+from engine.params import load_params, save_params, save_active_strategy
 from pages.audit_viewer import query
 from ui.sidebar import make_sidebar
 from services.db import (
@@ -168,12 +168,22 @@ st.title(f"🤖 Upbit Trade Bot v1 ({mode}) - {user_id}")
 #   - 여기서 선택한 값은 최종 LiveParams.strategy_type 에 강제로 주입
 # ============================================================
 json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
-exist_for_strategy = load_params(json_path)
+
+# ✅ URL에서 전달받은 strategy_type을 우선 사용 (대시보드/감사로그에서 돌아올 때)
+strategy_from_url = _get_param(qp, "strategy_type", None)
+strategy_from_session = st.session_state.get("strategy_type", None)
+initial_strategy = (strategy_from_url or strategy_from_session or DEFAULT_STRATEGY_TYPE)
+initial_strategy = str(initial_strategy).upper().strip()
+
+# ✅ 전략 선택 UI를 만들기 위한 기본값은
+#    "전략별" params 파일에서 불러와야 한다.
+#    그래야 MACD/EMA 각각 마지막 저장값이 복원된다.
+exist_for_strategy = load_params(json_path, strategy_type=initial_strategy)
 
 if exist_for_strategy:
     default_strategy = exist_for_strategy.strategy_type
 else:
-    default_strategy = DEFAULT_STRATEGY_TYPE
+    default_strategy = initial_strategy
 
 # STRATEGY_TYPES 는 ["MACD", "EMA"] 같은 형태라고 가정
 # 대소문자 섞여 있어도 index 계산이 되도록 안전하게 처리
@@ -186,11 +196,18 @@ selected_strategy_type = st.sidebar.selectbox(
     "전략 타입 (Strategy Type)",
     STRATEGY_TYPES,
     index=default_idx,
-    key="strategy_type",
+    key="strategy_type_selector",  # key 변경 (세션 충돌 방지)
     help="MACD: 모멘텀 기반 / EMA: 추세 추종 실험 전략",
 )
-
 st.sidebar.caption(f"현재 선택된 전략: **{selected_strategy_type}**")
+
+# ✅ 세션에 저장하여 다른 페이지에서도 사용 가능하도록
+st.session_state["strategy_type"] = selected_strategy_type
+
+# ✅ 선택된 전략의 파라미터를 전략별 파일에서 로드
+#    - MACD/EMA 각각 다른 fast/slow 값을 유지하려면 반드시 필요
+selected_params = load_params(json_path, strategy_type=selected_strategy_type)
+
 
 # --- 전략 파라미터 입력 폼 ---
 #  make_sidebar() 는 기존대로 ticker, 기간, MACD 파라미터 등만 그리고,
@@ -206,8 +223,14 @@ if params:
         #   - LiveParams.validator 가 알아서 MACD/EMA 이외 값은 막아준다.
         params.strategy_type = selected_strategy_type
 
-        exist_params = load_params(json_path)
-        save_params(params, json_path)
+        # ✅ 전략별 파일에서 로드/저장되도록 strategy_type을 같이 넘긴다.
+        #    -> MACD 저장값과 EMA 저장값이 서로 덮어쓰지 않음
+        exist_params = load_params(json_path, strategy_type=selected_strategy_type)
+        save_params(params, json_path, strategy_type=selected_strategy_type)
+
+        # ✅ 활성 전략 파일 업데이트 (로그아웃/로그인 시에도 전략 유지)
+        save_active_strategy(user_id, selected_strategy_type)
+
         set_engine_status(user_id, False)
         set_thread_status(user_id, False)
 
@@ -222,7 +245,8 @@ if params:
                 f"🕒 최초 저장 시각: {datetime.now().isoformat(timespec='seconds')}"
             )
 
-        exist_params = load_params(json_path)
+        # ✅ 저장한 "그 전략" 파일에서 다시 로드해서 보여준다.
+        exist_params = load_params(json_path, strategy_type=selected_strategy_type)
         if exist_params:
             # Pydantic model 이라면 strategy_type 포함 전체 스냅샷 확인 가능
             # st.write(exist_params)
@@ -235,7 +259,9 @@ if params:
         st.error(f"❌ 파라미터 저장 실패: {e}")
         st.stop()
 else:
-    exist_params = load_params(json_path)
+    # ✅ 현재 선택된 전략 기준으로 로드해야 fast/slow가 전략별로 복원됨
+    exist_params = load_params(json_path, strategy_type=selected_strategy_type)
+
     if exist_params:
         # st.write(exist_params)
         st.json(exist_params.__dict__)
@@ -275,7 +301,8 @@ if start_trading:
         "mode": mode,
         "verified": int(upbit_ok),
         "capital_set": int(capital_ok),
-        "strategy": selected_strategy_type,
+        # ✅ strategy_type으로 통일
+        "strategy_type": selected_strategy_type,
     })
 
     st.markdown(

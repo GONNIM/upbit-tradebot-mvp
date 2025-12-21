@@ -5,10 +5,12 @@ from config import (
     PARAMS_JSON_FILENAME,
     STRATEGY_TYPES,
     DEFAULT_STRATEGY_TYPE,
+    ENGINE_EXEC_MODE,
 )
 import json
 import os
 import logging
+from pathlib import Path
 
 
 logging.basicConfig(
@@ -54,13 +56,61 @@ class LiveParams(BaseModel):
         description="EMA 전략에서 Base EMA 기간 (예: 200)",
     )
 
+    # EMA 매수/매도 별도 설정
+    use_separate_ema: bool = Field(
+        default=True,
+        description="매수/매도 EMA 별도 설정 여부 (True: 별도 설정, False: 공통 사용)",
+    )
+    fast_buy: int | None = Field(
+        default=None,
+        ge=1,
+        le=500,
+        description="매수용 단기 EMA (None이면 fast_period 사용)",
+    )
+    slow_buy: int | None = Field(
+        default=None,
+        ge=1,
+        le=500,
+        description="매수용 장기 EMA (None이면 slow_period 사용)",
+    )
+    fast_sell: int | None = Field(
+        default=None,
+        ge=1,
+        le=500,
+        description="매도용 단기 EMA (None이면 fast_period 사용)",
+    )
+    slow_sell: int | None = Field(
+        default=None,
+        ge=1,
+        le=500,
+        description="매도용 장기 EMA (None이면 slow_period 사용)",
+    )
+
     strategy_type: str = Field(
         DEFAULT_STRATEGY_TYPE,
         description="전략 타입 (예: MACD, EMA)",
     )
     engine_exec_mode: str = Field(
-        default="REPLAY",  # "BACKTEST" | "REPLAY"
+        default=ENGINE_EXEC_MODE,  # "BACKTEST" | "REPLAY"
         description="엔진 실행 모드",
+    )
+
+    # 거래 시간 제한 (Trading Hours Restriction)
+    enable_trading_hours: bool = Field(
+        default=False,
+        description="거래 시간 제한 활성화 여부 (새벽 슬리피지 방지용)"
+    )
+    trading_start_time: str = Field(
+        default="09:00",
+        description="거래 시작 시간 (HH:MM 형식, KST 기준)"
+    )
+    trading_end_time: str = Field(
+        default="02:00",
+        description="거래 종료 시간 (HH:MM 형식, KST 기준)"
+    )
+    allow_sell_during_off_hours: bool = Field(
+        default=True,
+        description="거래 쉬는시간에도 포지션 보유 시 매도 허용 (권장: True)"
     )
 
     # --------------------
@@ -109,20 +159,20 @@ class LiveParams(BaseModel):
         """
         - BACKTEST / REPLAY 두 값만 허용
         - 대소문자/공백 정리
-        - 이상한 값이면 기본값("REPLAY")으로 폴백 + WARN 로그
+        - 이상한 값이면 기본값(ENGINE_EXEC_MODE)으로 폴백 + WARN 로그
         """
         if not v:
-            return "REPLAY"
+            return ENGINE_EXEC_MODE
         
         v_norm = v.upper().strip()
         allowed = ["BACKTEST", "REPLAY"]
 
         if v_norm not in allowed:
             logger.warning(
-                f"[LiveParams] invalid engine_exec_mode={v!r} → fallback to 'REPLAY' "
+                f"[LiveParams] invalid engine_exec_mode={v!r} → fallback to '{ENGINE_EXEC_MODE}' "
                 f"(allowed={allowed})"
             )
-            return "REPLAY"
+            return ENGINE_EXEC_MODE
         return v_norm
     
     # --------------------
@@ -145,16 +195,34 @@ class LiveParams(BaseModel):
     def is_ema(self) -> bool:
         """현재 선택된 전략이 EMA인지 여부."""
         return self.strategy_type == "EMA"
-    
 
-def load_params(path: str) -> LiveParams | None:
-    """
-    latest_params.json → LiveParams 로드
 
-    - 기존 파일에 strategy_type이 없어도 기본값(DEFAULT_STRATEGY_TYPE)으로 채워짐
-    - 파일이 없거나, JSON/검증 오류가 나면 None을 반환해서
-      상위 레벨에서 "초기값 생성" 로직을 태울 수 있게 함.
+# ✅ 전략별 파일명으로 스코프를 나눠주는 헬퍼
+def _scoped_path(path: str, strategy_type: str | None) -> str:
     """
+    ✅ 핵심:
+    - 같은 user_id라도 MACD/EMA 각각 별도 파일로 저장/로드되게 한다.
+    - 예: "abc_latest_params.json" -> "abc_MACD_latest_params.json"
+    """
+    if not strategy_type:
+        return path
+
+    st = str(strategy_type).upper().strip()
+    p = Path(path)
+    # 파일명 앞에 "{STRATEGY}_"를 끼워 넣는다.
+    return str(p.with_name(f"{p.stem}_{st}{p.suffix}"))
+
+
+def load_params(path: str, strategy_type: str | None = None) -> LiveParams | None:
+    """
+    - strategy_type이 들어오면 해당 전략용 파일에서 로드한다.
+    - 해당 전략 파일이 없으면 None (상위에서 초기값/UI 기본값 처리)
+    """
+    strategy_type = (strategy_type or DEFAULT_STRATEGY_TYPE)
+
+    # ✅ 전략별 파일 경로로 스코핑
+    path = _scoped_path(path, strategy_type)
+
     if not os.path.exists(path):
         logger.info(f"[LiveParams] params file not found: {path}")
         return None
@@ -172,8 +240,19 @@ def load_params(path: str) -> LiveParams | None:
     data.setdefault("min_holding_period", 1)
     data.setdefault("macd_crossover_threshold", 0.0)
     data.setdefault("strategy_type", DEFAULT_STRATEGY_TYPE)
-    data.setdefault("engine_exec_mode", "REPLAY")
+    data.setdefault("engine_exec_mode", ENGINE_EXEC_MODE)
     data.setdefault("base_ema_period", 200)
+    # 거래 시간 제한 (백워드 호환)
+    data.setdefault("enable_trading_hours", False)
+    data.setdefault("trading_start_time", "09:00")
+    data.setdefault("trading_end_time", "02:00")
+    data.setdefault("allow_sell_during_off_hours", True)
+    # EMA 매수/매도 별도 설정 (백워드 호환)
+    data.setdefault("use_separate_ema", True)
+    data.setdefault("fast_buy", None)
+    data.setdefault("slow_buy", None)
+    data.setdefault("fast_sell", None)
+    data.setdefault("slow_sell", None)
 
     try:
         return LiveParams(**data)
@@ -184,27 +263,15 @@ def load_params(path: str) -> LiveParams | None:
         return None
 
 
-def save_params(params: LiveParams, path: str = PARAMS_JSON_FILENAME):
+def save_params(params: LiveParams, path: str = PARAMS_JSON_FILENAME, strategy_type: str | None = None):
     """
-    LiveParams → JSON 저장
+    - strategy_type이 들어오면 해당 전략용 파일로 저장한다.
+    - 즉, MACD/EMA 각각 다른 파일에 저장되므로 전략 변경 시 값이 유지된다.
+    """
+    # ✅ 전략별 파일 경로로 스코핑
+    path = _scoped_path(path, strategy_type)
 
-    - 기본 path는 PARAMS_JSON_FILENAME 이지만,
-      실제 운용에서는 보통 f"{user_id}_{PARAMS_JSON_FILENAME}" 형태로
-      사용자별로 구분해서 넘겨주는 것을 추천.
-    """
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-
-    # BaseModel 인스턴스 → __dict__ 로부터 순수 필드만 추출
-    if isinstance(params, BaseModel):
-        raw = params.__dict__.copy()
-        # pydantic 내부 메타 필드 제거 (있으면)
-        raw.pop("__pydantic_private__", None)
-        raw.pop("__pydantic_fields_set__", None)
-        raw.pop("__pydantic_extra__", None)
-        raw.pop("__pydantic_initialised__", None)
-    else:
-        # 혹시 dict 로 들어와도 방어
-        raw = dict(params)
 
     with open(path, "w") as f:
         json.dump(params.model_dump(), f, indent=2, ensure_ascii=False)
@@ -219,3 +286,53 @@ def delete_params(path: str = PARAMS_JSON_FILENAME):
         logger.info(f"[LiveParams] deleted params file: {path}")
     else:
         logger.info(f"[LiveParams] delete_params called but file not found: {path}")
+
+
+# ============================================================
+# 활성 전략 파일 관리 (로그아웃/로그인 시 전략 유지)
+# ============================================================
+def _get_active_strategy_path(user_id: str) -> str:
+    """사용자별 활성 전략 파일 경로 반환"""
+    return f"{user_id}_active_strategy.txt"
+
+
+def save_active_strategy(user_id: str, strategy_type: str) -> None:
+    """
+    사용자의 현재 활성 전략을 파일에 저장.
+    로그아웃 후 재로그인 시에도 전략이 유지되도록 함.
+    """
+    strategy_type = str(strategy_type).upper().strip()
+    path = _get_active_strategy_path(user_id)
+
+    try:
+        with open(path, "w") as f:
+            f.write(strategy_type)
+        logger.info(f"[ActiveStrategy] Saved active strategy for {user_id}: {strategy_type}")
+    except Exception as e:
+        logger.error(f"[ActiveStrategy] Failed to save active strategy for {user_id}: {e}")
+
+
+def load_active_strategy(user_id: str) -> str | None:
+    """
+    사용자의 활성 전략을 파일에서 로드.
+    파일이 없거나 읽기 실패 시 None 반환.
+    """
+    path = _get_active_strategy_path(user_id)
+
+    if not os.path.exists(path):
+        logger.debug(f"[ActiveStrategy] No active strategy file for {user_id}")
+        return None
+
+    try:
+        with open(path, "r") as f:
+            strategy_type = f.read().strip().upper()
+
+        if strategy_type in STRATEGY_TYPES:
+            logger.info(f"[ActiveStrategy] Loaded active strategy for {user_id}: {strategy_type}")
+            return strategy_type
+        else:
+            logger.warning(f"[ActiveStrategy] Invalid strategy in file for {user_id}: {strategy_type}")
+            return None
+    except Exception as e:
+        logger.error(f"[ActiveStrategy] Failed to load active strategy for {user_id}: {e}")
+        return None

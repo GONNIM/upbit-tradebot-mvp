@@ -289,15 +289,16 @@ def delete_old_logs(user_id):
     print(f"🧹 Deleted {deleted} old logs for user={user_id}.")
 
 
-def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
+def fetch_latest_log_signal_ema(user_id: str, ticker: str) -> dict | None:
     """
-    가장 최신의 'LOG' 레벨 로그에서 price, cross, macd, signal 정보를 파싱해 반환
-    - message 예시: "2025-07-01 20:47:00 | price=220.5 | cross=Neutral | macd=0.02563 | signal=0.03851 | bar=495"
+    EMA 전략의 가장 최신 'LOG' 레벨 로그 파싱
+    - message 예시: "[LIVE] 2025-12-21 15:30:45 | price=0.02 | cross=Golden |
+      ema_fast_buy=0.0236 | ema_slow_buy=0.0228 | ema_fast_sell=0.0240 | ema_slow_sell=0.0237 | ema_base=0.0220 | bar=495"
     """
     query = """
-        SELECT message
+        SELECT message, timestamp
         FROM logs
-        WHERE user_id = ? AND level = 'LOG' AND message LIKE '%price=%'
+        WHERE user_id = ? AND level = 'LOG' AND message LIKE '%ema_fast_buy=%'
         ORDER BY timestamp DESC
         LIMIT 1
     """
@@ -307,7 +308,59 @@ def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
             cursor.execute(query, (user_id,))
             row = cursor.fetchone()
             if row:
-                message = row[0]
+                message, db_timestamp = row[0], row[1]
+                try:
+                    parts = message.split(" | ")
+                    # parts[0]: "[LIVE/TEST] timestamp"
+                    import re
+                    time_str = parts[0].strip()
+                    clean_timestamp = re.sub(r'^\[(TEST|LIVE)\]\s*', '', time_str)
+
+                    # 나머지 파라미터 파싱
+                    params_dict = {}
+                    for part in parts[1:]:
+                        if "=" in part:
+                            key, val = part.split("=", 1)
+                            params_dict[key.strip()] = val.strip()
+
+                    return {
+                        "시간": db_timestamp,  # DB 기록 시간
+                        "Ticker": ticker,
+                        "price": params_dict.get("price", "-"),
+                        "cross": params_dict.get("cross", "-"),
+                        "ema_fast_buy": params_dict.get("ema_fast_buy", "-"),
+                        "ema_slow_buy": params_dict.get("ema_slow_buy", "-"),
+                        "ema_fast_sell": params_dict.get("ema_fast_sell", "-"),
+                        "ema_slow_sell": params_dict.get("ema_slow_sell", "-"),
+                        "ema_base": params_dict.get("ema_base", "-"),
+                    }
+                except Exception as e:
+                    logger.error(f"[EMA] log parsing failed: {e} | message={message}")
+                    return None
+    except Exception as e:
+        logger.error(f"[EMA] fetch_latest_log_signal_ema failed: {e}")
+    return None
+
+
+def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
+    """
+    MACD 전략의 가장 최신 'LOG' 레벨 로그 파싱
+    - message 예시: "[LIVE] 2025-07-01 20:47:00 | price=220.5 | cross=Neutral | macd=0.02563 | signal=0.03851 | bar=495"
+    """
+    query = """
+        SELECT message, timestamp
+        FROM logs
+        WHERE user_id = ? AND level = 'LOG' AND message LIKE '%price=%' AND message LIKE '%macd=%'
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """
+    try:
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (user_id,))
+            row = cursor.fetchone()
+            if row:
+                message, db_timestamp = row[0], row[1]
                 try:
                     parts = message.split(" | ")
                     time_str = parts[0].strip()
@@ -319,7 +372,7 @@ def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
                     signal = parts[4].split("=")[1].strip()
 
                     return {
-                        "시간": clean_timestamp,
+                        "시간": db_timestamp,  # DB 기록 시간
                         "Ticker": ticker,
                         "price": price,
                         "cross": cross,
@@ -993,38 +1046,33 @@ def fetch_recent_fills(user_id: str, limit: int = 20):
 
 
 # ✅ 최신 주문 상태 조회
-def fetch_order_statuses(user_id: str, limit: int = 20):
+def fetch_order_statuses(user_id: str, limit: int = 20, ticker: str | None = None):
     """
-    UI/디버깅용으로 orders 테이블의 최근 주문 상태를 조회.
-    - id, ticker, side, state, executed_volume, avg_price, paid_fee, provider_uuid 등 표시
+    UI/디버깅용 orders 최근 주문 상태 조회.
+    [PATCH] ticker 옵션을 추가해서 특정 종목만 보이게 함.
     """
     ensure_schema(user_id)
     with get_db(user_id) as conn:
         cur = conn.cursor()
-        cur.execute(
-            """
+
+        q = """
             SELECT
-                id,
-                timestamp,
-                ticker,
-                side,
-                state,
-                status,
-                volume,
-                executed_volume,
-                avg_price,
-                paid_fee,
-                provider_uuid,
-                requested_at,
-                executed_at,
-                canceled_at
+                id, timestamp, ticker, side, state,
+                status, volume, executed_volume, avg_price, paid_fee,
+                provider_uuid, requested_at, executed_at, canceled_at
             FROM orders
             WHERE user_id = ?
-            ORDER BY id DESC
-            LIMIT ?
-            """,
-            (user_id, limit),
-        )
+        """
+        params = [user_id]
+
+        if ticker:
+            q += " AND ticker = ?"
+            params.append(ticker)
+
+        q += " ORDER BY id DESC LIMIT ?"
+        params.append(limit)
+
+        cur.execute(q, params)
         return cur.fetchall()
 
 
@@ -1101,3 +1149,118 @@ def update_position_from_balances(user_id: str, ticker: str, balances: list[dict
     # 우리 쪽 DB에는 일관되게 'KRW-심볼' 형태로 저장
     market_code = f"KRW-{sym}"
     update_coin_position(user_id, market_code, total_coin)
+
+
+# ============================================================
+# Phase 2: 캔들 데이터 영속성 (Candle Cache)
+# ============================================================
+
+def ensure_candle_cache_table(user_id: str):
+    """
+    캔들 데이터 캐시 테이블 생성
+    - 재시작 시에도 기존 히스토리 활용
+    - WARMUP 시간 단축 (600개 즉시 확보)
+    """
+    with get_db(user_id) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS candle_cache (
+                ticker TEXT NOT NULL,
+                interval TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                open REAL NOT NULL,
+                high REAL NOT NULL,
+                low REAL NOT NULL,
+                close REAL NOT NULL,
+                volume REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (ticker, interval, timestamp)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_candle_cache_ticker_interval
+            ON candle_cache(ticker, interval, timestamp DESC)
+        """)
+        conn.commit()
+
+
+def save_candle_cache(user_id: str, ticker: str, interval: str, df):
+    """
+    캔들 데이터를 DB에 저장 (upsert)
+    - df: pandas DataFrame with datetime index
+    - 중복 시 최신 데이터로 업데이트
+    """
+    if df is None or df.empty:
+        return
+
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        ensure_candle_cache_table(user_id)
+
+        with get_db(user_id) as conn:
+            created = now_kst()
+            for idx, row in df.iterrows():
+                # DataFrame index는 datetime
+                ts = idx.strftime("%Y-%m-%d %H:%M:%S") if hasattr(idx, "strftime") else str(idx)
+
+                conn.execute("""
+                    INSERT OR REPLACE INTO candle_cache
+                    (ticker, interval, timestamp, open, high, low, close, volume, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    ticker, interval, ts,
+                    float(row.get("Open", 0)),
+                    float(row.get("High", 0)),
+                    float(row.get("Low", 0)),
+                    float(row.get("Close", 0)),
+                    float(row.get("Volume", 0)),
+                    created
+                ))
+            conn.commit()
+            logger.info(f"[CACHE-SAVE] {len(df)} candles saved: {ticker}/{interval}")
+    except Exception as e:
+        logger.warning(f"[CACHE-SAVE] Failed to save candles: {e}")
+
+
+def load_candle_cache(user_id: str, ticker: str, interval: str, max_length: int = 2000):
+    """
+    DB에서 캔들 데이터 로드
+    - 최신 max_length개 반환
+    - DataFrame으로 반환 (datetime index)
+    """
+    import logging
+    import pandas as pd
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        ensure_candle_cache_table(user_id)
+
+        with get_db(user_id) as conn:
+            cursor = conn.execute("""
+                SELECT timestamp, open, high, low, close, volume
+                FROM candle_cache
+                WHERE ticker = ? AND interval = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            """, (ticker, interval, max_length))
+
+            rows = cursor.fetchall()
+
+            if not rows:
+                logger.info(f"[CACHE-MISS] No cached data: {ticker}/{interval}")
+                return None
+
+            # DataFrame 생성
+            df = pd.DataFrame(rows, columns=["timestamp", "Open", "High", "Low", "Close", "Volume"])
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df = df.set_index("timestamp").sort_index()
+
+            logger.info(f"[CACHE-HIT] Loaded {len(df)} candles: {ticker}/{interval} | "
+                       f"range: {df.index[0]} ~ {df.index[-1]}")
+            return df
+
+    except Exception as e:
+        logger.warning(f"[CACHE-LOAD] Failed to load candles: {e}")
+        return None

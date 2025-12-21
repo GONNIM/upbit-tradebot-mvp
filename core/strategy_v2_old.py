@@ -35,7 +35,7 @@ class MACDStrategy(Strategy):
     take_profit = 0.03
     stop_loss = 0.01
     macd_threshold = 0.0
-    min_holding_period = 5  # 🕒 최소 보유 기간
+    min_holding_period = 1  # 🕒 최소 보유 기간
     signal_confirm_enabled = SIGNAL_CONFIRM_ENABLED  # Default: False
     volatility_window = 20
 

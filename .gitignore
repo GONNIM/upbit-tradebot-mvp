@@ -35,12 +35,10 @@ env/
 *.db
 *.db-shm
 *.db-wal
+*.txt
 
 # 민감 정보 YAML
 credentials.yaml
 data/*.db*
 
-/claude/
-/docs/
-README.md
-CLAUDE.md
+/claude-docs

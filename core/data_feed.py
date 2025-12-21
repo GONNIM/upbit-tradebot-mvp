@@ -124,6 +124,7 @@ def stream_candles(
     retry_wait: int = 3,
     stop_event=None,
     max_length: int = 500,
+    user_id: str = None,  # Phase 2: 캐시 사용을 위한 user_id
 ):
     def _log(level: str, msg: str):
         (logger.warning if level == "WARN" else logger.error if level == "ERROR" else logger.info)(msg)
@@ -135,25 +136,59 @@ def stream_candles(
     def standardize_ohlcv(df):
         if df is None or df.empty:
             raise ValueError(f"OHLCV 데이터 수집 실패: {ticker}, {interval}")
+
+        before_count = len(df)
+        _log("INFO", f"[standardize] 입력 데이터: {before_count}개, index type={type(df.index)}, tz={getattr(df.index, 'tz', 'N/A')}")
+
         df = df.rename(columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"})
         if "value" in df.columns:
             df = df.drop(columns=["value"])
 
-        # 인덱스 tz 정규화: tz-aware면 Asia/Seoul로 변환 후 tz 제거(naive)
+        # 인덱스 tz 정규화: UTC → KST naive로 통일
         idx = pd.to_datetime(df.index)
         try:
-            if getattr(idx, "tz", None) is not None:
-                # tz-naive라면 UTC로 간주 후 로컬라이즈
+            # ✅ 수정: 조건을 반대로 (tz가 None이면 = naive이면)
+            if getattr(idx, "tz", None) is None:
+                # tz-naive라면 UTC로 간주하고 localize
                 idx = idx.tz_localize("UTC")
+                _log("INFO", f"[standardize] tz-naive 감지 → UTC로 localize")
+            else:
+                _log("INFO", f"[standardize] 이미 tz-aware (tz={idx.tz})")
+
             # KST로 변환 후 tz 제거하여 전체 파이프라인을 'KST-naive'로 통일
             idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
-        except Exception:
-            # 예외 시에도 최소 정렬/중복 제거는 수행
-            pass
+            _log("INFO", f"[standardize] KST naive로 변환 완료")
+        except Exception as e:
+            # 예외 발생 시 상세 로그
+            _log("ERROR", f"[standardize] 타임존 변환 실패: {e}")
+            # 변환 실패 시에도 최소한 정렬은 수행할 수 있도록 idx 그대로 사용
 
         df.index = idx
-        # 최신 값 우선으로 중복 제거 + 정렬
-        return df.dropna().sort_index().loc[~df.index.duplicated(keep="last")]
+
+        # dropna 전 NaN 개수 확인
+        na_counts = df.isna().sum()
+        if na_counts.any():
+            _log("WARN", f"[standardize] NaN 발견: {na_counts[na_counts > 0].to_dict()}")
+
+        # 정렬 후 중복 제거 (dropna는 나중에)
+        df = df.sort_index()
+        before_dedup = len(df)
+        df = df.loc[~df.index.duplicated(keep="last")]
+        after_dedup = len(df)
+
+        if before_dedup > after_dedup:
+            _log("WARN", f"[standardize] 중복 제거: {before_dedup - after_dedup}개 삭제 ({before_dedup} → {after_dedup})")
+
+        # NaN 제거
+        df = df.dropna()
+        after_dropna = len(df)
+
+        if after_dedup > after_dropna:
+            _log("WARN", f"[standardize] NaN 제거: {after_dedup - after_dropna}개 삭제 ({after_dedup} → {after_dropna})")
+
+        _log("INFO", f"[standardize] 최종 출력: {after_dropna}개 (손실: {before_count - after_dropna}개, {100*(before_count-after_dropna)/before_count:.1f}%)")
+
+        return df
 
     # ★ 초기 히스토리 수집용 헬퍼
     def _fetch_initial_history(to_param: str) -> pd.DataFrame:
@@ -167,17 +202,24 @@ def stream_candles(
         current_to = to_param
         chunks: list[pd.DataFrame] = []
         base_delay_local = retry_wait
+        total_requested = max_length
+        api_calls = 0
+
+        _log("INFO", f"[초기-multi] 히스토리 수집 시작: max_length={max_length}, interval={interval}")
 
         while remaining > 0:
             if stop_event and stop_event.is_set():
-                _log("WARN", "stream_candles 중단됨: 초기 히스토리 수집 중 stop_event 감지")
+                collected = sum(len(c) for c in chunks)
+                _log("WARN", f"[초기-multi] stop_event 감지 → 수집 중단 (collected={collected}/{total_requested})")
                 break
 
             per_call = min(200, remaining)  # Upbit 분봉 최대 200개
             df_part = None
+            api_calls += 1
 
             for attempt in range(1, max_retry + 1):
                 try:
+                    _log("INFO", f"[초기-multi] API 호출 #{api_calls}: count={per_call}, to={current_to}")
                     df_part = pyupbit.get_ohlcv(
                         ticker,
                         interval=interval,
@@ -185,24 +227,39 @@ def stream_candles(
                         to=current_to,
                     )
                     if df_part is not None and not df_part.empty:
+                        _log("INFO", f"[초기-multi] API 응답 성공: {len(df_part)}개 수신")
                         break
+                    else:
+                        _log("WARN", f"[초기-multi] API 응답이 비어있음 (attempt {attempt}/{max_retry})")
                 except Exception as e:
-                    _log("ERROR", f"[초기-multi] API 예외 발생: {e}")
+                    _log("ERROR", f"[초기-multi] API 예외 발생: {e} (attempt {attempt}/{max_retry})")
 
-                delay = min(base_delay_local * (2 ** (attempt - 1)), 60) + random.uniform(0, 5)
-                _log("WARN", f"[초기-multi] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
+                # Upbit API rate limit 대응: 호출 간 최소 0.1초 딜레이
+                delay = min(base_delay_local * (2 ** (attempt - 1)), 60) + random.uniform(0.1, 1.0)
+                _log("WARN", f"[초기-multi] API 재시도 대기: {delay:.1f}초")
                 time.sleep(delay)
             else:
-                _log("ERROR", "[초기-multi] API 연속 실패 → 초기 히스토리 수집 중단")
+                # max_retry 실패 시 - 부분 수집 데이터라도 반환하도록 개선
+                collected = sum(len(c) for c in chunks)
+                _log("ERROR", f"[초기-multi] API 연속 실패 (collected={collected}/{total_requested})")
+                # break 대신 경고만 남기고 수집된 데이터 반환
                 break
 
             if df_part is None or df_part.empty:
+                collected = sum(len(c) for c in chunks)
+                _log("WARN", f"[초기-multi] 빈 응답으로 수집 종료 (collected={collected}/{total_requested})")
                 break
 
             chunks.append(df_part)
             got = len(df_part)
             remaining -= got
-            if got <= 0:
+
+            collected_so_far = sum(len(c) for c in chunks)
+            _log("INFO", f"[초기-multi] 진행: {collected_so_far}/{total_requested} ({100*collected_so_far/total_requested:.1f}%)")
+
+            if got < per_call:
+                # Upbit API가 요청량보다 적게 반환 = 더 이상 과거 데이터 없음
+                _log("WARN", f"[초기-multi] API가 요청량보다 적게 반환 (got={got}, requested={per_call}) → 과거 데이터 소진")
                 break
 
             # 다음 요청용 'to'는 이번 기준시간에서 got*interval 만큼 과거로 이동
@@ -210,14 +267,24 @@ def stream_candles(
                 dt_to = datetime.strptime(current_to, "%Y-%m-%d %H:%M:%S")
                 dt_to -= timedelta(minutes=iv_min * got)
                 current_to = _fmt_to_param(dt_to)
-            except Exception:
+            except Exception as e:
                 # 파싱 실패 시 추가 페이징은 하지 않고 종료
+                collected = sum(len(c) for c in chunks)
+                _log("ERROR", f"[초기-multi] 날짜 파싱 실패: {e} (collected={collected}/{total_requested})")
                 break
 
+            # API rate limit 준수: 호출 간 0.1초 딜레이
+            time.sleep(0.1)
+
         if not chunks:
+            _log("ERROR", f"[초기-multi] 수집 실패: 데이터 없음")
             return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
 
         raw = pd.concat(chunks)
+        final_count = len(raw)
+        success_rate = 100 * final_count / total_requested if total_requested > 0 else 0
+        _log("INFO", f"[초기-multi] 수집 완료: {final_count}/{total_requested} ({success_rate:.1f}%), API 호출 {api_calls}회")
+
         return raw
     
     # ---- 초기 로드: 막 닫힌 경계까지 ----
@@ -227,32 +294,70 @@ def stream_candles(
     bar_close = _floor_boundary(now, interval)
     to_param = _fmt_to_param(bar_close)
 
-    # ★ max_length에 따라 단일 호출 vs multi-call 분기
-    if max_length <= 200:
-        for attempt in range(1, max_retry + 1):
-            if stop_event and stop_event.is_set():
-                _log("WARN", "stream_candles 중단됨: 초기 수집 중 stop_event 감지")
-                return
-            try:
-                df = pyupbit.get_ohlcv(ticker, interval=interval, count=max_length, to=to_param)
-                if df is not None and not df.empty:
-                    break
-            except Exception as e:
-                _log("ERROR", f"[초기] API 예외 발생: {e}")
+    # ★ Phase 2: DB 캐시 우선 확인
+    cache_used = False
+    if user_id:
+        try:
+            from services.db import load_candle_cache
+            cached_df = load_candle_cache(user_id, ticker, interval, max_length)
 
-            delay = min(base_delay * (2 ** (attempt - 1)), 60) + random.uniform(0, 5)
-            _log("WARN", f"[초기] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
-            time.sleep(delay)
-    else:
-        # ★ MACD/EMA 안정화를 위해 긴 히스토리(max_length) 확보
-        df = _fetch_initial_history(to_param)
+            if cached_df is not None and len(cached_df) >= max_length * 0.9:  # 90% 이상이면 사용
+                df = cached_df
+                cache_used = True
+                _log("INFO", f"[CACHE-HIT] {len(df)} candles loaded from DB cache (skip API)")
+            elif cached_df is not None:
+                _log("INFO", f"[CACHE-PARTIAL] {len(cached_df)} candles in cache (insufficient, will fetch from API)")
+        except Exception as e:
+            _log("WARN", f"[CACHE] Load failed, will use API: {e}")
+
+    # ★ 캐시 미스 또는 부족: API 호출
+    if df is None:
+        _log("INFO", f"[초기] 데이터 수집 시작: ticker={ticker}, interval={interval}, max_length={max_length}")
+
+        if max_length <= 200:
+            for attempt in range(1, max_retry + 1):
+                if stop_event and stop_event.is_set():
+                    _log("WARN", "stream_candles 중단됨: 초기 수집 중 stop_event 감지")
+                    return
+                try:
+                    _log("INFO", f"[초기] API 단일 호출: count={max_length}, to={to_param}")
+                    df = pyupbit.get_ohlcv(ticker, interval=interval, count=max_length, to=to_param)
+                    if df is not None and not df.empty:
+                        _log("INFO", f"[초기] API 응답 성공: {len(df)}개 수신")
+                        break
+                except Exception as e:
+                    _log("ERROR", f"[초기] API 예외 발생: {e}")
+
+                delay = min(base_delay * (2 ** (attempt - 1)), 60) + random.uniform(0, 5)
+                _log("WARN", f"[초기] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
+                time.sleep(delay)
+        else:
+            # ★ MACD/EMA 안정화를 위해 긴 히스토리(max_length) 확보
+            _log("INFO", f"[초기] max_length > 200 → multi-fetch 모드 사용")
+            df = _fetch_initial_history(to_param)
+
+        # ★ Phase 2: API 호출 후 DB에 저장
+        if user_id and df is not None and not df.empty:
+            try:
+                from services.db import save_candle_cache
+                save_candle_cache(user_id, ticker, interval, df)
+            except Exception as e:
+                _log("WARN", f"[CACHE] Save failed (ignored): {e}")
 
     if df is None or df.empty:
         _log("ERROR", "[초기] 데이터 수집 실패, 빈 DataFrame으로 시작")
         df = pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
         df.index = pd.to_datetime([])
+    else:
+        _log("INFO", f"[초기] 수집된 원본 데이터: {len(df)}개")
 
     df = standardize_ohlcv(df).drop_duplicates()
+    final_len = len(df)
+    _log("INFO", f"[초기] standardize 후 최종 데이터: {final_len}개 (요청: {max_length}개, 달성률: {100*final_len/max_length if max_length > 0 else 0:.1f}%)")
+
+    if final_len < max_length * 0.8:
+        _log("WARN", f"⚠️ 데이터 부족: {final_len}/{max_length} ({100*final_len/max_length:.1f}%) - Upbit API 제약 또는 과거 데이터 부족 가능성")
+
     yield df
 
     last_open = df.index[-1]  # 우리가 가진 마지막 bar_open (tz-naive)
@@ -310,6 +415,15 @@ def stream_candles(
 
         # 실시간 병합 후 DET 로깅 (로컬/서버 비교 핵심 지점)
         log_det(df, "LOOP_MERGED")
+
+        # ★ Phase 2: 실시간 데이터도 DB에 저장 (점진적 히스토리 누적)
+        if user_id and not new.empty:
+            try:
+                from services.db import save_candle_cache
+                save_candle_cache(user_id, ticker, interval, new)
+            except Exception as e:
+                # 로그만 남기고 메인 루프는 계속 진행
+                pass
 
         last_open = df.index[-1]
         # 사용자 혼란 방지용 동기화 로그 (bar_open / bar_close 명시)

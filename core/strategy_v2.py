@@ -727,12 +727,8 @@ class MACDStrategy(Strategy):
         self.entry_price = state["price"]
         self.entry_bar = state["bar"]
         self.highest_price = self.entry_price
-        # ✅ 트레일링 스탑을 사용한다면 진입 즉시 ARM (TP 대기 없이 작동)
-        try:
-            sell_cond = self.conditions.get("sell", {}) if hasattr(self, "conditions") else {}
-            self.trailing_armed = bool(sell_cond.get("trailing_stop", False))
-        except Exception:
-            self.trailing_armed = False
+        # ✅ 수정: TP 달성 전까지는 TS 비활성화 (TP 도달 시 armed)
+        self.trailing_armed = False
         self.golden_cross_pending = False
 
         reason_str = "+".join(reasons) if reasons else "BUY"
@@ -741,14 +737,35 @@ class MACDStrategy(Strategy):
 
     def _evaluate_sell(self):
         ticker = getattr(self, "ticker", "UNKNOWN")
-        if not self.position:
-            try:
-                if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
-                    # 월렛 훅 호출 시 정규화된 티커 사용 (보유 시 SELL 평가가 돌도록)
-                    if not self.has_wallet_position(self._norm_ticker(ticker)):
-                        return
-            except Exception:
-                return
+
+         # ★ 디버깅: 현재 상태 로깅
+        logger.info(f"[SELL-DEBUG] ========== SELL EVALUATION START ==========")
+        logger.info(f"[SELL-DEBUG] ticker={ticker}")
+        logger.info(f"[SELL-DEBUG] self.position={getattr(self, 'position', None)}")
+        logger.info(f"[SELL-DEBUG] self.entry_price={getattr(self, 'entry_price', None)}")
+        logger.info(f"[SELL-DEBUG] self.entry_bar={getattr(self, 'entry_bar', None)}")
+
+        # ★ 백테스트 포지션과 지갑 포지션을 모두 확인
+        has_bt_position = bool(getattr(getattr(self, "position", None), "size", 0) > 0)
+        has_wallet_pos = False
+
+        try:
+            if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+                has_wallet_pos = bool(self.has_wallet_position(self._norm_ticker(ticker)))
+                logger.info(f"[SELL] wallet check: {has_wallet_pos}")
+        except Exception as e:
+            logger.warning(f"[SELL] wallet check failed: {e}")
+            has_wallet_pos = False
+
+        logger.info(f"[SELL] ENTRY CHECK | has_bt_position={has_bt_position}, has_wallet_pos={has_wallet_pos}")
+
+        # ★ 둘 다 없을 때만 스킵 (OR 조건)
+        if not has_bt_position and not has_wallet_pos:
+            logger.info("[SELL] SKIP: no position in both BT and wallet")
+            return
+
+        # ★ 백테스트나 지갑 중 하나라도 보유 중이면 SELL 평가 진행
+        logger.info("[SELL] PROCEED: position detected")
 
         state = self._current_state()
         if state["bar"] < getattr(self, "_boot_start_bar", 0):
@@ -771,15 +788,25 @@ class MACDStrategy(Strategy):
                         ep = self.get_wallet_entry_price(ticker)
                     if ep is not None:
                         self.entry_price = float(ep)
-                        # bars_held 계산을 위해 최소한의 entry_bar 세팅
                         if self.entry_bar is None:
                             self.entry_bar = state["bar"]
+                        logger.info(f"[SELL] ✅ entry_price recovered from wallet: {self.entry_price}")
             except Exception as e:
-                logger.debug(f"[SELL] entry hydrate skipped: {e}")
+                logger.warning(f"[SELL] ⚠️ entry hydrate failed: {e}")
 
+        # ★ 복구 실패 시 대체 로직 (CRITICAL FIX)
         if self.entry_price is None:
-            logger.debug("entry_price is None. Jump TP / SL Calculation.")  # ← 경고→디버그로 완화
-            return
+            logger.warning(f"[SELL] ⚠️ entry_price is None after recovery attempt")
+
+            # 옵션 1: 현재가를 entry_price로 설정 (보수적)
+            # 주의: TP/SL 계산이 부정확하므로 전략 기반 매도만 허용
+            self.entry_price = state["price"]
+            self.entry_bar = state["bar"]
+            logger.warning(f"[SELL] 🔧 FALLBACK: entry_price set to current price: {self.entry_price}")
+
+            # 옵션 2: TP/SL 없이 전략 기반 매도만 허용 (더 보수적)
+            # logger.info("[SELL] Proceeding with strategy-based SELL only (no TP/SL)")
+            # (이 경우 TP/SL 체크 부분을 건너뛰도록 아래 로직 수정 필요)
 
         tp_price = self.entry_price * (1 + self.take_profit)
         sl_price = self.entry_price * (1 - self.stop_loss)
@@ -796,16 +823,46 @@ class MACDStrategy(Strategy):
         sl_hit = state["price"] <= sl_price + eps
         add("stop_loss", sl_enabled, sl_hit, {"price":state["price"], "sl_price":sl_price})
 
-        # Trailing Stop
+        # ✅ 수정: Take Profit 먼저 체크 (TS armed 트리거용)
+        tp_enabled = sell_cond.get("take_profit", False)
+        tp_reached = (state["price"] >= tp_price - eps)
         ts_enabled = sell_cond.get("trailing_stop", False)
+
+        # TP 도달 시 TS armed 활성화 (TS가 ON일 때만)
+        if tp_enabled and tp_reached and ts_enabled:
+            if not self.trailing_armed:
+                self.trailing_armed = True
+                self.highest_price = state["price"]  # TP 도달 시점부터 최고가 추적 시작
+                logger.info(f"🎯 TP 도달 → TS ARMED | tp_price={tp_price:.2f} current={state['price']:.2f}")
+
+        # TP 매도 조건: TS가 OFF이거나 TP_WITH_TS=True일 때만 즉시 매도
+        tp_hit = tp_reached and (TP_WITH_TS or (not ts_enabled))
+        add("take_profit", tp_enabled, tp_hit, {
+            "price": state["price"],
+            "tp_price": tp_price,
+            "ts_enabled": ts_enabled,
+            "tp_reached": tp_reached,
+            "will_sell": tp_hit
+        })
+
+        # Trailing Stop (TP 도달 후 armed 상태에서만 작동)
         if ts_enabled:
-            # ✅ 진입 직후 ARM 가능: self.trailing_armed는 BUY 시점에 세팅됨
             ts_armed = bool(self.trailing_armed)
-            # ✅ 최고가는 항상 갱신
-            if (self.highest_price is None) or (state["price"] > self.highest_price):
-                self.highest_price = state["price"]
+
+            # ✅ armed 상태일 때만 최고가 갱신
+            if ts_armed:
+                if (self.highest_price is None) or (state["price"] > self.highest_price):
+                    self.highest_price = state["price"]
+
             highest = self.highest_price
-            trailing_limit = (highest * (1 - self.trailing_stop_pct)) if highest is not None else None
+
+            # ✅ TP 가격 보호: trailing_limit의 최소값을 TP 가격으로 설정
+            if highest is not None:
+                raw_limit = highest * (1 - self.trailing_stop_pct)
+                trailing_limit = max(tp_price, raw_limit)  # TP 이상 보장
+            else:
+                trailing_limit = None
+
             ts_hit = (
                 ts_armed
                 and (trailing_limit is not None)
@@ -820,11 +877,6 @@ class MACDStrategy(Strategy):
             "pct": getattr(self,"trailing_stop_pct", None),
             "bars_held": bars_held, "min_hold": self.min_holding_period
         })
-
-        # Take Profit (TS 꺼져 있을 때만 즉시 매도)
-        tp_enabled = sell_cond.get("take_profit", False)
-        tp_hit = (state["price"] >= tp_price - eps) and (TP_WITH_TS or (not ts_enabled))
-        add("take_profit", tp_enabled, tp_hit, {"price":state["price"], "tp_price":tp_price, "ts_enabled":ts_enabled})
 
         # MACD Negative
         macdneg_enabled = sell_cond.get("macd_negative", False)
@@ -921,22 +973,24 @@ class MACDStrategy(Strategy):
             self._sell_action(state, "Stop Loss")
             return
 
-        # Trailing Stop
-        if ts_enabled:
-            if self.trailing_armed and (self.highest_price is not None):
-                trailing_limit = self.highest_price * (1 - self.trailing_stop_pct)
+        # Trailing Stop (armed 상태일 때만 작동)
+        if ts_enabled and self.trailing_armed:
+            if self.highest_price is not None:
+                # ✅ TP 가격 보호
+                raw_limit = self.highest_price * (1 - self.trailing_stop_pct)
+                trailing_limit = max(tp_price, raw_limit)
                 logger.info(
-                    f"🔧 TS CHECK | price={state['price']:.2f} high={self.highest_price:.2f} "
-                    f"limit={trailing_limit:.2f} pct={self.trailing_stop_pct:.3f}"
+                    f"🔧 TS CHECK | armed=True price={state['price']:.2f} high={self.highest_price:.2f} "
+                    f"limit={trailing_limit:.2f} (raw={raw_limit:.2f}, tp={tp_price:.2f}) pct={self.trailing_stop_pct:.3f}"
                 )
                 if bars_held >= self.min_holding_period and state["price"] <= trailing_limit + eps:
                     logger.info("🛑 TS HIT → SELL")
                     self._sell_action(state, "Trailing Stop")
                     return
 
-        # Take Profit
+        # Take Profit (TS가 OFF이거나 TP_WITH_TS=True일 때만 즉시 매도)
         if tp_enabled and tp_hit:
-            logger.info("💰 TP HIT (no TS) → SELL")
+            logger.info("💰 TP HIT (TS OFF or TP_WITH_TS=True) → SELL")
             self._sell_action(state, "Take Profit")
             return
 
@@ -1067,9 +1121,59 @@ class EMAStrategy(Strategy):
         logger.info(f"[BOOT] __name__={__name__} __package__={__package__}")
 
         close = self.data.Close
-        self.ema_fast = self.I(lambda s: pd.Series(s).ewm(span=self.fast_period, adjust=False).mean().values, close)
-        self.ema_slow = self.I(lambda s: pd.Series(s).ewm(span=self.slow_period, adjust=False).mean().values, close)
-        self.ema_base = self.I(lambda s: pd.Series(s).ewm(span=self.base_period, adjust=False).mean().values, close)
+
+        # ========== EMA 파라미터 결정 ==========
+        use_separate = getattr(self, "use_separate_ema", False)
+
+        if use_separate:
+            # 별도 설정 모드: 매수용/매도용 EMA 파라미터 분리
+            fast_buy  = getattr(self, "fast_buy", None) or self.fast_period
+            slow_buy  = getattr(self, "slow_buy", None) or self.slow_period
+            fast_sell = getattr(self, "fast_sell", None) or self.fast_period
+            slow_sell = getattr(self, "slow_sell", None) or self.slow_period
+
+            logger.info(f"[EMA] 매수/매도 별도 EMA 사용")
+            logger.info(f"[EMA] 매수: Fast={fast_buy}, Slow={slow_buy}")
+            logger.info(f"[EMA] 매도: Fast={fast_sell}, Slow={slow_sell}")
+        else:
+            # 공통 설정 모드 (기존): 매수/매도 모두 동일한 EMA 사용
+            fast_buy = fast_sell = self.fast_period
+            slow_buy = slow_sell = self.slow_period
+
+            logger.info(f"[EMA] 매수/매도 공통 EMA 사용: Fast={fast_buy}, Slow={slow_buy}")
+
+        # ========== EMA 지표 계산 ==========
+        # 매수용 EMA
+        self.ema_fast_buy = self.I(
+            lambda s: pd.Series(s).ewm(span=fast_buy, adjust=False).mean().values,
+            close
+        )
+        self.ema_slow_buy = self.I(
+            lambda s: pd.Series(s).ewm(span=slow_buy, adjust=False).mean().values,
+            close
+        )
+
+        # 매도용 EMA
+        self.ema_fast_sell = self.I(
+            lambda s: pd.Series(s).ewm(span=fast_sell, adjust=False).mean().values,
+            close
+        )
+        self.ema_slow_sell = self.I(
+            lambda s: pd.Series(s).ewm(span=slow_sell, adjust=False).mean().values,
+            close
+        )
+
+        # 기준 EMA (기존 유지)
+        self.ema_base = self.I(
+            lambda s: pd.Series(s).ewm(span=self.base_period, adjust=False).mean().values,
+            close
+        )
+
+        # 기존 지표 유지 (호환성)
+        # ema_fast/ema_slow는 매도용으로 aliasing (차트 표시 등 기존 코드 호환성 유지)
+        self.ema_fast = self.ema_fast_sell
+        self.ema_slow = self.ema_slow_sell
+
         self.volatility = self.I(
             lambda h, l: pd.Series(h - l).rolling(self.volatility_window).mean().values,
             self.data.High, self.data.Low
@@ -1186,15 +1290,24 @@ class EMAStrategy(Strategy):
         return is_golden, is_dead
 
     def _current_state(self):
+        """현재 상태 반환 (로그/디버깅용)"""
         idx = len(self.data) - 1
         return {
             "bar": idx,
             "price": float(self.data.Close[-1]),
-            "ema_fast": float(self.ema_fast[-1]),
-            "ema_slow": float(self.ema_slow[-1]),
+            # 매수용 EMA
+            "ema_fast_buy": float(self.ema_fast_buy[-1]),
+            "ema_slow_buy": float(self.ema_slow_buy[-1]),
+            # 매도용 EMA
+            "ema_fast_sell": float(self.ema_fast_sell[-1]),
+            "ema_slow_sell": float(self.ema_slow_sell[-1]),
+            # 기준 EMA 및 기타
             "ema_base": float(self.ema_base[-1]),
             "volatility": float(self.volatility[-1]),
             "timestamp": self.data.index[-1],
+            # 기존 호환성을 위해 ema_fast/ema_slow도 포함 (매도용과 동일)
+            "ema_fast": float(self.ema_fast[-1]),
+            "ema_slow": float(self.ema_slow[-1]),
         }
 
     def _is_bullish_candle(self):
@@ -1202,10 +1315,13 @@ class EMAStrategy(Strategy):
                 and self.data.Close[-1] > self.data.Open[-1])
 
     def _is_ema_gc(self):
-        if len(self.ema_fast) < 2 or len(self.ema_slow) < 2:
+        """매수용 EMA로 골든크로스 판단"""
+        if len(self.ema_fast_buy) < 2 or len(self.ema_slow_buy) < 2:
             return False
-        pf, ps = self.ema_fast[-2], self.ema_slow[-2]
-        cf, cs = self.ema_fast[-1], self.ema_slow[-1]
+        # 이전 봉
+        pf, ps = self.ema_fast_buy[-2], self.ema_slow_buy[-2]
+        # 현재 봉
+        cf, cs = self.ema_fast_buy[-1], self.ema_slow_buy[-1]
         if not (self._is_finite(pf) and self._is_finite(ps) and self._is_finite(cf) and self._is_finite(cs)):
             return False
         delta_prev = pf - ps
@@ -1214,10 +1330,13 @@ class EMAStrategy(Strategy):
         return is_golden
 
     def _is_ema_dc(self):
-        if len(self.ema_fast) < 2 or len(self.ema_slow) < 2:
+        """매도용 EMA로 데드크로스 판단"""
+        if len(self.ema_fast_sell) < 2 or len(self.ema_slow_sell) < 2:
             return False
-        pf, ps = self.ema_fast[-2], self.ema_slow[-2]
-        cf, cs = self.ema_fast[-1], self.ema_slow[-1]
+        # 이전 봉
+        pf, ps = self.ema_fast_sell[-2], self.ema_slow_sell[-2]
+        # 현재 봉
+        cf, cs = self.ema_fast_sell[-1], self.ema_slow_sell[-1]
         if not (self._is_finite(pf) and self._is_finite(ps) and self._is_finite(cf) and self._is_finite(cs)):
             return False
         delta_prev = pf - ps
@@ -1260,13 +1379,17 @@ class EMAStrategy(Strategy):
         else:
             self._last_cross_type = "Neutral"
 
+        # ✅ EMA 확장 포맷: 매수/매도/기준 EMA 모두 포함
         EMAStrategy.log_events.append(
             (
                 state["bar"],
                 "LOG",
                 self._last_cross_type,
-                state["ema_fast"],
-                state["ema_slow"],
+                state["ema_fast_buy"],   # 매수용 Fast EMA
+                state["ema_slow_buy"],   # 매수용 Slow EMA
+                state["ema_fast_sell"],  # 매도용 Fast EMA
+                state["ema_slow_sell"],  # 매도용 Slow EMA
+                state["ema_base"],       # 기준 EMA
                 state["price"],
             )
         )
@@ -1316,7 +1439,7 @@ class EMAStrategy(Strategy):
         above = self._is_above_base_ema()
         bull = self._is_bullish_candle()
 
-        add("ema_gc",         buy_cond.get("ema_gc", False),         gc,    {"ema_fast": state["ema_fast"], "ema_slow": state["ema_slow"]})
+        add("ema_gc",         buy_cond.get("ema_gc", False),         gc,    {"ema_fast_buy": state["ema_fast_buy"], "ema_slow_buy": state["ema_slow_buy"]})
         add("above_base_ema", buy_cond.get("above_base_ema", False), above, {"price": state["price"], "ema_base": state["ema_base"]})
         add("bullish_candle", buy_cond.get("bullish_candle", False), bull,  {"open": float(self.data.Open[-1]), "close": state["price"]})
 
@@ -1361,8 +1484,8 @@ class EMAStrategy(Strategy):
                                 interval_sec=getattr(self, "interval_sec", 60),
                                 bar=state["bar"],
                                 price=state["price"],
-                                macd=state["ema_fast"],   # 컬럼 재사용
-                                signal=state["ema_slow"],
+                                macd=state["ema_fast_buy"],   # 매수용 EMA fast
+                                signal=state["ema_slow_buy"],  # 매수용 EMA slow
                                 have_position=True,
                                 overall_ok=False,
                                 failed_keys=[],
@@ -1419,8 +1542,8 @@ class EMAStrategy(Strategy):
                         interval_sec=getattr(self, "interval_sec", 60),
                         bar=state["bar"],
                         price=state["price"],
-                        macd=state["ema_fast"],
-                        signal=state["ema_slow"],
+                        macd=state["ema_fast_buy"],   # 매수용 EMA fast
+                        signal=state["ema_slow_buy"],  # 매수용 EMA slow
                         have_position=False,
                         overall_ok=overall_ok,
                         failed_keys=failed_keys,
@@ -1449,11 +1572,8 @@ class EMAStrategy(Strategy):
         self.entry_price = state["price"]
         self.entry_bar = state["bar"]
         self.highest_price = self.entry_price
-        try:
-            sell_cond = self.conditions.get("sell", {}) if hasattr(self, "conditions") else {}
-            self.trailing_armed = bool(sell_cond.get("trailing_stop", False))
-        except Exception:
-            self.trailing_armed = False
+        # ✅ 수정: TP 달성 전까지는 TS 비활성화 (TP 도달 시 armed)
+        self.trailing_armed = False
 
         reason_str = "+".join(reasons) if reasons else "BUY"
         self._emit_trade("BUY", state, reason=reason_str)
@@ -1464,13 +1584,35 @@ class EMAStrategy(Strategy):
     # -------------------
     def _evaluate_sell(self):
         ticker = getattr(self, "ticker", "UNKNOWN")
-        if not self.position:
-            try:
-                if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
-                    if not self.has_wallet_position(self._norm_ticker(ticker)):
-                        return
-            except Exception:
-                return
+
+         # ★ 디버깅: 현재 상태 로깅
+        logger.info(f"[SELL-DEBUG] ========== SELL EVALUATION START ==========")
+        logger.info(f"[SELL-DEBUG] ticker={ticker}")
+        logger.info(f"[SELL-DEBUG] self.position={getattr(self, 'position', None)}")
+        logger.info(f"[SELL-DEBUG] self.entry_price={getattr(self, 'entry_price', None)}")
+        logger.info(f"[SELL-DEBUG] self.entry_bar={getattr(self, 'entry_bar', None)}")
+
+        # ★ 백테스트 포지션과 지갑 포지션을 모두 확인
+        has_bt_position = bool(getattr(getattr(self, "position", None), "size", 0) > 0)
+        has_wallet_pos = False
+
+        try:
+            if hasattr(self, "has_wallet_position") and callable(self.has_wallet_position):
+                has_wallet_pos = bool(self.has_wallet_position(self._norm_ticker(ticker)))
+                logger.info(f"[SELL] wallet check: {has_wallet_pos}")
+        except Exception as e:
+            logger.warning(f"[SELL] wallet check failed: {e}")
+            has_wallet_pos = False
+
+        logger.info(f"[SELL] ENTRY CHECK | has_bt_position={has_bt_position}, has_wallet_pos={has_wallet_pos}")
+
+        # ★ 둘 다 없을 때만 스킵 (OR 조건)
+        if not has_bt_position and not has_wallet_pos:
+            logger.info("[SELL] SKIP: no position in both BT and wallet")
+            return
+
+        # ★ 백테스트나 지갑 중 하나라도 보유 중이면 SELL 평가 진행
+        logger.info("[SELL] PROCEED: position detected")
 
         state = self._current_state()
         if state["bar"] < getattr(self, "_boot_start_bar", 0):
@@ -1489,12 +1631,23 @@ class EMAStrategy(Strategy):
                         self.entry_price = float(ep)
                         if self.entry_bar is None:
                             self.entry_bar = state["bar"]
+                        logger.info(f"[SELL] ✅ entry_price recovered from wallet: {self.entry_price}")
             except Exception as e:
-                logger.debug(f"[EMA][SELL] entry hydrate skipped: {e}")
+                logger.warning(f"[SELL] ⚠️ entry hydrate failed: {e}")
 
+        # ★ 복구 실패 시 대체 로직 (CRITICAL FIX)
         if self.entry_price is None:
-            logger.debug("[EMA] entry_price is None. Jump TP / SL Calculation.")
-            return
+            logger.warning(f"[SELL] ⚠️ entry_price is None after recovery attempt")
+
+            # 옵션 1: 현재가를 entry_price로 설정 (보수적)
+            # 주의: TP/SL 계산이 부정확하므로 전략 기반 매도만 허용
+            self.entry_price = state["price"]
+            self.entry_bar = state["bar"]
+            logger.warning(f"[SELL] 🔧 FALLBACK: entry_price set to current price: {self.entry_price}")
+
+            # 옵션 2: TP/SL 없이 전략 기반 매도만 허용 (더 보수적)
+            # logger.info("[SELL] Proceeding with strategy-based SELL only (no TP/SL)")
+            # (이 경우 TP/SL 체크 부분을 건너뛰도록 아래 로직 수정 필요)
 
         tp_price = self.entry_price * (1 + self.take_profit)
         sl_price = self.entry_price * (1 - self.stop_loss)
@@ -1511,14 +1664,46 @@ class EMAStrategy(Strategy):
         sl_hit = state["price"] <= sl_price + eps
         add("stop_loss", sl_enabled, sl_hit, {"price": state["price"], "sl_price": sl_price})
 
-        # Trailing Stop
+        # ✅ 수정: Take Profit 먼저 체크 (TS armed 트리거용)
+        tp_enabled = sell_cond.get("take_profit", False)
+        tp_reached = (state["price"] >= tp_price - eps)
         ts_enabled = sell_cond.get("trailing_stop", False)
+
+        # TP 도달 시 TS armed 활성화 (TS가 ON일 때만)
+        if tp_enabled and tp_reached and ts_enabled:
+            if not self.trailing_armed:
+                self.trailing_armed = True
+                self.highest_price = state["price"]  # TP 도달 시점부터 최고가 추적 시작
+                logger.info(f"[EMA] 🎯 TP 도달 → TS ARMED | tp_price={tp_price:.2f} current={state['price']:.2f}")
+
+        # TP 매도 조건: TS가 OFF이거나 TP_WITH_TS=True일 때만 즉시 매도
+        tp_hit = tp_reached and (TP_WITH_TS or (not ts_enabled))
+        add("take_profit", tp_enabled, tp_hit, {
+            "price": state["price"],
+            "tp_price": tp_price,
+            "ts_enabled": ts_enabled,
+            "tp_reached": tp_reached,
+            "will_sell": tp_hit
+        })
+
+        # Trailing Stop (TP 도달 후 armed 상태에서만 작동)
         if ts_enabled:
             ts_armed = bool(self.trailing_armed)
-            if (self.highest_price is None) or (state["price"] > self.highest_price):
-                self.highest_price = state["price"]
+
+            # ✅ armed 상태일 때만 최고가 갱신
+            if ts_armed:
+                if (self.highest_price is None) or (state["price"] > self.highest_price):
+                    self.highest_price = state["price"]
+
             highest = self.highest_price
-            trailing_limit = (highest * (1 - self.trailing_stop_pct)) if highest is not None else None
+
+            # ✅ TP 가격 보호: trailing_limit의 최소값을 TP 가격으로 설정
+            if highest is not None:
+                raw_limit = highest * (1 - self.trailing_stop_pct)
+                trailing_limit = max(tp_price, raw_limit)  # TP 이상 보장
+            else:
+                trailing_limit = None
+
             ts_hit = (
                 ts_armed
                 and (trailing_limit is not None)
@@ -1533,11 +1718,6 @@ class EMAStrategy(Strategy):
             "pct": getattr(self, "trailing_stop_pct", None),
             "bars_held": bars_held, "min_hold": self.min_holding_period
         })
-
-        # Take Profit
-        tp_enabled = sell_cond.get("take_profit", False)
-        tp_hit = state["price"] >= tp_price - eps
-        add("take_profit", tp_enabled, tp_hit, {"price": state["price"], "tp_price": tp_price})
 
         # EMA Dead Cross
         ema_dc_enabled = sell_cond.get("ema_dc", False)
@@ -1590,8 +1770,8 @@ class EMAStrategy(Strategy):
                     ticker=getattr(self, "ticker", "UNKNOWN"),
                     interval_sec=getattr(self, "interval_sec", 60),
                     bar=state["bar"], price=state["price"],
-                    macd=state["ema_fast"],
-                    signal=state["ema_slow"],
+                    macd=state["ema_fast_sell"],   # 매도용 EMA fast
+                    signal=state["ema_slow_sell"],  # 매도용 EMA slow
                     tp_price=tp_price, sl_price=sl_price,
                     highest=self.highest_price, ts_pct=getattr(self, "trailing_stop_pct", None),
                     ts_armed=self.trailing_armed, bars_held=bars_held,
@@ -1612,20 +1792,24 @@ class EMAStrategy(Strategy):
             self._sell_action(state, "Stop Loss")
             return
 
-        if ts_enabled:
-            if self.trailing_armed and (self.highest_price is not None):
-                trailing_limit = self.highest_price * (1 - self.trailing_stop_pct)
+        # Trailing Stop (armed 상태일 때만 작동)
+        if ts_enabled and self.trailing_armed:
+            if self.highest_price is not None:
+                # ✅ TP 가격 보호
+                raw_limit = self.highest_price * (1 - self.trailing_stop_pct)
+                trailing_limit = max(tp_price, raw_limit)
                 logger.info(
-                    f"[EMA] 🔧 TS CHECK | price={state['price']:.2f} high={self.highest_price:.2f} "
-                    f"limit={trailing_limit:.2f} pct={self.trailing_stop_pct:.3f}"
+                    f"[EMA] 🔧 TS CHECK | armed=True price={state['price']:.2f} high={self.highest_price:.2f} "
+                    f"limit={trailing_limit:.2f} (raw={raw_limit:.2f}, tp={tp_price:.2f}) pct={self.trailing_stop_pct:.3f}"
                 )
                 if bars_held >= self.min_holding_period and state["price"] <= trailing_limit + eps:
                     logger.info("[EMA] 🛑 TS HIT → SELL")
                     self._sell_action(state, "Trailing Stop")
                     return
 
+        # Take Profit (TS가 OFF이거나 TP_WITH_TS=True일 때만 즉시 매도)
         if tp_enabled and tp_hit:
-            logger.info("[EMA] 💰 TP HIT → SELL")
+            logger.info("[EMA] 💰 TP HIT (TS OFF or TP_WITH_TS=True) → SELL")
             self._sell_action(state, "Take Profit")
             return
 
@@ -1657,8 +1841,8 @@ class EMAStrategy(Strategy):
             "reason": reason,
             "timestamp": state["timestamp"],
             "price": state["price"],
-            "macd": state["ema_fast"],   # 컬럼 재사용
-            "signal": state["ema_slow"],
+            "macd": state["ema_fast_sell"],   # 매도용 EMA (기존 호환성)
+            "signal": state["ema_slow_sell"],  # 매도용 EMA (기존 호환성)
             "entry_price": self.entry_price,
             "entry_bar": self.entry_bar,
             "bars_held": state["bar"] - (self.entry_bar if self.entry_bar is not None else state["bar"]),

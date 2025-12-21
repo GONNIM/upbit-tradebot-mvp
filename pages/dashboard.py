@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from streamlit_autorefresh import st_autorefresh
 
 from engine.engine_manager import engine_manager
-from engine.params import load_params
+from engine.params import load_params, load_active_strategy
 
 from services.db import (
     get_account,
@@ -19,7 +19,9 @@ from services.db import (
     insert_log,
     get_last_status_log_from_db,
     fetch_latest_log_signal,
-    get_db
+    fetch_latest_log_signal_ema,
+    get_db,
+    get_last_open_buy_order
 )
 
 from config import (
@@ -208,7 +210,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.09.2203")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.21.1933")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -226,6 +228,16 @@ with col2:
     )
 
 style_metric_cards()
+
+# ✅ strategy_tag 변수를 먼저 정의 (버튼에서 사용하기 위해)
+# 우선순위: URL → 세션 → 활성 전략 파일 → 기본값
+json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+strategy_from_url = _get_param(qp, "strategy_type", None)
+strategy_from_session = st.session_state.get("strategy_type", None)
+strategy_from_file = load_active_strategy(user_id)
+strategy_tag = (strategy_from_url or strategy_from_session or strategy_from_file or DEFAULT_STRATEGY_TYPE)
+strategy_tag = str(strategy_tag).upper().strip()
+st.session_state["strategy_type"] = strategy_tag
 
 col10, col20, col30 = st.columns([1, 1, 1])
 with col10:
@@ -266,6 +278,7 @@ with col20:
             "mode": mode,
             "verified": upbit_ok,
             "capital_set": capital_ok,
+            "strategy_type": strategy_tag,  # ✅ 현재 전략 타입 전달
         })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
@@ -286,8 +299,18 @@ from services.init_db import init_db_if_needed, get_db_path
 init_db_if_needed(user_id)
 st.caption(f"DB file: `{get_db_path(user_id)}`")
 
-json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
-params_obj = load_params(json_path)
+# ✅ 전략 타입을 전달해서 전략별 params를 로드
+params_obj = load_params(json_path, strategy_type=strategy_tag)
+
+# ✅ 해당 전략 파일이 아직 없을 수 있으므로(최초 진입 등) 공용/디폴트로 한 번 더 폴백
+if params_obj is None:
+    # 1) 공용 파일(기존 방식) 시도 → 혹시 남아있는 레거시가 있다면 살림
+    params_obj = load_params(json_path, strategy_type=strategy_tag)
+    # 2) 그것도 없으면 치명적이므로 안내 후 중단
+    if params_obj is None:
+        st.error("❌ 파라미터가 없습니다. 먼저 '파라미터 설정하기'에서 저장해 주세요.")
+        st.stop()
+
 # 🔍 디버그: 실제로 대시보드가 읽은 파라미터 확인
 # st.code(f"[DEBUG] json_path={json_path}", language="text")
 # st.json(params_obj.model_dump())
@@ -382,17 +405,76 @@ with col_coin:
     # delta에 코인 평가액을 유지 (정보성 OK)
     st.metric(f"{_ticker} 보유량", f"{qty:,.6f}", delta=f"평가 {coin_val:,.0f} KRW", delta_color="off")
 with col_pnl:
-    # ROI 방향 라벨 & delta 문자열 구성
-    if roi > 0:
-        delta_str = f"+{roi:.2f}% 상승"     # '+'로 시작 → 녹색 ▲
-        delta_color = "normal"             # +는 초록, -는 빨강 (기본)
-    elif roi < 0:
-        delta_str = f"{roi:.2f}% 하락"      # 음수 그대로 → 빨간 ▼
-        delta_color = "normal"
+    # ✅ 포지션 보유 여부에 따라 분기
+    if qty > 0:
+        # === 미실현 수익률 (현재 포지션) ===
+        last_buy = get_last_open_buy_order(_ticker, user_id)
+        if last_buy and last_price:
+            entry_price = last_buy["price"]
+            unrealized_pnl_pct = ((last_price - entry_price) / entry_price) * 100.0
+            metric_label = "💹 현재 포지션"
+            metric_value = f"{unrealized_pnl_pct:+.2f}%"
+
+            if unrealized_pnl_pct > 0:
+                delta_str = f"+{unrealized_pnl_pct:.2f}% (미실현)"
+                delta_color = "normal"
+            elif unrealized_pnl_pct < 0:
+                delta_str = f"{unrealized_pnl_pct:.2f}% (미실현)"
+                delta_color = "normal"
+            else:
+                delta_str = "보합 (미실현)"
+                delta_color = "off"
+        else:
+            metric_label = "💹 현재 포지션"
+            metric_value = "N/A"
+            delta_str = "정보 없음"
+            delta_color = "off"
     else:
-        delta_str = "0.00% 보합"            # 0 → 회색 • (화살표 없음)
-        delta_color = "off"                # 색/화살표 끔
-    st.metric("📈 누적 수익률", roi_msg, delta=delta_str, delta_color=delta_color)
+        # === 최근 거래 수익률 (마지막 SELL) ===
+        recent_orders = fetch_recent_orders(user_id, limit=50)
+
+        last_sell_return = None
+
+        # 리스트를 순회하면서 가장 최근 SELL 찾기 (이미 최신순 DESC)
+        for i, order in enumerate(recent_orders):
+            timestamp, ticker, side, price, volume, status, _, _ = order
+
+            if ticker != _ticker or side != "SELL":
+                continue
+
+            # 가장 최근 SELL 발견
+            sell_price = float(price)
+
+            # 이 SELL 이후의 BUY 찾기 (더 뒤 인덱스 = 더 오래된 주문)
+            for j in range(i + 1, len(recent_orders)):
+                _, ticker2, side2, price2, _, _, _, _ = recent_orders[j]
+                if ticker2 == _ticker and side2 == "BUY":
+                    buy_price = float(price2)
+                    last_sell_return = ((sell_price - buy_price) / buy_price) * 100.0
+                    break
+
+            break  # 첫 번째 SELL만 처리
+
+        if last_sell_return is not None:
+            metric_label = "💹 최근 거래"
+            metric_value = f"{last_sell_return:+.2f}%"
+
+            if last_sell_return > 0:
+                delta_str = f"+{last_sell_return:.2f}% (실현)"
+                delta_color = "normal"
+            elif last_sell_return < 0:
+                delta_str = f"{last_sell_return:.2f}% (실현)"
+                delta_color = "normal"
+            else:
+                delta_str = "보합 (실현)"
+                delta_color = "off"
+        else:
+            metric_label = "💹 최근 거래"
+            metric_value = "N/A"
+            delta_str = "거래 없음"
+            delta_color = "off"
+
+    st.metric(metric_label, metric_value, delta=delta_str, delta_color=delta_color)
 
 # (선택) 기준선 힌트: 어떤 기준으로 계산 중인지 투명하게 표기하고 싶다면 주석 해제
 # st.caption(f"기준선: {'초기 KRW' if init_krw > 0 else '세션 스냅샷'} = {baseline:,.0f} KRW · 현재 NAV = {portfolio_value:,.0f} KRW")
@@ -606,13 +688,17 @@ def _fmt_dt(ts: pd.Timestamp | None, tz: str = LOCAL_TZ) -> str:
             return ""
         return ts2.tz_convert(tz).strftime("%Y-%m-%d %H:%M:%S")
 
-def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
+def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD") -> dict | None:
     """
-    LOG 스냅샷(fetch_latest_log_signal)과 최근 체결(fetch_recent_orders) 중
+    LOG 스냅샷(fetch_latest_log_signal / fetch_latest_log_signal_ema)과 최근 체결(fetch_recent_orders) 중
     '시간'이 더 최신인 항목을 하나로 통합해 반환.
     """
-    # 1) LOG 스냅샷
-    log_row = fetch_latest_log_signal(user_id, ticker)  # {"시간","Ticker","price","cross","macd","signal"} | None
+    # 1) LOG 스냅샷 - 전략별 분기
+    if strategy_tag == "EMA":
+        log_row = fetch_latest_log_signal_ema(user_id, ticker)
+    else:
+        log_row = fetch_latest_log_signal(user_id, ticker)
+
     log_dt = _parse_dt(log_row["시간"]) if log_row else None
 
     # 2) 최근 체결에서 같은 티커의 최신 1건
@@ -638,55 +724,109 @@ def get_latest_any_signal(user_id: str, ticker: str) -> dict | None:
         t_ticker, t_side, t_price = trade_row[1], trade_row[2], trade_row[3]
         return {
             "source": "TRADE",
+            "strategy": strategy_tag,
             "시간": _parse_dt(trade_dt),
             "Ticker": t_ticker,
             "Price": f"{float(t_price):.2f}",
             "Cross": "(Filled)",
-            "MACD": None,
-            "Signal": None,
             "Extra": {"side": t_side},
         }
     else:
-        return {
+        result = {
             "source": "LOG",
-            "시간": _parse_dt(log_dt),
+            "strategy": strategy_tag,
+            "시간": log_row.get("시간"),  # DB 기록 시간
             "Ticker": log_row.get("Ticker"),
             "Price": log_row.get("price"),
             "Cross": log_row.get("cross"),
-            "MACD": log_row.get("macd"),
-            "Signal": log_row.get("signal"),
-            "Extra": None,
         }
+        # 전략별 추가 필드
+        if strategy_tag == "EMA":
+            result.update({
+                "ema_fast_buy": log_row.get("ema_fast_buy"),
+                "ema_slow_buy": log_row.get("ema_slow_buy"),
+                "ema_fast_sell": log_row.get("ema_fast_sell"),
+                "ema_slow_sell": log_row.get("ema_slow_sell"),
+                "ema_base": log_row.get("ema_base"),
+            })
+        else:
+            result.update({
+                "MACD": log_row.get("macd"),
+                "Signal": log_row.get("signal"),
+            })
+        return result
 
 latest = get_latest_any_signal(
-    user_id, getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
+    user_id, getattr(params_obj, "upbit_ticker", None) or params_obj.ticker, strategy_tag
 )
 
 st.subheader("📌 최종 시그널 정보 (가장 최신)")
 if latest:
-    cols = st.columns(6)
-    
     # ✅ None/빈 값 처리
     시간 = latest.get('시간') or '-'
     Ticker = latest.get('Ticker') or '-'
     Price = latest.get('Price') or '-'
     Cross = latest.get('Cross') or '-'
-    
-    cols[0].markdown(f"**시간**<br>{시간}", unsafe_allow_html=True)
-    cols[1].markdown(f"**Ticker**<br>{Ticker}", unsafe_allow_html=True)
-    cols[2].markdown(f"**Price**<br>{Price}", unsafe_allow_html=True)
-    cols[3].markdown(f"**Cross**<br>{Cross}", unsafe_allow_html=True)
-    
+
     if latest["source"] == "TRADE":
+        # 체결 정보
+        cols = st.columns(5)
         side = latest.get('Extra', {}).get('side', '-')
-        cols[4].markdown(f"**Side**<br>{side}", unsafe_allow_html=True)
-        cols[5].markdown(f"**Source**<br>TRADE", unsafe_allow_html=True)
+        cols[0].markdown(f"**DB 기록시간**<br>{시간}", unsafe_allow_html=True)
+        cols[1].markdown(f"**Ticker**<br>{Ticker}", unsafe_allow_html=True)
+        cols[2].markdown(f"**Price**<br>{Price}", unsafe_allow_html=True)
+        cols[3].markdown(f"**Side**<br>{side}", unsafe_allow_html=True)
+        cols[4].markdown(f"**Source**<br>TRADE", unsafe_allow_html=True)
     else:
-        macd = latest.get('MACD') or '-'
-        signal = latest.get('Signal') or '-'
-        cols[4].markdown(f"**MACD**<br>{macd}", unsafe_allow_html=True)
-        cols[5].markdown(f"**Signal**<br>{signal}", unsafe_allow_html=True)
-        st.caption("Source: LOG (닫힌 바 기준 스냅샷)")
+        # LOG 스냅샷 - 전략별 분기
+        if latest.get("strategy") == "EMA":
+            # EMA 전략: 별도 매수/매도 확인
+            use_separate = getattr(params_obj, "use_separate_ema", True)
+
+            if use_separate:
+                # 별도 매수/매도 EMA
+                cols1 = st.columns(4)
+                cols1[0].markdown(f"**DB 기록시간**<br>{시간}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{Ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Price**<br>{Price}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**Cross**<br>{Cross}", unsafe_allow_html=True)
+
+                cols2 = st.columns(4)
+                ema_fast_buy = latest.get('ema_fast_buy') or '-'
+                ema_slow_buy = latest.get('ema_slow_buy') or '-'
+                ema_fast_sell = latest.get('ema_fast_sell') or '-'
+                ema_slow_sell = latest.get('ema_slow_sell') or '-'
+                cols2[0].markdown(f"**Fast Buy**<br>{ema_fast_buy}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**Slow Buy**<br>{ema_slow_buy}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**Fast Sell**<br>{ema_fast_sell}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**Slow Sell**<br>{ema_slow_sell}", unsafe_allow_html=True)                
+            else:
+                # 공통 EMA
+                cols = st.columns(7)
+                ema_fast = latest.get('ema_fast_sell') or '-'  # 공통 모드에서는 매도용 사용
+                ema_slow = latest.get('ema_slow_sell') or '-'
+                ema_base = latest.get('ema_base') or '-'
+                cols[0].markdown(f"**DB 기록시간**<br>{시간}", unsafe_allow_html=True)
+                cols[1].markdown(f"**Ticker**<br>{Ticker}", unsafe_allow_html=True)
+                cols[2].markdown(f"**Price**<br>{Price}", unsafe_allow_html=True)
+                cols[3].markdown(f"**Cross**<br>{Cross}", unsafe_allow_html=True)
+                cols[4].markdown(f"**Fast**<br>{ema_fast}", unsafe_allow_html=True)
+                cols[5].markdown(f"**Slow**<br>{ema_slow}", unsafe_allow_html=True)
+                cols[6].markdown(f"**Base**<br>{ema_base}", unsafe_allow_html=True)
+
+            st.caption("Source: LOG (닫힌 바 기준 스냅샷)")
+        else:
+            # MACD 전략
+            cols = st.columns(6)
+            macd = latest.get('MACD') or '-'
+            signal = latest.get('Signal') or '-'
+            cols[0].markdown(f"**DB 기록시간**<br>{시간}", unsafe_allow_html=True)
+            cols[1].markdown(f"**Ticker**<br>{Ticker}", unsafe_allow_html=True)
+            cols[2].markdown(f"**Price**<br>{Price}", unsafe_allow_html=True)
+            cols[3].markdown(f"**Cross**<br>{Cross}", unsafe_allow_html=True)
+            cols[4].markdown(f"**MACD**<br>{macd}", unsafe_allow_html=True)
+            cols[5].markdown(f"**Signal**<br>{signal}", unsafe_allow_html=True)
+            st.caption("Source: LOG (닫힌 바 기준 스냅샷)")
 else:
     st.info("📭 아직 표시할 최신 시그널/체결 정보가 없습니다.")
 st.divider()
@@ -888,10 +1028,24 @@ if is_macd:
         f"<b>MACD Exit:</b> {get_macd_exit_enabled()}, Signal Confirm: {get_signal_confirm_enabled()}"
     )
 elif is_ema:
-    # EMA 전략일 때는 EMA 관점으로 표기 (fast/slow는 그대로 재사용, Base=200 고정 운용)
-    strategy_html_parts.append(
-        f"<b>EMA:</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}, Base=200"
-    )
+    # EMA 전략: 별도 매수/매도 확인
+    use_separate = getattr(params_obj, "use_separate_ema", True)
+    base_ema = getattr(params_obj, "base_ema_period", 200)
+
+    if use_separate:
+        # 별도 매수/매도 EMA
+        fast_buy = getattr(params_obj, "fast_buy", None) or params_obj.fast_period
+        slow_buy = getattr(params_obj, "slow_buy", None) or params_obj.slow_period
+        fast_sell = getattr(params_obj, "fast_sell", None) or params_obj.fast_period
+        slow_sell = getattr(params_obj, "slow_sell", None) or params_obj.slow_period
+        strategy_html_parts.append(
+            f"<b>EMA (Separate):</b> Buy={fast_buy}/{slow_buy}, Sell={fast_sell}/{slow_sell}"
+        )
+    else:
+        # 공통 EMA
+        strategy_html_parts.append(
+            f"<b>EMA (Common):</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}"
+        )
 
 strategy_html_parts.append(
     f"<b>TP/SL:</b> {params_obj.take_profit*100:.1f}% / {params_obj.stop_loss*100:.1f}%"
@@ -1108,7 +1262,7 @@ with get_db(user_id) as conn:
 
 st.divider()
 
-from ui.charts import macd_altair_chart, debug_time_meta, _minus_9h_index
+from ui.charts import macd_altair_chart, ema_altair_chart, debug_time_meta, _minus_9h_index
 from core.data_feed import get_ohlcv_once
 
 # ...
@@ -1118,19 +1272,34 @@ interval_code = getattr(params_obj, "interval", params_obj.interval)
 df_live = get_ohlcv_once(ticker, interval_code, count=600)  # 최근 600봉
 # ★ 차트 제목도 전략 표시
 st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag}")
-macd_altair_chart(
-    df_live,
-    fast=params_obj.fast_period,
-    slow=params_obj.slow_period,
-    signal=params_obj.signal_period,
-    max_bars=500,
-)
+
+# 전략별 차트 렌더링
+if strategy_tag == "EMA":
+    ema_altair_chart(
+        df_live,
+        use_separate=getattr(params_obj, "use_separate_ema", True),
+        fast_buy=getattr(params_obj, "fast_buy", None) or params_obj.fast_period,
+        slow_buy=getattr(params_obj, "slow_buy", None) or params_obj.slow_period,
+        fast_sell=getattr(params_obj, "fast_sell", None) or params_obj.fast_period,
+        slow_sell=getattr(params_obj, "slow_sell", None) or params_obj.slow_period,
+        base=getattr(params_obj, "base_ema_period", 200),
+        max_bars=500,
+    )
+else:
+    # MACD 전략 (기본)
+    macd_altair_chart(
+        df_live,
+        fast=params_obj.fast_period,
+        slow=params_obj.slow_period,
+        signal=params_obj.signal_period,
+        max_bars=500,
+    )
 
 # debug_time_meta(df_live, "raw")  # tz: None 이고 값이 이미 KST일 가능성
 # debug_time_meta(_minus_9h_index(df_live), "kst-naive")  # tz: None이어야 정상
 
 from services.db import fetch_order_statuses
 
-rows = fetch_order_statuses(user_id, limit=10)
+rows = fetch_order_statuses(user_id, limit=10, ticker=ticker)
 for r in rows:
     print(r)

@@ -61,18 +61,29 @@ class UpbitTrader:
             return 0.0
 
     def _coin_balance(self, ticker: str) -> float:
+        """
+        주어진 ticker(예: 'KRW-PEPE' 또는 'PEPE')에 대한 코인 잔고 반환.
+        - LIVE  : Upbit API get_balances()에서 currency=심볼 기준으로 조회
+        - TEST  : DB(account_positions 등)에 저장된 ticker 그대로 조회
+        """
+        # 심볼은 LIVE용 (Upbit get_balances()에서 currency 필드와 매칭)
         symbol = ticker.split("-")[-1].strip().upper() if ticker else ticker
 
         if self.test_mode:
             try:
-                return float(get_coin_balance(self.user_id, symbol) or 0.0)
+                # ✅ TEST 모드는 DB에 'KRW-PEPE' 같은 market 문자열로 저장하므로
+                # symbol(PEPE)이 아니라 ticker 그대로 조회해야 한다.
+                return float(get_coin_balance(self.user_id, ticker) or 0.0)
             except Exception:
                 return 0.0
 
         try:
+            # LIVE 모드에서는 free + locked 합계를 '보유량'으로 인식
             for b in self.upbit.get_balances():
                 if b.get("currency", "").upper() == symbol:
-                    return float(b.get("balance", 0.0))
+                    free_bal = float(b.get("balance", 0.0) or 0.0)
+                    locked_bal = float(b.get("locked", 0.0) or 0.0)
+                    return free_bal + locked_bal
             return 0.0
         except Exception as e:
             logger.error(f"[실거래] 코인 잔고 조회 실패: {e}")

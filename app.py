@@ -3,8 +3,9 @@ from urllib.parse import urlencode
 import streamlit as st
 import streamlit_authenticator as stauth
 from ui.style import style_main
-from config import MIN_CASH, ACCESS, SECRET
+from config import MIN_CASH, ACCESS, SECRET, DEFAULT_STRATEGY_TYPE
 from services.db import get_user, save_user
+from engine.params import load_active_strategy
 import yaml
 from yaml.loader import SafeLoader
 from services.init_db import init_db_if_needed
@@ -129,27 +130,31 @@ with login_placeholder.container():
         },
     )
 
+    # 세션 상태 초기화 (토글 렌더링 전)
+    if "live_mode_toggle" not in st.session_state:
+        st.session_state["live_mode_toggle"] = True  # 기본값 LIVE
+
     _has_toggle = hasattr(st, "toggle")
     if _has_toggle:
-        live_on = st.toggle(
+        st.toggle(
             "LIVE 모드",
-            value=(st.session_state.get("mode") == "LIVE"),
+            key="live_mode_toggle",
             help="OFF면 TEST, ON이면 LIVE로 동작합니다.",
         )
-        st.session_state["mode"] = "LIVE" if live_on else "TEST"
+        st.session_state["mode"] = "LIVE" if st.session_state["live_mode_toggle"] else "TEST"
     else:
         _mode_choice = st.radio(
             "운용 모드 선택",
             ["TEST", "LIVE"],
-            index=0,
+            index=1,
             horizontal=True,
-            help="기본값은 TEST입니다.",
+            help="기본값은 LIVE입니다.",
         )
         st.session_state["mode"] = _mode_choice
 
     # 모드 변경 감지
-    current_mode = st.session_state.get("mode", "TEST")
-    mode_changed = current_mode != st.session_state.get("_last_mode", "TEST")
+    current_mode = st.session_state.get("mode", "LIVE")
+    mode_changed = current_mode != st.session_state.get("_last_mode", "LIVE")
     if mode_changed:
         # 모드가 바뀌면 LIVE 자동검증 플래그 초기화
         st.session_state["_auto_checked_in_live"] = False
@@ -386,12 +391,15 @@ elif authentication_status:
     # 페이지 이동 처리
     if start_trading:
         next_page = "dashboard"
+        # ✅ 활성 전략 파일에서 strategy_type 로드
+        strategy_type = load_active_strategy(username) or DEFAULT_STRATEGY_TYPE
         params = urlencode({
             "user_id": st.session_state.user_id,
             "virtual_krw": st.session_state.virtual_krw,
             "mode": st.session_state.get("mode", "TEST"),
             "verified": int(bool(st.session_state.get("upbit_verified"))),
             "capital_set": int(bool(st.session_state.get("live_capital_set"))),
+            "strategy_type": strategy_type,
         })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
@@ -409,12 +417,15 @@ elif authentication_status:
 
     if start_setting:
         next_page = "set_config"
+        # ✅ 활성 전략 파일에서 strategy_type 로드
+        strategy_type = load_active_strategy(username) or DEFAULT_STRATEGY_TYPE
         params = urlencode({
             "virtual_krw": st.session_state.virtual_krw,
             "user_id": st.session_state.user_id,
             "mode": st.session_state.get("mode", "TEST"),
             "verified": int(bool(st.session_state.get("upbit_verified"))),
             "capital_set": int(bool(st.session_state.get("live_capital_set"))),
+            "strategy_type": strategy_type,
         })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
@@ -423,3 +434,10 @@ elif authentication_status:
         st.stop()
 
     # render_db_smoke_test(user_id=username, ticker="KRW-BTC", interval_sec=60)
+
+    logout = st.button("로그아웃하기", use_container_width=True)
+    if logout:
+        st.markdown(
+            f'<meta http-equiv="refresh" content="0; url=/?redirected=1">',
+            unsafe_allow_html=True,
+        )

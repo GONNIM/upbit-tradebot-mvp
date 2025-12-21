@@ -272,7 +272,65 @@ class EngineManager:
 
         q: queue.Queue = queue.Queue()
         try:
-            params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}")
+            # ✅ 전략 타입 결정 우선순위:
+            #    1) 세션에 저장된 strategy_type
+            #    2) 활성 전략 파일 ({user_id}_active_strategy.txt)
+            #    3) EMA/MACD 파일 중 최신 파일의 strategy_type
+            #    4) DEFAULT_STRATEGY_TYPE (MACD)
+            from config import DEFAULT_STRATEGY_TYPE
+            from engine.params import load_active_strategy
+            import os
+            from pathlib import Path
+
+            session_strategy = st.session_state.get("strategy_type", None)
+
+            if session_strategy:
+                # 1) 세션에 있으면 그것 사용
+                strategy_type = str(session_strategy).upper().strip()
+                logger.info(f"[ENGINE] Using strategy from session: {strategy_type}")
+            else:
+                # 2) 활성 전략 파일 확인
+                active_strategy = load_active_strategy(user_id)
+                if active_strategy:
+                    strategy_type = active_strategy
+                    logger.info(f"[ENGINE] Using strategy from active strategy file: {strategy_type}")
+                else:
+                    # 3) 세션에도 없고 활성 전략 파일도 없으면 파일 mtime 기반 결정
+                    base_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+                    ema_path = f"{user_id}_latest_params_EMA.json"
+                    macd_path = f"{user_id}_latest_params_MACD.json"
+
+                    ema_exists = os.path.exists(ema_path)
+                    macd_exists = os.path.exists(macd_path)
+
+                    if ema_exists and macd_exists:
+                        # 둘 다 있으면 최신 파일 사용
+                        ema_mtime = os.path.getmtime(ema_path)
+                        macd_mtime = os.path.getmtime(macd_path)
+                        strategy_type = "EMA" if ema_mtime > macd_mtime else "MACD"
+                        logger.info(f"[ENGINE] Both files exist, using latest by mtime: {strategy_type}")
+                    elif ema_exists:
+                        strategy_type = "EMA"
+                        logger.info(f"[ENGINE] Only EMA file exists, using EMA")
+                    elif macd_exists:
+                        strategy_type = "MACD"
+                        logger.info(f"[ENGINE] Only MACD file exists, using MACD")
+                    else:
+                        # 4) 둘 다 없으면 기본값 사용
+                        strategy_type = DEFAULT_STRATEGY_TYPE
+                        logger.info(f"[ENGINE] No strategy files, using default: {strategy_type}")
+
+            # ✅ 전략 타입을 전달하여 올바른 파일 로드
+            params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_type)
+
+            if params is None:
+                msg = f"❌ 파라미터 로드 실패: {user_id}, strategy={strategy_type}"
+                logger.error(msg)
+                insert_log(user_id, "ERROR", msg)
+                return
+
+            logger.info(f"[ENGINE] Loaded params: strategy_type={params.strategy_type}")
+
             trader = UpbitTrader(
                 user_id, risk_pct=params.order_ratio, test_mode=test_mode
             )

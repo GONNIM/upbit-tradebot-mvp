@@ -68,6 +68,14 @@ mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 is_live = (mode == "LIVE")
 
+# ✅ strategy_type 읽기 (URL → 세션 → 디폴트)
+from config import DEFAULT_STRATEGY_TYPE
+strategy_from_url = _get_param(qp, "strategy", None) or _get_param(qp, "strategy_type", None)
+strategy_from_session = st.session_state.get("strategy_type", None)
+strategy_tag = (strategy_from_url or strategy_from_session or DEFAULT_STRATEGY_TYPE)
+strategy_tag = str(strategy_tag).upper().strip()
+st.session_state["strategy_type"] = strategy_tag
+
 db_path = get_db_path(user_id)
 
 st.markdown(f"### 📑 감사 로그 뷰어")
@@ -135,6 +143,7 @@ with col_go:
             "user_id": user_id,
             "virtual_krw": virtual_krw,
             "mode": mode,
+            "strategy_type": strategy_tag,  # ✅ 현재 전략 타입 전달
         })
         st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{qs}">', unsafe_allow_html=True)
         st.switch_page(next_page)
