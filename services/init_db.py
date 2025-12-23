@@ -155,6 +155,22 @@ def initialize_db(user_id):
         """
     )
 
+    # ✅ 데이터 수집 상태 추적 테이블
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS data_collection_status (
+            user_id TEXT PRIMARY KEY,
+            is_collecting INTEGER DEFAULT 0,
+            collected INTEGER DEFAULT 0,
+            target INTEGER DEFAULT 0,
+            progress REAL DEFAULT 0.0,
+            estimated_time REAL DEFAULT 0.0,
+            message TEXT,
+            updated_at TEXT DEFAULT (DATETIME('now', 'localtime'))
+        );
+        """
+    )
+
     # orders 조회/정리용
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_ts ON orders(user_id, timestamp);")
@@ -417,6 +433,19 @@ def ensure_core_tables(user_id: str):
         user_id TEXT PRIMARY KEY,
         is_thread_running INTEGER DEFAULT 0,
         last_heartbeat TEXT DEFAULT (DATETIME('now', 'localtime'))
+    );""")
+
+    # ✅ 데이터 수집 상태 추적 테이블
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS data_collection_status (
+        user_id TEXT PRIMARY KEY,
+        is_collecting INTEGER DEFAULT 0,
+        collected INTEGER DEFAULT 0,
+        target INTEGER DEFAULT 0,
+        progress REAL DEFAULT 0.0,
+        estimated_time REAL DEFAULT 0.0,
+        message TEXT,
+        updated_at TEXT DEFAULT (DATETIME('now', 'localtime'))
     );""")
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);")

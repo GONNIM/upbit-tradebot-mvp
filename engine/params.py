@@ -56,6 +56,12 @@ class LiveParams(BaseModel):
         description="EMA 전략에서 Base EMA 기간 (예: 200)",
     )
 
+    # 이동평균 계산 방식 (EMA 전략 전용)
+    ma_type: str = Field(
+        default="SMA",
+        description="이동평균 계산 방식: SMA (단순), EMA (지수), WMA (가중)"
+    )
+
     # EMA 매수/매도 별도 설정
     use_separate_ema: bool = Field(
         default=True,
@@ -163,7 +169,7 @@ class LiveParams(BaseModel):
         """
         if not v:
             return ENGINE_EXEC_MODE
-        
+
         v_norm = v.upper().strip()
         allowed = ["BACKTEST", "REPLAY"]
 
@@ -174,7 +180,29 @@ class LiveParams(BaseModel):
             )
             return ENGINE_EXEC_MODE
         return v_norm
-    
+
+    @field_validator("ma_type")
+    def _validate_ma_type(cls, v: str) -> str:  # noqa: N805
+        """
+        - SMA / EMA / WMA 3가지만 허용
+        - 대소문자 무시
+        - 이상한 값이면 SMA로 폴백 + WARN 로그
+        """
+        if not v:
+            return "SMA"
+
+        v_norm = v.upper().strip()
+        allowed = ["SMA", "EMA", "WMA"]
+
+        if v_norm not in allowed:
+            logger.warning(
+                f"[LiveParams] invalid ma_type={v!r} → fallback to 'SMA' "
+                f"(allowed={allowed})"
+            )
+            return "SMA"
+
+        return v_norm
+
     # --------------------
     # Convenience
     # --------------------
@@ -253,6 +281,8 @@ def load_params(path: str, strategy_type: str | None = None) -> LiveParams | Non
     data.setdefault("slow_buy", None)
     data.setdefault("fast_sell", None)
     data.setdefault("slow_sell", None)
+    # 이동평균 계산 방식 (백워드 호환)
+    data.setdefault("ma_type", "SMA")
 
     try:
         return LiveParams(**data)

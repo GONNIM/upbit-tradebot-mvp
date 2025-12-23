@@ -1115,12 +1115,58 @@ class EMAStrategy(Strategy):
         except Exception:
             return ticker
 
+    def _calculate_ma(self, series, period: int, ma_type: str):
+        """
+        이동평균 계산 통합 함수
+
+        Args:
+            series: 가격 데이터 (Close)
+            period: 기간
+            ma_type: "SMA" | "EMA" | "WMA"
+
+        Returns:
+            numpy array
+        """
+        import numpy as np
+        s = pd.Series(series)
+
+        if ma_type == "SMA":
+            # ✅ 단순이동평균 (Simple Moving Average)
+            # 공식: (P₁ + P₂ + ... + Pₙ) / n
+            return s.rolling(window=period).mean().values
+
+        elif ma_type == "EMA":
+            # ✅ 지수이동평균 (Exponential Moving Average)
+            # 공식: EMA(t) = α × P(t) + (1-α) × EMA(t-1)
+            # where α = 2 / (period + 1)
+            return s.ewm(span=period, adjust=False).mean().values
+
+        elif ma_type == "WMA":
+            # ✅ 가중이동평균 (Weighted Moving Average)
+            # 공식: WMA = (n×P₁ + (n-1)×P₂ + ... + 1×Pₙ) / (n×(n+1)/2)
+            def wma(x):
+                if len(x) < period:
+                    return np.nan
+                weights = np.arange(1, period + 1)
+                return np.dot(x[-period:], weights) / weights.sum()
+
+            return s.rolling(window=period).apply(wma, raw=True).values
+
+        else:
+            # 폴백: SMA
+            logger.warning(f"[EMA] Unknown ma_type={ma_type}, fallback to SMA")
+            return s.rolling(window=period).mean().values
+
     def init(self):
         logger.info("EMAStrategy init")
         logger.info(f"[BOOT] strategy_file={os.path.abspath(inspect.getfile(self.__class__))}")
         logger.info(f"[BOOT] __name__={__name__} __package__={__package__}")
 
         close = self.data.Close
+
+        # ========== 이동평균 계산 방식 결정 ==========
+        ma_type = getattr(self, "ma_type", "SMA").upper()
+        logger.info(f"[EMA] 이동평균 계산 방식: {ma_type}")
 
         # ========== EMA 파라미터 결정 ==========
         use_separate = getattr(self, "use_separate_ema", False)
@@ -1142,30 +1188,30 @@ class EMAStrategy(Strategy):
 
             logger.info(f"[EMA] 매수/매도 공통 EMA 사용: Fast={fast_buy}, Slow={slow_buy}")
 
-        # ========== EMA 지표 계산 ==========
-        # 매수용 EMA
+        # ========== 이동평균 지표 계산 ==========
+        # 매수용 MA
         self.ema_fast_buy = self.I(
-            lambda s: pd.Series(s).ewm(span=fast_buy, adjust=False).mean().values,
+            lambda s: self._calculate_ma(s, fast_buy, ma_type),
             close
         )
         self.ema_slow_buy = self.I(
-            lambda s: pd.Series(s).ewm(span=slow_buy, adjust=False).mean().values,
+            lambda s: self._calculate_ma(s, slow_buy, ma_type),
             close
         )
 
-        # 매도용 EMA
+        # 매도용 MA
         self.ema_fast_sell = self.I(
-            lambda s: pd.Series(s).ewm(span=fast_sell, adjust=False).mean().values,
+            lambda s: self._calculate_ma(s, fast_sell, ma_type),
             close
         )
         self.ema_slow_sell = self.I(
-            lambda s: pd.Series(s).ewm(span=slow_sell, adjust=False).mean().values,
+            lambda s: self._calculate_ma(s, slow_sell, ma_type),
             close
         )
 
-        # 기준 EMA (기존 유지)
+        # 기준 MA
         self.ema_base = self.I(
-            lambda s: pd.Series(s).ewm(span=self.base_period, adjust=False).mean().values,
+            lambda s: self._calculate_ma(s, self.base_period, ma_type),
             close
         )
 

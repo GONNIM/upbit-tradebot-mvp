@@ -27,6 +27,28 @@ _IV_MIN = {
     "day": 1440,
 }
 
+# --------- 필수 데이터 개수 정의 (목표치) ---------
+# ⚠️ 주의: Upbit API는 과거 데이터 제약으로 목표치를 못 채울 수 있음
+# → 절대 최소량(ABSOLUTE_MIN_CANDLES)만 충족하면 전략 실행 허용
+REQUIRED_CANDLES = {
+    "minute1": 2000,   # 1분봉: 2000개 (목표, Upbit 실제 제약: ~800개)
+    "minute3": 1500,   # 3분봉: 1500개 (목표)
+    "minute5": 1200,   # 5분봉: 1200개 (목표)
+    "minute10": 1000,  # 10분봉: 1000개 (목표)
+    "minute15": 800,   # 15분봉: 800개 (목표)
+    "minute30": 600,   # 30분봉: 600개 (목표)
+    "minute60": 500,   # 60분봉: 500개 (목표)
+    "day": 400,        # 일봉: 400개 (목표)
+}
+
+# 절대 최소 캔들 개수 (이 값 미만이면 전략 시작 불가)
+# - 대부분 전략의 최대 파라미터(slow_period=200, base_ema=200) 기준
+# - 안정적인 MA 계산을 위해 최대 파라미터 × 3 = 600개
+ABSOLUTE_MIN_CANDLES = 600
+
+# 목표 대비 경고 비율 (이 비율 미만이면 경고만 표시)
+WARNING_RATIO = 0.5  # 50%
+
 
 # 디터미니즘 체크 로그 헬퍼
 def log_det(df: pd.DataFrame, tag: str):
@@ -126,6 +148,16 @@ def stream_candles(
     max_length: int = 500,
     user_id: str = None,  # Phase 2: 캐시 사용을 위한 user_id
 ):
+    # ✅ 데이터 수집 상태 업데이트 함수 import
+    if user_id:
+        try:
+            from services.db import update_data_collection_status, clear_data_collection_status
+        except ImportError:
+            update_data_collection_status = None
+            clear_data_collection_status = None
+    else:
+        update_data_collection_status = None
+        clear_data_collection_status = None
     def _log(level: str, msg: str):
         (logger.warning if level == "WARN" else logger.error if level == "ERROR" else logger.info)(msg)
         if q:
@@ -191,11 +223,12 @@ def stream_candles(
         return df
 
     # ★ 초기 히스토리 수집용 헬퍼
-    def _fetch_initial_history(to_param: str) -> pd.DataFrame:
+    def _fetch_initial_history(to_param: str, retry_full: int = 3) -> pd.DataFrame:
         """
         Upbit는 분봉 기준 한 번에 최대 200개만 반환하므로,
         max_length가 200을 넘는 경우 여러 번 나눠서 과거 히스토리를 모은다.
         - MACD/EMA를 HTS 수준으로 맞추기 위한 긴 히스토리(예: 3분봉 1500~2000개) 확보용.
+        - retry_full: 전체 수집 실패 시 재시도 횟수
         """
         iv_min = _iv_min(interval)
         remaining = max_length
@@ -204,8 +237,24 @@ def stream_candles(
         base_delay_local = retry_wait
         total_requested = max_length
         api_calls = 0
+        start_time = time.time()
 
+        expected_calls = (max_length + 199) // 200  # 올림 계산
+        expected_time = expected_calls * 0.15  # API 호출당 약 0.15초 (0.1초 딜레이 + 네트워크)
         _log("INFO", f"[초기-multi] 히스토리 수집 시작: max_length={max_length}, interval={interval}")
+        _log("INFO", f"[초기-multi] 예상: API 호출 {expected_calls}회, 소요 시간 약 {expected_time:.1f}초")
+
+        # ✅ 데이터 수집 시작 상태 저장
+        if update_data_collection_status:
+            update_data_collection_status(
+                user_id=user_id,
+                is_collecting=True,
+                collected=0,
+                target=max_length,
+                progress=0.0,
+                estimated_time=expected_time,
+                message=f"데이터 수집 시작 ({interval}봉, 목표: {max_length}개)"
+            )
 
         while remaining > 0:
             if stop_event and stop_event.is_set():
@@ -255,7 +304,21 @@ def stream_candles(
             remaining -= got
 
             collected_so_far = sum(len(c) for c in chunks)
-            _log("INFO", f"[초기-multi] 진행: {collected_so_far}/{total_requested} ({100*collected_so_far/total_requested:.1f}%)")
+            progress = collected_so_far / total_requested
+            remaining_time = remaining * 0.15
+            _log("INFO", f"[초기-multi] 진행: {collected_so_far}/{total_requested} ({100*progress:.1f}%)")
+
+            # ✅ 진행 상황 업데이트
+            if update_data_collection_status:
+                update_data_collection_status(
+                    user_id=user_id,
+                    is_collecting=True,
+                    collected=collected_so_far,
+                    target=total_requested,
+                    progress=progress,
+                    estimated_time=remaining_time,
+                    message=f"데이터 수집 중 ({collected_so_far}/{total_requested})"
+                )
 
             if got < per_call:
                 # Upbit API가 요청량보다 적게 반환 = 더 이상 과거 데이터 없음
@@ -283,7 +346,8 @@ def stream_candles(
         raw = pd.concat(chunks)
         final_count = len(raw)
         success_rate = 100 * final_count / total_requested if total_requested > 0 else 0
-        _log("INFO", f"[초기-multi] 수집 완료: {final_count}/{total_requested} ({success_rate:.1f}%), API 호출 {api_calls}회")
+        elapsed_time = time.time() - start_time
+        _log("INFO", f"[초기-multi] 수집 완료: {final_count}/{total_requested} ({success_rate:.1f}%), API 호출 {api_calls}회, 소요시간 {elapsed_time:.2f}초")
 
         return raw
     
@@ -295,7 +359,6 @@ def stream_candles(
     to_param = _fmt_to_param(bar_close)
 
     # ★ Phase 2: DB 캐시 우선 확인
-    cache_used = False
     if user_id:
         try:
             from services.db import load_candle_cache
@@ -303,7 +366,6 @@ def stream_candles(
 
             if cached_df is not None and len(cached_df) >= max_length * 0.9:  # 90% 이상이면 사용
                 df = cached_df
-                cache_used = True
                 _log("INFO", f"[CACHE-HIT] {len(df)} candles loaded from DB cache (skip API)")
             elif cached_df is not None:
                 _log("INFO", f"[CACHE-PARTIAL] {len(cached_df)} candles in cache (insufficient, will fetch from API)")
@@ -332,9 +394,37 @@ def stream_candles(
                 _log("WARN", f"[초기] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
                 time.sleep(delay)
         else:
-            # ★ MACD/EMA 안정화를 위해 긴 히스토리(max_length) 확보
-            _log("INFO", f"[초기] max_length > 200 → multi-fetch 모드 사용")
-            df = _fetch_initial_history(to_param)
+            # ★ MACD/EMA 안정화를 위해 긴 히스토리(max_length) 확보 + 재시도
+            _log("INFO", f"[초기] max_length > 200 → multi-fetch 모드 사용 (최대 3회 재시도)")
+
+            retry_count = 0
+            max_full_retry = 3
+
+            while retry_count < max_full_retry:
+                df = _fetch_initial_history(to_param, retry_full=max_full_retry)
+
+                if df is not None and not df.empty:
+                    temp_len = len(df)
+                    success_rate = 100 * temp_len / max_length if max_length > 0 else 0
+
+                    # 절대 최소량 이상이면 성공 (Upbit API 제약 고려)
+                    if temp_len >= ABSOLUTE_MIN_CANDLES:
+                        _log("INFO", f"[초기-재시도] 수집 성공: {temp_len}/{max_length} ({success_rate:.1f}%) - 절대 최소량({ABSOLUTE_MIN_CANDLES}) 충족")
+                        break
+                    else:
+                        retry_count += 1
+                        if retry_count < max_full_retry:
+                            retry_delay = 5 + random.uniform(0, 3)
+                            _log("WARN", f"[초기-재시도] 절대 부족 ({temp_len}/{ABSOLUTE_MIN_CANDLES}) - {retry_delay:.1f}초 후 전체 재시도 ({retry_count}/{max_full_retry})")
+                            time.sleep(retry_delay)
+                        else:
+                            _log("ERROR", f"[초기-재시도] 최대 재시도 횟수 도달: {temp_len}/{ABSOLUTE_MIN_CANDLES} (절대 최소량 미달)")
+                else:
+                    retry_count += 1
+                    if retry_count < max_full_retry:
+                        retry_delay = 5 + random.uniform(0, 3)
+                        _log("ERROR", f"[초기-재시도] 수집 실패 - {retry_delay:.1f}초 후 전체 재시도 ({retry_count}/{max_full_retry})")
+                        time.sleep(retry_delay)
 
         # ★ Phase 2: API 호출 후 DB에 저장
         if user_id and df is not None and not df.empty:
@@ -345,18 +435,34 @@ def stream_candles(
                 _log("WARN", f"[CACHE] Save failed (ignored): {e}")
 
     if df is None or df.empty:
-        _log("ERROR", "[초기] 데이터 수집 실패, 빈 DataFrame으로 시작")
-        df = pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
-        df.index = pd.to_datetime([])
-    else:
-        _log("INFO", f"[초기] 수집된 원본 데이터: {len(df)}개")
+        raise ValueError(f"[초기] 데이터 수집 실패: ticker={ticker}, interval={interval}")
+
+    _log("INFO", f"[초기] 수집된 원본 데이터: {len(df)}개")
 
     df = standardize_ohlcv(df).drop_duplicates()
     final_len = len(df)
-    _log("INFO", f"[초기] standardize 후 최종 데이터: {final_len}개 (요청: {max_length}개, 달성률: {100*final_len/max_length if max_length > 0 else 0:.1f}%)")
+    success_rate = 100 * final_len / max_length if max_length > 0 else 0
 
-    if final_len < max_length * 0.8:
-        _log("WARN", f"⚠️ 데이터 부족: {final_len}/{max_length} ({100*final_len/max_length:.1f}%) - Upbit API 제약 또는 과거 데이터 부족 가능성")
+    _log("INFO", f"[초기] standardize 후 최종 데이터: {final_len}개 (목표: {max_length}개, 달성률: {success_rate:.1f}%)")
+
+    # ★ 절대 최소량 검증 (Upbit API 제약 고려)
+    if final_len < ABSOLUTE_MIN_CANDLES:
+        raise ValueError(
+            f"❌ 데이터 절대 부족으로 전략 시작 차단: {final_len}/{ABSOLUTE_MIN_CANDLES} (절대 최소량) "
+            f"- MA 계산에 최소 {ABSOLUTE_MIN_CANDLES}개 필요 (현재 {success_rate:.1f}%)"
+        )
+
+    # 목표 대비 50% 미만이면 경고 (전략은 실행)
+    if final_len < max_length * WARNING_RATIO:
+        _log("WARN",
+            f"⚠️ 목표 대비 {success_rate:.1f}% 달성 ({final_len}/{max_length}) - "
+            f"Upbit API 제약으로 추정. 절대 최소량({ABSOLUTE_MIN_CANDLES})은 충족하여 전략 실행"
+        )
+
+    # ✅ 데이터 수집 완료 - 상태 초기화
+    if clear_data_collection_status:
+        clear_data_collection_status(user_id)
+        _log("INFO", f"[초기] 데이터 수집 완료! 엔진 시작합니다.")
 
     yield df
 

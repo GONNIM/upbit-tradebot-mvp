@@ -1264,3 +1264,101 @@ def load_candle_cache(user_id: str, ticker: str, interval: str, max_length: int 
     except Exception as e:
         logger.warning(f"[CACHE-LOAD] Failed to load candles: {e}")
         return None
+
+
+# ============================================================
+# 데이터 수집 상태 관리
+# ============================================================
+def update_data_collection_status(
+    user_id: str,
+    is_collecting: bool = False,
+    collected: int = 0,
+    target: int = 0,
+    progress: float = 0.0,
+    estimated_time: float = 0.0,
+    message: str = ""
+):
+    """
+    데이터 수집 진행 상황을 DB에 저장
+    - is_collecting: 현재 수집 중 여부
+    - collected: 수집된 데이터 개수
+    - target: 목표 데이터 개수
+    - progress: 진행률 (0.0 ~ 1.0)
+    - estimated_time: 남은 예상 시간 (초)
+    - message: 상태 메시지
+    """
+    try:
+        with get_db(user_id) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO data_collection_status
+                (user_id, is_collecting, collected, target, progress, estimated_time, message, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, DATETIME('now', 'localtime'))
+                """,
+                (user_id, int(is_collecting), collected, target, progress, estimated_time, message)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"[DATA-COLLECTION] Failed to update status: {e}")
+
+
+def get_data_collection_status(user_id: str) -> Optional[Dict[str, Any]]:
+    """
+    데이터 수집 진행 상황을 DB에서 조회
+    반환: {
+        "is_collecting": bool,
+        "collected": int,
+        "target": int,
+        "progress": float,
+        "estimated_time": float,
+        "message": str,
+        "updated_at": str
+    }
+    """
+    try:
+        with get_db(user_id) as conn:
+            cursor = conn.execute(
+                """
+                SELECT is_collecting, collected, target, progress, estimated_time, message, updated_at
+                FROM data_collection_status
+                WHERE user_id = ?
+                """,
+                (user_id,)
+            )
+            row = cursor.fetchone()
+
+            if row is None:
+                return None
+
+            return {
+                "is_collecting": bool(row[0]),
+                "collected": row[1],
+                "target": row[2],
+                "progress": row[3],
+                "estimated_time": row[4],
+                "message": row[5],
+                "updated_at": row[6]
+            }
+    except Exception as e:
+        logger.warning(f"[DATA-COLLECTION] Failed to get status: {e}")
+        return None
+
+
+def clear_data_collection_status(user_id: str):
+    """
+    데이터 수집 상태를 초기화 (수집 완료 시 호출)
+    """
+    try:
+        with get_db(user_id) as conn:
+            conn.execute(
+                """
+                UPDATE data_collection_status
+                SET is_collecting = 0, collected = 0, target = 0, progress = 0.0,
+                    estimated_time = 0.0, message = '', updated_at = DATETIME('now', 'localtime')
+                WHERE user_id = ?
+                """,
+                (user_id,)
+            )
+            conn.commit()
+    except Exception as e:
+        logger.warning(f"[DATA-COLLECTION] Failed to clear status: {e}")

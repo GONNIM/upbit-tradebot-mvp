@@ -96,6 +96,31 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             # ---------- EMA / MACD 별 기본값 분기 ----------
             if is_ema:
                 st.divider()
+                st.subheader("📊 EMA 설정")
+
+                # ✅ 이동평균 계산 방식 선택
+                ma_type = st.selectbox(
+                    "이동평균 계산 방식",
+                    ["SMA", "EMA", "WMA"],
+                    index=["SMA", "EMA", "WMA"].index(
+                        DEFAULT_PARAMS.get("ma_type", "SMA").upper()
+                    ),
+                    help=(
+                        "**SMA**: 단순이동평균 (모든 가격 동일 가중)\n\n"
+                        "**EMA**: 지수이동평균 (최근 가격에 높은 가중)\n\n"
+                        "**WMA**: 가중이동평균 (선형 가중)"
+                    )
+                )
+
+                # 계산 방식 요약 표시
+                if ma_type == "SMA":
+                    st.info("📌 **SMA** (단순이동평균): 모든 가격에 동일한 가중치 적용")
+                elif ma_type == "EMA":
+                    st.info("📌 **EMA** (지수이동평균): 최근 가격에 더 높은 가중치 적용")
+                elif ma_type == "WMA":
+                    st.info("📌 **WMA** (가중이동평균): 선형적으로 가중치 부여")
+
+                st.divider()
                 st.subheader("📊 EMA 매수/매도 설정")
 
                 # 매수/매도 별도 설정 여부
@@ -159,6 +184,8 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                 signal_val = int(DEFAULT_PARAMS.get("signal_period", 9))
             else:
                 # MACD 전략은 기존 로직 유지
+                # MACD는 항상 EMA 사용 (표준 MACD 정의)
+                ma_type = "EMA"
                 use_separate = False
                 fast = st.number_input("단기 EMA", 1, 100, value=DEFAULT_PARAMS.get("fast_period", 12))
                 slow = st.number_input("장기 EMA", 1, 240, value=DEFAULT_PARAMS.get("slow_period", 26))
@@ -343,6 +370,7 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             macd_exit_enabled=macd_exit_enabled,
             signal_confirm_enabled=signal_confirm_enabled,
             base_ema_period=int(base_ema_period),
+            ma_type=ma_type,
             strategy_type=current_strategy,
             engine_exec_mode=current_mode,
             # 거래 시간 제한

@@ -210,17 +210,37 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.21.1933")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.23.2053")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
 with col1:
     st.info("Upbit Trade Bot v1 상태 모니터링 페이지입니다.")
-    # ✅ 최종 로그 표시
-    last_log = get_last_status_log_from_db(user_id)
-    # st.markdown("### 🧾 최종 트레이딩 로그")
-    # st.code(last_log, language="text")
-    st.info(last_log)
+
+    # ✅ 데이터 수집 상태 확인 및 표시
+    from services.db import get_data_collection_status
+    data_status = get_data_collection_status(user_id)
+
+    if data_status and data_status.get("is_collecting"):
+        # 데이터 수집 중
+        collected = data_status.get("collected", 0)
+        target = data_status.get("target", 0)
+        progress = data_status.get("progress", 0.0)
+        est_time = data_status.get("estimated_time", 0.0)
+        message = data_status.get("message", "")
+
+        st.warning(f"🔄 **데이터 수집 중... 엔진이 곧 시작됩니다**")
+        st.progress(progress, text=f"진행: {collected}/{target}개 ({progress*100:.1f}%)")
+        if est_time > 0:
+            st.caption(f"⏱️ 예상 남은 시간: 약 {est_time:.1f}초")
+        if message:
+            st.caption(f"상태: {message}")
+    else:
+        # 데이터 수집 완료 또는 수집 전
+        # ✅ 최종 로그 표시
+        last_log = get_last_status_log_from_db(user_id)
+        st.info(last_log)
+
 with col2:
     status_color = "🟢" if engine_status else "🔴"
     st.metric(
@@ -1031,6 +1051,14 @@ elif is_ema:
     # EMA 전략: 별도 매수/매도 확인
     use_separate = getattr(params_obj, "use_separate_ema", True)
     base_ema = getattr(params_obj, "base_ema_period", 200)
+    ma_type_raw = getattr(params_obj, "ma_type", "SMA")
+
+    # ma_type 표시 매핑
+    ma_type_display = {
+        "SMA": "SMA(단순이동평균)",
+        "EMA": "EMA(지수이동평균)",
+        "WMA": "WMA(가중이동평균)"
+    }.get(ma_type_raw, ma_type_raw)
 
     if use_separate:
         # 별도 매수/매도 EMA
@@ -1039,12 +1067,12 @@ elif is_ema:
         fast_sell = getattr(params_obj, "fast_sell", None) or params_obj.fast_period
         slow_sell = getattr(params_obj, "slow_sell", None) or params_obj.slow_period
         strategy_html_parts.append(
-            f"<b>EMA (Separate):</b> Buy={fast_buy}/{slow_buy}, Sell={fast_sell}/{slow_sell}"
+            f"<b>EMA (Separate):</b> Buy={fast_buy}/{slow_buy}, Sell={fast_sell}/{slow_sell}, MA계산={ma_type_display}"
         )
     else:
         # 공통 EMA
         strategy_html_parts.append(
-            f"<b>EMA (Common):</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}"
+            f"<b>EMA (Common):</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}, MA계산={ma_type_display}"
         )
 
 strategy_html_parts.append(
