@@ -210,7 +210,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.23.2053")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.23.2103")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -782,8 +782,23 @@ latest = get_latest_any_signal(
 
 st.subheader("📌 최종 시그널 정보 (가장 최신)")
 if latest:
-    # ✅ None/빈 값 처리
-    시간 = latest.get('시간') or '-'
+    # ✅ None/빈 값 처리 및 시간 포맷팅
+    시간_raw = latest.get('시간')
+    if 시간_raw and 시간_raw != '-':
+        try:
+            # ISO 8601 형식을 파싱하여 간단한 형식으로 변환
+            from datetime import datetime
+            if isinstance(시간_raw, str):
+                # "2025-12-23T21:00:22.498701+09:00" -> "2025-12-23 21:00:22"
+                dt = datetime.fromisoformat(시간_raw)
+                시간 = dt.strftime("%Y-%m-%d %H:%M:%S")
+            else:
+                시간 = 시간_raw
+        except Exception:
+            시간 = 시간_raw
+    else:
+        시간 = '-'
+
     Ticker = latest.get('Ticker') or '-'
     Price = latest.get('Price') or '-'
     Cross = latest.get('Cross') or '-'
