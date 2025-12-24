@@ -37,23 +37,84 @@ def compute_ema(
     fast_sell: int = 20,
     slow_sell: int = 60,
     base: int = 200,
+    ma_type: str = "EMA",
 ) -> pd.DataFrame:
-    """EMA 라인 계산 (매수/매도 별도 or 공통)."""
+    """
+    이동평균 라인 계산 (매수/매도 별도 or 공통).
+
+    Args:
+        df: OHLCV 데이터프레임
+        close_col: 종가 컬럼명
+        use_separate: True=매수/매도 별도, False=공통
+        fast_buy: 매수용 Fast 기간
+        slow_buy: 매수용 Slow 기간
+        fast_sell: 매도용 Fast 기간
+        slow_sell: 매도용 Slow 기간
+        base: 기준 MA 기간
+        ma_type: 이동평균 계산 방식 ("SMA" | "EMA" | "WMA")
+
+    Returns:
+        MA 지표가 추가된 데이터프레임
+    """
+    import numpy as np
+
     out = df.copy()
+    ma_type = ma_type.upper().strip()
 
+    # ========== MA 계산 함수 (strategy_v2.py와 동일한 로직) ==========
+    def _calculate_ma(series, period: int):
+        """
+        이동평균 계산 통합 함수
+
+        Args:
+            series: 가격 데이터 (Close)
+            period: 기간
+
+        Returns:
+            pandas Series
+        """
+        s = pd.Series(series)
+
+        if ma_type == "SMA":
+            # ✅ 단순이동평균 (Simple Moving Average)
+            # 공식: (P₁ + P₂ + ... + Pₙ) / n
+            return s.rolling(window=period).mean()
+
+        elif ma_type == "EMA":
+            # ✅ 지수이동평균 (Exponential Moving Average)
+            # 공식: EMA(t) = α × P(t) + (1-α) × EMA(t-1)
+            # where α = 2 / (period + 1)
+            return s.ewm(span=period, adjust=False).mean()
+
+        elif ma_type == "WMA":
+            # ✅ 가중이동평균 (Weighted Moving Average)
+            # 공식: WMA = (n×P₁ + (n-1)×P₂ + ... + 1×Pₙ) / (n×(n+1)/2)
+            def wma(x):
+                if len(x) < period:
+                    return np.nan
+                weights = np.arange(1, period + 1)
+                return np.dot(x[-period:], weights) / weights.sum()
+
+            return s.rolling(window=period).apply(wma, raw=True)
+
+        else:
+            # 폴백: EMA (기존 동작 유지)
+            return s.ewm(span=period, adjust=False).mean()
+
+    # ========== MA 계산 (기존 로직 유지, 계산 함수만 변경) ==========
     if use_separate:
-        # 매수/매도 별도 EMA
-        out["EMA_Fast_Buy"] = out[close_col].ewm(span=fast_buy, adjust=False).mean()
-        out["EMA_Slow_Buy"] = out[close_col].ewm(span=slow_buy, adjust=False).mean()
-        out["EMA_Fast_Sell"] = out[close_col].ewm(span=fast_sell, adjust=False).mean()
-        out["EMA_Slow_Sell"] = out[close_col].ewm(span=slow_sell, adjust=False).mean()
+        # 매수/매도 별도 MA
+        out["EMA_Fast_Buy"] = _calculate_ma(out[close_col], fast_buy)
+        out["EMA_Slow_Buy"] = _calculate_ma(out[close_col], slow_buy)
+        out["EMA_Fast_Sell"] = _calculate_ma(out[close_col], fast_sell)
+        out["EMA_Slow_Sell"] = _calculate_ma(out[close_col], slow_sell)
     else:
-        # 공통 EMA (fast_sell, slow_sell 사용)
-        out["EMA_Fast"] = out[close_col].ewm(span=fast_sell, adjust=False).mean()
-        out["EMA_Slow"] = out[close_col].ewm(span=slow_sell, adjust=False).mean()
+        # 공통 MA (fast_sell, slow_sell 사용)
+        out["EMA_Fast"] = _calculate_ma(out[close_col], fast_sell)
+        out["EMA_Slow"] = _calculate_ma(out[close_col], slow_sell)
 
-    # 기준 EMA
-    out["EMA_Base"] = out[close_col].ewm(span=base, adjust=False).mean()
+    # 기준 MA
+    out["EMA_Base"] = _calculate_ma(out[close_col], base)
 
     return out
 
@@ -199,6 +260,7 @@ def ema_altair_chart(
     fast_sell: int = 20,
     slow_sell: int = 60,
     base: int = 200,
+    ma_type: str = "EMA",
     max_bars: int = 500,
     show_price: bool = True,
     height_price: int = 400,
@@ -209,8 +271,23 @@ def ema_altair_chart(
 ) -> None:
     """
     Altair EMA 차트 렌더링.
-    df_raw: 컬럼에 Open/High/Low/Close 포함, DatetimeIndex(UTC 권장).
-    use_separate: True면 매수/매도 별도 EMA, False면 공통 EMA.
+
+    Args:
+        df_raw: 컬럼에 Open/High/Low/Close 포함, DatetimeIndex(UTC 권장)
+        use_separate: True=매수/매도 별도, False=공통
+        fast_buy: 매수용 Fast 기간
+        slow_buy: 매수용 Slow 기간
+        fast_sell: 매도용 Fast 기간
+        slow_sell: 매도용 Slow 기간
+        base: 기준 MA 기간
+        ma_type: 이동평균 계산 방식 ("SMA" | "EMA" | "WMA")
+        max_bars: 표시할 최대 봉 개수
+        show_price: 가격 차트 표시 여부
+        height_price: 가격 차트 높이
+        height_ema: EMA 차트 높이
+        use_container_width: 컨테이너 너비에 맞춤
+        source_tz: 입력 데이터 시간대
+        target_tz: 표시 시간대
     """
     if df_raw is None or df_raw.empty:
         st.info("차트 표시할 데이터가 없습니다.")
@@ -225,6 +302,7 @@ def ema_altair_chart(
         fast_sell=fast_sell,
         slow_sell=slow_sell,
         base=base,
+        ma_type=ma_type,
     )
     df = _minus_9h_index(df)
 

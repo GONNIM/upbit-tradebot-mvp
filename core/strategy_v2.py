@@ -1167,6 +1167,11 @@ class EMAStrategy(Strategy):
         # ========== 이동평균 계산 방식 결정 ==========
         ma_type = getattr(self, "ma_type", "SMA").upper()
         logger.info(f"[EMA] 이동평균 계산 방식: {ma_type}")
+        # ✅ 차트 일치 검증 로그 추가
+        logger.info(
+            f"[EMA-CHART-SYNC] 전략={ma_type} | "
+            f"차트도 동일하게 표시되어야 함 (dashboard.py 확인)"
+        )
 
         # ========== EMA 파라미터 결정 ==========
         use_separate = getattr(self, "use_separate_ema", False)

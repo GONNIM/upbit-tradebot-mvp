@@ -1313,11 +1313,22 @@ ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
 interval_code = getattr(params_obj, "interval", params_obj.interval)
 
 df_live = get_ohlcv_once(ticker, interval_code, count=600)  # 최근 600봉
-# ★ 차트 제목도 전략 표시
-st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag}")
+
+# ★ 차트 제목도 전략 표시 (MA 타입 포함)
+if strategy_tag == "EMA":
+    ma_type_display = getattr(params_obj, "ma_type", "EMA")
+    st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag} · MA={ma_type_display}")
+else:
+    st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag}")
 
 # 전략별 차트 렌더링
 if strategy_tag == "EMA":
+    # ✅ 사용자가 선택한 MA 타입 가져오기
+    ma_type = getattr(params_obj, "ma_type", "EMA")
+
+    # ✅ 로그 추가 (검증용)
+    logger.info(f"[CHART] MA 타입={ma_type} | 전략과 동일하게 표시")
+
     ema_altair_chart(
         df_live,
         use_separate=getattr(params_obj, "use_separate_ema", True),
@@ -1326,6 +1337,7 @@ if strategy_tag == "EMA":
         fast_sell=getattr(params_obj, "fast_sell", None) or params_obj.fast_period,
         slow_sell=getattr(params_obj, "slow_sell", None) or params_obj.slow_period,
         base=getattr(params_obj, "base_ema_period", 200),
+        ma_type=ma_type,  # ✅ ma_type 파라미터 전달
         max_bars=500,
     )
 else:

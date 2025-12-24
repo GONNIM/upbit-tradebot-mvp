@@ -27,6 +27,23 @@ _IV_MIN = {
     "day": 1440,
 }
 
+# --------- JITTER 값 (interval별 차등 적용) ---------
+# 봉 종가 확정 후 추가 대기 시간 (초)
+# ⚠️ 중요: Upbit API는 봉 종가 확정까지 시간이 걸림
+# - 1분봉: 최소 1.0초 대기 필요 (0.3초는 너무 짧아서 데이터 준비 안 됨)
+# - 짧게 설정 시: 1분마다 요청하지만 2분에 한 번만 데이터 수신 → 2분 간격 yield
+# - 권장: 1분봉 1.0~1.5초, 장기봉 1.5~2.0초
+JITTER_BY_INTERVAL = {
+    "minute1": 1.2,   # 1분봉: 데이터 확정 대기 (1.2초 권장)
+    "minute3": 1.0,
+    "minute5": 1.0,
+    "minute10": 1.0,
+    "minute15": 1.0,
+    "minute30": 1.5,
+    "minute60": 1.5,
+    "day": 2.0,
+}
+
 # --------- 필수 데이터 개수 정의 (목표치) ---------
 # ⚠️ 주의: Upbit API는 과거 데이터 제약으로 목표치를 못 채울 수 있음
 # → 절대 최소량(ABSOLUTE_MIN_CANDLES)만 충족하면 전략 실행 허용
@@ -469,11 +486,14 @@ def stream_candles(
     last_open = df.index[-1]  # 우리가 가진 마지막 bar_open (tz-naive)
 
     # ---- 실시간 루프: 경계 동기화 → 닫힌 봉 조회 → 갭 백필 ----
-    JITTER = 0.7
+    # ✅ interval별 JITTER 값 선택
+    jitter = JITTER_BY_INTERVAL.get(interval, 0.7)
+    _log("INFO", f"[실시간 루프] interval={interval}, jitter={jitter}초")
+
     while not (stop_event and stop_event.is_set()):
         now = _now_kst_naive()
         next_close = _next_boundary(now, interval)
-        sleep_sec = max(0.0, (next_close - now).total_seconds() + JITTER)
+        sleep_sec = max(0.0, (next_close - now).total_seconds() + jitter)
         time.sleep(sleep_sec)
 
         # 막 닫힌 봉의 open
