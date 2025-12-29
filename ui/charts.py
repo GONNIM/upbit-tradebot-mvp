@@ -172,12 +172,12 @@ def normalize_time_index_friendly(
         _df.index = _df.index.tz_localize(None)
     return _df.sort_index()
 
-# ✅ 인덱스가 tz-naive(KST로 찍혀있음)인 경우 9시간만 단순히 빼기
+# ✅ [DEPRECATED] 이전에는 data_feed.py의 9시간 오프셋 문제를 보정하기 위해 사용
+# ✅ [2025-12-29] data_feed.py 수정으로 pyupbit이 KST로 반환하는 것을 올바르게 처리
+# ✅ 이제 이 함수는 불필요하므로 no-op으로 변경 (호환성 유지)
 def _minus_9h_index(df: pd.DataFrame) -> pd.DataFrame:
-    _df = df.copy()
-    if isinstance(_df.index, pd.DatetimeIndex) and _df.index.tz is None:
-        _df.index = pd.to_datetime(_df.index, errors="coerce") - pd.Timedelta(hours=9)
-    return _df
+    # 더 이상 9시간 보정이 필요 없음 - 그대로 반환
+    return df
 
 def macd_altair_chart(
     df_raw: pd.DataFrame,

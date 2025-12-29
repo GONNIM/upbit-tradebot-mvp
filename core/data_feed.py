@@ -193,20 +193,18 @@ def stream_candles(
         if "value" in df.columns:
             df = df.drop(columns=["value"])
 
-        # 인덱스 tz 정규화: UTC → KST naive로 통일
+        # 인덱스 tz 정규화: KST naive로 통일
+        # ⚠️ 중요: pyupbit은 이미 KST 시간대로 tz-naive 데이터를 반환함
         idx = pd.to_datetime(df.index)
         try:
-            # ✅ 수정: 조건을 반대로 (tz가 None이면 = naive이면)
             if getattr(idx, "tz", None) is None:
-                # tz-naive라면 UTC로 간주하고 localize
-                idx = idx.tz_localize("UTC")
-                _log("INFO", f"[standardize] tz-naive 감지 → UTC로 localize")
+                # ✅ pyupbit은 이미 KST naive로 반환하므로 그대로 사용
+                _log("INFO", f"[standardize] tz-naive 감지 → pyupbit은 이미 KST이므로 그대로 사용")
             else:
-                _log("INFO", f"[standardize] 이미 tz-aware (tz={idx.tz})")
-
-            # KST로 변환 후 tz 제거하여 전체 파이프라인을 'KST-naive'로 통일
-            idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
-            _log("INFO", f"[standardize] KST naive로 변환 완료")
+                # tz-aware인 경우에만 KST로 변환 후 tz 제거
+                _log("INFO", f"[standardize] tz-aware 감지 (tz={idx.tz}) → KST로 변환")
+                idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
+                _log("INFO", f"[standardize] KST naive로 변환 완료")
         except Exception as e:
             # 예외 발생 시 상세 로그
             _log("ERROR", f"[standardize] 타임존 변환 실패: {e}")
@@ -598,13 +596,16 @@ def get_ohlcv_once(ticker: str, interval_code: str, count: int = 500) -> pd.Data
     if df is None or df.empty:
         return pd.DataFrame(columns=["Open","High","Low","Close","Volume"])
 
-    # pyupbit 인덱스가 tz-naive(=UTC)일 가능성 높음 → KST-naive로 통일
+    # ⚠️ 중요: pyupbit 인덱스는 이미 KST tz-naive로 반환됨
     if isinstance(df.index, pd.DatetimeIndex):
         idx = pd.to_datetime(df.index)
         if getattr(idx, "tz", None) is None:
-            idx = idx.tz_localize("UTC")
-        idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
-        df.index = idx
+            # ✅ pyupbit은 이미 KST naive로 반환하므로 그대로 사용
+            pass
+        else:
+            # tz-aware인 경우에만 KST로 변환 후 tz 제거
+            idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
+            df.index = idx
 
     out = df[["open","high","low","close","volume"]].rename(
         columns={"open":"Open","high":"High","low":"Low","close":"Close","volume":"Volume"}
