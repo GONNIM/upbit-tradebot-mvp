@@ -374,7 +374,8 @@ def stream_candles(
     to_param = _fmt_to_param(bar_close)
 
     # ★ Phase 2: DB 캐시 우선 확인
-    if user_id:
+    # ⚠️ TEMPORARY: 타임존 수정 후 캐시 무효화 (잘못된 타임스탬프 방지)
+    if False and user_id:  # 캐시 로직 임시 비활성화
         try:
             from services.db import load_candle_cache
             cached_df = load_candle_cache(user_id, ticker, interval, max_length)
@@ -386,6 +387,8 @@ def stream_candles(
                 _log("INFO", f"[CACHE-PARTIAL] {len(cached_df)} candles in cache (insufficient, will fetch from API)")
         except Exception as e:
             _log("WARN", f"[CACHE] Load failed, will use API: {e}")
+
+    _log("INFO", "[CACHE] 타임존 수정 후 캐시 임시 비활성화 - API에서 직접 수집")
 
     # ★ 캐시 미스 또는 부족: API 호출
     if df is None:
@@ -492,6 +495,9 @@ def stream_candles(
         now = _now_kst_naive()
         next_close = _next_boundary(now, interval)
         sleep_sec = max(0.0, (next_close - now).total_seconds() + jitter)
+
+        # 🔍 DEBUG: 루프 진입 확인
+        _log("INFO", f"[실시간 루프] sleep={sleep_sec:.1f}초 | now={now} | next_close={next_close} | last_open={last_open}")
         time.sleep(sleep_sec)
 
         # 막 닫힌 봉의 open
@@ -501,6 +507,9 @@ def stream_candles(
         # 중간 누락분 계산(분 단위)
         gap = int((boundary_open - last_open).total_seconds() // (iv * 60))
         need = max(1, min(gap, 200))
+
+        # 🔍 DEBUG: API 호출 전 파라미터
+        _log("INFO", f"[실시간 API] boundary_open={boundary_open} | gap={gap} | need={need} | to={_fmt_to_param(next_close)}")
 
         # 재시도 루프
         new = None
@@ -523,10 +532,27 @@ def stream_candles(
             time.sleep(backoff)
             continue
 
+        # 🔍 DEBUG: API 응답 데이터 확인
+        if new is not None and not new.empty:
+            _log("INFO", f"[실시간 API 응답] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
+        else:
+            _log("WARN", f"[실시간 API 응답] new is None or empty!")
+            continue
+
         new = standardize_ohlcv(new).drop_duplicates()
+
+        # 🔍 DEBUG: standardize 후 데이터
+        _log("INFO", f"[실시간 표준화 후] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
+
         # 우리가 가진 마지막 이후 것만
+        before_filter_count = len(new)
         new = new[new.index > last_open]
+
+        # 🔍 DEBUG: 필터링 결과
+        _log("INFO", f"[실시간 필터링] before={before_filter_count} | after={len(new)} | filter_condition: index > {last_open}")
+
         if new.empty:
+            _log("WARN", f"[실시간 필터링] ⚠️ 새 데이터 없음! 모든 데이터가 last_open({last_open}) 이전임. continue하여 다음 루프 대기...")
             continue
 
         # 중복/정렬은 _optimize_dataframe_memory 내부에서 처리되지만
