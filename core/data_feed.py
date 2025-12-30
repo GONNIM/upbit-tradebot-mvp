@@ -59,9 +59,12 @@ REQUIRED_CANDLES = {
 }
 
 # 절대 최소 캔들 개수 (이 값 미만이면 전략 시작 불가)
-# - 대부분 전략의 최대 파라미터(slow_period=200, base_ema=200) 기준
-# - 안정적인 MA 계산을 위해 최대 파라미터 × 3 = 600개
-ABSOLUTE_MIN_CANDLES = 600
+# - 전략별로 다른 최소값 적용
+ABSOLUTE_MIN_CANDLES = {
+    "MACD": 600,  # MACD: 최대 파라미터 × 3
+    "EMA": 200,   # EMA: 최대 파라미터 (slow_period=200 기준)
+}
+ABSOLUTE_MIN_CANDLES_DEFAULT = 600  # 전략 미지정 시 기본값
 
 # 목표 대비 경고 비율 (이 비율 미만이면 경고만 표시)
 WARNING_RATIO = 0.5  # 50%
@@ -164,6 +167,7 @@ def stream_candles(
     stop_event=None,
     max_length: int = 500,
     user_id: str = None,  # Phase 2: 캐시 사용을 위한 user_id
+    strategy_type: str = None,  # 전략 타입 (MACD/EMA)
 ):
     # ✅ 데이터 수집 상태 업데이트 함수 import
     if user_id:
@@ -390,6 +394,11 @@ def stream_candles(
 
     _log("INFO", "[CACHE] 타임존 수정 후 캐시 임시 비활성화 - API에서 직접 수집")
 
+    # ✅ 전략별 최소 캔들 개수 결정
+    strategy_tag = (strategy_type or "MACD").upper().strip()
+    absolute_min = ABSOLUTE_MIN_CANDLES.get(strategy_tag, ABSOLUTE_MIN_CANDLES_DEFAULT)
+    _log("INFO", f"[초기] strategy={strategy_tag}, absolute_min_candles={absolute_min}")
+
     # ★ 캐시 미스 또는 부족: API 호출
     if df is None:
         _log("INFO", f"[초기] 데이터 수집 시작: ticker={ticker}, interval={interval}, max_length={max_length}")
@@ -426,17 +435,17 @@ def stream_candles(
                     success_rate = 100 * temp_len / max_length if max_length > 0 else 0
 
                     # 절대 최소량 이상이면 성공 (Upbit API 제약 고려)
-                    if temp_len >= ABSOLUTE_MIN_CANDLES:
-                        _log("INFO", f"[초기-재시도] 수집 성공: {temp_len}/{max_length} ({success_rate:.1f}%) - 절대 최소량({ABSOLUTE_MIN_CANDLES}) 충족")
+                    if temp_len >= absolute_min:
+                        _log("INFO", f"[초기-재시도] 수집 성공: {temp_len}/{max_length} ({success_rate:.1f}%) - 절대 최소량({absolute_min}) 충족")
                         break
                     else:
                         retry_count += 1
                         if retry_count < max_full_retry:
                             retry_delay = 5 + random.uniform(0, 3)
-                            _log("WARN", f"[초기-재시도] 절대 부족 ({temp_len}/{ABSOLUTE_MIN_CANDLES}) - {retry_delay:.1f}초 후 전체 재시도 ({retry_count}/{max_full_retry})")
+                            _log("WARN", f"[초기-재시도] 절대 부족 ({temp_len}/{absolute_min}) - {retry_delay:.1f}초 후 전체 재시도 ({retry_count}/{max_full_retry})")
                             time.sleep(retry_delay)
                         else:
-                            _log("ERROR", f"[초기-재시도] 최대 재시도 횟수 도달: {temp_len}/{ABSOLUTE_MIN_CANDLES} (절대 최소량 미달)")
+                            _log("ERROR", f"[초기-재시도] 최대 재시도 횟수 도달: {temp_len}/{absolute_min} (절대 최소량 미달)")
                 else:
                     retry_count += 1
                     if retry_count < max_full_retry:
@@ -464,17 +473,17 @@ def stream_candles(
     _log("INFO", f"[초기] standardize 후 최종 데이터: {final_len}개 (목표: {max_length}개, 달성률: {success_rate:.1f}%)")
 
     # ★ 절대 최소량 검증 (Upbit API 제약 고려)
-    if final_len < ABSOLUTE_MIN_CANDLES:
+    if final_len < absolute_min:
         raise ValueError(
-            f"❌ 데이터 절대 부족으로 전략 시작 차단: {final_len}/{ABSOLUTE_MIN_CANDLES} (절대 최소량) "
-            f"- MA 계산에 최소 {ABSOLUTE_MIN_CANDLES}개 필요 (현재 {success_rate:.1f}%)"
+            f"❌ 데이터 절대 부족으로 전략 시작 차단: {final_len}/{absolute_min} (절대 최소량) "
+            f"- MA 계산에 최소 {absolute_min}개 필요 (현재 {success_rate:.1f}%)"
         )
 
     # 목표 대비 50% 미만이면 경고 (전략은 실행)
     if final_len < max_length * WARNING_RATIO:
         _log("WARN",
             f"⚠️ 목표 대비 {success_rate:.1f}% 달성 ({final_len}/{max_length}) - "
-            f"Upbit API 제약으로 추정. 절대 최소량({ABSOLUTE_MIN_CANDLES})은 충족하여 전략 실행"
+            f"Upbit API 제약으로 추정. 절대 최소량({absolute_min})은 충족하여 전략 실행"
         )
 
     # ✅ 데이터 수집 완료 - 상태 초기화
@@ -490,6 +499,9 @@ def stream_candles(
     # ✅ interval별 JITTER 값 선택
     jitter = JITTER_BY_INTERVAL.get(interval, 0.7)
     _log("INFO", f"[실시간 루프] interval={interval}, jitter={jitter}초")
+
+    # ✅ API 응답 지연 재시도 카운터
+    api_retry_count = 0
 
     while not (stop_event and stop_event.is_set()):
         now = _now_kst_naive()
@@ -535,6 +547,30 @@ def stream_candles(
         # 🔍 DEBUG: API 응답 데이터 확인
         if new is not None and not new.empty:
             _log("INFO", f"[실시간 API 응답] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
+
+            # ✅ API 응답 검증: 기대한 시간대와 실제 응답 비교
+            expected_last = boundary_open  # 우리가 기대하는 마지막 봉
+            actual_last = new.index[-1]
+            time_gap = (expected_last - actual_last).total_seconds() / 60  # 분 단위
+
+            if time_gap > iv * 2:  # 2봉 이상 차이 나면
+                _log("WARN",
+                    f"[실시간 API] 응답 지연 감지! "
+                    f"기대: {expected_last} | 실제: {actual_last} | 갭: {time_gap:.0f}분"
+                )
+                # 짧게 대기 후 재시도 (최대 2회)
+                if api_retry_count < 2:
+                    api_retry_count += 1
+                    retry_delay = 3 + random.uniform(0, 2)
+                    _log("WARN", f"[실시간 API] {retry_delay:.1f}초 후 재시도 ({api_retry_count}/2)")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    _log("WARN", "[실시간 API] 최대 재시도 도달, 기존 데이터로 진행")
+                    api_retry_count = 0
+            else:
+                # 정상 응답이면 재시도 카운터 리셋
+                api_retry_count = 0
         else:
             _log("WARN", f"[실시간 API 응답] new is None or empty!")
             continue
@@ -544,12 +580,15 @@ def stream_candles(
         # 🔍 DEBUG: standardize 후 데이터
         _log("INFO", f"[실시간 표준화 후] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
 
-        # 우리가 가진 마지막 이후 것만
+        # ✅ 우리가 가진 마지막 이후 것만 (>= 사용으로 같은 봉도 업데이트 허용)
         before_filter_count = len(new)
-        new = new[new.index > last_open]
+        new = new[new.index >= last_open]  # '>' → '>=' 변경
+
+        # ✅ 중복 제거 (같은 인덱스는 최신 값 유지)
+        new = new.loc[~new.index.duplicated(keep='last')]
 
         # 🔍 DEBUG: 필터링 결과
-        _log("INFO", f"[실시간 필터링] before={before_filter_count} | after={len(new)} | filter_condition: index > {last_open}")
+        _log("INFO", f"[실시간 필터링] before={before_filter_count} | after={len(new)} | filter_condition: index >= {last_open}")
 
         if new.empty:
             _log("WARN", f"[실시간 필터링] ⚠️ 새 데이터 없음! 모든 데이터가 last_open({last_open}) 이전임. continue하여 다음 루프 대기...")

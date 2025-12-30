@@ -695,8 +695,18 @@ def _run_backtest_once(
         mode_tag,
     )
 
-    # 마지막 캔들은 "미완성"이므로 백테스트에서는 제외
-    df_bt = df.iloc[:-1].copy()
+    # ✅ LIVE/REPLAY: stream_candles가 이미 닫힌 봉만 제공하므로 마지막 봉 포함
+    # ✅ BACKTEST: 마지막 봉 제외 (미완성 봉 방지)
+    exec_mode = _resolve_engine_mode(params)
+
+    if exec_mode == "REPLAY" or mode_tag in ("LIVE", "TEST"):
+        # LIVE/REPLAY: stream_candles는 닫힌 봉만 주므로 전부 사용
+        df_bt = df.copy()
+        logger.info(f"[{mode_tag}] 마지막 봉 포함 (stream_candles는 닫힌 봉만 제공)")
+    else:
+        # BACKTEST: 기존 로직 유지 (마지막 봉 제외)
+        df_bt = df.iloc[:-1].copy()
+        logger.info("[BACKTEST] 마지막 봉 제외 (미완성 봉 방지)")
 
     bt = Backtest(
         df_bt,
@@ -827,6 +837,8 @@ def run_live_loop(
                 q,
                 stop_event=stop_event,
                 max_length=hist_max,
+                user_id=user_id,
+                strategy_type=strategy_tag,
             ):
                 if stop_event.is_set():
                     break
