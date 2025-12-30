@@ -210,7 +210,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.29.2201")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2025.12.30.2018")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -505,7 +505,7 @@ st.divider()
 # ✅ 최근 거래 내역
 st.subheader("📝 최근 거래 내역")
 # ✅ 컬럼: 시간, 코인, 매매, 가격, 수량, 상태, 현재금액, 보유코인
-orders = fetch_recent_orders(user_id, limit=10000)
+orders = fetch_recent_orders(user_id, limit=200)
 if orders:
     show_logs = st.toggle("📝 최근 거래 내역 보기", value=False)
     if show_logs:
@@ -629,7 +629,7 @@ if sell_logs:
         },
     )
 
-info_logs = fetch_logs(user_id, level="INFO", limit=10000)
+info_logs = fetch_logs(user_id, level="INFO", limit=200)
 if info_logs:
     st.subheader("🚨 상태 로그")
 
@@ -655,8 +655,8 @@ st.markdown("---")
 st.subheader("💹 거래 로그 (BUY / SELL)")
 show_trade = st.toggle("💹 거래 로그 보기", value=False)
 if show_trade:
-    trade_logs = (fetch_logs(user_id, level="BUY", limit=10000) or []) + \
-                    (fetch_logs(user_id, level="SELL", limit=10000) or [])
+    trade_logs = (fetch_logs(user_id, level="BUY", limit=100) or []) + \
+                    (fetch_logs(user_id, level="SELL", limit=100) or [])
     if trade_logs:
         df_trade = pd.DataFrame(trade_logs, columns=["시간", "레벨", "메시지"])
 
@@ -873,7 +873,7 @@ st.markdown(
     🟢 **Golden** &nbsp;&nbsp; 🔴 **Dead** &nbsp;&nbsp; 🔵 **Pending** &nbsp;&nbsp; ⚪ **Neutral**
 """
 )
-logs = fetch_logs(user_id, limit=10000)
+logs = fetch_logs(user_id, limit=200)
 if logs:
     df_logs = pd.DataFrame(logs, columns=["시간", "레벨", "메시지"])
 
