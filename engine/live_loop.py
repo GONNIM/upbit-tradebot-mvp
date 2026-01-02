@@ -41,10 +41,9 @@ logger = logging.getLogger(__name__)
 #   - MAX   : DF에 유지할 최대 히스토리 길이 (EMA/MACD 정확도용)
 # ============================================================
 
-WARMUP_LEN_BY_INTERVAL: Dict[str, int] = {
-    # "실제로 API에서 한 번에 가져오는 초기 히스토리 + 몇 분 정도 더 지나면"
-    # 도달 가능한 수준으로 잡는다.
-    "minute1": 600,   # 1분봉: 대략 600~800개 정도는 금방 도달
+# MACD 전략용 WARMUP (긴 히스토리 필요)
+WARMUP_LEN_BY_INTERVAL_MACD: Dict[str, int] = {
+    "minute1": 600,   # 1분봉: MACD 안정화를 위해 600개 필요
     "minute3": 600,
     "minute5": 500,
     "minute10": 400,
@@ -54,8 +53,20 @@ WARMUP_LEN_BY_INTERVAL: Dict[str, int] = {
     "day": 200,
 }
 
-MAX_HISTORY_LEN_BY_INTERVAL: Dict[str, int] = {
-    # EMA/MACD를 HTS와 비슷하게 맞추기 위한 "이상적인 최대 히스토리"
+# EMA 전략용 WARMUP (짧은 히스토리로 충분)
+WARMUP_LEN_BY_INTERVAL_EMA: Dict[str, int] = {
+    "minute1": 200,   # 1분봉: EMA는 200개면 충분 (data_feed.py의 ABSOLUTE_MIN_CANDLES와 일치)
+    "minute3": 200,
+    "minute5": 200,
+    "minute10": 200,
+    "minute15": 200,
+    "minute30": 200,
+    "minute60": 200,
+    "day": 200,
+}
+
+# MACD 전략용 MAX HISTORY
+MAX_HISTORY_LEN_BY_INTERVAL_MACD: Dict[str, int] = {
     "minute1": 2000,
     "minute3": 2000,
     "minute5": 1500,
@@ -66,16 +77,37 @@ MAX_HISTORY_LEN_BY_INTERVAL: Dict[str, int] = {
     "day": 400,
 }
 
+# EMA 전략용 MAX HISTORY (MACD보다 적어도 됨)
+MAX_HISTORY_LEN_BY_INTERVAL_EMA: Dict[str, int] = {
+    "minute1": 1000,
+    "minute3": 1000,
+    "minute5": 800,
+    "minute10": 600,
+    "minute15": 600,
+    "minute30": 500,
+    "minute60": 400,
+    "day": 300,
+}
+
 
 def _min_history_bars_for(params: LiveParams) -> int:
     """
     전략 실행/매매를 시작하기 위한 '최소 웜업 바 수'.
     - 지나치게 큰 값을 쓰면 무한 WARMUP에 갇힘
     - interval 기준 기본값 + 파라미터 기반 보정
+    - 전략별로 다른 WARMUP 테이블 사용 (MACD vs EMA)
     """
     iv = getattr(params, "interval", None)
-    if isinstance(iv, str) and iv in WARMUP_LEN_BY_INTERVAL:
-        base = WARMUP_LEN_BY_INTERVAL[iv]
+    strategy_tag = _strategy_tag(getattr(params, "strategy_type", "MACD"))
+
+    # 전략별 WARMUP 테이블 선택
+    if strategy_tag == "EMA":
+        warmup_table = WARMUP_LEN_BY_INTERVAL_EMA
+    else:  # MACD or others
+        warmup_table = WARMUP_LEN_BY_INTERVAL_MACD
+
+    if isinstance(iv, str) and iv in warmup_table:
+        base = warmup_table[iv]
     else:
         base = 300  # 폴백
 
@@ -91,10 +123,19 @@ def _max_history_bars_for(params: LiveParams) -> int:
     """
     DF에 유지할 최대 히스토리 길이.
     - EMA/MACD 정확도와 HTS 비교 목적
+    - 전략별로 다른 MAX HISTORY 테이블 사용 (MACD vs EMA)
     """
     iv = getattr(params, "interval", None)
-    if isinstance(iv, str) and iv in MAX_HISTORY_LEN_BY_INTERVAL:
-        base = MAX_HISTORY_LEN_BY_INTERVAL[iv]
+    strategy_tag = _strategy_tag(getattr(params, "strategy_type", "MACD"))
+
+    # 전략별 MAX HISTORY 테이블 선택
+    if strategy_tag == "EMA":
+        max_table = MAX_HISTORY_LEN_BY_INTERVAL_EMA
+    else:  # MACD or others
+        max_table = MAX_HISTORY_LEN_BY_INTERVAL_MACD
+
+    if isinstance(iv, str) and iv in max_table:
+        base = max_table[iv]
     else:
         base = 1000  # 폴백
 
