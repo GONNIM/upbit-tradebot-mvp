@@ -115,6 +115,7 @@ st.markdown(f"""
   <div class="card">
     <span class="badge">👤 user: <b>{user_id or '-'}</b></span>
     <span class="badge">🎯 ticker: <b>{ticker or '-'}</b></span>
+    <span class="badge">📊 전략: <b>{strategy_tag}</b></span>
     <span class="badge">🗄 DB: <span class="code">{db_path}</span></span>
   </div>
 </div>
@@ -170,10 +171,23 @@ section = key_from_label[choice]
 st.divider()
 
 # -------------------
+# 전략별 칼럼명 매핑
+# -------------------
+if strategy_tag == "EMA":
+    INDICATOR_COL_RENAME = {
+        "macd": "ema_fast",
+        "signal": "ema_slow"
+    }
+    INDICATOR_DISPLAY_NAME = "EMA"
+else:  # MACD or others
+    INDICATOR_COL_RENAME = {}
+    INDICATOR_DISPLAY_NAME = "MACD"
+
+# -------------------
 # BUY 평가
 # -------------------
 if section == "buy":
-    st.subheader("🟢 BUY 평가 (audit_buy_eval)")
+    st.subheader(f"🟢 BUY 평가 (audit_buy_eval) - {INDICATOR_DISPLAY_NAME} 전략")
     df_buy = fetch_buy_eval(user_id, ticker=ticker or None, only_failed=only_failed, limit=rows) or []
     if df_buy:
         if isinstance(df_buy, list):
@@ -190,7 +204,10 @@ if section == "buy":
         df_buy["failed_keys"] = df_buy["failed_keys"].apply(_j)
         df_buy["checks"] = df_buy["checks"].apply(_j)
         df_buy["timestamp"] = pd.to_datetime(df_buy["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-        st.dataframe(df_buy, use_container_width=True, hide_index=True)
+
+        # 전략별 칼럼명 변경
+        df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
+        st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
 
@@ -198,7 +215,7 @@ if section == "buy":
 # SELL 평가
 # -------------------
 elif section == "sell":
-    st.subheader("🔴 SELL 평가 (audit_sell_eval)")
+    st.subheader(f"🔴 SELL 평가 (audit_sell_eval) - {INDICATOR_DISPLAY_NAME} 전략")
     q = """
         SELECT timestamp, ticker, interval_sec, bar, price, macd, signal,
                tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
@@ -219,7 +236,10 @@ elif section == "sell":
                 return x
         df_sell["checks"] = df_sell["checks"].apply(_j)
         df_sell["timestamp"] = pd.to_datetime(df_sell["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-        st.dataframe(df_sell, use_container_width=True, hide_index=True)
+
+        # 전략별 칼럼명 변경
+        df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
+        st.dataframe(df_sell_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
 
@@ -227,7 +247,7 @@ elif section == "sell":
 # 체결(Trades)
 # -------------------
 elif section == "trades":
-    st.subheader("💹 체결 (audit_trades)")
+    st.subheader(f"💹 체결 (audit_trades) - {INDICATOR_DISPLAY_NAME} 전략")
     df_tr = fetch_trades_audit(user_id, ticker=ticker or None, limit=rows) or []
     if df_tr:
         if isinstance(df_tr, list):
@@ -238,7 +258,10 @@ elif section == "trades":
                          "highest","ts_pct","ts_armed"]
             )
         df_tr["timestamp"] = pd.to_datetime(df_tr["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
-        st.dataframe(df_tr, use_container_width=True, hide_index=True)
+
+        # 전략별 칼럼명 변경
+        df_tr_display = df_tr.rename(columns=INDICATOR_COL_RENAME)
+        st.dataframe(df_tr_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
 
@@ -246,7 +269,7 @@ elif section == "trades":
 # 설정 스냅샷
 # -------------------
 elif section == "settings":
-    st.subheader("⚙️ 설정 스냅샷 (audit_settings)")
+    st.subheader(f"⚙️ 설정 스냅샷 (audit_settings) - {INDICATOR_DISPLAY_NAME} 전략")
     q = """
         SELECT timestamp, ticker, interval_sec, tp, sl, ts_pct,
                signal_gate, threshold, buy_json, sell_json
