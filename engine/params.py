@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from config import (
     MIN_CASH,
     MIN_FEE_RATIO,
@@ -25,10 +25,9 @@ class LiveParams(BaseModel):
     ticker: str = Field(..., description="KRW-BTC 형식 혹은 BTC")
     interval: str = Field(..., description="Upbit candle interval id")
 
-    # fast_period 는 기존 제약 유지 (1 ~ 50)
-    fast_period: int = Field(12, ge=1, le=50)
-    # 🔴 전략별로 다르게 쓰고 싶으므로, 여기서는 상한을 넉넉히 열어둔다.
-    # MACD 에서만 <= 100 제약을 걸고, EMA 에서는 200 같은 값도 허용할 것.
+    # fast_period, slow_period: 전략별로 다양한 값 허용 (1 ~ 500)
+    # 실제 제약: fast < slow는 validator에서 검증
+    fast_period: int = Field(12, ge=1, le=500)
     slow_period: int = Field(26, ge=1, le=500)
     # signal_period 도 UI 에서 1~20 범위 쓰고 있으면 그대로 둬도 OK
     signal_period: int = Field(7, ge=1, le=20)
@@ -122,6 +121,36 @@ class LiveParams(BaseModel):
     # --------------------
     # Validators
     # --------------------
+    @model_validator(mode='after')
+    def _validate_fast_slow_periods(self):
+        """
+        fast_period는 slow_period보다 작아야 함 (모든 전략 공통)
+        EMA 별도 설정 사용 시에도 동일 규칙 적용
+        """
+        # 기본 fast/slow 검증
+        if self.fast_period >= self.slow_period:
+            raise ValueError(
+                f"fast_period ({self.fast_period})는 slow_period ({self.slow_period})보다 작아야 합니다."
+            )
+
+        # EMA 별도 설정 검증
+        if self.use_separate_ema:
+            # 매수용 EMA 검증
+            if self.fast_buy is not None and self.slow_buy is not None:
+                if self.fast_buy >= self.slow_buy:
+                    raise ValueError(
+                        f"fast_buy ({self.fast_buy})는 slow_buy ({self.slow_buy})보다 작아야 합니다."
+                    )
+
+            # 매도용 EMA 검증
+            if self.fast_sell is not None and self.slow_sell is not None:
+                if self.fast_sell >= self.slow_sell:
+                    raise ValueError(
+                        f"fast_sell ({self.fast_sell})는 slow_sell ({self.slow_sell})보다 작아야 합니다."
+                    )
+
+        return self
+
     @field_validator("ticker")
     def _validate_ticker(cls, v: str) -> str:  # noqa: N805
         v = v.upper().strip()
