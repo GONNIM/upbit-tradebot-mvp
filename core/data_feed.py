@@ -297,6 +297,14 @@ def stream_candles(
                     )
                     if df_part is not None and not df_part.empty:
                         _log("INFO", f"[초기-multi] API 응답 성공: {len(df_part)}개 수신")
+                        # 🔍 PRICE-DEBUG: multi-fetch 마지막 호출의 원본 데이터 (api_calls==1일때만)
+                        if api_calls == 1:
+                            try:
+                                last_3 = df_part.tail(3)
+                                for idx, row in last_3.iterrows():
+                                    _log("INFO", f"[PRICE-API-RAW-MULTI] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
+                            except Exception as e_log:
+                                _log("WARN", f"[PRICE-API-RAW-MULTI] 로깅 실패: {e_log}")
                         break
                     else:
                         _log("WARN", f"[초기-multi] API 응답이 비어있음 (attempt {attempt}/{max_retry})")
@@ -369,6 +377,14 @@ def stream_candles(
         elapsed_time = time.time() - start_time
         _log("INFO", f"[초기-multi] 수집 완료: {final_count}/{total_requested} ({success_rate:.1f}%), API 호출 {api_calls}회, 소요시간 {elapsed_time:.2f}초")
 
+        # 🔍 PRICE-DEBUG: concat 후 최종 원본 데이터 (변환 전)
+        try:
+            last_3 = raw.tail(3)
+            for idx, row in last_3.iterrows():
+                _log("INFO", f"[PRICE-API-CONCAT] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
+        except Exception as e_log:
+            _log("WARN", f"[PRICE-API-CONCAT] 로깅 실패: {e_log}")
+
         return raw
     
     # ---- 초기 로드: 막 닫힌 경계까지 ----
@@ -410,10 +426,18 @@ def stream_candles(
                     _log("WARN", "stream_candles 중단됨: 초기 수집 중 stop_event 감지")
                     return
                 try:
-                    _log("INFO", f"[초기] API 단일 호출: count={max_length}, to={to_param}")
-                    df = pyupbit.get_ohlcv(ticker, interval=interval, count=max_length, to=to_param)
+                    # ✅ FIX: to 파라미터 제거 - 확정된 최근 봉만 조회
+                    _log("INFO", f"[초기] API 단일 호출: count={max_length}")
+                    df = pyupbit.get_ohlcv(ticker, interval=interval, count=max_length)
                     if df is not None and not df.empty:
                         _log("INFO", f"[초기] API 응답 성공: {len(df)}개 수신")
+                        # 🔍 PRICE-DEBUG: pyupbit 원본 데이터 (변환 전)
+                        try:
+                            last_3 = df.tail(3)
+                            for idx, row in last_3.iterrows():
+                                _log("INFO", f"[PRICE-API-RAW] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
+                        except Exception as e_log:
+                            _log("WARN", f"[PRICE-API-RAW] 로깅 실패: {e_log}")
                         break
                 except Exception as e:
                     _log("ERROR", f"[초기] API 예외 발생: {e}")
@@ -467,8 +491,24 @@ def stream_candles(
 
     _log("INFO", f"[초기] 수집된 원본 데이터: {len(df)}개")
 
+    # 🔍 PRICE-DEBUG: standardize 전 데이터 (API 직후)
+    try:
+        last_3 = df.tail(3)
+        for idx, row in last_3.iterrows():
+            _log("INFO", f"[PRICE-BEFORE-STD] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
+    except Exception as e_log:
+        _log("WARN", f"[PRICE-BEFORE-STD] 로깅 실패: {e_log}")
+
     df = standardize_ohlcv(df).drop_duplicates()
     final_len = len(df)
+
+    # 🔍 PRICE-DEBUG: standardize 후 데이터
+    try:
+        last_3 = df.tail(3)
+        for idx, row in last_3.iterrows():
+            _log("INFO", f"[PRICE-AFTER-STD] {idx} | O={row['Open']:.0f} H={row['High']:.0f} L={row['Low']:.0f} C={row['Close']:.0f}")
+    except Exception as e_log:
+        _log("WARN", f"[PRICE-AFTER-STD] 로깅 실패: {e_log}")
     success_rate = 100 * final_len / max_length if max_length > 0 else 0
 
     _log("INFO", f"[초기] standardize 후 최종 데이터: {final_len}개 (목표: {max_length}개, 달성률: {success_rate:.1f}%)")
@@ -531,8 +571,21 @@ def stream_candles(
                 _log("WARN", "stream_candles 중단됨: 실시간 루프 중 stop_event 감지")
                 return
             try:
-                new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=_fmt_to_param(next_close))
+                # ✅ FIX: 확정된 봉만 조회 - 이전 완료된 봉까지만 조회
+                # 문제: pyupbit은 가장 최근 봉 반환 시 미확정 데이터 포함 가능
+                # 해결: to=이전_완료_봉 (boundary_open - interval)
+                # 예: 21:52:53 시점 → boundary_open=21:52:00 → to=21:51:00 (확정 완료)
+                #     다음 루프(21:53:xx)에서 21:52:00 봉의 확정값 수신
+                prev_completed = boundary_open - timedelta(minutes=iv)
+                new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=_fmt_to_param(prev_completed))
                 if new is not None and not new.empty:
+                    # 🔍 PRICE-DEBUG: 실시간 API 원본 데이터 (변환 전)
+                    try:
+                        last_3 = new.tail(min(3, len(new)))
+                        for idx, row in last_3.iterrows():
+                            _log("INFO", f"[PRICE-REALTIME-RAW] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
+                    except Exception as e_log:
+                        _log("WARN", f"[PRICE-REALTIME-RAW] 로깅 실패: {e_log}")
                     break
             except Exception as e:
                 _log("ERROR", f"[실시간] API 예외: {e}")
@@ -581,6 +634,14 @@ def stream_candles(
         # 🔍 DEBUG: standardize 후 데이터
         _log("INFO", f"[실시간 표준화 후] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
 
+        # 🔍 PRICE-DEBUG: 실시간 standardize 후 데이터
+        try:
+            last_3 = new.tail(min(3, len(new)))
+            for idx, row in last_3.iterrows():
+                _log("INFO", f"[PRICE-REALTIME-STD] {idx} | O={row['Open']:.0f} H={row['High']:.0f} L={row['Low']:.0f} C={row['Close']:.0f}")
+        except Exception as e_log:
+            _log("WARN", f"[PRICE-REALTIME-STD] 로깅 실패: {e_log}")
+
         # ✅ 우리가 가진 마지막 이후 것만 (>= 사용으로 같은 봉도 업데이트 허용)
         before_filter_count = len(new)
         new = new[new.index >= last_open]  # '>' → '>=' 변경
@@ -605,6 +666,14 @@ def stream_candles(
 
         # 실시간 병합 후 DET 로깅 (로컬/서버 비교 핵심 지점)
         log_det(df, "LOOP_MERGED")
+
+        # 🔍 PRICE-DEBUG: 실시간 병합 후 최종 데이터
+        try:
+            last_3 = df.tail(3)
+            for idx, row in last_3.iterrows():
+                _log("INFO", f"[PRICE-REALTIME-MERGED] {idx} | O={row['Open']:.0f} H={row['High']:.0f} L={row['Low']:.0f} C={row['Close']:.0f}")
+        except Exception as e_log:
+            _log("WARN", f"[PRICE-REALTIME-MERGED] 로깅 실패: {e_log}")
 
         # ★ Phase 2: 실시간 데이터도 DB에 저장 (점진적 히스토리 누적)
         if user_id and not new.empty:

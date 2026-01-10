@@ -749,6 +749,19 @@ def _run_backtest_once(
         df_bt = df.iloc[:-1].copy()
         logger.info("[BACKTEST] 마지막 봉 제외 (미완성 봉 방지)")
 
+    # 🔍 BT 입력 데이터 디버그 로그 - Price 데이터 불일치 조사용
+    print("[BT-INPUT] ========== START ==========")
+    logger.info(f"[BT-INPUT] ========== START ==========")
+    print(f"[BT-INPUT] shape={df_bt.shape}")
+    logger.info(f"[BT-INPUT] shape={df_bt.shape}")
+    # 최신 3개 봉만 출력 (로그 간소화)
+    for idx, row in df_bt.tail(3).iterrows():
+        msg = f"[BT-INPUT] {idx} | O={row['Open']:.0f} H={row['High']:.0f} L={row['Low']:.0f} C={row['Close']:.0f}"
+        print(msg)
+        logger.info(msg)
+    print("[BT-INPUT] ========== END ==========")
+    logger.info(f"[BT-INPUT] ========== END ==========")
+
     bt = Backtest(
         df_bt,
         strategy_cls,
@@ -757,7 +770,12 @@ def _run_backtest_once(
         exclusive_orders=True,
     )
     bt.run()
-    logger.info("✅ %s Backtest 실행 완료", mode_tag)
+
+    # 🔍 DataFrame 정보를 로그에 직접 출력 (BT-INPUT 로그가 안찍히는 문제 우회)
+    last_3_rows = df_bt.tail(3)
+    df_info = f"shape={df_bt.shape} | last_3_close={list(last_3_rows['Close'].values)}"
+    logger.info(f"✅ {mode_tag} Backtest 실행 완료 | {df_info}")
+    print(f"[DEBUG-773] ✅ {mode_tag} Backtest 실행 완료 | {df_info}")
 
     log_events = events_cls.log_events
     trade_events = events_cls.trade_events

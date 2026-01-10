@@ -1343,6 +1343,17 @@ class EMAStrategy(Strategy):
     def _current_state(self):
         """현재 상태 반환 (로그/디버깅용)"""
         idx = len(self.data) - 1
+
+        # 🔍 OHLC 디버그 로그 - Price 데이터 불일치 조사용
+        logger.info(
+            f"[OHLC-DEBUG] bar={idx} | "
+            f"ts={self.data.index[-1]} | "
+            f"Open={float(self.data.Open[-1]):.0f} | "
+            f"High={float(self.data.High[-1]):.0f} | "
+            f"Low={float(self.data.Low[-1]):.0f} | "
+            f"Close={float(self.data.Close[-1]):.0f}"
+        )
+
         return {
             "bar": idx,
             "price": float(self.data.Close[-1]),

@@ -205,8 +205,33 @@ if section == "buy":
         df_buy["checks"] = df_buy["checks"].apply(_j)
         df_buy["timestamp"] = pd.to_datetime(df_buy["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
+        # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
+        df_buy["delta"] = df_buy["macd"] - df_buy["signal"]
+
+        # ✅ cross_type 계산: Golden / Dead / Neutral
+        def _cross_type(delta):
+            if delta > 0:
+                return "🟢 Golden"
+            elif delta < 0:
+                return "🔴 Dead"
+            else:
+                return "⚪ Neutral"
+        df_buy["cross_type"] = df_buy["delta"].apply(_cross_type)
+
         # 전략별 칼럼명 변경
         df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
+
+        # ✅ 컬럼 순서 재배치: 주요 정보를 앞으로
+        column_order = [
+            "timestamp", "ticker", "bar", "price", "delta", "cross_type",
+            "ema_fast" if strategy_tag == "EMA" else "macd",
+            "ema_slow" if strategy_tag == "EMA" else "signal",
+            "have_position", "overall_ok", "failed_keys", "checks", "notes", "interval_sec"
+        ]
+        # 존재하는 컬럼만 필터링
+        column_order = [col for col in column_order if col in df_buy_display.columns]
+        df_buy_display = df_buy_display[column_order]
+
         st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
@@ -237,8 +262,23 @@ elif section == "sell":
         df_sell["checks"] = df_sell["checks"].apply(_j)
         df_sell["timestamp"] = pd.to_datetime(df_sell["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
+        # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
+        df_sell["delta"] = df_sell["macd"] - df_sell["signal"]
+
         # 전략별 칼럼명 변경
         df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
+
+        # ✅ 컬럼 순서 재배치: 주요 정보를 앞으로
+        column_order = [
+            "timestamp", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta",
+            "ema_fast" if strategy_tag == "EMA" else "macd",
+            "ema_slow" if strategy_tag == "EMA" else "signal",
+            "ts_pct", "ts_armed", "bars_held", "checks", "triggered", "trigger_key", "notes", "interval_sec"
+        ]
+        # 존재하는 컬럼만 필터링
+        column_order = [col for col in column_order if col in df_sell_display.columns]
+        df_sell_display = df_sell_display[column_order]
+
         st.dataframe(df_sell_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
@@ -259,8 +299,23 @@ elif section == "trades":
             )
         df_tr["timestamp"] = pd.to_datetime(df_tr["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
 
+        # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
+        df_tr["delta"] = df_tr["macd"] - df_tr["signal"]
+
         # 전략별 칼럼명 변경
         df_tr_display = df_tr.rename(columns=INDICATOR_COL_RENAME)
+
+        # ✅ 컬럼 순서 재배치: 주요 정보를 앞으로
+        column_order = [
+            "timestamp", "ticker", "bar", "type", "reason", "price", "delta",
+            "ema_fast" if strategy_tag == "EMA" else "macd",
+            "ema_slow" if strategy_tag == "EMA" else "signal",
+            "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed", "interval_sec"
+        ]
+        # 존재하는 컬럼만 필터링
+        column_order = [col for col in column_order if col in df_tr_display.columns]
+        df_tr_display = df_tr_display[column_order]
+
         st.dataframe(df_tr_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
