@@ -545,24 +545,40 @@ def stream_candles(
     api_retry_count = 0
 
     while not (stop_event and stop_event.is_set()):
-        now = _now_kst_naive()
+        # 🔥 FIX: sleep 계산은 실제 시각(초 포함) 사용
+        now_real = datetime.now(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
+        now = _now_kst_naive()  # 경계 계산용 (초 제거)
         next_close = _next_boundary(now, interval)
-        sleep_sec = max(0.0, (next_close - now).total_seconds() + jitter)
+        sleep_sec = max(0.0, (next_close - now_real).total_seconds() + jitter)
 
         # 🔍 DEBUG: 루프 진입 확인
-        _log("INFO", f"[실시간 루프] sleep={sleep_sec:.1f}초 | now={now} | next_close={next_close} | last_open={last_open}")
+        _log("INFO", f"[실시간 루프] sleep={sleep_sec:.1f}초 | now_real={now_real.strftime('%H:%M:%S')} | now={now} | next_close={next_close} | last_open={last_open}")
         time.sleep(sleep_sec)
+
+        # 🔥 FIX: sleep 후 현재 시각 재계산 (next_close 재사용 금지!)
+        # - sleep 중 시간이 흘렀으므로 현재 시각 기준으로 boundary 재계산 필요
+        # - 특히 엔진 재시작 직후 짧은 sleep 시 필수!
+        now_after_sleep = _now_kst_naive()
+        next_close_after = _next_boundary(now_after_sleep, interval)
 
         # 막 닫힌 봉의 open
         iv = _iv_min(interval)
-        boundary_open = next_close - timedelta(minutes=iv)  # 둘 다 tz-naive
+        boundary_open = next_close_after - timedelta(minutes=iv)
+
+        # 🔍 DEBUG: sleep 전후 시각 비교 (버그 디버깅용)
+        if next_close != next_close_after:
+            _log("INFO",
+                f"[시각 동기화] sleep 전: next_close={next_close} → "
+                f"sleep 후: next_close_after={next_close_after} | "
+                f"boundary_open={boundary_open}"
+            )
 
         # 중간 누락분 계산(분 단위)
         gap = int((boundary_open - last_open).total_seconds() // (iv * 60))
         need = max(1, min(gap, 200))
 
         # 🔍 DEBUG: API 호출 전 파라미터
-        _log("INFO", f"[실시간 API] boundary_open={boundary_open} | gap={gap} | need={need} | to={_fmt_to_param(next_close)}")
+        _log("INFO", f"[실시간 API] boundary_open={boundary_open} | gap={gap} | need={need} | last_open={last_open}")
 
         # 재시도 루프
         new = None
@@ -571,13 +587,14 @@ def stream_candles(
                 _log("WARN", "stream_candles 중단됨: 실시간 루프 중 stop_event 감지")
                 return
             try:
-                # ✅ FIX: 확정된 봉만 조회 - 이전 완료된 봉까지만 조회
-                # 문제: pyupbit은 가장 최근 봉 반환 시 미확정 데이터 포함 가능
-                # 해결: to=이전_완료_봉 (boundary_open - interval)
-                # 예: 21:52:53 시점 → boundary_open=21:52:00 → to=21:51:00 (확정 완료)
-                #     다음 루프(21:53:xx)에서 21:52:00 봉의 확정값 수신
-                prev_completed = boundary_open - timedelta(minutes=iv)
-                new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=_fmt_to_param(prev_completed))
+                # 🔥 FIX: 방금 닫힌 봉(boundary_open)까지 포함하여 조회
+                # 문제: 기존 코드는 `boundary_open - timedelta(minutes=iv)` 사용 → 방금 닫힌 봉 누락!
+                # 해결: boundary_open 자체를 'to' 파라미터로 사용
+                # 예: 20:29:01 시점 → boundary_open=20:28:00 (방금 닫힌 봉)
+                #     API 요청: to=20:28:00, count=gap → 20:28:00 봉 포함하여 조회 ✅
+                to_param = _fmt_to_param(boundary_open)
+                _log("INFO", f"[실시간 API] 요청 파라미터: count={need}, to={to_param} (방금 닫힌 봉 포함)")
+                new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=to_param)
                 if new is not None and not new.empty:
                     # 🔍 PRICE-DEBUG: 실시간 API 원본 데이터 (변환 전)
                     try:
@@ -626,13 +643,92 @@ def stream_candles(
                 # 정상 응답이면 재시도 카운터 리셋
                 api_retry_count = 0
         else:
-            _log("WARN", f"[실시간 API 응답] new is None or empty!")
+            # 🛡️ 방안 3-1: API 응답 없음 시 보호
+            _log("WARN", f"[실시간 API 응답] new is None or empty! (last_open 유지: {last_open})")
+            # ⚠️ continue 시 last_open을 업데이트하지 않음
+            # → 다음 루프에서 gap이 커져서 자동으로 누락분 요청됨
             continue
 
         new = standardize_ohlcv(new).drop_duplicates()
 
         # 🔍 DEBUG: standardize 후 데이터
         _log("INFO", f"[실시간 표준화 후] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
+
+        # 🛡️ 방안 2: 누락 감지 및 자동 백필
+        if not new.empty:
+            new_last = new.index[-1]
+
+            # 예상 범위 계산
+            expected_last = boundary_open  # 방금 닫힌 봉
+
+            # 누락 감지: API가 반환한 마지막 봉이 기대와 다르면 누락!
+            # ✅ abs() 사용으로 과거/미래 모두 감지
+            time_gap_seconds = abs((expected_last - new_last).total_seconds())
+            if time_gap_seconds > iv * 60 * 0.5:  # 0.5봉 이상 차이나면 누락 의심
+                missing_minutes = int(time_gap_seconds / 60)
+                missing_bars = missing_minutes // iv
+
+                if missing_bars > 0:
+                    _log("WARN",
+                        f"⚠️ [누락 감지] 기대 마지막 봉: {expected_last} | "
+                        f"실제 마지막 봉: {new_last} | "
+                        f"누락: {missing_bars}개 봉 ({missing_minutes}분)"
+                    )
+
+                    # 백필 시도 (최대 3회)
+                    backfill_success = False
+                    for backfill_attempt in range(1, 4):
+                        try:
+                            _log("INFO", f"[백필 시도 {backfill_attempt}/3] {new_last} ~ {expected_last} 구간")
+
+                            # 누락된 구간 + 여유분(2개) 추가 요청
+                            backfill_count = missing_bars + 2
+                            backfill = pyupbit.get_ohlcv(
+                                ticker,
+                                interval=interval,
+                                count=backfill_count,
+                                to=_fmt_to_param(expected_last)
+                            )
+
+                            if backfill is not None and not backfill.empty:
+                                backfill = standardize_ohlcv(backfill).drop_duplicates()
+
+                                # 🔥 FIX: 실제로 누락된 부분만 추출
+                                # - new에 이미 있는 봉은 제외
+                                # - last_open과 expected_last 사이만 추출 (미래 봉 차단)
+                                existing_indices = set(new.index)
+                                backfill_new = backfill[~backfill.index.isin(existing_indices)]
+                                backfill_new = backfill_new[
+                                    (backfill_new.index > last_open) &
+                                    (backfill_new.index <= expected_last)
+                                ]
+
+                                if not backfill_new.empty:
+                                    # new에 병합
+                                    new = pd.concat([new, backfill_new]).drop_duplicates().sort_index()
+                                    _log("INFO",
+                                        f"✅ [백필 성공] {len(backfill_new)}개 봉 복구 완료 | "
+                                        f"복구 범위: {backfill_new.index[0]} ~ {backfill_new.index[-1]}"
+                                    )
+                                    backfill_success = True
+                                    break
+                                else:
+                                    _log("WARN", f"[백필] 응답 데이터가 이미 보유 중인 봉만 포함")
+                            else:
+                                _log("WARN", f"[백필] API 응답 없음 (attempt {backfill_attempt}/3)")
+
+                        except Exception as e:
+                            _log("ERROR", f"[백필 실패] {e} (attempt {backfill_attempt}/3)")
+
+                        # 재시도 전 대기
+                        if backfill_attempt < 3:
+                            time.sleep(1 * backfill_attempt)
+
+                    if not backfill_success:
+                        _log("ERROR",
+                            f"❌ [백필 포기] {missing_bars}개 봉 영구 누락 가능! | "
+                            f"누락 구간: {new_last} ~ {expected_last}"
+                        )
 
         # 🔍 PRICE-DEBUG: 실시간 standardize 후 데이터
         try:
@@ -642,18 +738,39 @@ def stream_candles(
         except Exception as e_log:
             _log("WARN", f"[PRICE-REALTIME-STD] 로깅 실패: {e_log}")
 
-        # ✅ 우리가 가진 마지막 이후 것만 (>= 사용으로 같은 봉도 업데이트 허용)
+        # 🔥 FIX: 예상 범위 내의 봉만 허용 (미래 봉 차단)
+        # - last_open < index <= boundary_open
+        # - boundary_open: 방금 닫힌 봉 (이번 루프에서 처리해야 할 최신 봉)
+        # - 예: last_open=21:24, boundary_open=21:25 → 21:25만 허용, 21:26은 차단
         before_filter_count = len(new)
-        new = new[new.index >= last_open]  # '>' → '>=' 변경
+        new = new[(new.index > last_open) & (new.index <= boundary_open)]
 
         # ✅ 중복 제거 (같은 인덱스는 최신 값 유지)
         new = new.loc[~new.index.duplicated(keep='last')]
 
         # 🔍 DEBUG: 필터링 결과
-        _log("INFO", f"[실시간 필터링] before={before_filter_count} | after={len(new)} | filter_condition: index >= {last_open}")
+        _log("INFO", f"[실시간 필터링] before={before_filter_count} | after={len(new)} | filter_condition: {last_open} < index <= {boundary_open}")
 
+        # 🛡️ 방안 3-2: 필터링 후 empty 시 보호
         if new.empty:
-            _log("WARN", f"[실시간 필터링] ⚠️ 새 데이터 없음! 모든 데이터가 last_open({last_open}) 이전임. continue하여 다음 루프 대기...")
+            # API는 응답했지만 필터링 후 비어있음
+            # → 이미 가진 데이터와 중복이거나, API 응답이 과거 데이터만 포함
+
+            # 시간이 충분히 흘렀으면 last_open 강제 업데이트 (누락 방지)
+            elapsed_minutes = (boundary_open - last_open).total_seconds() / 60
+            if elapsed_minutes >= iv:
+                _log("WARN",
+                    f"[실시간 필터링] 새 데이터 없지만 시간 경과 ({elapsed_minutes:.0f}분 ≥ {iv}분) → "
+                    f"last_open 강제 업데이트: {last_open} → {boundary_open}"
+                )
+                last_open = boundary_open
+                # yield 하지 않고 다음 루프 대기 (실제 새 데이터 없으므로)
+            else:
+                _log("INFO",
+                    f"[실시간 필터링] 시간 경과 부족 ({elapsed_minutes:.1f}분 < {iv}분), "
+                    f"last_open 유지: {last_open}"
+                )
+
             continue
 
         # 중복/정렬은 _optimize_dataframe_memory 내부에서 처리되지만
@@ -683,6 +800,42 @@ def stream_candles(
             except Exception as e:
                 # 로그만 남기고 메인 루프는 계속 진행
                 pass
+
+        # 🛡️ 방안 4: Yield 직전 최종 연속성 검증
+        if len(df) > 1:
+            # 1) 인덱스 연속성 체크 (interval 간격이어야 함)
+            time_diffs = df.index.to_series().diff().dt.total_seconds() / 60
+            gaps_in_df = time_diffs[time_diffs > iv * 1.5]  # 1.5배 이상 차이나면 갭
+
+            if not gaps_in_df.empty:
+                gap_details = []
+                for gap_idx, gap_minutes in gaps_in_df.items():
+                    prev_idx = df.index[df.index.get_loc(gap_idx) - 1]
+                    gap_details.append(f"  - {prev_idx} → {gap_idx} (갭: {gap_minutes:.0f}분, {gap_minutes/iv:.1f}봉)")
+
+                _log("ERROR",
+                    f"❌ [연속성 오류] DataFrame에 {len(gaps_in_df)}개 갭 발견!\n" +
+                    "\n".join(gap_details)
+                )
+
+                # 🔥 선택 1) 에러 발생 (엄격 모드) - 운영 환경에서는 주석 처리
+                # raise ValueError("DataFrame 연속성 검증 실패 - 데이터 누락 감지")
+
+                # 🔥 선택 2) 경고만 남기고 진행 (관대 모드)
+                _log("WARN", "⚠️ 연속성 오류 감지되었으나 진행 (관대 모드)")
+
+        # 2) 예상 시각과 실제 last_open 비교
+        expected_last = boundary_open
+        actual_last = df.index[-1]
+        time_diff_seconds = abs((actual_last - expected_last).total_seconds())
+
+        if time_diff_seconds > iv * 60 * 0.5:  # 0.5봉 이상 차이
+            time_diff_minutes = time_diff_seconds / 60
+            _log("WARN",
+                f"⚠️ [시간 불일치] 기대 마지막 봉: {expected_last} | "
+                f"실제 마지막 봉: {actual_last} | "
+                f"차이: {time_diff_minutes:.1f}분 ({time_diff_minutes/iv:.2f}봉)"
+            )
 
         last_open = df.index[-1]
         # 사용자 혼란 방지용 동기화 로그 (bar_open / bar_close 명시)

@@ -118,6 +118,9 @@ class MACDStrategy(Strategy):
         self.last_cross_type = None
         self._last_sell_bar = None
 
+        # 🔥 FIX: bars_held 버그 수정 - DataFrame 길이 대신 누적 카운터 사용
+        self._bar_counter = len(self.data) - 1  # 초기 데이터 기준으로 시작
+
         # --- 감사 로그 제어 상태
         self._last_buy_audit_bar = None
         self._last_skippos_audit_bar = None
@@ -236,9 +239,11 @@ class MACDStrategy(Strategy):
         return pd.Series(high - low).rolling(self.volatility_window).mean().values
 
     def _current_state(self):
-        idx = len(self.data) - 1
+        # 🔥 FIX: bars_held 버그 수정 - DataFrame 길이 대신 누적 카운터 사용
+        # 기존: idx = len(self.data) - 1 → DataFrame truncate 시 bar 번호 순환
+        # 수정: self._bar_counter 사용 → 누적 증가로 정확한 bars_held 계산
         return {
-            "bar": idx,
+            "bar": self._bar_counter,
             "price": float(self.data.Close[-1]),
             "macd": float(self.macd_line[-1]),
             "signal": float(self.signal_line[-1]),
@@ -450,6 +455,9 @@ class MACDStrategy(Strategy):
     # --- Buy/Sell Logic
     # -------------------
     def next(self):
+        # 🔥 FIX: bars_held 버그 수정 - 매 봉마다 카운터 증가
+        self._bar_counter += 1
+
         self.bars_since_cross = getattr(self, "bars_since_cross", 1_000_000) + 1
 
         self._reconcile_entry_with_wallet()
@@ -629,7 +637,8 @@ class MACDStrategy(Strategy):
                                 overall_ok=False,
                                 failed_keys=[],
                                 checks={"note":"blocked_by_position"},
-                                notes="BUY_SKIP_POS" + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
+                                notes="BUY_SKIP_POS" + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                                timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
                             )
                             self._last_skippos_audit_bar = state["bar"]
                             # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} note=BUY_SKIP_POS")
@@ -698,7 +707,8 @@ class MACDStrategy(Strategy):
                         overall_ok=overall_ok,
                         failed_keys=failed_keys,
                         checks=report,
-                        notes=("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
+                        notes=("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                        timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
                     )
                     MACDStrategy._seen_buy_audits.add(key)
                     self._last_buy_audit_bar = state["bar"]
@@ -768,11 +778,17 @@ class MACDStrategy(Strategy):
         logger.info("[SELL] PROCEED: position detected")
 
         state = self._current_state()
-        if state["bar"] < getattr(self, "_boot_start_bar", 0):
-            return
-        
+        ts = pd.Timestamp(state["timestamp"])
+
+        # ✅ BUY와 동일한 타임스탬프 기반 부트 필터 (1회 통과 후 영구 해제)
+        if getattr(self, "_boot_start_ts", None) is not None:
+            if ts < self._boot_start_ts:
+                return
+            logger.info(f"[MACD][SELL] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
+            self._boot_start_ts = None
+
         bar_ts = str(state["timestamp"])
-        
+
         sell_cond = self.conditions.get("sell", {})
 
         # =========================
@@ -958,7 +974,8 @@ class MACDStrategy(Strategy):
                     checks=checks,
                     triggered=(trigger_key is not None),
                     trigger_key=trigger_key,
-                    notes=""
+                    notes="",
+                    timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
                 )
                 MACDStrategy._seen_sell_audits.add(audit_key)
                 self._last_sell_sig = sig
@@ -1238,6 +1255,9 @@ class EMAStrategy(Strategy):
         self._last_sell_bar = None
         self.trailing_stop_pct = TRAILING_STOP_PERCENT
 
+        # 🔥 FIX: bars_held 버그 수정 - DataFrame 길이 대신 누적 카운터 사용
+        self._bar_counter = len(self.data) - 1  # 초기 데이터 기준으로 시작
+
         self._last_buy_audit_ts = None
         self._last_sell_audit_ts = None
         self._sell_sample_n = 60
@@ -1342,11 +1362,13 @@ class EMAStrategy(Strategy):
 
     def _current_state(self):
         """현재 상태 반환 (로그/디버깅용)"""
-        idx = len(self.data) - 1
+        # 🔥 FIX: bars_held 버그 수정 - DataFrame 길이 대신 누적 카운터 사용
+        # 기존: idx = len(self.data) - 1 → DataFrame truncate 시 bar 번호 순환
+        # 수정: self._bar_counter 사용 → 누적 증가로 정확한 bars_held 계산
 
         # 🔍 OHLC 디버그 로그 - Price 데이터 불일치 조사용
         logger.info(
-            f"[OHLC-DEBUG] bar={idx} | "
+            f"[OHLC-DEBUG] bar={self._bar_counter} | "
             f"ts={self.data.index[-1]} | "
             f"Open={float(self.data.Open[-1]):.0f} | "
             f"High={float(self.data.High[-1]):.0f} | "
@@ -1355,7 +1377,7 @@ class EMAStrategy(Strategy):
         )
 
         return {
-            "bar": idx,
+            "bar": self._bar_counter,
             "price": float(self.data.Close[-1]),
             # 매수용 EMA
             "ema_fast_buy": float(self.ema_fast_buy[-1]),
@@ -1426,6 +1448,9 @@ class EMAStrategy(Strategy):
     # MAIN LOOP
     # -------------------
     def next(self):
+        # 🔥 FIX: bars_held 버그 수정 - 매 봉마다 카운터 증가
+        self._bar_counter += 1
+
         self._reconcile_entry_with_wallet()
         self._maybe_reload_conditions()
         self._update_cross_state()
@@ -1552,7 +1577,8 @@ class EMAStrategy(Strategy):
                                 overall_ok=False,
                                 failed_keys=[],
                                 checks={"note": "blocked_by_position"},
-                                notes="[EMA] BUY_SKIP_POS" + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
+                                notes="[EMA] BUY_SKIP_POS" + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                                timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
                             )
                             self._last_skippos_audit_bar = state["bar"]
                         except Exception as e:
@@ -1610,7 +1636,8 @@ class EMAStrategy(Strategy):
                         overall_ok=overall_ok,
                         failed_keys=failed_keys,
                         checks=report,
-                        notes="[EMA] " + ("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}"
+                        notes="[EMA] " + ("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                        timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
                     )
                     EMAStrategy._seen_buy_audits.add(key)
                     self._last_buy_audit_ts = str(state["timestamp"])
@@ -1677,9 +1704,15 @@ class EMAStrategy(Strategy):
         logger.info("[SELL] PROCEED: position detected")
 
         state = self._current_state()
-        if state["bar"] < getattr(self, "_boot_start_bar", 0):
-            return
-        
+        ts = pd.Timestamp(state["timestamp"])
+
+        # ✅ BUY와 동일한 타임스탬프 기반 부트 필터 (1회 통과 후 영구 해제)
+        if getattr(self, "_boot_start_ts", None) is not None:
+            if ts < self._boot_start_ts:
+                return
+            logger.info(f"[EMA][SELL] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
+            self._boot_start_ts = None
+
         bar_ts = str(state["timestamp"])
         sell_cond = self.conditions.get("sell", {})
 
@@ -1840,7 +1873,8 @@ class EMAStrategy(Strategy):
                     checks=checks,
                     triggered=(trigger_key is not None),
                     trigger_key=trigger_key,
-                    notes="[EMA]"
+                    notes="[EMA]",
+                    timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
                 )
                 EMAStrategy._seen_sell_audits.add(audit_key)
                 self._last_sell_sig = sig

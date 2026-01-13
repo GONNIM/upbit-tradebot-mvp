@@ -563,7 +563,8 @@ def insert_buy_eval(
     overall_ok: bool,
     failed_keys: list | None,
     checks: dict | None,
-    notes: str = ""
+    notes: str = "",
+    timestamp: str | None = None  # ✅ 봉 시각 파라미터 (기본값: 현재 시각)
 ):
     with get_db(user_id) as conn:
         cur = conn.cursor()
@@ -575,7 +576,8 @@ def insert_buy_eval(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                now_kst(), ticker, interval_sec, bar, price, macd, signal,
+                timestamp if timestamp is not None else now_kst(),  # ✅ 파라미터 사용
+                ticker, interval_sec, bar, price, macd, signal,
                 int(bool(have_position)), int(bool(overall_ok)),
                 json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
                 json.dumps(checks, ensure_ascii=False) if checks else None,
@@ -602,7 +604,8 @@ def insert_sell_eval(
     checks: dict,
     triggered: bool,
     trigger_key: str | None,
-    notes: str = ""
+    notes: str = "",
+    timestamp: str | None = None  # ✅ 봉 시각 파라미터 (기본값: 현재 시각)
 ):
     with get_db(user_id) as conn:
         cur = conn.cursor()
@@ -615,7 +618,8 @@ def insert_sell_eval(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                now_kst(), ticker, interval_sec, bar, price, macd, signal,
+                timestamp if timestamp is not None else now_kst(),  # ✅ 파라미터 사용
+                ticker, interval_sec, bar, price, macd, signal,
                 tp_price, sl_price, highest, ts_pct,
                 int(bool(ts_armed)), bars_held,
                 json.dumps(checks, ensure_ascii=False) if checks else None,
@@ -642,7 +646,8 @@ def insert_trade_audit(
     sl: float | None,
     highest: float | None,
     ts_pct: float | None,
-    ts_armed: bool | None
+    ts_armed: bool | None,
+    timestamp: str | None = None  # ✅ 봉 시각 파라미터 (기본값: 현재 시각)
 ):
     with get_db(user_id) as conn:
         cur = conn.cursor()
@@ -654,7 +659,8 @@ def insert_trade_audit(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                now_kst(), ticker, interval_sec, bar, kind, reason, price, macd, signal,
+                timestamp if timestamp is not None else now_kst(),  # ✅ 파라미터 사용
+                ticker, interval_sec, bar, kind, reason, price, macd, signal,
                 entry_price, entry_bar, bars_held, tp, sl, highest,
                 ts_pct, (int(ts_armed) if ts_armed is not None else None)
             )

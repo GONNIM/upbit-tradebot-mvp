@@ -1220,6 +1220,7 @@ def run_live_loop(
                                     f"EXECUTED({mode_tag}) "
                                     f"ts_live={latest_index_live} bar_bt={latest_bar_bt}"
                                 ),
+                                timestamp=str(latest_index_live)  # ✅ 봉 시각 전달
                             )
                             logger.info(
                                 f"[AUDIT-LINK:{mode_tag}] BUY EXEC snap | ts_live={latest_index_live} "

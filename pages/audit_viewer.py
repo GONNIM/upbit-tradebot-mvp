@@ -58,7 +58,9 @@ def _get_param(qp, key, default=None):
     return v
 
 user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
-ticker = _get_param(qp, "ticker", st.session_state.get("ticker", ""))
+ticker_raw = _get_param(qp, "ticker", st.session_state.get("ticker", ""))
+# ✅ ticker 정규화: "ETH" → "KRW-ETH" (DB 형식 매칭)
+ticker = f"KRW-{ticker_raw}" if ticker_raw and not ticker_raw.startswith("KRW-") else ticker_raw
 rows = int(_get_param(qp, "rows", st.session_state.get("rows", 2000)))
 only_failed = str(_get_param(qp, "only_failed", st.session_state.get("only_failed", ""))) in ("1", "true", "True")
 default_tab = _get_param(qp, "tab", st.session_state.get("tab", "buy"))  # buy|sell|trades|settings
@@ -203,7 +205,32 @@ if section == "buy":
                 return x
         df_buy["failed_keys"] = df_buy["failed_keys"].apply(_j)
         df_buy["checks"] = df_buy["checks"].apply(_j)
-        df_buy["timestamp"] = pd.to_datetime(df_buy["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # ✅ 봉 시각 계산 (interval_sec 단위로 timestamp를 내림)
+        def _calc_bar_time(row):
+            try:
+                ts = pd.to_datetime(row["timestamp"])
+                interval_min = int(row["interval_sec"]) // 60
+                if interval_min > 0:
+                    minute = (ts.minute // interval_min) * interval_min
+                    return ts.replace(minute=minute, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    return ts.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                # ✅ 예외 발생 시에도 최소한 포맷팅은 시도
+                try:
+                    return pd.to_datetime(row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    return str(row["timestamp"])
+        df_buy["bar_time"] = df_buy.apply(_calc_bar_time, axis=1)
+
+        # ✅ timestamp 포맷팅 (안전한 개별 파싱)
+        def _format_timestamp(ts):
+            try:
+                return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(ts)
+        df_buy["timestamp"] = df_buy["timestamp"].apply(_format_timestamp)
 
         # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
         df_buy["delta"] = df_buy["macd"] - df_buy["signal"]
@@ -221,9 +248,9 @@ if section == "buy":
         # 전략별 칼럼명 변경
         df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
 
-        # ✅ 컬럼 순서 재배치: 주요 정보를 앞으로
+        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
         column_order = [
-            "timestamp", "ticker", "bar", "price", "delta", "cross_type",
+            "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
             "ema_fast" if strategy_tag == "EMA" else "macd",
             "ema_slow" if strategy_tag == "EMA" else "signal",
             "have_position", "overall_ok", "failed_keys", "checks", "notes", "interval_sec"
@@ -260,7 +287,32 @@ elif section == "sell":
             except Exception:
                 return x
         df_sell["checks"] = df_sell["checks"].apply(_j)
-        df_sell["timestamp"] = pd.to_datetime(df_sell["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # ✅ 봉 시각 계산 (interval_sec 단위로 timestamp를 내림)
+        def _calc_bar_time(row):
+            try:
+                ts = pd.to_datetime(row["timestamp"])
+                interval_min = int(row["interval_sec"]) // 60
+                if interval_min > 0:
+                    minute = (ts.minute // interval_min) * interval_min
+                    return ts.replace(minute=minute, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    return ts.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                # ✅ 예외 발생 시에도 최소한 포맷팅은 시도
+                try:
+                    return pd.to_datetime(row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    return str(row["timestamp"])
+        df_sell["bar_time"] = df_sell.apply(_calc_bar_time, axis=1)
+
+        # ✅ timestamp 포맷팅 (안전한 개별 파싱)
+        def _format_timestamp(ts):
+            try:
+                return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(ts)
+        df_sell["timestamp"] = df_sell["timestamp"].apply(_format_timestamp)
 
         # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
         df_sell["delta"] = df_sell["macd"] - df_sell["signal"]
@@ -268,9 +320,9 @@ elif section == "sell":
         # 전략별 칼럼명 변경
         df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
 
-        # ✅ 컬럼 순서 재배치: 주요 정보를 앞으로
+        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
         column_order = [
-            "timestamp", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta",
+            "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta",
             "ema_fast" if strategy_tag == "EMA" else "macd",
             "ema_slow" if strategy_tag == "EMA" else "signal",
             "ts_pct", "ts_armed", "bars_held", "checks", "triggered", "trigger_key", "notes", "interval_sec"
@@ -297,7 +349,32 @@ elif section == "trades":
                          "macd","signal","entry_price","entry_bar","bars_held","tp","sl",
                          "highest","ts_pct","ts_armed"]
             )
-        df_tr["timestamp"] = pd.to_datetime(df_tr["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+        # ✅ 봉 시각 계산 (interval_sec 단위로 timestamp를 내림)
+        def _calc_bar_time(row):
+            try:
+                ts = pd.to_datetime(row["timestamp"])
+                interval_min = int(row["interval_sec"]) // 60
+                if interval_min > 0:
+                    minute = (ts.minute // interval_min) * interval_min
+                    return ts.replace(minute=minute, second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:%S")
+                else:
+                    return ts.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                # ✅ 예외 발생 시에도 최소한 포맷팅은 시도
+                try:
+                    return pd.to_datetime(row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    return str(row["timestamp"])
+        df_tr["bar_time"] = df_tr.apply(_calc_bar_time, axis=1)
+
+        # ✅ timestamp 포맷팅 (안전한 개별 파싱)
+        def _format_timestamp(ts):
+            try:
+                return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return str(ts)
+        df_tr["timestamp"] = df_tr["timestamp"].apply(_format_timestamp)
 
         # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
         df_tr["delta"] = df_tr["macd"] - df_tr["signal"]
@@ -305,9 +382,9 @@ elif section == "trades":
         # 전략별 칼럼명 변경
         df_tr_display = df_tr.rename(columns=INDICATOR_COL_RENAME)
 
-        # ✅ 컬럼 순서 재배치: 주요 정보를 앞으로
+        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
         column_order = [
-            "timestamp", "ticker", "bar", "type", "reason", "price", "delta",
+            "timestamp", "bar_time", "ticker", "bar", "type", "reason", "price", "delta",
             "ema_fast" if strategy_tag == "EMA" else "macd",
             "ema_slow" if strategy_tag == "EMA" else "signal",
             "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed", "interval_sec"
