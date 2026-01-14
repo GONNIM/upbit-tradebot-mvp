@@ -681,41 +681,33 @@ class MACDStrategy(Strategy):
             "last_cross": self.last_cross_type,
         }, sort_keys=True, default=str).encode()).hexdigest()
 
-        # ✅ 상태변화면 즉시 기록, 그 외엔 N-바마다 1회만 기록
-        should_insert = False
-        if (self._last_buy_sig is None) or (buy_sig != self._last_buy_sig):
-            should_insert = True
-        elif self._buy_sample_n and (state["bar"] % self._buy_sample_n == 0):
-            should_insert = True
-            
-        # 감사 적재(바 중복 방지)
-        # if AUDIT_DEDUP_PER_BAR and self._last_buy_audit_bar == state["bar"]:
+        # 감사 적재 - 매 봉마다 무조건 기록 (중복 방지만 체크)
         if AUDIT_DEDUP_PER_BAR and getattr(self, "_last_buy_audit_ts", None) == str(state["timestamp"]):
             logger.info(f"[AUDIT-BUY] DUP SKIP | bar={state['bar']}")
         else:
-            if should_insert:
-                try:
-                    insert_buy_eval(
-                        user_id=self.user_id,
-                        ticker=ticker,
-                        interval_sec=getattr(self,"interval_sec",60),
-                        bar=state["bar"],
-                        price=state["price"],
-                        macd=state["macd"],
-                        signal=state["signal"],
-                        have_position=False,
-                        overall_ok=overall_ok,
-                        failed_keys=failed_keys,
-                        checks=report,
-                        notes=("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
-                        timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
-                    )
-                    MACDStrategy._seen_buy_audits.add(key)
-                    self._last_buy_audit_bar = state["bar"]
-                    self._last_buy_audit_ts = str(state["timestamp"])
-                    # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
-                except Exception as e:
-                    logger.error(f"[AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
+            try:
+                insert_buy_eval(
+                    user_id=self.user_id,
+                    ticker=ticker,
+                    interval_sec=getattr(self,"interval_sec",60),
+                    bar=state["bar"],
+                    price=state["price"],
+                    macd=state["macd"],
+                    signal=state["signal"],
+                    have_position=False,
+                    overall_ok=overall_ok,
+                    failed_keys=failed_keys,
+                    checks=report,
+                    notes=("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                    timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
+                )
+                MACDStrategy._seen_buy_audits.add(key)
+                self._last_buy_audit_bar = state["bar"]
+                self._last_buy_audit_ts = str(state["timestamp"])
+                self._last_buy_sig = buy_sig
+                # logger.info(f"[AUDIT-BUY] inserted | bar={state['bar']} overall_ok={overall_ok}")
+            except Exception as e:
+                logger.error(f"[AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
 
         if not overall_ok:
             # if failed_keys:
@@ -1613,37 +1605,31 @@ class EMAStrategy(Strategy):
             "cross": self._last_cross_type,
         }, sort_keys=True, default=str).encode()).hexdigest()
 
-        should_insert = False
-        if (self._last_buy_sig is None) or (buy_sig != self._last_buy_sig):
-            should_insert = True
-        elif self._buy_sample_n and (state["bar"] % self._buy_sample_n == 0):
-            should_insert = True
-
+        # 감사 적재 - 매 봉마다 무조건 기록 (중복 방지만 체크)
         if AUDIT_DEDUP_PER_BAR and getattr(self, "_last_buy_audit_ts", None) == str(state["timestamp"]):
             logger.info(f"[EMA][AUDIT-BUY] DUP SKIP | bar={state['bar']}")
         else:
-            if should_insert:
-                try:
-                    insert_buy_eval(
-                        user_id=self.user_id,
-                        ticker=ticker,
-                        interval_sec=getattr(self, "interval_sec", 60),
-                        bar=state["bar"],
-                        price=state["price"],
-                        macd=state["ema_fast_buy"],   # 매수용 EMA fast
-                        signal=state["ema_slow_buy"],  # 매수용 EMA slow
-                        have_position=False,
-                        overall_ok=overall_ok,
-                        failed_keys=failed_keys,
-                        checks=report,
-                        notes="[EMA] " + ("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
-                        timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
-                    )
-                    EMAStrategy._seen_buy_audits.add(key)
-                    self._last_buy_audit_ts = str(state["timestamp"])
-                    self._last_buy_sig = buy_sig
-                except Exception as e:
-                    logger.error(f"[EMA][AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
+            try:
+                insert_buy_eval(
+                    user_id=self.user_id,
+                    ticker=ticker,
+                    interval_sec=getattr(self, "interval_sec", 60),
+                    bar=state["bar"],
+                    price=state["price"],
+                    macd=state["ema_fast_buy"],   # 매수용 EMA fast
+                    signal=state["ema_slow_buy"],  # 매수용 EMA slow
+                    have_position=False,
+                    overall_ok=overall_ok,
+                    failed_keys=failed_keys,
+                    checks=report,
+                    notes="[EMA] " + ("OK" if overall_ok else "FAILED") + f" | ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                    timestamp=None  # ✅ 실시간 시각으로 저장 (now_kst())
+                )
+                EMAStrategy._seen_buy_audits.add(key)
+                self._last_buy_audit_ts = str(state["timestamp"])
+                self._last_buy_sig = buy_sig
+            except Exception as e:
+                logger.error(f"[EMA][AUDIT-BUY] insert failed: {e} | bar={state['bar']}")
 
         if not overall_ok:
             return
