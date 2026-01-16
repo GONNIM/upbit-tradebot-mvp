@@ -244,6 +244,24 @@ class LiveParams(BaseModel):
         return self.ticker if "-" in self.ticker else f"KRW-{self.ticker}"
 
     @property
+    def interval_sec(self) -> int:
+        """
+        interval 문자열을 초(sec) 단위로 변환.
+        예: "minute1" -> 60, "minute3" -> 180, "minute5" -> 300
+        """
+        interval_map = {
+            "minute1": 60,
+            "minute3": 180,
+            "minute5": 300,
+            "minute10": 600,
+            "minute15": 900,
+            "minute30": 1800,
+            "minute60": 3600,
+            "day": 86400,
+        }
+        return interval_map.get(self.interval, 60)  # 기본값 60초
+
+    @property
     def is_macd(self) -> bool:
         """현재 선택된 전략이 MACD인지 여부."""
         return self.strategy_type == "MACD"

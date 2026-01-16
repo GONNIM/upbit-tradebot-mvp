@@ -1,7 +1,28 @@
-from services.db import fetch_logs, insert_log, fetch_latest_log_signal
+from services.db import fetch_logs, insert_log, fetch_latest_log_signal, fetch_latest_log_signal_ema
 from datetime import datetime
 from core.trader import UpbitTrader
 from engine.reconciler_singleton import get_reconciler
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def get_current_price_from_upbit(ticker: str) -> float | None:
+    """
+    Upbit API로 실시간 현재가 조회
+    - 가장 안전하고 정확한 방법
+    - 로그 파싱 실패 시 대체용
+    """
+    try:
+        import pyupbit
+        current = pyupbit.get_current_price(ticker)
+        if current and current > 0:
+            logger.info(f"[PRICE] Upbit API 조회 성공: {ticker} = {current:,.2f}")
+            return float(current)
+        logger.warning(f"[PRICE] Upbit API 응답 이상: {ticker} = {current}")
+    except Exception as e:
+        logger.warning(f"[PRICE] Upbit API 조회 실패: {e}")
+    return None
 
 
 def get_last_price_from_logs(user_id: str) -> float:
@@ -22,7 +43,7 @@ def get_last_price_from_logs(user_id: str) -> float:
     return 0.0 # fallback
 
 
-def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str) -> str:
+def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: int = 60) -> str:
     """
     보유 코인을 강제청산 (시장가 매도).
     - TEST: 즉시 체결
@@ -34,30 +55,52 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         insert_log(user_id, "INFO", msg)
         return msg
 
+    # ✅ 가격 조회 우선순위:
+    # 1) MACD 로그 → 2) EMA 로그 → 3) 일반 로그 파싱 → 4) Upbit API 실시간 조회
+    price = None
+
+    # 1. MACD 로그 시도
     log_summary = fetch_latest_log_signal(user_id, ticker)
-    price_raw = log_summary.get("price") if log_summary else None
+    if log_summary:
+        try:
+            price = float(log_summary.get("price"))
+            logger.info(f"[PRICE] MACD 로그에서 조회: {price:,.2f}")
+        except (TypeError, ValueError):
+            pass
 
-    try:
-        price = float(price_raw)
-    except (TypeError, ValueError):
-        fallback_price = get_last_price_from_logs(user_id)
-        if fallback_price > 0:
-            price = fallback_price
-        else:
-            msg = f"❌ 강제청산 실패: 가격 파싱 오류 → price={price_raw}"
-            insert_log(user_id, "ERROR", msg)
-            return msg
+    # 2. EMA 로그 시도
+    if price is None or price <= 0:
+        log_summary_ema = fetch_latest_log_signal_ema(user_id, ticker)
+        if log_summary_ema:
+            try:
+                price = float(log_summary_ema.get("price"))
+                logger.info(f"[PRICE] EMA 로그에서 조회: {price:,.2f}")
+            except (TypeError, ValueError):
+                pass
 
-    if price <= 0:
-        msg = "❌ 강제청산 실패: 최근 가격을 가져올 수 없습니다."
+    # 3. 일반 로그 파싱 시도
+    if price is None or price <= 0:
+        price = get_last_price_from_logs(user_id)
+        if price > 0:
+            logger.info(f"[PRICE] 일반 로그 파싱에서 조회: {price:,.2f}")
+
+    # 4. Upbit API 실시간 조회 (최후의 수단)
+    if price is None or price <= 0:
+        price = get_current_price_from_upbit(ticker)
+
+    # 모든 방법 실패
+    if price is None or price <= 0:
+        msg = f"❌ 강제청산 실패: 모든 가격 조회 실패 (MACD 로그, EMA 로그, 일반 로그, Upbit API 모두 실패)"
         insert_log(user_id, "ERROR", msg)
         return msg
 
     ts = datetime.now()
     meta = {
+        "interval": interval_sec,  # ✅ interval_sec 전달
         "reason": "force_liquidate",
         "src": "manual",
         "price_ref": price,
+        "bar_time": None,  # ✅ 강제 청산은 봉 시각 없음
     }
 
     result = trader.sell_market(qty, ticker, price, ts=ts, meta=meta)
@@ -97,7 +140,7 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str) -> str:
     return f"[LIVE] {ticker} 강제청산 요청 완료 (uuid={uuid})"
 
 
-def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
+def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: int = 60) -> str:
     """
     강제매수 (시장가).
     - TEST: 즉시 체결
@@ -110,30 +153,52 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str) -> str:
         insert_log(user_id, "INFO", msg)
         return msg
 
+    # ✅ 가격 조회 우선순위:
+    # 1) MACD 로그 → 2) EMA 로그 → 3) 일반 로그 파싱 → 4) Upbit API 실시간 조회
+    price = None
+
+    # 1. MACD 로그 시도
     log_summary = fetch_latest_log_signal(user_id, ticker)
-    price_raw = log_summary.get("price") if log_summary else None
+    if log_summary:
+        try:
+            price = float(log_summary.get("price"))
+            logger.info(f"[PRICE] MACD 로그에서 조회: {price:,.2f}")
+        except (TypeError, ValueError):
+            pass
 
-    try:
-        price = float(price_raw)
-    except (TypeError, ValueError):
-        fallback_price = get_last_price_from_logs(user_id)
-        if fallback_price > 0:
-            price = fallback_price
-        else:
-            msg = f"❌ 강제매수 실패: 가격 파싱 오류 → price={price_raw}"
-            insert_log(user_id, "ERROR", msg)
-            return msg
+    # 2. EMA 로그 시도
+    if price is None or price <= 0:
+        log_summary_ema = fetch_latest_log_signal_ema(user_id, ticker)
+        if log_summary_ema:
+            try:
+                price = float(log_summary_ema.get("price"))
+                logger.info(f"[PRICE] EMA 로그에서 조회: {price:,.2f}")
+            except (TypeError, ValueError):
+                pass
 
-    if price <= 0:
-        msg = "❌ 강제매수 실패: 최근 가격을 가져올 수 없습니다."
+    # 3. 일반 로그 파싱 시도
+    if price is None or price <= 0:
+        price = get_last_price_from_logs(user_id)
+        if price > 0:
+            logger.info(f"[PRICE] 일반 로그 파싱에서 조회: {price:,.2f}")
+
+    # 4. Upbit API 실시간 조회 (최후의 수단)
+    if price is None or price <= 0:
+        price = get_current_price_from_upbit(ticker)
+
+    # 모든 방법 실패
+    if price is None or price <= 0:
+        msg = f"❌ 강제매수 실패: 모든 가격 조회 실패 (MACD 로그, EMA 로그, 일반 로그, Upbit API 모두 실패)"
         insert_log(user_id, "ERROR", msg)
         return msg
 
     ts = datetime.now()
     meta = {
+        "interval": interval_sec,  # ✅ interval_sec 전달
         "reason": "force_buy",
         "src": "manual",
         "price_ref": price,
+        "bar_time": None,  # ✅ 강제 매수는 봉 시각 없음
     }
 
     result = trader.buy_market(price, ticker, ts=ts, meta=meta)

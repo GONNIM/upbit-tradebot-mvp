@@ -39,6 +39,18 @@ def now_kst() -> str:
     return datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
 
 
+def now_kst_minute() -> str:
+    """
+    분 단위로 절삭된 KST timestamp 반환
+    - 초와 마이크로초를 0으로 설정하여 동일한 분 내 모든 호출이 같은 값 반환
+    - 설정 스냅샷 감사로그의 1분당 1개 보장을 위해 사용
+    예: 2026-01-15T21:16:04.934888+09:00 → 2026-01-15T21:16:00+09:00
+    """
+    dt = datetime.now(ZoneInfo("Asia/Seoul"))
+    dt = dt.replace(second=0, microsecond=0)
+    return dt.isoformat()
+
+
 # ✅ 사용자 정보
 def save_user(username: str, display_name: str, virtual_krw: int):
     now = now_kst()
@@ -647,19 +659,21 @@ def insert_trade_audit(
     highest: float | None,
     ts_pct: float | None,
     ts_armed: bool | None,
-    timestamp: str | None = None  # ✅ 봉 시각 파라미터 (기본값: 현재 시각)
+    timestamp: str | None = None,  # ✅ 체결 발생 시각 (실시간 현재 시각)
+    bar_time: str | None = None    # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
 ):
     with get_db(user_id) as conn:
         cur = conn.cursor()
         cur.execute(
             """
             INSERT INTO audit_trades
-            (timestamp, ticker, interval_sec, bar, type, reason, price, macd, signal,
+            (timestamp, bar_time, ticker, interval_sec, bar, type, reason, price, macd, signal,
              entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                timestamp if timestamp is not None else now_kst(),  # ✅ 파라미터 사용
+                timestamp if timestamp is not None else now_kst(),  # ✅ 실시간 체결 시각
+                bar_time,  # ✅ 봉 시각 (None 가능)
                 ticker, interval_sec, bar, kind, reason, price, macd, signal,
                 entry_price, entry_bar, bars_held, tp, sl, highest,
                 ts_pct, (int(ts_armed) if ts_armed is not None else None)
@@ -675,21 +689,23 @@ def insert_settings_snapshot(
     interval_sec: int,
     tp: float, sl: float, ts_pct: float | None,
     signal_gate: bool, threshold: float,
-    buy_dict: dict, sell_dict: dict
+    buy_dict: dict, sell_dict: dict,
+    bar_time: str | None = None  # ✅ 해당 봉의 시각
 ):
     with get_db(user_id) as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT INTO audit_settings
-            (timestamp, ticker, interval_sec, tp, sl, ts_pct, signal_gate, threshold, buy_json, sell_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR IGNORE INTO audit_settings
+            (timestamp, ticker, interval_sec, tp, sl, ts_pct, signal_gate, threshold, buy_json, sell_json, bar_time)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 now_kst(), ticker, interval_sec, tp, sl, ts_pct,
                 int(bool(signal_gate)), threshold,
                 json.dumps(buy_dict, ensure_ascii=False),
-                json.dumps(sell_dict, ensure_ascii=False)
+                json.dumps(sell_dict, ensure_ascii=False),
+                bar_time
             )
         )
         conn.commit()

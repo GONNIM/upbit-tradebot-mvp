@@ -210,7 +210,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.14.1454")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.16.2118")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -979,30 +979,38 @@ st.subheader("⚙️ Option 기능")
 btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1, 1, 1, 1])
 with btn_col1:
     if st.button("🛑 강제매수하기", use_container_width=True):
-        if account_krw > 0 and coin_balance == 0:
+        # ✅ 코인이 거의 없을 때 (5000원 이하는 무시)
+        coin_value = coin_balance * last_price if last_price else 0
+        if coin_value < 5000:
             trader = UpbitTrader(
                 user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
-            msg = force_buy_in(user_id, trader, params_obj.upbit_ticker)
+            msg = force_buy_in(user_id, trader, params_obj.upbit_ticker, interval_sec=params_obj.interval_sec)
             if msg.startswith("❌"):
                 st.error(msg, icon="⚠️")
             elif msg.startswith("[TEST]"):
                 st.success(msg, icon="✅")
             else:
                 st.info(msg, icon="📡")
+        else:
+            st.warning(f"⚠️ 강제매수 불가: 코인 보유 중 ({coin_value:,.0f}원 상당)")
 with btn_col2:
     if st.button("🛑 강제매도하기", use_container_width=True):
-        if account_krw == 0 and coin_balance > 0:
+        # ✅ 코인이 있을 때 (5000원 이상)
+        coin_value = coin_balance * last_price if last_price else 0
+        if coin_value >= 5000:
             trader = UpbitTrader(
                 user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
-            msg = force_liquidate(user_id, trader, params_obj.upbit_ticker)
+            msg = force_liquidate(user_id, trader, params_obj.upbit_ticker, interval_sec=params_obj.interval_sec)
             if msg.startswith("❌"):
                 st.error(msg, icon="⚠️")
             elif msg.startswith("[TEST]"):
                 st.success(msg, icon="✅")
             else:
                 st.info(msg, icon="📡")
+        else:
+            st.warning(f"⚠️ 강제매도 불가: 코인 보유량 부족 ({coin_value:,.0f}원 상당)")
 with btn_col3:
     if st.button("🛑 트레이딩 엔진 종료", use_container_width=True):
         engine_manager.stop_engine(user_id)

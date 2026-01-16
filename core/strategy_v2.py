@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 
 # Audit
-from services.db import insert_buy_eval, insert_sell_eval, insert_settings_snapshot, has_open_by_orders
+from services.db import insert_buy_eval, insert_sell_eval, has_open_by_orders
 from services.init_db import get_db_path
 
 import inspect, os, math
@@ -144,20 +144,7 @@ class MACDStrategy(Strategy):
         self.conditions = self._load_conditions()
         self._log_conditions()
 
-        try:
-            insert_settings_snapshot(
-                user_id=self.user_id,
-                ticker=getattr(self, "ticker", "UNKNOWN"),
-                interval_sec=getattr(self, "interval_sec", 60),
-                tp=self.take_profit, sl=self.stop_loss,
-                ts_pct=getattr(self, "trailing_stop_pct", None),
-                signal_gate=self.signal_confirm_enabled,
-                threshold=self.macd_threshold,
-                buy_dict=self.conditions.get("buy", {}),
-                sell_dict=self.conditions.get("sell", {})
-            )
-        except Exception as e:
-            logger.warning(f"[AUDIT] settings snapshot failed (ignored): {e}")
+        # ✅ settings_snapshot은 이제 next()에서 매 봉마다 기록됨 (중복 방지 포함)
 
         try:
             _uid = getattr(self, "user_id", None)
@@ -458,6 +445,8 @@ class MACDStrategy(Strategy):
         # 🔥 FIX: bars_held 버그 수정 - 매 봉마다 카운터 증가
         self._bar_counter += 1
 
+        # ✅ 설정 스냅샷은 live_loop.py에서 1분마다 독립적으로 기록됨 (봉과 무관)
+
         self.bars_since_cross = getattr(self, "bars_since_cross", 1_000_000) + 1
 
         self._reconcile_entry_with_wallet()
@@ -662,13 +651,33 @@ class MACDStrategy(Strategy):
         buy_cond = self.conditions.get("buy", {})
         report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
 
-        # BUY 조건이 하나도 켜져 있지 않으면 감사기록 자체를 생략 (노이즈 컷)
-        if len(enabled_keys) == 0:
+        # ✅ 프로세스 내 동일 바 dedup (timestamp 기반으로 정확한 중복 방지)
+        bar_timestamp = str(state["timestamp"])
+        key = (self.user_id, ticker, getattr(self,"interval_sec",60), bar_timestamp)
+        if key in MACDStrategy._seen_buy_audits:
             return
 
-        # ✅ 프로세스 내 동일 바 dedup (bar 번호 기반으로 정확한 중복 방지)
-        key = (self.user_id, ticker, getattr(self,"interval_sec",60), state["bar"])
-        if key in MACDStrategy._seen_buy_audits:
+        # ✅ BUY 조건이 하나도 켜져 있지 않아도 기록 (모니터링 목적)
+        if len(enabled_keys) == 0:
+            try:
+                insert_buy_eval(
+                    user_id=self.user_id,
+                    ticker=ticker,
+                    interval_sec=getattr(self,"interval_sec",60),
+                    bar=state["bar"],
+                    price=state["price"],
+                    macd=state["macd"],
+                    signal=state["signal"],
+                    have_position=False,
+                    overall_ok=False,
+                    failed_keys=[],
+                    checks={},
+                    notes="NO_ENABLED_CONDITIONS | " + f"ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                    timestamp=None
+                )
+                MACDStrategy._seen_buy_audits.add(key)
+            except Exception as e:
+                logger.error(f"[AUDIT-BUY] insert failed(NO_COND): {e} | bar={state['bar']}")
             return
         
         # ✅ BUY 상태 서명: 활성 조건들의 pass 맵 + 크로스 상태만 사용(숫자값 제외)
@@ -1266,20 +1275,7 @@ class EMAStrategy(Strategy):
         self.conditions = self._load_conditions()
         self._log_conditions()
 
-        try:
-            insert_settings_snapshot(
-                user_id=self.user_id,
-                ticker=getattr(self, "ticker", "UNKNOWN"),
-                interval_sec=getattr(self, "interval_sec", 60),
-                tp=self.take_profit, sl=self.stop_loss,
-                ts_pct=getattr(self, "trailing_stop_pct", None),
-                signal_gate=False,
-                threshold=0.0,
-                buy_dict=self.conditions.get("buy", {}),
-                sell_dict=self.conditions.get("sell", {})
-            )
-        except Exception as e:
-            logger.warning(f"[AUDIT][EMA] settings snapshot failed (ignored): {e}")
+        # ✅ settings_snapshot은 이제 next()에서 매 봉마다 기록됨 (중복 방지 포함)
 
     def _maybe_reload_conditions(self):
         try:
@@ -1440,6 +1436,8 @@ class EMAStrategy(Strategy):
         # 🔥 FIX: bars_held 버그 수정 - 매 봉마다 카운터 증가
         self._bar_counter += 1
 
+        # ✅ 설정 스냅샷은 live_loop.py에서 1분마다 독립적으로 기록됨 (봉과 무관)
+
         self._reconcile_entry_with_wallet()
         self._maybe_reload_conditions()
         self._update_cross_state()
@@ -1588,12 +1586,33 @@ class EMAStrategy(Strategy):
         buy_cond = self.conditions.get("buy", {})
         report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
 
-        if len(enabled_keys) == 0:
+        # ✅ 프로세스 내 동일 바 dedup (timestamp 기반으로 정확한 중복 방지)
+        bar_timestamp = str(state["timestamp"])
+        key = (self.user_id, ticker, getattr(self, "interval_sec", 60), bar_timestamp)
+        if key in EMAStrategy._seen_buy_audits:
             return
 
-        # ✅ 프로세스 내 동일 바 dedup (bar 번호 기반으로 정확한 중복 방지)
-        key = (self.user_id, ticker, getattr(self, "interval_sec", 60), state["bar"])
-        if key in EMAStrategy._seen_buy_audits:
+        # ✅ BUY 조건이 하나도 켜져 있지 않아도 기록 (모니터링 목적)
+        if len(enabled_keys) == 0:
+            try:
+                insert_buy_eval(
+                    user_id=self.user_id,
+                    ticker=ticker,
+                    interval_sec=getattr(self, "interval_sec", 60),
+                    bar=state["bar"],
+                    price=state["price"],
+                    macd=state["ema_fast_buy"],
+                    signal=state["ema_slow_buy"],
+                    have_position=False,
+                    overall_ok=False,
+                    failed_keys=[],
+                    checks={},
+                    notes="[EMA] NO_ENABLED_CONDITIONS | " + f"ts_bt={state['timestamp']} bar_bt={state['bar']}",
+                    timestamp=None
+                )
+                EMAStrategy._seen_buy_audits.add(key)
+            except Exception as e:
+                logger.error(f"[EMA][AUDIT-BUY] insert failed(NO_COND): {e} | bar={state['bar']}")
             return
         
         import hashlib

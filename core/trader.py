@@ -114,7 +114,7 @@ class UpbitTrader:
         """
         meta = meta or {}
         try:
-            interval = meta.get("interval", "minute1")
+            interval = meta.get("interval", 60)  # ✅ 기본값을 숫자로 (60초 = 1분봉)
             bar = meta.get("bar", 0)
             reason = meta.get("reason")
             macd = meta.get("macd")
@@ -154,6 +154,8 @@ class UpbitTrader:
                 highest,
                 ts_pct,
                 ts_armed,
+                timestamp=None,  # ✅ 실시간 체결 시각 (now_kst() 자동)
+                bar_time=meta.get("bar_time")  # ✅ 해당 봉의 시각
             )
 
             # 운영 로그

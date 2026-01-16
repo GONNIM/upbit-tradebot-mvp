@@ -6,6 +6,7 @@ from services.db import (
     update_order_completed,
     update_account_from_balances,
     update_position_from_balances,
+    insert_trade_audit,  # ✅ LIVE 모드 체결 로그 추가
 )
 
 
@@ -35,11 +36,21 @@ class OrderReconciler:
             self._thr.join(timeout=timeout)
         logger.info("[OR] stopped")
 
-    def enqueue(self, uuid: str, *, user_id: str, ticker: str, side: str):
+    def enqueue(self, uuid: str, *, user_id: str, ticker: str, side: str, meta: Optional[Dict[str, Any]] = None):
+        """
+        주문 추적 큐에 추가 (체결 완료 시 audit_trades 기록용 meta 포함)
+        - meta: interval, bar, reason, macd, signal, entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed
+        """
         if not uuid:
             return
         with self._lock:
-            self._pending[uuid] = {"user_id": user_id, "ticker": ticker, "side": side, "last": None}
+            self._pending[uuid] = {
+                "user_id": user_id,
+                "ticker": ticker,
+                "side": side,
+                "last": None,
+                "meta": meta or {}  # ✅ 전략 컨텍스트 저장
+            }
         logger.info(f"[OR] enqueued: {uuid} side={side} {ticker}")
 
     def load_inflight_from_db(self, fetch_func):
@@ -185,6 +196,37 @@ class OrderReconciler:
                 f"[OR] final {state} uuid={uuid} user={user_id} side={side} "
                 f"vol={exec_vol} avg={avg_px} fee={fee}"
             )
+
+            # ✅ LIVE 모드 체결 로그 기록 (FILLED 상태일 때만)
+            if state == "FILLED" and exec_vol > 0:
+                with self._lock:
+                    meta = self._pending.get(uuid, {}).get("meta", {})
+
+                try:
+                    insert_trade_audit(
+                        user_id=user_id,
+                        ticker=ticker,
+                        interval_sec=meta.get("interval", 60),
+                        bar=meta.get("bar", 0),
+                        kind=side,  # "BUY" or "SELL"
+                        reason=meta.get("reason", f"{side}_LIVE"),
+                        price=avg_px or 0.0,
+                        macd=meta.get("macd"),
+                        signal=meta.get("signal"),
+                        entry_price=meta.get("entry_price"),
+                        entry_bar=meta.get("entry_bar"),
+                        bars_held=meta.get("bars_held"),
+                        tp=meta.get("tp"),
+                        sl=meta.get("sl"),
+                        highest=meta.get("highest"),
+                        ts_pct=meta.get("ts_pct"),
+                        ts_armed=meta.get("ts_armed"),
+                        timestamp=None,  # ✅ 실시간 체결 시각 (now_kst())
+                        bar_time=meta.get("bar_time")  # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
+                    )
+                    logger.info(f"[OR] audit_trades inserted: uuid={uuid} side={side} px={avg_px} vol={exec_vol}")
+                except Exception as e:
+                    logger.error(f"[OR] insert_trade_audit failed uuid={uuid}: {e}")
 
             balances = self.upbit.get_balances()
             update_account_from_balances(user_id, balances)

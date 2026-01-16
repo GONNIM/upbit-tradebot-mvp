@@ -29,20 +29,21 @@ _IV_MIN = {
 
 # --------- JITTER 값 (interval별 차등 적용) ---------
 # 봉 종가 확정 후 추가 대기 시간 (초)
-# ⚠️ 중요: Upbit API는 봉 종가 확정까지 시간이 걸림
-# - 1분봉: 최소 1.0초 대기 필요 (0.3초는 너무 짧아서 데이터 준비 안 됨)
-# - 짧게 설정 시: 1분마다 요청하지만 2분에 한 번만 데이터 수신 → 2분 간격 yield
-# - 권장: 1분봉 1.0~1.5초, 장기봉 1.5~2.0초
-# - 재시도 로직(Line 551-573)이 API 응답 지연을 자동 보정하므로 최적화된 값 사용
+# ⚠️ 중요: Upbit API는 봉 종가 확정 후 데이터 준비까지 시간이 걸림
+# - 실제 테스트 결과: 웹사이트에는 데이터가 있지만 API는 4~5초 지연
+# - 너무 짧으면: 데이터 누락 → 백필 실패 → 영구 누락 (치명적!)
+# - 권장: 1분봉 3초, 3분봉 6초, 장기봉 8~15초
+# - 실시간성보다 안정성 우선 (누락 방지가 최우선)
+# - 백필 로직(5회 재시도)이 추가 안전장치 역할
 JITTER_BY_INTERVAL = {
-    "minute1": 1.5,   # 1분봉: 실시간성 최적화 (권장 범위 내)
-    "minute3": 2.0,   # 3분봉: 안정성과 실시간성 균형
-    "minute5": 2.0,
-    "minute10": 2.5,
-    "minute15": 2.5,
-    "minute30": 2.5,
-    "minute60": 3.0,
-    "day": 3.0,       # 일봉: 실시간성보다 안정성 우선
+    "minute1": 3.0,   # 1분봉: Upbit API 데이터 준비 시간 확보 (기존 1.5 → 3.0)
+    "minute3": 6.0,   # 3분봉: 누락 방지 최우선 (기존 2.0 → 6.0)
+    "minute5": 6.0,   # 5분봉: 안정성 강화 (기존 2.0 → 6.0)
+    "minute10": 8.0,  # 10분봉: 충분한 대기 시간 (기존 2.5 → 8.0)
+    "minute15": 8.0,  # 15분봉: 안정성 최우선 (기존 2.5 → 8.0)
+    "minute30": 10.0, # 30분봉: 안정성 최우선 (기존 2.5 → 10.0)
+    "minute60": 10.0, # 60분봉: 안정성 최우선 (기존 3.0 → 10.0)
+    "day": 15.0,      # 일봉: 실시간성보다 안정성 우선 (기존 3.0 → 15.0)
 }
 
 # --------- 필수 데이터 개수 정의 (목표치) ---------
@@ -675,11 +676,11 @@ def stream_candles(
                         f"누락: {missing_bars}개 봉 ({missing_minutes}분)"
                     )
 
-                    # 백필 시도 (최대 3회)
+                    # 백필 시도 (최대 5회, 더 공격적인 재시도)
                     backfill_success = False
-                    for backfill_attempt in range(1, 4):
+                    for backfill_attempt in range(1, 6):
                         try:
-                            _log("INFO", f"[백필 시도 {backfill_attempt}/3] {new_last} ~ {expected_last} 구간")
+                            _log("INFO", f"[백필 시도 {backfill_attempt}/5] {new_last} ~ {expected_last} 구간")
 
                             # 누락된 구간 + 여유분(2개) 추가 요청
                             backfill_count = missing_bars + 2
@@ -715,14 +716,16 @@ def stream_candles(
                                 else:
                                     _log("WARN", f"[백필] 응답 데이터가 이미 보유 중인 봉만 포함")
                             else:
-                                _log("WARN", f"[백필] API 응답 없음 (attempt {backfill_attempt}/3)")
+                                _log("WARN", f"[백필] API 응답 없음 (attempt {backfill_attempt}/5)")
 
                         except Exception as e:
-                            _log("ERROR", f"[백필 실패] {e} (attempt {backfill_attempt}/3)")
+                            _log("ERROR", f"[백필 실패] {e} (attempt {backfill_attempt}/5)")
 
-                        # 재시도 전 대기
-                        if backfill_attempt < 3:
-                            time.sleep(1 * backfill_attempt)
+                        # 재시도 전 대기 (더 긴 간격으로 API 안정화 대기)
+                        if backfill_attempt < 5:
+                            wait_time = 2 * backfill_attempt  # 2초, 4초, 6초, 8초
+                            _log("INFO", f"[백필] {wait_time}초 후 재시도...")
+                            time.sleep(wait_time)
 
                     if not backfill_success:
                         _log("ERROR",

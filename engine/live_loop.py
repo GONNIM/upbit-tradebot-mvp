@@ -16,6 +16,8 @@ from backtesting import Backtest
 from services.db import (
     get_last_open_buy_order,
     insert_buy_eval,
+    insert_settings_snapshot,
+    now_kst_minute,
 )
 from config import (
     TP_WITH_TS,
@@ -888,6 +890,40 @@ def run_live_loop(
         f"| ticker={params.upbit_ticker} | interval={params.interval}"
     )
 
+    # ✅ 설정 스냅샷 1분 타이머 (봉과 무관하게 독립 동작)
+    def _settings_snapshot_timer():
+        """1분마다 설정 스냅샷 기록 (별도 스레드)"""
+        last_minute: Optional[str] = None
+        while not stop_event.is_set():
+            try:
+                current_minute = now_kst_minute()
+                if last_minute != current_minute:
+                    insert_settings_snapshot(
+                        user_id=user_id,
+                        ticker=params.upbit_ticker,
+                        interval_sec=getattr(params, "interval_sec", 60),
+                        tp=params.take_profit,
+                        sl=params.stop_loss,
+                        ts_pct=getattr(params, "trailing_stop_pct", None),
+                        signal_gate=getattr(params, "signal_confirm_enabled", False),
+                        threshold=getattr(params, "macd_threshold", 0.0),
+                        buy_dict=trade_conditions.get("buy", {}),
+                        sell_dict=trade_conditions.get("sell", {}),
+                        bar_time=current_minute
+                    )
+                    last_minute = current_minute
+                    logger.info(f"[SETTINGS-SNAPSHOT] ✅ Recorded at {current_minute}")
+            except Exception as e:
+                logger.warning(f"[SETTINGS-SNAPSHOT] ❌ Failed: {e}")
+
+            # 5초마다 체크 (1분 정확도 유지하면서 CPU 부하 최소화)
+            time.sleep(5)
+
+    # 설정 스냅샷 타이머 스레드 시작
+    snapshot_thread = threading.Thread(target=_settings_snapshot_timer, daemon=True, name="SettingsSnapshotTimer")
+    snapshot_thread.start()
+    logger.info("✅ [SETTINGS-SNAPSHOT] Timer thread started (1분 간격)")
+
     try:
         while not stop_event.is_set():
             for df in stream_candles(
@@ -1028,20 +1064,23 @@ def run_live_loop(
                                 f"🛡️ Wallet-Guard → SELL ({reason}) | live={latest_price_live:.4f} ref={ref_price:.4f}"
                             )
 
+                            bar_idx = len(df_bt) - 1
+                            bar_time = str(df_bt.index[bar_idx]) if bar_idx < len(df_bt) else None
                             meta = {
-                                "interval": params.interval,
-                                "bar": len(df_bt) - 1,
+                                "interval": getattr(params, "interval_sec", 60),
+                                "bar": bar_idx,
                                 "reason": reason,               # "Stop Loss" / "Take Profit"
                                 "macd": macd_log,
                                 "signal": signal_log,
                                 "entry_price": entry_price,
-                                "entry_bar": len(df_bt) - 1,    # 적어도 동기화 가능한 값
+                                "entry_bar": bar_idx,    # 적어도 동기화 가능한 값
                                 "bars_held": 0,
                                 "tp": tp_price,
                                 "sl": sl_price,
                                 "highest": None,
                                 "ts_pct": getattr(params, "trailing_stop_pct", None),
                                 "ts_armed": False,
+                                "bar_time": bar_time,   # ✅ 봉 시각
                             }
                             result = trader.sell_market(
                                 coin_balance_live,
@@ -1066,11 +1105,13 @@ def run_live_loop(
                                 in_position = False
 
                                 if is_live and result.get("uuid"):
+                                    # ✅ Wallet-Guard 체결 로그용 meta 정보 전달
                                     get_reconciler().enqueue(
                                         result["uuid"],
                                         user_id=user_id,
                                         ticker=params.upbit_ticker,
-                                        side="SELL"
+                                        side="SELL",
+                                        meta=meta
                                     )
                                 
                                 # 월렛 가드는 SELL 후 바로 다음 루프로
@@ -1154,8 +1195,9 @@ def run_live_loop(
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
+                    bar_time = str(df_bt.index[ebar]) if ebar < len(df_bt) else None
                     meta = {
-                        "interval": params.interval,
+                        "interval": getattr(params, "interval_sec", 60),
                         "bar": ebar,
                         "reason": evt.get("reason", ""),
                         "macd": evt.get("macd"),
@@ -1168,6 +1210,7 @@ def run_live_loop(
                         "highest": None,
                         "ts_pct": getattr(params, "trailing_stop_pct", None),
                         "ts_armed": False,
+                        "bar_time": bar_time,   # ✅ 봉 시각
                     }
                     result = trader.buy_market(
                         latest_price_live,
@@ -1192,11 +1235,31 @@ def run_live_loop(
                         entry_price = result["price"]
 
                         if is_live and result.get("uuid"):
+                            # ✅ 체결 로그용 meta 정보 구성
+                            bar_idx = evt.get("bar", 0)
+                            bar_time_reconcile = str(df_bt.index[bar_idx]) if bar_idx < len(df_bt) else None
+                            meta = {
+                                "interval": getattr(params, "interval_sec", 60),
+                                "bar": bar_idx,
+                                "reason": evt.get("reason", "BUY"),
+                                "macd": evt.get("macd"),
+                                "signal": evt.get("signal"),
+                                "entry_price": result["price"],
+                                "entry_bar": bar_idx,
+                                "bars_held": 0,
+                                "tp": evt.get("tp"),
+                                "sl": evt.get("sl"),
+                                "highest": None,
+                                "ts_pct": evt.get("ts_pct"),
+                                "ts_armed": False,
+                                "bar_time": bar_time_reconcile,   # ✅ 봉 시각
+                            }
                             get_reconciler().enqueue(
                                 result["uuid"],
                                 user_id=user_id,
                                 ticker=params.upbit_ticker,
-                                side="BUY"
+                                side="BUY",
+                                meta=meta
                             )
 
                         # 체결 직후 BUY 평가 스냅샷 (리포트 1:1 매칭용)
@@ -1263,20 +1326,22 @@ def run_live_loop(
                         else None
                     )
 
+                    bar_time = str(df_bt.index[ebar]) if ebar < len(df_bt) else None
                     meta = {
-                        "interval": params.interval,
+                        "interval": getattr(params, "interval_sec", 60),
                         "bar": ebar,
                         "reason": evt.get("reason", ""),
                         "macd": evt.get("macd"),
                         "signal": evt.get("signal"),
                         "entry_price": entry_price,
-                        "entry_bar": ebar,                # 없으면 0
+                        "entry_bar": evt.get("entry_bar", 0),
                         "bars_held": evt.get("bars_held", 0),
                         "tp": tp_p,
                         "sl": sl_p,
                         "highest": evt.get("highest"),
                         "ts_pct": evt.get("ts_pct"),
                         "ts_armed": evt.get("ts_armed"),
+                        "bar_time": bar_time,   # ✅ 봉 시각
                     }
                     result = trader.sell_market(
                         coin_balance,
@@ -1302,11 +1367,13 @@ def run_live_loop(
                         entry_price = None
 
                         if is_live and result.get("uuid"):
+                            # ✅ 체결 로그용 meta 정보 전달
                             get_reconciler().enqueue(
                                 result["uuid"],
                                 user_id=user_id,
                                 ticker=params.upbit_ticker,
-                                side="SELL"
+                                side="SELL",
+                                meta=meta
                             )
 
                 logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")

@@ -456,6 +456,56 @@ def ensure_core_tables(user_id: str):
     conn.close()
 
 
+def ensure_audit_trades_bar_time(user_id: str):
+    """
+    audit_trades 테이블에 bar_time 컬럼 추가:
+      - timestamp: 실제 체결 발생 시각 (실시간 현재 시각)
+      - bar_time: 해당 봉의 시각 (전략 신호가 발생한 봉의 시각)
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE audit_trades ADD COLUMN bar_time TEXT")
+    conn.commit()
+    conn.close()
+
+
+def ensure_audit_settings_bar_time(user_id: str):
+    """
+    audit_settings 테이블에 bar_time 컬럼 추가:
+      - timestamp: 실시간 로그 기록 시각
+      - bar_time: 해당 봉의 시각 (전략이 분석한 봉의 시각)
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE audit_settings ADD COLUMN bar_time TEXT")
+    conn.commit()
+    conn.close()
+
+
+def ensure_audit_settings_unique(user_id: str):
+    """
+    audit_settings 테이블에 UNIQUE 인덱스 추가:
+      - (ticker, interval_sec, bar_time) 조합으로 중복 방지
+      - bar_time 기준 = "1개의 봉마다 1개" 보장
+      - UNIQUE INDEX는 DB 레벨에서 중복을 원천 차단
+      - INSERT OR IGNORE와 함께 사용하여 중복 시도 시 조용히 무시
+    """
+    conn = _connect(user_id)
+    try:
+        # 🔥 기존 인덱스 삭제 (timestamp 기준 → bar_time 기준으로 변경)
+        conn.execute("DROP INDEX IF EXISTS idx_audit_settings_unique")
+
+        # ✅ UNIQUE 인덱스 재생성 - bar_time 기준
+        conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_settings_unique
+            ON audit_settings(ticker, interval_sec, bar_time)
+        """)
+        conn.commit()
+    except Exception as e:
+        # 이미 존재하면 무시
+        pass
+    finally:
+        conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -463,6 +513,9 @@ def ensure_all_schemas(user_id: str):
     ensure_core_tables(user_id)
     add_audit_tables(user_id)
     ensure_orders_extended_schema(user_id)
+    ensure_audit_trades_bar_time(user_id)
+    ensure_audit_settings_bar_time(user_id)  # ✅ bar_time 컬럼 추가
+    ensure_audit_settings_unique(user_id)    # ✅ UNIQUE 인덱스 (bar_time 기준)
 
 
 def init_db_if_needed(user_id):

@@ -15,9 +15,11 @@ from ui.sidebar import make_sidebar
 from services.db import (
     get_account,
     create_or_init_account,
+    update_account,
     set_engine_status,
     set_thread_status,
     delete_old_logs,
+    get_db,
 )
 
 from utils.logging_util import init_log_file
@@ -227,6 +229,27 @@ if params:
         #    -> MACD 저장값과 EMA 저장값이 서로 덮어쓰지 않음
         exist_params = load_params(json_path, strategy_type=selected_strategy_type)
         save_params(params, json_path, strategy_type=selected_strategy_type)
+
+        # ✅ TEST 모드일 때: 파라미터 저장 시 DB 잔고 및 포지션을 초기화
+        if mode == "TEST":
+            try:
+                # 1. KRW 잔고를 초기자본으로 리셋
+                update_account(user_id, params.cash)
+
+                # 2. 모든 코인 포지션 삭제
+                with get_db(user_id) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM account_positions WHERE user_id = ?", (user_id,))
+                    conn.commit()
+                    deleted_positions = cursor.rowcount
+
+                st.info(
+                    f"💰 TEST 모드 초기화 완료:\n"
+                    f"- KRW 잔고: {params.cash:,}원\n"
+                    f"- 코인 포지션: {deleted_positions}개 삭제"
+                )
+            except Exception as e:
+                st.warning(f"⚠️ DB 초기화 실패 (무시됨): {e}")
 
         # ✅ 활성 전략 파일 업데이트 (로그아웃/로그인 시에도 전략 유지)
         save_active_strategy(user_id, selected_strategy_type)

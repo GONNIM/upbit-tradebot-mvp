@@ -209,7 +209,7 @@ if section == "buy":
         # ✅ 봉 시각 계산 (interval_sec 단위로 timestamp를 내림)
         def _calc_bar_time(row):
             try:
-                ts = pd.to_datetime(row["timestamp"])
+                ts = pd.to_datetime(row["timestamp"], format="ISO8601")
                 interval_min = int(row["interval_sec"]) // 60
                 if interval_min > 0:
                     minute = (ts.minute // interval_min) * interval_min
@@ -219,7 +219,7 @@ if section == "buy":
             except Exception:
                 # ✅ 예외 발생 시에도 최소한 포맷팅은 시도
                 try:
-                    return pd.to_datetime(row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                    return pd.to_datetime(row["timestamp"], format="ISO8601").strftime("%Y-%m-%d %H:%M:%S")
                 except Exception:
                     return str(row["timestamp"])
         df_buy["bar_time"] = df_buy.apply(_calc_bar_time, axis=1)
@@ -227,7 +227,7 @@ if section == "buy":
         # ✅ timestamp 포맷팅 (안전한 개별 파싱)
         def _format_timestamp(ts):
             try:
-                return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+                return pd.to_datetime(ts, format="ISO8601").strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 return str(ts)
         df_buy["timestamp"] = df_buy["timestamp"].apply(_format_timestamp)
@@ -291,7 +291,7 @@ elif section == "sell":
         # ✅ 봉 시각 계산 (interval_sec 단위로 timestamp를 내림)
         def _calc_bar_time(row):
             try:
-                ts = pd.to_datetime(row["timestamp"])
+                ts = pd.to_datetime(row["timestamp"], format="ISO8601")
                 interval_min = int(row["interval_sec"]) // 60
                 if interval_min > 0:
                     minute = (ts.minute // interval_min) * interval_min
@@ -301,7 +301,7 @@ elif section == "sell":
             except Exception:
                 # ✅ 예외 발생 시에도 최소한 포맷팅은 시도
                 try:
-                    return pd.to_datetime(row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                    return pd.to_datetime(row["timestamp"], format="ISO8601").strftime("%Y-%m-%d %H:%M:%S")
                 except Exception:
                     return str(row["timestamp"])
         df_sell["bar_time"] = df_sell.apply(_calc_bar_time, axis=1)
@@ -309,7 +309,7 @@ elif section == "sell":
         # ✅ timestamp 포맷팅 (안전한 개별 파싱)
         def _format_timestamp(ts):
             try:
-                return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+                return pd.to_datetime(ts, format="ISO8601").strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 return str(ts)
         df_sell["timestamp"] = df_sell["timestamp"].apply(_format_timestamp)
@@ -353,7 +353,7 @@ elif section == "trades":
         # ✅ 봉 시각 계산 (interval_sec 단위로 timestamp를 내림)
         def _calc_bar_time(row):
             try:
-                ts = pd.to_datetime(row["timestamp"])
+                ts = pd.to_datetime(row["timestamp"], format="ISO8601")
                 interval_min = int(row["interval_sec"]) // 60
                 if interval_min > 0:
                     minute = (ts.minute // interval_min) * interval_min
@@ -363,7 +363,7 @@ elif section == "trades":
             except Exception:
                 # ✅ 예외 발생 시에도 최소한 포맷팅은 시도
                 try:
-                    return pd.to_datetime(row["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                    return pd.to_datetime(row["timestamp"], format="ISO8601").strftime("%Y-%m-%d %H:%M:%S")
                 except Exception:
                     return str(row["timestamp"])
         df_tr["bar_time"] = df_tr.apply(_calc_bar_time, axis=1)
@@ -371,7 +371,7 @@ elif section == "trades":
         # ✅ timestamp 포맷팅 (안전한 개별 파싱)
         def _format_timestamp(ts):
             try:
-                return pd.to_datetime(ts).strftime("%Y-%m-%d %H:%M:%S")
+                return pd.to_datetime(ts, format="ISO8601").strftime("%Y-%m-%d %H:%M:%S")
             except Exception:
                 return str(ts)
         df_tr["timestamp"] = df_tr["timestamp"].apply(_format_timestamp)
@@ -422,7 +422,7 @@ elif section == "settings":
         df_set["buy_json"] = df_set["buy_json"].apply(_j)
         df_set["sell_json"] = df_set["sell_json"].apply(_j)
         df_set["signal_gate"] = df_set["signal_gate"].map({0:"OFF",1:"ON"})
-        df_set["timestamp"] = pd.to_datetime(df_set["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S")
+        df_set["timestamp"] = pd.to_datetime(df_set["timestamp"], format="ISO8601").dt.strftime("%Y-%m-%d %H:%M:%S")
         st.dataframe(df_set, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
