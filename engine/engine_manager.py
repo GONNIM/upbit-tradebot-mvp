@@ -178,7 +178,7 @@ class EngineManager:
         if key in self._events:
             self._events[key].set()
         if key in self._threads:
-            self._threads[key].join(timeout=2)
+            self._threads[key].join(timeout=10)  # ✅ 2초 → 10초 (warmup 백테스트 완료 대기)
 
         # 내부 상태 정리
         self._locks.pop(key, None)

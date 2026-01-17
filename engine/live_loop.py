@@ -731,6 +731,10 @@ def _run_backtest_once(
     events_cls.log_events = []
     events_cls.trade_events = []
 
+    # ✅ 클래스 변수 초기화 (전략 전환 시 이전 전략의 상태 제거)
+    events_cls._seen_buy_audits = set()
+    events_cls._seen_sell_audits = set()
+
     logger.info(
         "[BOOT] thresholds check | macd_thr=%.6f | base_cls=%s | mode=%s",
         float(getattr(params, "macd_threshold", 0.0)),
@@ -970,6 +974,11 @@ def run_live_loop(
                     # continue
 
                 logger.info(f"🔍 [DEBUG] About to call _run_engine_once | len(df)={len(df)} | min_hist={min_hist}")
+
+                # ✅ 백테스트 실행 전 stop_event 체크 (엔진 종료 명령 즉시 반영)
+                if stop_event.is_set():
+                    logger.info("[STOP] 백테스트 실행 전 중지 요청 감지 → 루프 종료")
+                    break
 
                 # ★ 공통 Backtest 실행 로직 호출
                 (
