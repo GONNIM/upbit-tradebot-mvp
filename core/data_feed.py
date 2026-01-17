@@ -7,6 +7,7 @@ import random
 import gc
 import psutil
 import os
+import math
 from datetime import datetime, timedelta
 
 from zoneinfo import ZoneInfo
@@ -542,9 +543,6 @@ def stream_candles(
     jitter = JITTER_BY_INTERVAL.get(interval, 0.7)
     _log("INFO", f"[실시간 루프] interval={interval}, jitter={jitter}초")
 
-    # ✅ API 응답 지연 재시도 카운터
-    api_retry_count = 0
-
     while not (stop_event and stop_event.is_set()):
         # 🔥 FIX: sleep 계산은 실제 시각(초 포함) 사용
         now_real = datetime.now(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
@@ -574,80 +572,110 @@ def stream_candles(
                 f"boundary_open={boundary_open}"
             )
 
-        # 중간 누락분 계산(분 단위)
-        gap = int((boundary_open - last_open).total_seconds() // (iv * 60))
-        need = max(1, min(gap, 200))
+        # 🔥 FIX: 중간 누락분 계산 (올림 처리로 1분 갭도 감지)
+        # 기존: int() 절사 → 1분 갭이 0으로 계산되어 누락!
+        # 개선: math.ceil() 올림 → 1분 갭도 1로 계산
+        gap_seconds = (boundary_open - last_open).total_seconds()
+        gap = math.ceil(gap_seconds / (iv * 60))  # 올림 처리
+
+        # 🛡️ 안전장치: gap이 1 이하여도 최소 2개 봉 요청 (중복 제거)
+        # - 이유: API 응답 지연으로 최신 봉이 누락될 수 있음
+        # - 중복은 나중에 자동 제거되므로 안전
+        need = max(2, min(gap + 1, 200))  # 최소 2개, gap+1개 요청
 
         # 🔍 DEBUG: API 호출 전 파라미터
         _log("INFO", f"[실시간 API] boundary_open={boundary_open} | gap={gap} | need={need} | last_open={last_open}")
 
-        # 재시도 루프
+        # 🔥 FIX: 응답 지연 재시도를 내부 루프로 구현 (continue 버그 수정)
+        # 기존 문제: continue → while 처음 복귀 → sleep 다시 실행 → 재시도 무효화!
+        # 해결: 내부 for 루프로 재시도 → API 호출만 반복 → sleep 건너뛰지 않음
         new = None
-        for attempt in range(1, max_retry + 1):
+        max_delay_retry = 5  # 응답 지연 재시도 최대 횟수
+
+        for delay_retry_attempt in range(max_delay_retry):
             if stop_event and stop_event.is_set():
                 _log("WARN", "stream_candles 중단됨: 실시간 루프 중 stop_event 감지")
                 return
-            try:
-                # 🔥 FIX: 방금 닫힌 봉(boundary_open)까지 포함하여 조회
-                # 문제: 기존 코드는 `boundary_open - timedelta(minutes=iv)` 사용 → 방금 닫힌 봉 누락!
-                # 해결: boundary_open 자체를 'to' 파라미터로 사용
-                # 예: 20:29:01 시점 → boundary_open=20:28:00 (방금 닫힌 봉)
-                #     API 요청: to=20:28:00, count=gap → 20:28:00 봉 포함하여 조회 ✅
-                to_param = _fmt_to_param(boundary_open)
-                _log("INFO", f"[실시간 API] 요청 파라미터: count={need}, to={to_param} (방금 닫힌 봉 포함)")
-                new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=to_param)
-                if new is not None and not new.empty:
-                    # 🔍 PRICE-DEBUG: 실시간 API 원본 데이터 (변환 전)
-                    try:
-                        last_3 = new.tail(min(3, len(new)))
-                        for idx, row in last_3.iterrows():
-                            _log("INFO", f"[PRICE-REALTIME-RAW] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
-                    except Exception as e_log:
-                        _log("WARN", f"[PRICE-REALTIME-RAW] 로깅 실패: {e_log}")
-                    break
-            except Exception as e:
-                _log("ERROR", f"[실시간] API 예외: {e}")
-            delay = min(base_delay * (2 ** (attempt - 1)), 30) + random.uniform(0, 2)
-            _log("WARN", f"[실시간] API 실패 ({attempt}/{max_retry}), {delay:.1f}초 후 재시도")
-            time.sleep(delay)
-        else:
-            backoff = min(30 + random.uniform(0, 10), 300)
-            _log("ERROR", f"[실시간] API 연결 실패, {backoff:.1f}초 후 재시도...")
-            time.sleep(backoff)
-            continue
 
-        # 🔍 DEBUG: API 응답 데이터 확인
-        if new is not None and not new.empty:
+            # API 호출 (기본 연결 재시도 5회)
+            new = None
+            for attempt in range(1, max_retry + 1):
+                if stop_event and stop_event.is_set():
+                    return
+                try:
+                    to_param = _fmt_to_param(boundary_open)
+                    _log("INFO",
+                        f"[실시간 API] 호출 #{delay_retry_attempt + 1}/{max_delay_retry} | "
+                        f"count={need}, to={to_param}"
+                    )
+                    new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=to_param)
+                    if new is not None and not new.empty:
+                        # 🔍 PRICE-DEBUG: 실시간 API 원본 데이터
+                        try:
+                            last_3 = new.tail(min(3, len(new)))
+                            for idx, row in last_3.iterrows():
+                                _log("INFO", f"[PRICE-REALTIME-RAW] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
+                        except Exception as e_log:
+                            _log("WARN", f"[PRICE-REALTIME-RAW] 로깅 실패: {e_log}")
+                        break
+                except Exception as e:
+                    _log("ERROR", f"[실시간 API] 예외: {e} (attempt {attempt}/{max_retry})")
+
+                delay = min(base_delay * (2 ** (attempt - 1)), 30) + random.uniform(0, 2)
+                _log("WARN", f"[실시간 API] {delay:.1f}초 후 재시도 (연결 실패)")
+                time.sleep(delay)
+
+            # API 연결 자체 실패 시 외부 while 루프로 (경계 재동기화)
+            if new is None or new.empty:
+                backoff = min(30 + random.uniform(0, 10), 300)
+                _log("ERROR", f"[실시간 API] 연결 실패, {backoff:.1f}초 후 경계 재동기화")
+                time.sleep(backoff)
+                break  # 내부 루프 탈출 → while 처음으로 (경계 재계산)
+
+            # 🛡️ 응답 검증: 기대한 봉을 받았는가?
             _log("INFO", f"[실시간 API 응답] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
 
-            # ✅ API 응답 검증: 기대한 시간대와 실제 응답 비교
-            expected_last = boundary_open  # 우리가 기대하는 마지막 봉
+            expected_last = boundary_open
             actual_last = new.index[-1]
-            time_gap = (expected_last - actual_last).total_seconds() / 60  # 분 단위
+            time_gap = (expected_last - actual_last).total_seconds() / 60
+            time_gap_bars = time_gap / iv
 
-            if time_gap > iv * 2:  # 2봉 이상 차이 나면
+            # 🛡️ 응답 지연 감지: 0.5봉 이상 차이
+            if time_gap_bars >= 0.5:
                 _log("WARN",
                     f"[실시간 API] 응답 지연 감지! "
-                    f"기대: {expected_last} | 실제: {actual_last} | 갭: {time_gap:.0f}분"
+                    f"기대: {expected_last} | 실제: {actual_last} | "
+                    f"갭: {time_gap:.1f}분 ({time_gap_bars:.1f}봉)"
                 )
-                # 짧게 대기 후 재시도 (최대 2회)
-                if api_retry_count < 2:
-                    api_retry_count += 1
-                    retry_delay = 3 + random.uniform(0, 2)
-                    _log("WARN", f"[실시간 API] {retry_delay:.1f}초 후 재시도 ({api_retry_count}/2)")
+
+                # 최대 재시도 전이면 대기 후 재시도
+                if delay_retry_attempt < max_delay_retry - 1:
+                    retry_delays = [3, 5, 8, 12, 15]
+                    retry_delay = retry_delays[min(delay_retry_attempt, len(retry_delays) - 1)]
+                    retry_delay += random.uniform(0, 2)
+
+                    _log("WARN",
+                        f"[실시간 API] {retry_delay:.1f}초 후 재시도 "
+                        f"({delay_retry_attempt + 1}/{max_delay_retry}) - 누락 방지!"
+                    )
                     time.sleep(retry_delay)
+                    # continue로 내부 for 루프 반복 (API 재호출)
                     continue
                 else:
-                    _log("WARN", "[실시간 API] 최대 재시도 도달, 기존 데이터로 진행")
-                    api_retry_count = 0
+                    _log("ERROR",
+                        f"[실시간 API] 최대 재시도 도달 ({max_delay_retry}회) - "
+                        f"백필 로직으로 복구 시도"
+                    )
+                    # break로 내부 루프 탈출 → 백필 시도
+                    break
             else:
-                # 정상 응답이면 재시도 카운터 리셋
-                api_retry_count = 0
-        else:
-            # 🛡️ 방안 3-1: API 응답 없음 시 보호
-            _log("WARN", f"[실시간 API 응답] new is None or empty! (last_open 유지: {last_open})")
-            # ⚠️ continue 시 last_open을 업데이트하지 않음
-            # → 다음 루프에서 gap이 커져서 자동으로 누락분 요청됨
+                # 정상 응답: 내부 루프 탈출
+                _log("INFO", f"[실시간 API] 정상 응답 확인 (갭: {time_gap_bars:.2f}봉)")
+                break
+
+        # API 응답 없음 시 다음 루프로
+        if new is None or new.empty:
+            _log("WARN", f"[실시간 API] 응답 없음 - last_open 유지하여 다음 루프에서 재시도")
             continue
 
         new = standardize_ohlcv(new).drop_duplicates()
@@ -655,19 +683,24 @@ def stream_candles(
         # 🔍 DEBUG: standardize 후 데이터
         _log("INFO", f"[실시간 표준화 후] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
 
-        # 🛡️ 방안 2: 누락 감지 및 자동 백필
+        # 🛡️ 방안 3: 강화된 누락 감지 및 강제 백필
         if not new.empty:
             new_last = new.index[-1]
 
             # 예상 범위 계산
             expected_last = boundary_open  # 방금 닫힌 봉
 
-            # 누락 감지: API가 반환한 마지막 봉이 기대와 다르면 누락!
-            # ✅ abs() 사용으로 과거/미래 모두 감지
+            # 🔥 FIX: 누락 감지 강화 (0.3봉 이상도 감지)
+            # 기존: 0.5봉 이상만 감지 → 1분 갭의 33% 누락!
+            # 개선: 0.3봉 이상 감지 + math.ceil로 올림
             time_gap_seconds = abs((expected_last - new_last).total_seconds())
-            if time_gap_seconds > iv * 60 * 0.5:  # 0.5봉 이상 차이나면 누락 의심
-                missing_minutes = int(time_gap_seconds / 60)
-                missing_bars = missing_minutes // iv
+            time_gap_bars = time_gap_seconds / (iv * 60)  # 봉 단위
+
+            # 🛡️ 더 엄격한 누락 기준: 0.3봉 이상 (기존: 0.5봉)
+            if time_gap_bars >= 0.3:  # 0.3봉 이상 차이나면 누락 의심
+                missing_minutes = time_gap_seconds / 60
+                # 🔥 FIX: 올림 처리로 1분 갭도 1봉으로 계산
+                missing_bars = math.ceil(missing_minutes / iv)  # 기존: int(...)
 
                 if missing_bars > 0:
                     _log("WARN",
@@ -676,14 +709,22 @@ def stream_candles(
                         f"누락: {missing_bars}개 봉 ({missing_minutes}분)"
                     )
 
-                    # 백필 시도 (최대 5회, 더 공격적인 재시도)
+                    # 🛡️ 백필 시도 강화: 최대 8회 (기존: 5회)
+                    # - 1분 갭은 치명적이므로 더 공격적으로 재시도
+                    # - 재시도 간격: 2초 → 4초 → 6초 → 8초 → 10초 → 12초 → 15초 → 20초
                     backfill_success = False
-                    for backfill_attempt in range(1, 6):
+                    max_backfill_retry = 8  # 기존: 5
+                    for backfill_attempt in range(1, max_backfill_retry + 1):
                         try:
-                            _log("INFO", f"[백필 시도 {backfill_attempt}/5] {new_last} ~ {expected_last} 구간")
+                            _log("INFO",
+                                f"[백필 시도 {backfill_attempt}/{max_backfill_retry}] "
+                                f"{new_last} ~ {expected_last} 구간 | "
+                                f"누락: {missing_bars}개 봉"
+                            )
 
-                            # 누락된 구간 + 여유분(2개) 추가 요청
-                            backfill_count = missing_bars + 2
+                            # 🛡️ 누락된 구간 + 여유분(3개) 추가 요청 (기존: +2)
+                            # - 여유분을 더 늘려서 API 응답 불안정 대응
+                            backfill_count = missing_bars + 3
                             backfill = pyupbit.get_ohlcv(
                                 ticker,
                                 interval=interval,
@@ -716,22 +757,28 @@ def stream_candles(
                                 else:
                                     _log("WARN", f"[백필] 응답 데이터가 이미 보유 중인 봉만 포함")
                             else:
-                                _log("WARN", f"[백필] API 응답 없음 (attempt {backfill_attempt}/5)")
+                                _log("WARN", f"[백필] API 응답 없음 (attempt {backfill_attempt}/{max_backfill_retry})")
 
                         except Exception as e:
-                            _log("ERROR", f"[백필 실패] {e} (attempt {backfill_attempt}/5)")
+                            _log("ERROR", f"[백필 실패] {e} (attempt {backfill_attempt}/{max_backfill_retry})")
 
-                        # 재시도 전 대기 (더 긴 간격으로 API 안정화 대기)
-                        if backfill_attempt < 5:
-                            wait_time = 2 * backfill_attempt  # 2초, 4초, 6초, 8초
-                            _log("INFO", f"[백필] {wait_time}초 후 재시도...")
+                        # 🛡️ 재시도 전 대기 강화: 점진적 증가 (기존: 2초 간격)
+                        # - 간격: 2초 → 4초 → 6초 → 8초 → 10초 → 12초 → 15초 → 20초
+                        if backfill_attempt < max_backfill_retry:
+                            wait_times = [2, 4, 6, 8, 10, 12, 15, 20]
+                            wait_time = wait_times[min(backfill_attempt - 1, len(wait_times) - 1)]
+                            _log("INFO", f"[백필] {wait_time}초 후 재시도... (누락 방지 최우선)")
                             time.sleep(wait_time)
 
                     if not backfill_success:
                         _log("ERROR",
                             f"❌ [백필 포기] {missing_bars}개 봉 영구 누락 가능! | "
-                            f"누락 구간: {new_last} ~ {expected_last}"
+                            f"누락 구간: {new_last} ~ {expected_last} | "
+                            f"최대 {max_backfill_retry}회 재시도 실패 - 치명적 데이터 손실!"
                         )
+                        # 🛡️ 최후의 안전장치: 백필 포기 후에도 다음 루프에서 gap 계산으로 자동 복구 시도
+                        # - last_open을 업데이트하지 않으면 다음 루프에서 gap이 커져서 다시 시도됨
+                        _log("WARN", f"[백필 포기] 다음 루프에서 gap 계산으로 재시도 예정 (last_open 유지)")
 
         # 🔍 PRICE-DEBUG: 실시간 standardize 후 데이터
         try:
