@@ -9,13 +9,14 @@ from core.strategy_v2 import (
     EMAStrategy,
     get_strategy_class,
 )
-from core.data_feed import stream_candles
+from core.data_feed import stream_candles, fill_gaps_sync
 from core.trader import UpbitTrader
 from engine.params import LiveParams
 from backtesting import Backtest
 from services.db import (
     get_last_open_buy_order,
     insert_buy_eval,
+    insert_sell_eval,
     insert_settings_snapshot,
     now_kst_minute,
 )
@@ -193,6 +194,56 @@ def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
     except Exception as e:
         logger.warning(f"[WALLET-BAL] _coin_balance({ticker}) failed: {e}")
         return 0.0
+
+
+# ============================================================
+# 봉 연속성 검증 (Candle Continuity Validation)
+# ============================================================
+def _validate_candle_continuity(df, interval_min: int, tolerance: float = 0.5) -> Tuple[bool, list]:
+    """
+    봉 연속성 검증 - 허용 범위 내 누락은 경고만, 초과 시 차단
+
+    Args:
+        df: 검증할 DataFrame
+        interval_min: 봉 간격 (분)
+        tolerance: 허용 오차 (기본 0.5 = 50%)
+
+    Returns:
+        (is_continuous: bool, gap_details: list)
+        - is_continuous: True이면 정상, False이면 누락 감지
+        - gap_details: 누락 상세 정보 리스트
+    """
+    if df is None or len(df) < 2:
+        return True, []
+
+    # 시간 차이 계산 (분 단위)
+    time_diffs = df.index.to_series().diff().dt.total_seconds() / 60
+
+    # 허용 범위를 벗어난 갭 찾기
+    # 예: 3분봉이면 3분*(1+0.5) = 4.5분 초과 시 누락으로 판정
+    expected_diff = interval_min
+    max_allowed_diff = expected_diff * (1 + tolerance)
+    gaps = time_diffs[time_diffs > max_allowed_diff]
+
+    if gaps.empty:
+        return True, []
+
+    # 갭 상세 정보 수집
+    gap_details = []
+    for gap_idx, gap_minutes in gaps.items():
+        try:
+            prev_idx = df.index[df.index.get_loc(gap_idx) - 1]
+            missing_bars = int(gap_minutes / interval_min) - 1
+            gap_details.append({
+                'prev': prev_idx,
+                'current': gap_idx,
+                'gap_minutes': gap_minutes,
+                'missing_bars': missing_bars,
+            })
+        except Exception as e:
+            logger.warning(f"[CONTINUITY] Gap detail extraction failed: {e}")
+
+    return False, gap_details
 
 
 # ============================================================
@@ -973,6 +1024,74 @@ def run_live_loop(
                     # time.sleep(1)
                     # continue
 
+                # ✅ 봉 연속성 검증 (최신 봉만 검증 - 과거 갭 무시)
+                # ⚠️ 전체 DataFrame 검증 시 과거 데이터 갭으로 인해 전략이 영구 차단되는 문제 수정
+                # → 최신 10개 봉만 검증하여 실시간 데이터 품질만 보장
+                interval_min = getattr(params, "interval_sec", 60) // 60  # 초 → 분 변환
+
+                # 최신 10개 봉만 추출하여 검증 (과거 갭 무시)
+                df_recent = df.tail(10) if len(df) >= 10 else df
+                is_continuous, gap_details = _validate_candle_continuity(df_recent, interval_min)
+
+                if not is_continuous:
+                    # 누락 발견 시 상세 로그
+                    for gap in gap_details:
+                        logger.warning(
+                            f"⚠️ [최신 봉 누락 감지] {gap['prev']} → {gap['current']} | "
+                            f"갭: {gap['gap_minutes']:.1f}분 ({gap['missing_bars']}개 봉)"
+                        )
+
+                    # 최대 누락 개수 확인
+                    max_missing = max(g['missing_bars'] for g in gap_details)
+
+                    # 🔥 경미한 누락 (1~2개) → 즉시 동기 백필 시도
+                    # 목적: EMA Golden Cross 타이밍을 놓치지 않기 위함
+                    logger.warning(
+                        f"🔄 [경미한 누락] 최신 10개 봉 중 최대 {max_missing}개 봉 누락 → "
+                        f"즉시 동기 백필 시도 (EMA GC 타이밍 보호)"
+                    )
+
+                    # 즉시 동기 백필 실행
+                    fill_success, df_filled = fill_gaps_sync(
+                        ticker=params.upbit_ticker,
+                        interval=params.interval,
+                        df=df,
+                        gap_details=gap_details,
+                        max_retry=2,
+                        retry_sleep=1.0
+                    )
+
+                    if fill_success:
+                        # 복구 성공 → df 업데이트
+                        df = df_filled
+                        logger.info(
+                            f"✅ [경미한 누락] 즉시 동기 백필 성공 | "
+                            f"최종 봉 개수: {len(df)}"
+                        )
+
+                        # 재검증: 복구 후에도 연속성 확인 (최신 10개만)
+                        df_recent_after = df.tail(10) if len(df) >= 10 else df
+                        is_continuous_after, gap_details_after = _validate_candle_continuity(df_recent_after, interval_min)
+
+                        if not is_continuous_after:
+                            logger.error(
+                                f"❌ [경미한 누락] 동기 백필 후에도 최신 봉 연속성 불충분 → "
+                                f"이번 루프 매매 평가 스킵"
+                            )
+                            time.sleep(5)
+                            continue
+                        else:
+                            logger.info("✅ [경미한 누락] 연속성 검증 통과 → 전략 평가 진행")
+
+                    else:
+                        # 복구 실패 → 경고만 남기고 전략 계속 실행
+                        # ⚠️ 과거 차단 문제 수정: 백필 실패해도 전략은 계속 실행
+                        logger.warning(
+                            f"⚠️ [경미한 누락] 즉시 동기 백필 실패 → "
+                            f"경고만 남기고 전략 평가 진행 (과거 차단 방지)"
+                        )
+                        # continue 제거 → 전략 계속 실행
+
                 logger.info(f"🔍 [DEBUG] About to call _run_engine_once | len(df)={len(df)} | min_hist={min_hist}")
 
                 # ✅ 백테스트 실행 전 stop_event 체크 (엔진 종료 명령 즉시 반영)
@@ -1006,7 +1125,17 @@ def run_live_loop(
                 latest_price_live = float(df.Close.iloc[-1])
 
                 # --- 최신 LOG 전송 - 전략별 분기 ---
-                if latest_bar_bt >= 0 and cross_log is not None:
+                if latest_bar_bt >= 0:
+                    # ✅ cross_log가 None이어도 기본값 설정하여 무조건 LOG 기록
+                    if cross_log is None:
+                        cross_log = "Neutral"
+                    if price_log is None:
+                        price_log = latest_price_live
+                    if macd_log is None:
+                        macd_log = 0.0
+                    if signal_log is None:
+                        signal_log = 0.0
+
                     log_ts = df_bt.index[latest_bar_bt]
                     try:
                         if strategy_tag == "EMA":
@@ -1016,6 +1145,39 @@ def run_live_loop(
                             ema_fast_sell = last_log.get("ema_fast_sell", 0.0)
                             ema_slow_sell = last_log.get("ema_slow_sell", 0.0)
                             ema_base = last_log.get("ema_base", 0.0)
+
+                            # 🔍 EMA Golden Cross 디버그 로그 (prev vs curr)
+                            try:
+                                if len(df_bt) >= 2:
+                                    # 매수용 EMA의 prev/curr (최신 2개 봉)
+                                    # df_bt에 EMA_FAST_BUY, EMA_SLOW_BUY 컬럼이 있다고 가정
+                                    fast_buy_col = None
+                                    slow_buy_col = None
+
+                                    # 컬럼명 찾기 (EMA_FAST_BUY, EMA_SLOW_BUY 등)
+                                    for col in df_bt.columns:
+                                        if "FAST" in col.upper() and "BUY" in col.upper():
+                                            fast_buy_col = col
+                                        elif "SLOW" in col.upper() and "BUY" in col.upper():
+                                            slow_buy_col = col
+
+                                    if fast_buy_col and slow_buy_col:
+                                        fast_prev = df_bt[fast_buy_col].iloc[-2]
+                                        fast_curr = df_bt[fast_buy_col].iloc[-1]
+                                        slow_prev = df_bt[slow_buy_col].iloc[-2]
+                                        slow_curr = df_bt[slow_buy_col].iloc[-1]
+
+                                        # Golden Cross 판정 (prev: fast < slow, curr: fast > slow)
+                                        gc_detected = (fast_prev < slow_prev) and (fast_curr > slow_curr)
+
+                                        logger.info(
+                                            f"[EMA_GC] fast_buy(prev={fast_prev:.4f}, curr={fast_curr:.4f}) | "
+                                            f"slow_buy(prev={slow_prev:.4f}, curr={slow_curr:.4f}) | "
+                                            f"cross={gc_detected} | bar={latest_bar_bt}"
+                                        )
+                            except Exception as e_gc:
+                                logger.warning(f"[EMA_GC] 로그 생성 실패: {e_gc}")
+
                             msg = (
                                 f"{log_ts} | price={price_log:.2f} | cross={cross_log} | "
                                 f"ema_fast_buy={ema_fast_buy:.5f} | ema_slow_buy={ema_slow_buy:.5f} | "
@@ -1136,8 +1298,90 @@ def run_live_loop(
                 # --- 전략 이벤트 처리 (MACD / EMA 공통 형식) ---
                 events_on_latest = [e for e in trade_events if e.get("bar") == latest_bar_bt]
                 evt = events_on_latest[-1] if events_on_latest else None
+
+                # 🔥 이벤트 없을 때도 평가 로그 기록 (NO_SIGNAL 상태)
                 if not evt:
                     logger.info(f"↩️ 최신 bar 신호 없음 ({mode_tag}) | in_position={in_position} entry={entry_price}")
+
+                    # BUY 평가 로그 기록 (포지션 없을 때만)
+                    if not in_position:
+                        try:
+                            bar_time_no_signal = str(df_bt.index[latest_bar_bt]) if latest_bar_bt < len(df_bt) else None
+                            insert_buy_eval(
+                                user_id=user_id,
+                                ticker=params.upbit_ticker,
+                                interval_sec=getattr(params, "interval_sec", 60),
+                                bar=latest_bar_bt,
+                                price=float(latest_price_live),
+                                macd=float(macd_log) if macd_log is not None else None,
+                                signal=float(signal_log) if signal_log is not None else None,
+                                have_position=in_position,
+                                overall_ok=False,  # 신호 없음 = 조건 미충족
+                                failed_keys=["NO_SIGNAL"],
+                                checks={
+                                    "reason": "NO_BUY_SIGNAL",
+                                    "cross": cross_log,
+                                    "macd": macd_log,
+                                    "signal": signal_log,
+                                    "price": price_log,
+                                },
+                                notes=(
+                                    f"NO_SIGNAL({mode_tag}) bar_bt={latest_bar_bt} | "
+                                    f"전략이 BUY 이벤트를 생성하지 않음"
+                                ),
+                                timestamp=bar_time_no_signal
+                            )
+                            logger.info(
+                                f"[AUDIT:{mode_tag}] BUY 평가 기록 (NO_SIGNAL) | bar={latest_bar_bt} | "
+                                f"cross={cross_log} | in_position={in_position}"
+                            )
+                        except Exception as e:
+                            logger.warning(f"[AUDIT:{mode_tag}] insert_buy_eval (NO_SIGNAL) failed: {e}")
+
+                    # 🔥 SELL 평가 로그 기록 (포지션 있을 때만)
+                    else:  # in_position == True
+                        try:
+                            bar_time_no_signal = str(df_bt.index[latest_bar_bt]) if latest_bar_bt < len(df_bt) else None
+                            tp_price = entry_price * (1 + params.take_profit) if entry_price else None
+                            sl_price = entry_price * (1 - params.stop_loss) if entry_price else None
+
+                            insert_sell_eval(
+                                user_id=user_id,
+                                ticker=params.upbit_ticker,
+                                interval_sec=getattr(params, "interval_sec", 60),
+                                bar=latest_bar_bt,
+                                price=float(latest_price_live),
+                                macd=float(macd_log) if macd_log is not None else None,
+                                signal=float(signal_log) if signal_log is not None else None,
+                                tp_price=tp_price,
+                                sl_price=sl_price,
+                                highest=None,  # NO_SIGNAL 시에는 미추적
+                                ts_pct=getattr(params, "trailing_stop_pct", None),
+                                ts_armed=False,
+                                bars_held=0,  # 정확한 값은 전략에서만 추적 가능
+                                checks={
+                                    "reason": "NO_SELL_SIGNAL",
+                                    "cross": cross_log,
+                                    "macd": macd_log,
+                                    "signal": signal_log,
+                                    "price": price_log,
+                                    "entry_price": entry_price,
+                                },
+                                triggered=False,
+                                trigger_key=None,
+                                notes=(
+                                    f"NO_SIGNAL({mode_tag}) bar_bt={latest_bar_bt} | "
+                                    f"전략이 SELL 이벤트를 생성하지 않음"
+                                ),
+                                timestamp=bar_time_no_signal
+                            )
+                            logger.info(
+                                f"[AUDIT:{mode_tag}] SELL 평가 기록 (NO_SIGNAL) | bar={latest_bar_bt} | "
+                                f"entry_price={entry_price} | in_position={in_position}"
+                            )
+                        except Exception as e:
+                            logger.warning(f"[AUDIT:{mode_tag}] insert_sell_eval (NO_SIGNAL) failed: {e}")
+
                     continue
 
                 ebar = evt.get("bar")
@@ -1190,6 +1434,36 @@ def run_live_loop(
                         macd_ref=macd_log,
                         signal_ref=signal_log
                     )
+
+                    # 🔥 BUY 평가 로그 기록 (조건 충족 여부와 관계없이 매번 기록)
+                    try:
+                        bar_time_eval = str(df_bt.index[latest_bar_bt]) if latest_bar_bt < len(df_bt) else None
+                        insert_buy_eval(
+                            user_id=user_id,
+                            ticker=params.upbit_ticker,
+                            interval_sec=getattr(params, "interval_sec", 60),
+                            bar=latest_bar_bt,
+                            price=float(latest_price_live),
+                            macd=float(macd_log) if macd_log is not None else None,
+                            signal=float(signal_log) if signal_log is not None else None,
+                            have_position=in_position,
+                            overall_ok=ok,  # 조건 충족 여부
+                            failed_keys=failed,  # 미충족 조건 목록
+                            checks=det,  # 상세 검증 결과
+                            notes=(
+                                f"EVAL({mode_tag}) bar_bt={latest_bar_bt} | "
+                                f"reason={evt.get('reason')} | "
+                                f"passed={passed} failed={failed}"
+                            ),
+                            timestamp=bar_time_eval
+                        )
+                        logger.info(
+                            f"[AUDIT:{mode_tag}] BUY 평가 기록 | bar={latest_bar_bt} | "
+                            f"ok={ok} | passed={passed} | failed={failed}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[AUDIT:{mode_tag}] insert_buy_eval (EVAL) failed: {e}")
+
                     if not ok:
                         try:
                             logger.info(
@@ -1315,11 +1589,54 @@ def run_live_loop(
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue
 
-                    if not check_sell_conditions(
+                    # SELL 조건 체크
+                    sell_ok = check_sell_conditions(
                         strategy_tag,
                         evt,
                         trade_conditions.get("sell", {}),
-                    ):
+                    )
+
+                    # 🔥 SELL 평가 로그 기록 (조건 충족 여부와 관계없이 매번 기록)
+                    try:
+                        bar_time_eval = str(df_bt.index[latest_bar_bt]) if latest_bar_bt < len(df_bt) else None
+                        tp_price = entry_price * (1 + params.take_profit) if entry_price else None
+                        sl_price = entry_price * (1 - params.stop_loss) if entry_price else None
+
+                        insert_sell_eval(
+                            user_id=user_id,
+                            ticker=params.upbit_ticker,
+                            interval_sec=getattr(params, "interval_sec", 60),
+                            bar=latest_bar_bt,
+                            price=float(latest_price_live),
+                            macd=float(macd_log) if macd_log is not None else None,
+                            signal=float(signal_log) if signal_log is not None else None,
+                            tp_price=tp_price,
+                            sl_price=sl_price,
+                            highest=evt.get("highest"),
+                            ts_pct=evt.get("ts_pct"),
+                            ts_armed=evt.get("ts_armed", False),
+                            bars_held=evt.get("bars_held", 0),
+                            checks={
+                                "reason": evt.get("reason", ""),
+                                "sell_ok": sell_ok,
+                                "sell_conditions": trade_conditions.get("sell", {}),
+                            },
+                            triggered=sell_ok,  # 조건 충족 여부
+                            trigger_key=evt.get("reason") if sell_ok else None,
+                            notes=(
+                                f"EVAL({mode_tag}) bar_bt={latest_bar_bt} | "
+                                f"reason={evt.get('reason')} | sell_ok={sell_ok}"
+                            ),
+                            timestamp=bar_time_eval
+                        )
+                        logger.info(
+                            f"[AUDIT:{mode_tag}] SELL 평가 기록 | bar={latest_bar_bt} | "
+                            f"sell_ok={sell_ok} | reason={evt.get('reason')}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[AUDIT:{mode_tag}] insert_sell_eval (EVAL) failed: {e}")
+
+                    if not sell_ok:
                         logger.info(f"⛔ ({mode_tag}) SELL 조건 미충족({cross_e}) → 차단 | evt={evt}")
                         logger.info(f"💡 상태: in_position={in_position} | entry_price={entry_price}")
                         continue

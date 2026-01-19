@@ -9,6 +9,7 @@ import psutil
 import os
 import math
 from datetime import datetime, timedelta
+from typing import Tuple
 
 from zoneinfo import ZoneInfo
 
@@ -37,14 +38,14 @@ _IV_MIN = {
 # - 실시간성보다 안정성 우선 (누락 방지가 최우선)
 # - 백필 로직(5회 재시도)이 추가 안전장치 역할
 JITTER_BY_INTERVAL = {
-    "minute1": 3.0,   # 1분봉: Upbit API 데이터 준비 시간 확보 (기존 1.5 → 3.0)
-    "minute3": 6.0,   # 3분봉: 누락 방지 최우선 (기존 2.0 → 6.0)
-    "minute5": 6.0,   # 5분봉: 안정성 강화 (기존 2.0 → 6.0)
-    "minute10": 8.0,  # 10분봉: 충분한 대기 시간 (기존 2.5 → 8.0)
-    "minute15": 8.0,  # 15분봉: 안정성 최우선 (기존 2.5 → 8.0)
-    "minute30": 10.0, # 30분봉: 안정성 최우선 (기존 2.5 → 10.0)
-    "minute60": 10.0, # 60분봉: 안정성 최우선 (기존 3.0 → 10.0)
-    "day": 15.0,      # 일봉: 실시간성보다 안정성 우선 (기존 3.0 → 15.0)
+    "minute1": 5.0,   # 1분봉: Upbit API 데이터 준비 시간 확보 (3.0 → 5.0)
+    "minute3": 8.0,   # 3분봉: 누락 방지 최우선 (6.0 → 8.0)
+    "minute5": 8.0,   # 5분봉: 안정성 강화 (6.0 → 8.0)
+    "minute10": 10.0, # 10분봉: 충분한 대기 시간 (8.0 → 10.0)
+    "minute15": 10.0, # 15분봉: 안정성 최우선 (8.0 → 10.0)
+    "minute30": 12.0, # 30분봉: 안정성 최우선 (10.0 → 12.0)
+    "minute60": 12.0, # 60분봉: 안정성 최우선 (10.0 → 12.0)
+    "day": 15.0,      # 일봉: 실시간성보다 안정성 우선 (유지)
 }
 
 # --------- 필수 데이터 개수 정의 (목표치) ---------
@@ -92,6 +93,219 @@ def log_det(df: pd.DataFrame, tag: str):
         logger.info(f"[DET] {tag} | rows={rows} | first={first_i} | last={last_i} | checksum={checksum}")
     except Exception as e:
         logger.warning(f"[DET] {tag} | logging failed: {e}")
+
+
+def _forward_fill_missing_candles(df, expected_last, interval_min, _log):
+    """
+    누락된 봉을 이전 봉 값으로 임시 채움 (최후의 수단).
+    ⚠️ 주의: 이는 실제 시장 데이터가 아니며, 감사 로그에 명시적으로 표시됨.
+
+    Args:
+        df: 현재 DataFrame
+        expected_last: 기대하는 마지막 봉의 타임스탬프
+        interval_min: 봉 간격 (분)
+        _log: 로그 함수
+
+    Returns:
+        pd.DataFrame: Forward Fill이 적용된 DataFrame
+    """
+    if df is None or df.empty:
+        return df
+
+    # 예상 인덱스 생성
+    last_index = df.index[-1]
+
+    try:
+        expected_index_range = pd.date_range(
+            start=last_index,
+            end=expected_last,
+            freq=f'{interval_min}min'
+        )[1:]  # 첫 번째는 이미 있으므로 제외
+    except Exception as e:
+        _log("ERROR", f"[FORWARD-FILL] date_range 생성 실패: {e}")
+        return df
+
+    # 누락된 인덱스 찾기
+    missing_indices = expected_index_range.difference(df.index)
+
+    if len(missing_indices) == 0:
+        return df
+
+    _log("WARN",
+        f"⚠️ [FORWARD-FILL] {len(missing_indices)}개 봉을 이전 봉 값으로 임시 채움 "
+        f"(실제 시장 데이터 아님! 감사 로그 확인 필요)"
+    )
+
+    # 이전 봉 값으로 새 행 생성
+    last_row = df.iloc[-1]
+    filled_rows = []
+
+    for idx in missing_indices:
+        new_row = last_row.copy()
+        new_row.name = idx
+        filled_rows.append(new_row)
+
+        # 감사 로그에 기록 (매매 전략에서 걸러낼 수 있도록)
+        _log("WARN", f"[FORWARD-FILL] {idx} | OHLCV={last_row['Close']:.2f} (⚠️ 복제 데이터)")
+
+    if filled_rows:
+        filled_df = pd.DataFrame(filled_rows)
+        df = pd.concat([df, filled_df]).sort_index()
+
+    return df
+
+
+def fill_gaps_sync(
+    ticker: str,
+    interval: str,
+    df: pd.DataFrame,
+    gap_details: list,
+    max_retry: int = 2,
+    retry_sleep: float = 1.0
+) -> Tuple[bool, pd.DataFrame]:
+    """
+    경미한 갭(1~2개 봉 누락)을 즉시 동기 백필로 복구.
+
+    EMA Golden Cross 타이밍을 놓치지 않기 위해, 60초 지연 백필이 아닌
+    즉시 동기 방식으로 누락된 과거 확정 봉을 조회하여 복구.
+
+    Args:
+        ticker: 티커 (예: "KRW-SUI")
+        interval: 봉 간격 (예: "minute3")
+        df: 현재 DataFrame
+        gap_details: _validate_candle_continuity 결과
+            각 항목: {'prev': datetime, 'current': datetime, 'gap_minutes': float, 'missing_bars': int}
+        max_retry: 최대 재시도 횟수
+        retry_sleep: 재시도 간 대기 시간(초)
+
+    Returns:
+        (success: bool, df: pd.DataFrame)
+        - success: 모든 갭이 성공적으로 복구되었으면 True
+        - df: 복구된 DataFrame (실패 시 원본 반환)
+    """
+    if not gap_details:
+        return True, df
+
+    logger.info(f"🔄 [SYNC-FILL] 즉시 동기 백필 시작: {len(gap_details)}개 갭 감지")
+
+    original_df = df.copy()
+    success_count = 0
+
+    for gap in gap_details:
+        prev_time = gap['prev']
+        curr_time = gap['current']
+        missing_bars = gap['missing_bars']
+
+        logger.info(
+            f"🔄 [SYNC-FILL] 갭 복구 시도 | "
+            f"{prev_time} → {curr_time} | "
+            f"누락: {missing_bars}개 봉"
+        )
+
+        # 누락 구간 복구 시도
+        filled = False
+        for attempt in range(1, max_retry + 1):
+            try:
+                # 누락된 구간 + 여유분(2개) 요청
+                count = missing_bars + 2
+                to_param = _fmt_to_param(curr_time)
+
+                logger.info(
+                    f"🔄 [SYNC-FILL] API 호출 ({attempt}/{max_retry}) | "
+                    f"count={count}, to={to_param}"
+                )
+
+                gap_data = pyupbit.get_ohlcv(
+                    ticker,
+                    interval=interval,
+                    count=count,
+                    to=to_param
+                )
+
+                if gap_data is not None and not gap_data.empty:
+                    # 표준화 (standardize_ohlcv와 동일한 로직)
+                    gap_data = gap_data.rename(columns={
+                        "open": "Open",
+                        "high": "High",
+                        "low": "Low",
+                        "close": "Close",
+                        "volume": "Volume"
+                    })
+                    if "value" in gap_data.columns:
+                        gap_data = gap_data.drop(columns=["value"])
+
+                    # 인덱스 KST naive로 통일
+                    idx = pd.to_datetime(gap_data.index)
+                    if getattr(idx, "tz", None) is not None:
+                        idx = idx.tz_convert("Asia/Seoul").tz_localize(None)
+                    gap_data.index = idx
+
+                    gap_data = gap_data.sort_index().dropna()
+
+                    # 실제 누락 구간만 추출 (기존 데이터 제외)
+                    existing_indices = set(df.index)
+                    gap_data_new = gap_data[~gap_data.index.isin(existing_indices)]
+                    gap_data_new = gap_data_new[
+                        (gap_data_new.index > prev_time) &
+                        (gap_data_new.index <= curr_time)
+                    ]
+
+                    if not gap_data_new.empty:
+                        # df에 병합
+                        df = pd.concat([df, gap_data_new]).drop_duplicates().sort_index()
+
+                        logger.info(
+                            f"✅ [SYNC-FILL] 갭 복구 성공 | "
+                            f"{len(gap_data_new)}개 봉 추가 | "
+                            f"범위: {gap_data_new.index[0]} ~ {gap_data_new.index[-1]}"
+                        )
+                        filled = True
+                        success_count += 1
+                        break
+                    else:
+                        logger.warning(
+                            f"⚠️ [SYNC-FILL] API 응답이 이미 보유 중인 봉만 포함 | "
+                            f"attempt={attempt}/{max_retry}"
+                        )
+                else:
+                    logger.warning(
+                        f"⚠️ [SYNC-FILL] API 응답 없음 | "
+                        f"attempt={attempt}/{max_retry}"
+                    )
+
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ [SYNC-FILL] API 예외 | "
+                    f"attempt={attempt}/{max_retry} | "
+                    f"error={e}"
+                )
+
+            # 재시도 전 대기
+            if attempt < max_retry:
+                time.sleep(retry_sleep)
+
+        if not filled:
+            logger.error(
+                f"❌ [SYNC-FILL] 갭 복구 실패 | "
+                f"{prev_time} → {curr_time} | "
+                f"최대 {max_retry}회 재시도 실패"
+            )
+            # 하나라도 실패하면 원본 반환
+            return False, original_df
+
+    if success_count == len(gap_details):
+        logger.info(
+            f"✅ [SYNC-FILL] 모든 갭 복구 완료 | "
+            f"{success_count}/{len(gap_details)} 성공 | "
+            f"최종 봉 개수: {len(original_df)} → {len(df)}"
+        )
+        return True, df
+    else:
+        logger.error(
+            f"❌ [SYNC-FILL] 일부 갭 복구 실패 | "
+            f"{success_count}/{len(gap_details)} 성공"
+        )
+        return False, original_df
 
 
 def _iv_min(interval: str) -> int:
@@ -544,6 +758,77 @@ def stream_candles(
     _log("INFO", f"[실시간 루프] interval={interval}, jitter={jitter}초")
 
     while not (stop_event and stop_event.is_set()):
+        # ✅ 지연된 백필 처리 (루프 초반 실행)
+        # - 충분한 시간이 지난 후 과거 누락 구간을 안정적으로 재조회
+        if hasattr(stream_candles, '_pending_backfill') and stream_candles._pending_backfill:
+            current_time = time.time()
+            completed_backfills = []
+
+            for pending in stream_candles._pending_backfill[:]:  # 복사본으로 순회
+                if current_time >= pending['retry_after']:
+                    try:
+                        _log("INFO",
+                            f"[지연 백필 시도] {pending['missing_bars']}개 봉 | "
+                            f"구간: {pending['start']} ~ {pending['end']}"
+                        )
+
+                        # 충분한 시간이 지났으므로 과거 구간 재조회
+                        delayed_fill = pyupbit.get_ohlcv(
+                            pending['ticker'],
+                            interval=pending['interval'],
+                            count=pending['missing_bars'] + 5,  # 여유분 추가
+                            to=_fmt_to_param(pending['end'])
+                        )
+
+                        if delayed_fill is not None and not delayed_fill.empty:
+                            delayed_fill = standardize_ohlcv(delayed_fill).drop_duplicates()
+
+                            # 실제로 누락된 부분만 추출 (중복 방지)
+                            existing_indices = set(df.index)
+                            delayed_fill_new = delayed_fill[~delayed_fill.index.isin(existing_indices)]
+                            delayed_fill_new = delayed_fill_new[
+                                (delayed_fill_new.index > pending['start']) &
+                                (delayed_fill_new.index <= pending['end'])
+                            ]
+
+                            if not delayed_fill_new.empty:
+                                # df에 병합 (과거 구간이므로 안전하게 삽입 가능)
+                                df = pd.concat([df, delayed_fill_new]).drop_duplicates().sort_index()
+
+                                _log("INFO",
+                                    f"✅ [지연 백필 성공] {len(delayed_fill_new)}개 봉 복구 완료 | "
+                                    f"구간: {delayed_fill_new.index[0]} ~ {delayed_fill_new.index[-1]}"
+                                )
+                                completed_backfills.append(pending)
+                            else:
+                                _log("WARN", f"[지연 백필] 응답 데이터가 이미 보유 중인 봉만 포함 → 완료 처리")
+                                completed_backfills.append(pending)
+                        else:
+                            # 재시도 실패 시 다시 1분 후로 연기 (최대 5회까지)
+                            retry_count = pending.get('retry_count', 0) + 1
+                            if retry_count < 5:
+                                pending['retry_after'] = current_time + 60
+                                pending['retry_count'] = retry_count
+                                _log("WARN", f"[지연 백필] 재시도 실패 ({retry_count}/5) → 60초 후 재시도")
+                            else:
+                                _log("ERROR", f"[지연 백필] 최대 재시도 횟수 도달 ({retry_count}회) → 포기")
+                                completed_backfills.append(pending)
+
+                    except Exception as e:
+                        _log("ERROR", f"[지연 백필 실패] {e}")
+                        # 예외 발생 시에도 재시도 카운트 증가
+                        retry_count = pending.get('retry_count', 0) + 1
+                        if retry_count < 5:
+                            pending['retry_after'] = current_time + 60
+                            pending['retry_count'] = retry_count
+                        else:
+                            completed_backfills.append(pending)
+
+            # 완료된 백필 항목 제거
+            for completed in completed_backfills:
+                if completed in stream_candles._pending_backfill:
+                    stream_candles._pending_backfill.remove(completed)
+
         # 🔥 FIX: sleep 계산은 실제 시각(초 포함) 사용
         now_real = datetime.now(ZoneInfo("Asia/Seoul")).replace(tzinfo=None)
         now = _now_kst_naive()  # 경계 계산용 (초 제거)
@@ -779,6 +1064,23 @@ def stream_candles(
                         # 🛡️ 최후의 안전장치: 백필 포기 후에도 다음 루프에서 gap 계산으로 자동 복구 시도
                         # - last_open을 업데이트하지 않으면 다음 루프에서 gap이 커져서 다시 시도됨
                         _log("WARN", f"[백필 포기] 다음 루프에서 gap 계산으로 재시도 예정 (last_open 유지)")
+
+                        # ✅ 지연된 백필: 누락 구간을 기록하여 다음 루프에서 재조회
+                        # - Upbit API의 데이터 준비 시간을 충분히 확보 (60초 후 재시도)
+                        # - 과거 데이터는 시간이 지나면 안정적으로 조회 가능
+                        if not hasattr(stream_candles, '_pending_backfill'):
+                            stream_candles._pending_backfill = []
+
+                        stream_candles._pending_backfill.append({
+                            'start': new_last,
+                            'end': expected_last,
+                            'missing_bars': missing_bars,
+                            'retry_after': time.time() + 60,  # 1분 후 재시도
+                            'ticker': ticker,
+                            'interval': interval,
+                        })
+
+                        _log("INFO", f"✅ [지연 백필 예약] {missing_bars}개 봉 | 60초 후 재시도 예정")
 
         # 🔍 PRICE-DEBUG: 실시간 standardize 후 데이터
         try:

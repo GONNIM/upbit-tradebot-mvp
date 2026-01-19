@@ -15,6 +15,7 @@ from services.db import (
     get_coin_balance,
     get_initial_krw,
     fetch_recent_orders,
+    fetch_latest_order_by_ticker,
     fetch_logs,
     insert_log,
     get_last_status_log_from_db,
@@ -210,7 +211,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.17.1540")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.19.1425")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -651,26 +652,26 @@ if info_logs:
             # },
         )
 
-st.markdown("---")
-st.subheader("💹 거래 로그 (BUY / SELL)")
-show_trade = st.toggle("💹 거래 로그 보기", value=False)
-if show_trade:
-    trade_logs = (fetch_logs(user_id, level="BUY", limit=100) or []) + \
-                    (fetch_logs(user_id, level="SELL", limit=100) or [])
-    if trade_logs:
-        df_trade = pd.DataFrame(trade_logs, columns=["시간", "레벨", "메시지"])
+# st.markdown("---")
+# st.subheader("💹 거래 로그 (BUY / SELL)")
+# show_trade = st.toggle("💹 거래 로그 보기", value=False)
+# if show_trade:
+    # trade_logs = (fetch_logs(user_id, level="BUY", limit=100) or []) + \
+                    # (fetch_logs(user_id, level="SELL", limit=100) or [])
+    # if trade_logs:
+        # df_trade = pd.DataFrame(trade_logs, columns=["시간", "레벨", "메시지"])
 
-        df_trade["시간_dt"] = pd.to_datetime(df_trade["시간"], errors="coerce")
-        df_trade.sort_values("시간_dt", ascending=False, inplace=True)
+        # df_trade["시간_dt"] = pd.to_datetime(df_trade["시간"], errors="coerce")
+        # df_trade.sort_values("시간_dt", ascending=False, inplace=True)
 
-        df_trade["시간"] = df_trade["시간_dt"].dt.strftime("%Y-%m-%d %H:%M:%S")
-        df_trade.drop(columns=["시간_dt"], inplace=True)
+        # df_trade["시간"] = df_trade["시간_dt"].dt.strftime("%Y-%m-%d %H:%M:%S")
+        # df_trade.drop(columns=["시간_dt"], inplace=True)
         
-        st.dataframe(
-            df_trade, use_container_width=True, hide_index=True
-        )
-    else:
-        st.info("표시할 BUY/SELL 로그가 없습니다.")
+        # st.dataframe(
+            # df_trade, use_container_width=True, hide_index=True
+        # )
+    # else:
+        # st.info("표시할 BUY/SELL 로그가 없습니다.")
 
 st.divider()
 
@@ -689,7 +690,7 @@ def _parse_dt(s: str) -> pd.Timestamp | None:
         return None
     try:
         ts = pd.to_datetime(s, errors="coerce", utc=True)  # <- 핵심: utc=True
-        return ts.strftime("%Y-%m-%d %H:%M:%S")
+        return ts  # ✅ Timestamp 객체를 반환
     except Exception:
         return None
 
@@ -710,7 +711,7 @@ def _fmt_dt(ts: pd.Timestamp | None, tz: str = LOCAL_TZ) -> str:
 
 def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD") -> dict | None:
     """
-    LOG 스냅샷(fetch_latest_log_signal / fetch_latest_log_signal_ema)과 최근 체결(fetch_recent_orders) 중
+    LOG 스냅샷(fetch_latest_log_signal / fetch_latest_log_signal_ema)과 최근 체결(fetch_latest_order_by_ticker) 중
     '시간'이 더 최신인 항목을 하나로 통합해 반환.
     """
     # 1) LOG 스냅샷 - 전략별 분기
@@ -721,19 +722,9 @@ def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD")
 
     log_dt = _parse_dt(log_row["시간"]) if log_row else None
 
-    # 2) 최근 체결에서 같은 티커의 최신 1건
-    orders = fetch_recent_orders(user_id, limit=200) or []  # 최신순 보장 안 되면 직접 max
-    trade_row = None
-    trade_dt = None
-    for r in orders:
-        # r: ["시간","코인","매매","가격","수량","상태","현재금액","보유코인"]
-        if len(r) < 4 or r[1] != ticker:
-            continue
-        dt = _parse_dt(r[0])
-        if dt is None:
-            continue
-        if (trade_dt is None) or (dt > trade_dt):
-            trade_dt, trade_row = dt, r
+    # 2) 최근 체결에서 같은 티커의 최신 1건 - 직접 DB 쿼리로 조회
+    trade_row = fetch_latest_order_by_ticker(user_id, ticker)
+    trade_dt = _parse_dt(trade_row[0]) if trade_row else None
 
     if (log_dt is None) and (trade_dt is None):
         return None
@@ -745,7 +736,7 @@ def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD")
         return {
             "source": "TRADE",
             "strategy": strategy_tag,
-            "시간": _parse_dt(trade_dt),
+            "시간": trade_row[0],  # ✅ 원본 timestamp 문자열 사용
             "Ticker": t_ticker,
             "Price": f"{float(t_price):.2f}",
             "Cross": "(Filled)",
