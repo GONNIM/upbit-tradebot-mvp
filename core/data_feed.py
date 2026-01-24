@@ -9,10 +9,19 @@ import psutil
 import os
 import math
 from datetime import datetime, timedelta
-from typing import Tuple
-
+from typing import Tuple, Optional
 from zoneinfo import ZoneInfo
 
+# Phase 2: Redis & WebSocket 통합
+try:
+    from core.redis_cache import get_redis_cache
+    from core.websocket_feed import get_websocket_aggregator
+    from config import REDIS_ENABLED, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD
+    from config import WEBSOCKET_ENABLED, CANDLE_CACHE_TTL
+    PHASE2_AVAILABLE = True
+except ImportError as e:
+    PHASE2_AVAILABLE = False
+    logging.warning(f"⚠️ [PHASE2] Redis/WebSocket 기능 비활성화: {e}")
 
 logger = logging.getLogger(__name__)
 
@@ -386,6 +395,23 @@ def stream_candles(
     user_id: str = None,  # Phase 2: 캐시 사용을 위한 user_id
     strategy_type: str = None,  # 전략 타입 (MACD/EMA)
 ):
+    # ✅ Phase 2: Redis & WebSocket 초기화
+    redis_cache = None
+    ws_aggregator = None
+
+    if PHASE2_AVAILABLE:
+        try:
+            if REDIS_ENABLED:
+                redis_cache = get_redis_cache(REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_PASSWORD)
+                if redis_cache.enabled:
+                    logger.info(f"✅ [PHASE2] Redis 캐시 활성화: {ticker}/{interval}")
+
+            if WEBSOCKET_ENABLED and interval == "minute1":  # minute1만 WebSocket 지원
+                ws_aggregator = get_websocket_aggregator(ticker, redis_cache)
+                logger.info(f"✅ [PHASE2] WebSocket 집계기 활성화: {ticker}")
+        except Exception as e:
+            logger.warning(f"⚠️ [PHASE2] 초기화 실패 (REST API 전용 모드): {e}")
+
     # ✅ 데이터 수집 상태 업데이트 함수 import
     if user_id:
         try:
@@ -804,12 +830,12 @@ def stream_candles(
                                 _log("WARN", f"[지연 백필] 응답 데이터가 이미 보유 중인 봉만 포함 → 완료 처리")
                                 completed_backfills.append(pending)
                         else:
-                            # 재시도 실패 시 다시 1분 후로 연기 (최대 5회까지)
+                            # 재시도 실패 시 다시 30초 후로 연기 (최대 5회까지)
                             retry_count = pending.get('retry_count', 0) + 1
                             if retry_count < 5:
-                                pending['retry_after'] = current_time + 60
+                                pending['retry_after'] = current_time + 30
                                 pending['retry_count'] = retry_count
-                                _log("WARN", f"[지연 백필] 재시도 실패 ({retry_count}/5) → 60초 후 재시도")
+                                _log("WARN", f"[지연 백필] 재시도 실패 ({retry_count}/5) → 30초 후 재시도")
                             else:
                                 _log("ERROR", f"[지연 백필] 최대 재시도 횟수 도달 ({retry_count}회) → 포기")
                                 completed_backfills.append(pending)
@@ -819,7 +845,7 @@ def stream_candles(
                         # 예외 발생 시에도 재시도 카운트 증가
                         retry_count = pending.get('retry_count', 0) + 1
                         if retry_count < 5:
-                            pending['retry_after'] = current_time + 60
+                            pending['retry_after'] = current_time + 30
                             pending['retry_count'] = retry_count
                         else:
                             completed_backfills.append(pending)
@@ -882,33 +908,56 @@ def stream_candles(
                 _log("WARN", "stream_candles 중단됨: 실시간 루프 중 stop_event 감지")
                 return
 
-            # API 호출 (기본 연결 재시도 5회)
+            # ✅ Phase 2: 다중 소스 조회 (Redis 캐시 → REST API)
             new = None
-            for attempt in range(1, max_retry + 1):
-                if stop_event and stop_event.is_set():
-                    return
-                try:
-                    to_param = _fmt_to_param(boundary_open)
-                    _log("INFO",
-                        f"[실시간 API] 호출 #{delay_retry_attempt + 1}/{max_delay_retry} | "
-                        f"count={need}, to={to_param}"
-                    )
-                    new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=to_param)
-                    if new is not None and not new.empty:
-                        # 🔍 PRICE-DEBUG: 실시간 API 원본 데이터
-                        try:
-                            last_3 = new.tail(min(3, len(new)))
-                            for idx, row in last_3.iterrows():
-                                _log("INFO", f"[PRICE-REALTIME-RAW] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
-                        except Exception as e_log:
-                            _log("WARN", f"[PRICE-REALTIME-RAW] 로깅 실패: {e_log}")
-                        break
-                except Exception as e:
-                    _log("ERROR", f"[실시간 API] 예외: {e} (attempt {attempt}/{max_retry})")
+            cache_hit = False
 
-                delay = min(base_delay * (2 ** (attempt - 1)), 30) + random.uniform(0, 2)
-                _log("WARN", f"[실시간 API] {delay:.1f}초 후 재시도 (연결 실패)")
-                time.sleep(delay)
+            # 1단계: Redis 캐시 확인 (단일 봉 조회)
+            if redis_cache and redis_cache.enabled and gap == 1:
+                try:
+                    cached_data = redis_cache.get_candle(ticker, interval, boundary_open)
+                    if cached_data:
+                        # 캐시 히트: DataFrame으로 변환
+                        cached_ts = pd.to_datetime(cached_data["timestamp"])
+                        new = pd.DataFrame([{
+                            "Open": cached_data["Open"],
+                            "High": cached_data["High"],
+                            "Low": cached_data["Low"],
+                            "Close": cached_data["Close"],
+                            "Volume": cached_data["Volume"],
+                        }], index=[cached_ts])
+                        cache_hit = True
+                        _log("INFO", f"✅ [REDIS-HIT] {boundary_open} | C={cached_data['Close']:.0f}")
+                except Exception as e:
+                    _log("WARN", f"⚠️ [REDIS] 조회 실패 (REST API로 대체): {e}")
+
+            # 2단계: REST API 호출 (캐시 미스 또는 여러 봉 필요)
+            if not cache_hit:
+                for attempt in range(1, max_retry + 1):
+                    if stop_event and stop_event.is_set():
+                        return
+                    try:
+                        to_param = _fmt_to_param(boundary_open)
+                        _log("INFO",
+                            f"[실시간 API] 호출 #{delay_retry_attempt + 1}/{max_delay_retry} | "
+                            f"count={need}, to={to_param}"
+                        )
+                        new = pyupbit.get_ohlcv(ticker, interval=interval, count=need, to=to_param)
+                        if new is not None and not new.empty:
+                            # 🔍 PRICE-DEBUG: 실시간 API 원본 데이터
+                            try:
+                                last_3 = new.tail(min(3, len(new)))
+                                for idx, row in last_3.iterrows():
+                                    _log("INFO", f"[PRICE-REALTIME-RAW] {idx} | O={row['open']:.0f} H={row['high']:.0f} L={row['low']:.0f} C={row['close']:.0f}")
+                            except Exception as e_log:
+                                _log("WARN", f"[PRICE-REALTIME-RAW] 로깅 실패: {e_log}")
+                            break
+                    except Exception as e:
+                        _log("ERROR", f"[실시간 API] 예외: {e} (attempt {attempt}/{max_retry})")
+
+                    delay = min(base_delay * (2 ** (attempt - 1)), 30) + random.uniform(0, 2)
+                    _log("WARN", f"[실시간 API] {delay:.1f}초 후 재시도 (연결 실패)")
+                    time.sleep(delay)
 
             # API 연결 자체 실패 시 외부 while 루프로 (경계 재동기화)
             if new is None or new.empty:
@@ -964,6 +1013,13 @@ def stream_candles(
             continue
 
         new = standardize_ohlcv(new).drop_duplicates()
+
+        # ✅ Phase 2: Redis에 저장 (캐시 미스인 경우만)
+        if not cache_hit and redis_cache and redis_cache.enabled and not new.empty:
+            try:
+                redis_cache.save_candles_bulk(ticker, interval, new, ttl=CANDLE_CACHE_TTL)
+            except Exception as e:
+                _log("WARN", f"⚠️ [REDIS-SAVE] 저장 실패 (무시): {e}")
 
         # 🔍 DEBUG: standardize 후 데이터
         _log("INFO", f"[실시간 표준화 후] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
@@ -1075,12 +1131,12 @@ def stream_candles(
                             'start': new_last,
                             'end': expected_last,
                             'missing_bars': missing_bars,
-                            'retry_after': time.time() + 60,  # 1분 후 재시도
+                            'retry_after': time.time() + 30,  # 30초 후 재시도 (Phase 1: 60초에서 단축)
                             'ticker': ticker,
                             'interval': interval,
                         })
 
-                        _log("INFO", f"✅ [지연 백필 예약] {missing_bars}개 봉 | 60초 후 재시도 예정")
+                        _log("INFO", f"✅ [지연 백필 예약] {missing_bars}개 봉 | 30초 후 재시도 예정")
 
         # 🔍 PRICE-DEBUG: 실시간 standardize 후 데이터
         try:

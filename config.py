@@ -70,3 +70,21 @@ AUDIT_SELL_COOLDOWN_BARS = 10    # SELL 평가 쿨다운
 # - "BACKTEST" : 지금처럼 _run_backtest_once만 사용
 # - "REPLAY"   : run_replay_on_dataframe(...) 기반으로 동작
 ENGINE_EXEC_MODE = "BACKTEST"  # 또는 "BACKTEST"
+
+# ============================================================
+# 🔧 Phase 2: WebSocket & Redis 설정
+# ============================================================
+# Redis 연결 설정 (로컬 환경)
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_DB = int(os.getenv("REDIS_DB", 0))
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD", None)
+REDIS_ENABLED = os.getenv("REDIS_ENABLED", "false").lower() == "true"
+
+# WebSocket 설정
+WEBSOCKET_ENABLED = os.getenv("WEBSOCKET_ENABLED", "true").lower() == "true"
+WEBSOCKET_RECONNECT_INTERVAL = 5  # 재연결 대기 시간 (초)
+WEBSOCKET_HEARTBEAT_INTERVAL = 30  # 하트비트 간격 (초)
+
+# 캐시 TTL 설정
+CANDLE_CACHE_TTL = 3600  # 1시간 (초)

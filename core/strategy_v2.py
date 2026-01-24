@@ -775,14 +775,8 @@ class MACDStrategy(Strategy):
         logger.info("[SELL] PROCEED: position detected")
 
         state = self._current_state()
-        ts = pd.Timestamp(state["timestamp"])
 
-        # ✅ BUY와 동일한 타임스탬프 기반 부트 필터 (1회 통과 후 영구 해제)
-        if getattr(self, "_boot_start_ts", None) is not None:
-            if ts < self._boot_start_ts:
-                return
-            logger.info(f"[MACD][SELL] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
-            self._boot_start_ts = None
+        # Phase 1: Boot Filter 제거 (매도는 포지션 보호 최우선, 중복 방지는 _last_sell_bar로 처리)
 
         bar_ts = str(state["timestamp"])
 
@@ -1705,14 +1699,8 @@ class EMAStrategy(Strategy):
         logger.info("[SELL] PROCEED: position detected")
 
         state = self._current_state()
-        ts = pd.Timestamp(state["timestamp"])
 
-        # ✅ BUY와 동일한 타임스탬프 기반 부트 필터 (1회 통과 후 영구 해제)
-        if getattr(self, "_boot_start_ts", None) is not None:
-            if ts < self._boot_start_ts:
-                return
-            logger.info(f"[EMA][SELL] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
-            self._boot_start_ts = None
+        # Phase 1: Boot Filter 제거 (매도는 포지션 보호 최우선, 중복 방지는 _last_sell_bar로 처리)
 
         bar_ts = str(state["timestamp"])
         sell_cond = self.conditions.get("sell", {})
