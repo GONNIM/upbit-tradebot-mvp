@@ -419,6 +419,135 @@ def fetch_latest_log_signal(user_id: str, ticker: str) -> dict | None:
         return None
 
 
+def fetch_latest_buy_eval(user_id: str, ticker: str) -> dict | None:
+    """
+    특정 ticker의 가장 최신 BUY 평가 감사로그 조회
+    - audit_buy_eval 테이블에서 timestamp 기준 최신순
+    """
+    query = """
+        SELECT timestamp, ticker, interval_sec, bar, price, macd, signal,
+               have_position, overall_ok, failed_keys, checks, notes
+        FROM audit_buy_eval
+        WHERE ticker = ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """
+    try:
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (ticker,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "timestamp": row[0],
+                    "ticker": row[1],
+                    "interval_sec": row[2],
+                    "bar": row[3],
+                    "price": row[4],
+                    "macd": row[5],  # EMA 전략에서는 ema_fast
+                    "signal": row[6],  # EMA 전략에서는 ema_slow
+                    "have_position": row[7],
+                    "overall_ok": row[8],
+                    "failed_keys": row[9],
+                    "checks": row[10],
+                    "notes": row[11],
+                }
+            return None
+    except Exception as e:
+        logger.error(f"fetch_latest_buy_eval failed: {e}")
+        return None
+
+
+def fetch_latest_sell_eval(user_id: str, ticker: str) -> dict | None:
+    """
+    특정 ticker의 가장 최신 SELL 평가 감사로그 조회
+    - audit_sell_eval 테이블에서 timestamp 기준 최신순
+    """
+    query = """
+        SELECT timestamp, ticker, interval_sec, bar, price, macd, signal,
+               tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
+               checks, triggered, trigger_key, notes
+        FROM audit_sell_eval
+        WHERE ticker = ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """
+    try:
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (ticker,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "timestamp": row[0],
+                    "ticker": row[1],
+                    "interval_sec": row[2],
+                    "bar": row[3],
+                    "price": row[4],
+                    "macd": row[5],  # EMA 전략에서는 ema_fast
+                    "signal": row[6],  # EMA 전략에서는 ema_slow
+                    "tp_price": row[7],
+                    "sl_price": row[8],
+                    "highest": row[9],
+                    "ts_pct": row[10],
+                    "ts_armed": row[11],
+                    "bars_held": row[12],
+                    "checks": row[13],
+                    "triggered": row[14],
+                    "trigger_key": row[15],
+                    "notes": row[16],
+                }
+            return None
+    except Exception as e:
+        logger.error(f"fetch_latest_sell_eval failed: {e}")
+        return None
+
+
+def fetch_latest_trade_audit(user_id: str, ticker: str) -> dict | None:
+    """
+    특정 ticker의 가장 최신 체결 감사로그 조회
+    - audit_trades 테이블에서 timestamp 기준 최신순
+    """
+    query = """
+        SELECT timestamp, ticker, interval_sec, bar, type, reason, price,
+               macd, signal, entry_price, entry_bar, bars_held,
+               tp, sl, highest, ts_pct, ts_armed
+        FROM audit_trades
+        WHERE ticker = ?
+        ORDER BY timestamp DESC
+        LIMIT 1
+    """
+    try:
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, (ticker,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "timestamp": row[0],
+                    "ticker": row[1],
+                    "interval_sec": row[2],
+                    "bar": row[3],
+                    "type": row[4],  # BUY / SELL
+                    "reason": row[5],
+                    "price": row[6],
+                    "macd": row[7],  # EMA 전략에서는 ema_fast
+                    "signal": row[8],  # EMA 전략에서는 ema_slow
+                    "entry_price": row[9],
+                    "entry_bar": row[10],
+                    "bars_held": row[11],
+                    "tp": row[12],
+                    "sl": row[13],
+                    "highest": row[14],
+                    "ts_pct": row[15],
+                    "ts_armed": row[16],
+                }
+            return None
+    except Exception as e:
+        logger.error(f"fetch_latest_trade_audit failed: {e}")
+        return None
+
+
 # ✅ 계정 정보
 def get_account(user_id):
     with get_db(user_id) as conn:

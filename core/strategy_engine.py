@@ -364,9 +364,10 @@ class StrategyEngine:
                     "price": current_price,
                 }
             else:  # EMA
-                # EMA 전략: macd, signal 컬럼은 None
-                macd = None
-                signal = None
+                # EMA 전략: macd 컬럼에 ema_fast, signal 컬럼에 ema_slow 저장
+                # (audit_viewer.py에서 delta 계산 및 컬럼명 변경에 사용)
+                macd = indicators.get("ema_fast")
+                signal = indicators.get("ema_slow")
 
                 # checks 필드는 EMA 지표 기준
                 base_checks = {
