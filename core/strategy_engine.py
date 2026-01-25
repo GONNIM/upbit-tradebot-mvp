@@ -453,9 +453,11 @@ class StrategyEngine:
                 # ✅ bars_held=0일 때 대안: audit_trades 기반 추정
                 if bars_held == 0:
                     estimated_entry_bar = estimate_entry_bar_from_audit(self.user_id, self.ticker)
-                    if estimated_entry_bar is not None:
+                    if estimated_entry_bar is not None and estimated_entry_bar <= self.bar_count:
                         bars_held = self.bar_count - estimated_entry_bar
                         logger.info(f"[BARS_HELD] 추정 성공: entry_bar={estimated_entry_bar}, current_bar={self.bar_count}, bars_held={bars_held}")
+                    elif estimated_entry_bar is not None and estimated_entry_bar > self.bar_count:
+                        logger.warning(f"[BARS_HELD] 추정 실패: entry_bar={estimated_entry_bar} > current_bar={self.bar_count} (이전 세션 데이터) → bars_held=0 유지")
 
                 # ✅ SELL 평가 상세 정보 계산
                 pnl_pct = self.position.get_pnl_pct(current_price) if entry_price else 0.0
