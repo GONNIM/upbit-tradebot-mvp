@@ -73,9 +73,11 @@ REQUIRED_CANDLES = {
 
 # 절대 최소 캔들 개수 (이 값 미만이면 전략 시작 불가)
 # - 전략별로 다른 최소값 적용
+# ⚠️ Upbit API 제한: 최대 200개만 조회 가능
+# - EMA 전략: 200개로 시작 (불완전하지만 실시간으로 데이터 축적)
 ABSOLUTE_MIN_CANDLES = {
     "MACD": 600,  # MACD: 최대 파라미터 × 3
-    "EMA": 200,   # EMA: 최대 파라미터 (slow_period=200 기준)
+    "EMA": 199,   # EMA: Upbit API 제한 (200개 수집 → dropna로 199개, 실시간 축적)
 }
 ABSOLUTE_MIN_CANDLES_DEFAULT = 600  # 전략 미지정 시 기본값
 
@@ -595,11 +597,15 @@ def stream_candles(
                 _log("WARN", f"[초기-multi] API가 요청량보다 적게 반환 (got={got}, requested={per_call}) → 과거 데이터 소진")
                 break
 
-            # 다음 요청용 'to'는 이번 기준시간에서 got*interval 만큼 과거로 이동
+            # ✅ FIX: 다음 요청용 'to'는 실제 받은 데이터의 첫 번째 봉 시간 기준으로 계산
+            # 이전 방식(current_to 기준)은 중복 데이터 발생 가능
             try:
-                dt_to = datetime.strptime(current_to, "%Y-%m-%d %H:%M:%S")
-                dt_to -= timedelta(minutes=iv_min * got)
+                # 실제 받은 데이터의 첫 번째 시간
+                first_timestamp = df_part.index[0]
+                # 1분(또는 interval) 전으로 설정하여 중복 방지
+                dt_to = first_timestamp - timedelta(minutes=iv_min)
                 current_to = _fmt_to_param(dt_to)
+                _log("INFO", f"[초기-multi] 다음 요청 기준: {current_to} (이번 chunk 첫 봉: {first_timestamp})")
             except Exception as e:
                 # 파싱 실패 시 추가 페이징은 하지 않고 종료
                 collected = sum(len(c) for c in chunks)
@@ -662,15 +668,22 @@ def stream_candles(
     if df is None:
         _log("INFO", f"[초기] 데이터 수집 시작: ticker={ticker}, interval={interval}, max_length={max_length}")
 
-        if max_length <= 200:
+        # ⚠️ Upbit API 제한: 'to' 파라미터가 작동하지 않아 multi-fetch 불가
+        # - max_length > 200이어도 200개만 가져옴
+        # - EMA 전략: 200개로 시작 후 실시간 축적
+        effective_count = min(max_length, 200)
+        if effective_count != max_length:
+            _log("WARN", f"[초기] Upbit API 제한으로 {max_length}개 요청 → {effective_count}개로 조정")
+
+        if True:  # 항상 단일 호출 사용
             for attempt in range(1, max_retry + 1):
                 if stop_event and stop_event.is_set():
                     _log("WARN", "stream_candles 중단됨: 초기 수집 중 stop_event 감지")
                     return
                 try:
                     # ✅ FIX: to 파라미터 제거 - 확정된 최근 봉만 조회
-                    _log("INFO", f"[초기] API 단일 호출: count={max_length}")
-                    df = pyupbit.get_ohlcv(ticker, interval=interval, count=max_length)
+                    _log("INFO", f"[초기] API 단일 호출: count={effective_count}")
+                    df = pyupbit.get_ohlcv(ticker, interval=interval, count=effective_count)
                     if df is not None and not df.empty:
                         _log("INFO", f"[초기] API 응답 성공: {len(df)}개 수신")
                         # 🔍 PRICE-DEBUG: pyupbit 원본 데이터 (변환 전)
@@ -768,6 +781,20 @@ def stream_candles(
             f"⚠️ 목표 대비 {success_rate:.1f}% 달성 ({final_len}/{max_length}) - "
             f"Upbit API 제약으로 추정. 절대 최소량({absolute_min})은 충족하여 전략 실행"
         )
+
+        # ⚠️ EMA 전략 + 200개 데이터 + 목표 > 200인 경우 추가 경고
+        if strategy_tag == "EMA" and final_len <= 200 and max_length > 200:
+            _log("WARN", "")
+            _log("WARN", "=" * 80)
+            _log("WARN", "⚠️  [EMA 전략] 초기 데이터 부족 안내")
+            _log("WARN", "=" * 80)
+            _log("WARN", f"   - Upbit API 제한으로 최대 200개 봉만 조회 가능합니다.")
+            _log("WARN", f"   - 현재 {final_len}개 데이터로 전략을 시작합니다.")
+            _log("WARN", f"   - 200일 이동평균 등 긴 기간 지표는 초기에 불완전합니다.")
+            _log("WARN", f"   - 실시간 데이터가 쌓이면서 점진적으로 정확도가 향상됩니다.")
+            _log("WARN", f"   - 완전한 지표 계산은 약 {max_length - final_len}분 후 가능합니다.")
+            _log("WARN", "=" * 80)
+            _log("WARN", "")
 
     # ✅ 데이터 수집 완료 - 상태 초기화
     if clear_data_collection_status:

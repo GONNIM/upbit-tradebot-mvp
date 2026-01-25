@@ -75,7 +75,13 @@ WARMUP_LEN_BY_INTERVAL_EMA: Dict[str, int] = {
 
 
 def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
-    """전략 실행/매매를 시작하기 위한 최소 웜업 바 수"""
+    """
+    전략 실행/매매를 시작하기 위한 최소 웜업 바 수
+
+    ⚠️ Upbit API 제한: 최대 200개 봉만 조회 가능
+    - slow_buy=200 같은 긴 기간 설정 시, 초기에는 불완전한 이동평균으로 시작
+    - 실시간 데이터가 쌓이면서 점진적으로 정확도 향상
+    """
     iv = getattr(params, "interval", None)
     strategy_tag = strategy_type.upper()
 
@@ -89,15 +95,41 @@ def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
     else:
         base = 300
 
-    slow = getattr(params, "slow_period", 26) or 26
-    base_ema = getattr(params, "base_ema_period", slow)
+    # ✅ EMA 전략: use_separate_ema일 때는 slow_buy, slow_sell 중 최대값 사용
+    # base_ema_period는 선택적 필터이므로 WARMUP 계산에서 제외
+    if strategy_tag == "EMA" and getattr(params, "use_separate_ema", False):
+        slow_buy = getattr(params, "slow_buy", None) or params.slow_period
+        slow_sell = getattr(params, "slow_sell", None) or params.slow_period
+        slow = max(slow_buy, slow_sell)
+    else:
+        slow = getattr(params, "slow_period", 26) or 26
 
-    # ✅ 수정: EMA 계산은 period * 1.5배면 충분히 안정화됨
-    # 기존: base_ema * 2 (과도하게 보수적)
-    # 수정: base_ema * 1.5 (합리적)
-    logical_min = max(slow * 2, int(base_ema * 1.5))
+    # ✅ EMA 계산은 period * 2배면 충분히 안정화됨
+    # base_ema_period는 WARMUP 계산에서 제외 (선택적 필터)
+    logical_min = slow * 2
 
-    return max(base, logical_min, 200)
+    # ⚠️ Upbit API 제한: 최대 200개만 조회 가능
+    # - slow=200인 경우: logical_min=400이지만 200개로 제한
+    # - 초기에는 불완전하지만 실시간으로 데이터 축적하면서 정확도 향상
+    UPBIT_API_LIMIT = 200
+    requested = max(base, logical_min, 200)
+
+    if requested > UPBIT_API_LIMIT:
+        logger.warning(
+            f"⚠️  [WARMUP] Upbit API 제한으로 인한 조정: "
+            f"{requested}개 요청 → {UPBIT_API_LIMIT}개로 제한"
+        )
+        logger.warning(
+            f"⚠️  [WARMUP] slow={slow} 설정에 최적 데이터 수는 {logical_min}개이지만, "
+            f"초기에는 {UPBIT_API_LIMIT}개로 시작합니다."
+        )
+        logger.warning(
+            f"⚠️  [WARMUP] 실시간 데이터가 쌓이면서 점진적으로 정확도가 향상됩니다. "
+            f"완전한 {slow}일 이동평균은 약 {slow}분 후 계산됩니다."
+        )
+        requested = UPBIT_API_LIMIT
+
+    return requested
 
 
 # ============================================================
