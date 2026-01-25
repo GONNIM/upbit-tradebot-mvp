@@ -293,6 +293,175 @@ def ema_altair_chart(
         st.info("차트 표시할 데이터가 없습니다.")
         return
 
+    # ========== 📊 1. 사용자 설정값 요약 & 범례 표시 ==========
+    col1, col2 = st.columns(2)  # 1:1 비율
+
+    with col1:
+        if use_separate:
+            setting_html = f'''
+            <div style="background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+                        padding: 12px;
+                        border-radius: 8px;
+                        border: 2px solid #3f51b5;
+                        color: #ffffff;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                <div style="font-size: 15px; font-weight: bold; margin-bottom: 8px; color: #fff;">
+                    📌 전략 설정
+                </div>
+                <div style="margin-top: 8px;">
+                    <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                        <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                            🟢 <strong style="color: #69f0ae;">매수:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                            {fast_buy}일선 / {slow_buy}일선
+                        </span>
+                    </div>
+                    <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                        <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                            🔴 <strong style="color: #ff5252;">매도:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                            {fast_sell}일선 / {slow_sell}일선
+                        </span>
+                    </div>
+                    <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                        <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                            📊 <strong style="color: #ffd54f;">Base:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                            {base}일선
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 500; margin-left: 12px;">
+                            · <strong style="color: #ffd54f;">MA타입:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 6px;">
+                            {ma_type}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            '''
+        else:
+            setting_html = f'''
+            <div style="background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+                        padding: 12px;
+                        border-radius: 8px;
+                        border: 2px solid #3f51b5;
+                        color: #ffffff;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                <div style="font-size: 15px; font-weight: bold; margin-bottom: 8px; color: #fff;">
+                    📌 전략 설정
+                </div>
+                <div style="margin-top: 8px;">
+                    <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                        <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                            📈 <strong style="color: #69f0ae;">공통:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                            {fast_sell}일선 / {slow_sell}일선
+                        </span>
+                    </div>
+                    <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                        <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                            📊 <strong style="color: #ffd54f;">Base:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                            {base}일선
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 500; margin-left: 12px;">
+                            · <strong style="color: #ffd54f;">MA타입:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 6px;">
+                            {ma_type}
+                        </span>
+                    </div>
+                </div>
+            </div>
+            '''
+        st.markdown(setting_html, unsafe_allow_html=True)
+
+    # ========== 🎨 2. 범례 정보 미리 생성 ==========
+    # 기간별로 수집: {기간: [용도 라벨들]}
+    period_labels = {}
+
+    if use_separate:
+        # 별도 모드: 매수/매도 각각의 기간 수집
+        if fast_buy not in period_labels:
+            period_labels[fast_buy] = []
+        period_labels[fast_buy].append("Buy Fast")
+
+        if slow_buy not in period_labels:
+            period_labels[slow_buy] = []
+        period_labels[slow_buy].append("Buy Slow")
+
+        if fast_sell not in period_labels:
+            period_labels[fast_sell] = []
+        period_labels[fast_sell].append("Sell Fast")
+
+        if slow_sell not in period_labels:
+            period_labels[slow_sell] = []
+        period_labels[slow_sell].append("Sell Slow")
+    else:
+        # 공통 모드: fast_sell, slow_sell 사용
+        if fast_sell not in period_labels:
+            period_labels[fast_sell] = []
+        period_labels[fast_sell].append("Fast")
+
+        if slow_sell not in period_labels:
+            period_labels[slow_sell] = []
+        period_labels[slow_sell].append("Slow")
+
+    # Base는 별도 처리
+    if base not in period_labels:
+        period_labels[base] = []
+    period_labels[base].append("Base")
+
+    # 색상 팔레트 (기간별로 다른 색)
+    color_palette = ["#4caf50", "#ff9800", "#d32f2f", "#9c27b0", "#2196f3", "#ff5722"]
+    sorted_periods = sorted(period_labels.keys())
+
+    # ========== 📋 범례 표시 (col2) ==========
+    with col2:
+        legend_html = '''
+        <div style="background: linear-gradient(135deg, #e65100 0%, #ef6c00 100%);
+                    padding: 12px;
+                    border-radius: 8px;
+                    border: 2px solid #ff9800;
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+            <div style="font-size: 15px; font-weight: bold; margin-bottom: 8px; color: #fff;">
+                📋 차트 범례
+            </div>
+            <div style="margin-top: 8px;">
+        '''
+
+        for idx, period in enumerate(sorted_periods):
+            labels = period_labels[period]
+            label_str = " / ".join(labels)
+            color = color_palette[idx % len(color_palette)]
+            has_base = "Base" in labels
+
+            # HTML로 색상 라인 + 라벨 생성
+            legend_html += f'<div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">'
+
+            if has_base:
+                # 점선 스타일 (SVG 사용 - 더 굵고 명확하게)
+                legend_html += f'<svg width="40" height="12" style="margin-right: 10px;">'
+                legend_html += f'<line x1="0" y1="6" x2="40" y2="6" stroke="{color}" stroke-width="4" stroke-dasharray="6,4"/>'
+                legend_html += f'</svg>'
+            else:
+                # 실선 (더 굵고 명확하게)
+                legend_html += f'<span style="display: inline-block; width: 40px; height: 4px; background-color: {color}; margin-right: 10px; border-radius: 2px;"></span>'
+
+            legend_html += f'<span style="font-size: 14px; color: #fff; font-weight: 500;">{period}일선</span>'
+            legend_html += f'<span style="font-size: 14px; color: #ffe0b2; margin-left: 6px;">({label_str})</span>'
+            legend_html += f'</div>'
+
+        legend_html += '</div></div>'
+        st.markdown(legend_html, unsafe_allow_html=True)
+
+    # ========== 📊 차트 데이터 준비 ==========
     df = df_raw.tail(max_bars)
     df = compute_ema(
         df,
@@ -326,75 +495,65 @@ def ema_altair_chart(
         )
         price_layers.extend([rule, body])
 
-    # EMA 라인들을 가격 차트와 같은 Y축에 추가
-    if use_separate:
-        # 매수/매도 별도 EMA
-        ema_fast_buy_line = base_chart.mark_line(strokeWidth=2, color="#4caf50").encode(
-            y="EMA_Fast_Buy:Q",
-        )
-        ema_slow_buy_line = base_chart.mark_line(strokeWidth=2, color="#1b5e20").encode(
-            y="EMA_Slow_Buy:Q",
-        )
-        ema_fast_sell_line = base_chart.mark_line(strokeWidth=2, color="#ff9800").encode(
-            y="EMA_Fast_Sell:Q",
-        )
-        ema_slow_sell_line = base_chart.mark_line(strokeWidth=2, color="#d32f2f").encode(
-            y="EMA_Slow_Sell:Q",
-        )
-        ema_base_line = base_chart.mark_line(strokeWidth=2.5, color="#2196f3", strokeDash=[5, 5]).encode(
-            y="EMA_Base:Q",
+    # MA 라인 추가 (중복 제거된 기간만)
+    tooltip_fields = [
+        alt.Tooltip("Time:T", title="Time", format="%Y-%m-%d %H:%M"),
+        alt.Tooltip("Close:Q", title="Close", format=".2f"),
+    ]
+
+    for idx, period in enumerate(sorted_periods):
+        labels = period_labels[period]
+        label_str = " / ".join(labels)
+        color = color_palette[idx % len(color_palette)]
+
+        # Base가 포함된 경우 점선으로 구분 (Base 역할 강조)
+        has_base = "Base" in labels
+        stroke_dash = [5, 5] if has_base else []
+
+        # 🔧 데이터프레임에서 해당 컬럼 찾기 (우선순위: Buy > Sell > Base)
+        col_name = None
+        if use_separate:
+            # 별도 모드: 우선순위에 따라 컬럼 선택
+            if period == fast_buy:
+                col_name = "EMA_Fast_Buy"
+            elif period == slow_buy:
+                col_name = "EMA_Slow_Buy"
+            elif period == fast_sell:
+                col_name = "EMA_Fast_Sell"
+            elif period == slow_sell:
+                col_name = "EMA_Slow_Sell"
+            elif period == base:
+                col_name = "EMA_Base"
+        else:
+            # 공통 모드
+            if period == fast_sell:
+                col_name = "EMA_Fast"
+            elif period == slow_sell:
+                col_name = "EMA_Slow"
+            elif period == base:
+                col_name = "EMA_Base"
+
+        # 컬럼을 찾지 못하면 스킵
+        if col_name is None:
+            continue
+
+        # 라인 추가 (Base 포함 시 약간 굵게)
+        line = base_chart.mark_line(
+            strokeWidth=2.5 if has_base else 2,
+            color=color,
+            strokeDash=stroke_dash,
+        ).encode(y=f"{col_name}:Q")
+
+        price_layers.append(line)
+
+        # 툴팁 필드 추가
+        tooltip_fields.append(
+            alt.Tooltip(f"{col_name}:Q", title=f"{ma_type}-{period} ({label_str})", format=".2f")
         )
 
-        # Tooltip
-        tooltip_chart = base_chart.mark_rule(opacity=0).encode(
-            tooltip=[
-                alt.Tooltip("Time:T", title="Time", format="%Y-%m-%d %H:%M"),
-                alt.Tooltip("Close:Q", title="Close", format=".2f"),
-                alt.Tooltip("EMA_Fast_Buy:Q", title="Fast Buy", format=".2f"),
-                alt.Tooltip("EMA_Slow_Buy:Q", title="Slow Buy", format=".2f"),
-                alt.Tooltip("EMA_Fast_Sell:Q", title="Fast Sell", format=".2f"),
-                alt.Tooltip("EMA_Slow_Sell:Q", title="Slow Sell", format=".2f"),
-                alt.Tooltip("EMA_Base:Q", title="Base", format=".2f"),
-            ],
-        )
-
-        price_layers.extend([
-            ema_fast_buy_line,
-            ema_slow_buy_line,
-            ema_fast_sell_line,
-            ema_slow_sell_line,
-            ema_base_line,
-            tooltip_chart,
-        ])
-    else:
-        # 공통 EMA
-        ema_fast_line = base_chart.mark_line(strokeWidth=2, color="#4caf50").encode(
-            y="EMA_Fast:Q",
-        )
-        ema_slow_line = base_chart.mark_line(strokeWidth=2, color="#d32f2f").encode(
-            y="EMA_Slow:Q",
-        )
-        ema_base_line = base_chart.mark_line(strokeWidth=2.5, color="#2196f3", strokeDash=[5, 5]).encode(
-            y="EMA_Base:Q",
-        )
-
-        # Tooltip
-        tooltip_chart = base_chart.mark_rule(opacity=0).encode(
-            tooltip=[
-                alt.Tooltip("Time:T", title="Time", format="%Y-%m-%d %H:%M"),
-                alt.Tooltip("Close:Q", title="Close", format=".2f"),
-                alt.Tooltip("EMA_Fast:Q", title="Fast", format=".2f"),
-                alt.Tooltip("EMA_Slow:Q", title="Slow", format=".2f"),
-                alt.Tooltip("EMA_Base:Q", title="Base", format=".2f"),
-            ],
-        )
-
-        price_layers.extend([
-            ema_fast_line,
-            ema_slow_line,
-            ema_base_line,
-            tooltip_chart,
-        ])
+    # Tooltip 추가
+    tooltip_chart = base_chart.mark_rule(opacity=0).encode(tooltip=tooltip_fields)
+    price_layers.append(tooltip_chart)
 
     # 모든 레이어를 하나의 차트로 결합
     chart = alt.layer(*price_layers).properties(height=height_price)

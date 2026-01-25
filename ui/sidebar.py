@@ -73,6 +73,25 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             f"**엔진 모드:** `{current_mode}`"
         )
 
+        # ========== 🔧 버그 수정 1: 체크박스를 폼 밖으로 이동하여 즉시 반영 ==========
+        # EMA 전략일 때만 매수/매도 별도 설정 옵션 표시
+        if is_ema:
+            st.divider()
+            # 세션 스테이트 초기화
+            if "use_separate_ema_ui" not in st.session_state:
+                st.session_state.use_separate_ema_ui = STRATEGY_DEFAULTS.get("use_separate_ema", True)
+
+            use_separate = st.checkbox(
+                "📌 매수/매도 EMA 별도 설정",
+                value=st.session_state.use_separate_ema_ui,
+                key="use_separate_ema_checkbox",
+                help="체크 시 매수와 매도에 각각 다른 EMA 쌍을 사용합니다."
+            )
+            # 세션에 저장
+            st.session_state.use_separate_ema_ui = use_separate
+        else:
+            use_separate = False
+
         with st.form("input_form"):
             ticker = st.text_input(
                 "거래 종목", value=DEFAULT_PARAMS.get("ticker", "PEPE")
@@ -123,13 +142,6 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                 st.divider()
                 st.subheader("📊 EMA 매수/매도 설정")
 
-                # 매수/매도 별도 설정 여부
-                use_separate = st.checkbox(
-                    "매수/매도 EMA 별도 설정",
-                    value=DEFAULT_PARAMS.get("use_separate_ema", True),
-                    help="체크 시 매수와 매도에 각각 다른 EMA 쌍을 사용합니다."
-                )
-
                 if use_separate:
                     # 별도 설정 모드
                     col1, col2 = st.columns(2)
@@ -140,14 +152,14 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                             "Fast (매수)",
                             min_value=1,
                             max_value=500,
-                            value=DEFAULT_PARAMS.get("fast_buy", 60),
+                            value=DEFAULT_PARAMS.get("fast_buy") or DEFAULT_PARAMS.get("fast_period") or 60,
                             help="매수 판단용 단기 EMA"
                         )
                         slow_buy = st.number_input(
                             "Slow (매수)",
                             min_value=1,
                             max_value=500,
-                            value=DEFAULT_PARAMS.get("slow_buy", 200),
+                            value=DEFAULT_PARAMS.get("slow_buy") or DEFAULT_PARAMS.get("slow_period") or 200,
                             help="매수 판단용 장기 EMA"
                         )
 
@@ -157,14 +169,14 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                             "Fast (매도)",
                             min_value=1,
                             max_value=500,
-                            value=DEFAULT_PARAMS.get("fast_sell", 20),
+                            value=DEFAULT_PARAMS.get("fast_sell") or DEFAULT_PARAMS.get("fast_period") or 20,
                             help="매도 판단용 단기 EMA"
                         )
                         slow_sell = st.number_input(
                             "Slow (매도)",
                             min_value=1,
                             max_value=500,
-                            value=DEFAULT_PARAMS.get("slow_sell", 60),
+                            value=DEFAULT_PARAMS.get("slow_sell") or DEFAULT_PARAMS.get("slow_period") or 60,
                             help="매도 판단용 장기 EMA"
                         )
 
@@ -345,11 +357,18 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             return None
 
     try:
-        # fast_period, slow_period는 기존 호환성을 위해 유지
-        # EMA 전략에서는 fast_sell/slow_sell을 기본값으로 사용
+        # ========== 🔧 버그 수정 2 & 3: EMA 파라미터 올바르게 저장 ==========
+        # fast_period, slow_period는 전략에서 폴백값으로 사용되므로 올바른 값 저장 필수
         if is_ema:
-            final_fast = int(fast_sell)
-            final_slow = int(slow_sell)
+            if use_separate:
+                # 별도 설정 모드: 매수용 EMA를 기본값으로 사용
+                # (전략 코드에서 fast_period를 폴백으로 사용할 때 매수용이 기준)
+                final_fast = int(fast_buy)
+                final_slow = int(slow_buy)
+            else:
+                # 공통 설정 모드: 공통 EMA 값 사용
+                final_fast = int(fast)
+                final_slow = int(slow)
         else:
             # MACD는 fast/slow 변수 사용
             final_fast = int(fast)
@@ -380,10 +399,14 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             allow_sell_during_off_hours=allow_sell_during_off_hours,
             # EMA 매수/매도 별도 설정
             use_separate_ema=use_separate if is_ema else False,
-            fast_buy=int(fast_buy) if (is_ema and use_separate) else None,
-            slow_buy=int(slow_buy) if (is_ema and use_separate) else None,
-            fast_sell=int(fast_sell) if (is_ema and use_separate) else None,
-            slow_sell=int(slow_sell) if (is_ema and use_separate) else None,
+            # 🔧 버그 수정: 공통 모드일 때도 실제 값 저장 (None 대신)
+            # - 공통 모드: fast_buy = fast, slow_buy = slow 등으로 저장
+            # - 별도 모드: 각각의 입력값 저장
+            # - MACD: None 저장
+            fast_buy=int(fast_buy) if is_ema else None,
+            slow_buy=int(slow_buy) if is_ema else None,
+            fast_sell=int(fast_sell) if is_ema else None,
+            slow_sell=int(slow_sell) if is_ema else None,
         )
 
         # 🔁 이 전략 타입에 대한 마지막 입력값을 세션에 따로 저장
