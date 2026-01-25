@@ -202,6 +202,9 @@ class UpbitTrader:
             new_krw = max(current_krw - raw_total, 0.0)
             new_coin = current_coin + qty
 
+            # ✅ meta에서 entry_bar 추출
+            entry_bar = (meta or {}).get("bar") if meta else None
+
             insert_order(
                 self.user_id,
                 ticker,
@@ -212,6 +215,7 @@ class UpbitTrader:
                 current_krw=new_krw,
                 current_coin=new_coin,
                 profit_krw=0,
+                entry_bar=entry_bar,  # ✅ bars_held 추적용
             )
 
             self._audit_trade(
@@ -269,16 +273,20 @@ class UpbitTrader:
                 )
                 return {}
             
+            # ✅ meta에서 entry_bar 추출
+            entry_bar = (meta or {}).get("bar") if meta else None
+
             insert_order(
-                self.user_id, 
-                ticker, 
-                "BUY", 
-                price, 
-                0, 
-                "requested", 
-                provider_uuid=uuid, 
-                state="REQUESTED", 
+                self.user_id,
+                ticker,
+                "BUY",
+                price,
+                0,
+                "requested",
+                provider_uuid=uuid,
+                state="REQUESTED",
                 requested_at=now_kst(),
+                entry_bar=entry_bar,  # ✅ bars_held 추적용
             )
             
             self._audit_trade(

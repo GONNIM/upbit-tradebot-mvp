@@ -111,6 +111,7 @@ def insert_order(
     executed_volume: float | None = None,
     avg_price: float | None = None,
     paid_fee: float | None = None,
+    entry_bar: int | None = None,  # ✅ bars_held 추적용
 ):
     ensure_schema(user_id)
     with get_db(user_id) as conn:
@@ -121,9 +122,9 @@ def insert_order(
                 user_id, timestamp, ticker, side, price, volume, status,
                 current_krw, current_coin, profit_krw,
                 provider_uuid, state, requested_at, executed_at, canceled_at,
-                executed_volume, avg_price, paid_fee, updated_at
+                executed_volume, avg_price, paid_fee, updated_at, entry_bar
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -145,6 +146,7 @@ def insert_order(
                 avg_price,
                 paid_fee,
                 now_kst(),
+                entry_bar,  # ✅ entry_bar 저장
             ),
         )
         conn.commit()
@@ -1102,13 +1104,23 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         cols = {row[1] for row in cur.fetchall()}
         return cols
 
-    def _fetch_one(conn, sql: str, params: tuple) -> Optional[float]:
+    def _fetch_one(conn, sql: str, params: tuple, cols: set) -> Optional[Dict[str, Any]]:
+        """price와 entry_bar를 함께 조회"""
         try:
             cur = conn.cursor()
             cur.execute(sql, params)
             row = cur.fetchone()
-            price = float(row[0]) if row and row[0] is not None else None
-            return price
+            if not row:
+                return None
+
+            result = {}
+            # row[0]은 price, row[1]은 entry_bar (SELECT 순서대로)
+            if row[0] is not None:
+                result["price"] = float(row[0])
+            if len(row) > 1 and row[1] is not None:
+                result["entry_bar"] = int(row[1])
+
+            return result if result else None
         except Exception as e:
             logger.warning(f"[DB] query failed: {e} | sql={sql} params={params}")
             return None
@@ -1140,28 +1152,84 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         else:
             order_sql = "ROWID DESC"
 
+        # ✅ entry_bar 컬럼이 있으면 함께 조회
+        select_cols = "price"
+        if "entry_bar" in cols:
+            select_cols = "price, entry_bar"
+
         # 1) 상태 컬럼이 있으면 우선 해당 필터로 시도
-        sql1 = f"SELECT price FROM orders WHERE {where_sql} ORDER BY {order_sql} LIMIT 1"
-        p = _fetch_one(conn, sql1, tuple(params))
-        logger.info(f"[DB] last BUY (with status filter={bool(status_col)}) => {p}")
-        if p is not None:
+        sql1 = f"SELECT {select_cols} FROM orders WHERE {where_sql} ORDER BY {order_sql} LIMIT 1"
+        result = _fetch_one(conn, sql1, tuple(params), cols)
+        logger.info(f"[DB] last BUY (with status filter={bool(status_col)}) => {result}")
+        if result is not None:
             conn.close()
-            return {"price": p}
+            return result
 
         # 2) 상태 컬럼 없거나 결과 없음 → 상태 필터 제외하고 재시도
         base_where = ["user_id = ?", "ticker = ?", "side = 'BUY'"]
-        sql2 = f"SELECT price FROM orders WHERE {' AND '.join(base_where)} ORDER BY {order_sql} LIMIT 1"
-        p = _fetch_one(conn, sql2, (user_id, ticker))
-        logger.info(f"[DB] last BUY (any state) => {p}")
+        sql2 = f"SELECT {select_cols} FROM orders WHERE {' AND '.join(base_where)} ORDER BY {order_sql} LIMIT 1"
+        result = _fetch_one(conn, sql2, (user_id, ticker), cols)
+        logger.info(f"[DB] last BUY (any state) => {result}")
         conn.close()
 
-        if p is not None:
-            return {"price": p}
+        if result is not None:
+            return result
         logger.info("[DB] no BUY candidate found")
         return None
 
     except Exception as e:
         logger.warning(f"[DB] get_last_open_buy_order failed: {e}")
+        return None
+
+
+def estimate_entry_bar_from_audit(user_id: str, ticker: str) -> int | None:
+    """
+    bars_held=0일 때 대안: audit_trades에서 최근 BUY timestamp 조회 후 bar 추정
+
+    로직 (스마트하게):
+    1. audit_trades에서 최근 BUY의 timestamp 조회
+    2. audit_sell_eval에서 해당 시각 이후 첫 번째 bar 조회
+    3. 그게 entry_bar!
+
+    Returns:
+        추정된 entry_bar 번호 또는 None
+    """
+    try:
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+
+            # 1. audit_trades에서 최근 BUY timestamp 조회
+            cursor.execute("""
+                SELECT timestamp FROM audit_trades
+                WHERE ticker = ? AND type = 'BUY'
+                ORDER BY id DESC LIMIT 1
+            """, (ticker,))
+
+            buy_row = cursor.fetchone()
+            if not buy_row:
+                logger.warning(f"[ESTIMATE_BAR] No BUY trade in audit_trades for {ticker}")
+                return None
+
+            buy_timestamp = buy_row[0]
+
+            # 2. BUY 이후 첫 번째 SELL 평가 조회
+            cursor.execute("""
+                SELECT bar FROM audit_sell_eval
+                WHERE ticker = ? AND timestamp >= ?
+                ORDER BY timestamp ASC LIMIT 1
+            """, (ticker, buy_timestamp))
+
+            eval_row = cursor.fetchone()
+            if eval_row:
+                estimated_bar = eval_row[0]
+                logger.info(f"[ESTIMATE_BAR] BUY={buy_timestamp} → entry_bar={estimated_bar}")
+                return estimated_bar
+
+            logger.warning(f"[ESTIMATE_BAR] No SELL eval found after BUY {buy_timestamp}")
+            return None
+
+    except Exception as e:
+        logger.error(f"[ESTIMATE_BAR] Failed: {e}")
         return None
 
 

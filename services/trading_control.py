@@ -1,4 +1,4 @@
-from services.db import fetch_logs, insert_log, fetch_latest_log_signal, fetch_latest_log_signal_ema
+from services.db import fetch_logs, insert_log, fetch_latest_log_signal, fetch_latest_log_signal_ema, fetch_latest_sell_eval, fetch_latest_buy_eval
 from datetime import datetime
 from core.trader import UpbitTrader
 from engine.reconciler_singleton import get_reconciler
@@ -192,6 +192,39 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: i
         insert_log(user_id, "ERROR", msg)
         return msg
 
+    # ✅ 최신 bar 조회 및 시간 기반 보정 (엔진 미실행 시 대비)
+    current_bar = None
+    last_eval_time = None
+
+    # 1. SELL 평가에서 bar 조회 (포지션 있을 때 우선)
+    sell_eval = fetch_latest_sell_eval(user_id, ticker)
+    if sell_eval and sell_eval.get("bar") is not None:
+        current_bar = int(sell_eval.get("bar"))
+        last_eval_time = sell_eval.get("timestamp")
+        logger.info(f"[BAR] SELL 평가에서 조회: bar={current_bar}, timestamp={last_eval_time}")
+    else:
+        # 2. BUY 평가에서 bar 조회 (포지션 없을 때)
+        buy_eval = fetch_latest_buy_eval(user_id, ticker)
+        if buy_eval and buy_eval.get("bar") is not None:
+            current_bar = int(buy_eval.get("bar"))
+            last_eval_time = buy_eval.get("timestamp")
+            logger.info(f"[BAR] BUY 평가에서 조회: bar={current_bar}, timestamp={last_eval_time}")
+
+    # 3. 시간 차이로 bar 보정 (엔진이 꺼져있어도 정확한 bar 계산)
+    if current_bar is not None and last_eval_time:
+        try:
+            from dateutil import parser
+            last_time = parser.parse(last_eval_time)
+            now = datetime.now(last_time.tzinfo)  # 같은 timezone 사용
+            time_diff_sec = (now - last_time).total_seconds()
+            bars_elapsed = int(time_diff_sec / interval_sec)
+
+            if bars_elapsed > 0:
+                current_bar += bars_elapsed
+                logger.info(f"[BAR] 시간 보정: +{bars_elapsed}봉 ({time_diff_sec:.0f}초 경과) → bar={current_bar}")
+        except Exception as e:
+            logger.warning(f"[BAR] 시간 보정 실패: {e}")
+
     ts = datetime.now()
     meta = {
         "interval": interval_sec,  # ✅ interval_sec 전달
@@ -199,6 +232,7 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: i
         "src": "manual",
         "price_ref": price,
         "bar_time": None,  # ✅ 강제 매수는 봉 시각 없음
+        "bar": current_bar,  # ✅ bars_held 추적용
     }
 
     result = trader.buy_market(price, ticker, ts=ts, meta=meta)

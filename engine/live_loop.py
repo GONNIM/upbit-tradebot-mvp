@@ -158,18 +158,30 @@ def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
         return 0.0
 
 
-def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[float]:
-    """DB에서 최근 completed BUY의 체결가를 복구"""
+def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[Dict[str, Any]]:
+    """DB에서 최근 completed BUY의 체결가와 entry_bar를 복구"""
     try:
         raw = get_last_open_buy_order(ticker, user_id)
         logger.info(f"[SEED] raw_last_open={raw}")
-        price = (raw or {}).get("price")
-        if price is None:
-            logger.info("[SEED] result=None (no price)")
+        if not raw:
+            logger.info("[SEED] result=None (no data)")
             return None
-        p = float(price)
-        logger.info(f"🔁 Seed entry_price from DB: {p}")
-        return p
+
+        result = {}
+        price = raw.get("price")
+        entry_bar = raw.get("entry_bar")
+
+        if price is not None:
+            result["price"] = float(price)
+        if entry_bar is not None:
+            result["entry_bar"] = int(entry_bar)
+
+        if not result:
+            logger.info("[SEED] result=None (no price or entry_bar)")
+            return None
+
+        logger.info(f"🔁 Seed from DB: price={result.get('price')} entry_bar={result.get('entry_bar')}")
+        return result
     except Exception as e:
         logger.warning(f"[SEED] failed: {e}")
         return None
@@ -300,11 +312,15 @@ def run_live_loop(
     # 기존 포지션 복구 (지갑 기준)
     has_pos = _wallet_has_position(trader, params.upbit_ticker)
     if has_pos:
-        entry_price = _seed_entry_price_from_db(params.upbit_ticker, user_id)
-        if entry_price:
+        db_result = _seed_entry_price_from_db(params.upbit_ticker, user_id)
+        if db_result:
+            entry_price = db_result.get("price")
+            entry_bar = db_result.get("entry_bar")
             position.has_position = True
             position.avg_price = entry_price
-            logger.info(f"🔁 Position recovered | entry={entry_price}")
+            if entry_bar is not None:
+                position.entry_bar = entry_bar
+            logger.info(f"🔁 Position recovered | entry={entry_price} entry_bar={entry_bar}")
 
     # ✅ 조건 파일 로드 (매수/매도 조건)
     conditions = _load_trade_conditions(user_id, params.strategy_type)

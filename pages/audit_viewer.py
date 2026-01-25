@@ -317,12 +317,22 @@ elif section == "sell":
         # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
         df_sell["delta"] = df_sell["macd"] - df_sell["signal"]
 
+        # ✅ cross_type 계산: Golden / Dead / Neutral
+        def _cross_type(delta):
+            if delta > 0:
+                return "🟢 Golden"
+            elif delta < 0:
+                return "🔴 Dead"
+            else:
+                return "⚪ Neutral"
+        df_sell["cross_type"] = df_sell["delta"].apply(_cross_type)
+
         # 전략별 칼럼명 변경
         df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
 
-        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
+        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에, delta 다음에 cross_type 추가
         column_order = [
-            "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta",
+            "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta", "cross_type",
             "ema_fast" if strategy_tag == "EMA" else "macd",
             "ema_slow" if strategy_tag == "EMA" else "signal",
             "ts_pct", "ts_armed", "bars_held", "checks", "triggered", "trigger_key", "notes", "interval_sec"

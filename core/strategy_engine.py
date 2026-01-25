@@ -7,7 +7,7 @@ from core.indicator_state import IndicatorState
 from core.position_state import PositionState
 from core.strategy_action import Action
 from core.trader import UpbitTrader
-from services.db import insert_buy_eval, insert_sell_eval
+from services.db import insert_buy_eval, insert_sell_eval, estimate_entry_bar_from_audit
 from typing import Optional, Dict, Any
 import logging
 import queue
@@ -356,12 +356,12 @@ class StrategyEngine:
                 macd = indicators.get("macd")
                 signal = indicators.get("signal")
 
-                # checks 필드도 MACD 기준
+                # checks 필드도 MACD 기준 (JSON 직렬화를 위해 float 변환)
                 base_checks = {
                     "reason": None,  # 나중에 설정
-                    "macd": macd,
-                    "signal": signal,
-                    "price": current_price,
+                    "macd": float(macd) if macd is not None else None,
+                    "signal": float(signal) if signal is not None else None,
+                    "price": float(current_price) if current_price is not None else None,
                 }
             else:  # EMA
                 # EMA 전략: macd 컬럼에 ema_fast, signal 컬럼에 ema_slow 저장
@@ -369,21 +369,42 @@ class StrategyEngine:
                 macd = indicators.get("ema_fast")
                 signal = indicators.get("ema_slow")
 
-                # checks 필드는 EMA 지표 기준
+                # checks 필드는 EMA 지표 기준 (JSON 직렬화를 위해 float 변환)
                 base_checks = {
                     "reason": None,  # 나중에 설정
-                    "ema_fast": indicators.get("ema_fast"),
-                    "ema_slow": indicators.get("ema_slow"),
-                    "ema_base": indicators.get("ema_base"),
-                    "price": current_price,
+                    "ema_fast": float(indicators.get("ema_fast")) if indicators.get("ema_fast") is not None else None,
+                    "ema_slow": float(indicators.get("ema_slow")) if indicators.get("ema_slow") is not None else None,
+                    "ema_base": float(indicators.get("ema_base")) if indicators.get("ema_base") is not None else None,
+                    "price": float(current_price) if current_price is not None else None,
                 }
 
             # 포지션 없을 때: BUY 평가 로그
             if not self.position.has_position:
+                # ✅ BUY 평가 상세 정보 계산
+                # Cross 상태 판단
+                cross_status = "Neutral"
+                if self.strategy_type == "EMA":
+                    ema_fast = indicators.get("ema_fast")
+                    ema_slow = indicators.get("ema_slow")
+                    if ema_fast and ema_slow:
+                        if ema_fast > ema_slow:
+                            cross_status = "Golden"
+                        elif ema_fast < ema_slow:
+                            cross_status = "Dead"
+                elif self.strategy_type == "MACD":
+                    macd_val = indicators.get("macd")
+                    signal_val = indicators.get("signal")
+                    if macd_val and signal_val:
+                        if macd_val > signal_val:
+                            cross_status = "Golden"
+                        elif macd_val < signal_val:
+                            cross_status = "Dead"
+
                 if action == Action.HOLD or action == Action.NOOP:
                     # 신호 없음
                     buy_checks = base_checks.copy()
                     buy_checks["reason"] = "NO_BUY_SIGNAL"
+                    buy_checks["cross_status"] = cross_status
 
                     insert_buy_eval(
                         user_id=self.user_id,
@@ -397,13 +418,14 @@ class StrategyEngine:
                         overall_ok=False,
                         failed_keys=["NO_SIGNAL"],
                         checks=buy_checks,
-                        notes=f"NO_SIGNAL bar={self.bar_count}"
+                        notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}"
                         # ✅ timestamp 제거 → 자동으로 now_kst() 사용
                     )
                 elif action == Action.BUY:
                     # BUY 신호 발생
                     buy_checks = base_checks.copy()
                     buy_checks["reason"] = "BUY_SIGNAL"
+                    buy_checks["cross_status"] = cross_status
 
                     insert_buy_eval(
                         user_id=self.user_id,
@@ -417,7 +439,7 @@ class StrategyEngine:
                         overall_ok=True,
                         failed_keys=[],
                         checks=buy_checks,
-                        notes=f"BUY_SIGNAL bar={self.bar_count}"
+                        notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}"
                         # ✅ timestamp 제거 → 자동으로 now_kst() 사용
                     )
 
@@ -426,12 +448,51 @@ class StrategyEngine:
                 entry_price = self.position.avg_price
                 tp_price = entry_price * (1 + self.take_profit) if entry_price else None
                 sl_price = entry_price * (1 - self.stop_loss) if entry_price else None
+                bars_held = self.position.get_bars_held(self.bar_count)
+
+                # ✅ bars_held=0일 때 대안: audit_trades 기반 추정
+                if bars_held == 0:
+                    estimated_entry_bar = estimate_entry_bar_from_audit(self.user_id, self.ticker)
+                    if estimated_entry_bar is not None:
+                        bars_held = self.bar_count - estimated_entry_bar
+                        logger.info(f"[BARS_HELD] 추정 성공: entry_bar={estimated_entry_bar}, current_bar={self.bar_count}, bars_held={bars_held}")
+
+                # ✅ SELL 평가 상세 정보 계산
+                pnl_pct = self.position.get_pnl_pct(current_price) if entry_price else 0.0
+
+                # Cross 상태 판단 (EMA 전략용)
+                cross_status = "Neutral"
+                if self.strategy_type == "EMA":
+                    ema_fast = indicators.get("ema_fast")
+                    ema_slow = indicators.get("ema_slow")
+                    if ema_fast and ema_slow:
+                        if ema_fast > ema_slow:
+                            cross_status = "Golden"
+                        elif ema_fast < ema_slow:
+                            cross_status = "Dead"
+                elif self.strategy_type == "MACD":
+                    macd_val = indicators.get("macd")
+                    signal_val = indicators.get("signal")
+                    if macd_val and signal_val:
+                        if macd_val > signal_val:
+                            cross_status = "Golden"
+                        elif macd_val < signal_val:
+                            cross_status = "Dead"
+
+                # 매도 조건 체크
+                tp_hit = bool((tp_price is not None) and (current_price >= tp_price))
+                sl_hit = bool((sl_price is not None) and (current_price <= sl_price))
 
                 if action == Action.HOLD or action == Action.NOOP:
                     # 신호 없음
                     sell_checks = base_checks.copy()
                     sell_checks["reason"] = "NO_SELL_SIGNAL"
-                    sell_checks["entry_price"] = entry_price
+                    sell_checks["entry_price"] = float(entry_price) if entry_price else None
+                    sell_checks["pnl_pct"] = float(pnl_pct)
+                    sell_checks["cross_status"] = cross_status
+                    sell_checks["tp_hit"] = tp_hit
+                    sell_checks["sl_hit"] = sl_hit
+                    sell_checks["bars_held"] = int(bars_held)
 
                     insert_sell_eval(
                         user_id=self.user_id,
@@ -446,18 +507,32 @@ class StrategyEngine:
                         highest=self.position.highest_price,
                         ts_pct=self.trailing_stop_pct,
                         ts_armed=False,
-                        bars_held=self.position.get_bars_held(self.bar_count),
+                        bars_held=bars_held,
                         checks=sell_checks,
                         triggered=False,
                         trigger_key=None,
-                        notes=f"NO_SIGNAL bar={self.bar_count}"
+                        notes=f"{cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}"
                         # ✅ timestamp 제거 → 자동으로 now_kst() 사용
                     )
                 elif action == Action.SELL or action == Action.CLOSE:
-                    # SELL 신호 발생
+                    # SELL 신호 발생 - 구체적인 트리거 원인 판단
+                    trigger_reason = "STRATEGY_SIGNAL"
+                    if sl_hit:
+                        trigger_reason = "STOP_LOSS"
+                    elif tp_hit:
+                        trigger_reason = "TAKE_PROFIT"
+                    elif cross_status == "Dead":
+                        trigger_reason = "DEAD_CROSS"
+
                     sell_checks = base_checks.copy()
                     sell_checks["reason"] = "SELL_SIGNAL"
-                    sell_checks["entry_price"] = entry_price
+                    sell_checks["entry_price"] = float(entry_price) if entry_price else None
+                    sell_checks["pnl_pct"] = float(pnl_pct)
+                    sell_checks["cross_status"] = cross_status
+                    sell_checks["tp_hit"] = tp_hit
+                    sell_checks["sl_hit"] = sl_hit
+                    sell_checks["bars_held"] = int(bars_held)
+                    sell_checks["trigger_reason"] = trigger_reason
 
                     insert_sell_eval(
                         user_id=self.user_id,
@@ -472,11 +547,11 @@ class StrategyEngine:
                         highest=self.position.highest_price,
                         ts_pct=self.trailing_stop_pct,
                         ts_armed=False,
-                        bars_held=self.position.get_bars_held(self.bar_count),
+                        bars_held=bars_held,
                         checks=sell_checks,
                         triggered=True,
-                        trigger_key="STRATEGY_SIGNAL",
-                        notes=f"SELL_SIGNAL bar={self.bar_count}"
+                        trigger_key=trigger_reason,
+                        notes=f"🔴 SELL | {trigger_reason} | {cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}"
                         # ✅ timestamp 제거 → 자동으로 now_kst() 사용
                     )
 

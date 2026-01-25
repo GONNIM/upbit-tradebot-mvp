@@ -347,6 +347,7 @@ def ensure_orders_extended_schema(user_id: str | None):
     _safe_alter(conn, "ALTER TABLE orders ADD COLUMN executed_at TEXT")
     _safe_alter(conn, "ALTER TABLE orders ADD COLUMN canceled_at TEXT")
     _safe_alter(conn, "ALTER TABLE orders ADD COLUMN updated_at TEXT")
+    _safe_alter(conn, "ALTER TABLE orders ADD COLUMN entry_bar INTEGER")  # ✅ bars_held 추적용
 
     # 인덱스(조건부)
     _safe_alter(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_uuid ON orders(provider_uuid)")
