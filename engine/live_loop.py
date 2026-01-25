@@ -306,6 +306,9 @@ def run_live_loop(
             position.avg_price = entry_price
             logger.info(f"🔁 Position recovered | entry={entry_price}")
 
+    # ✅ 조건 파일 로드 (매수/매도 조건)
+    conditions = _load_trade_conditions(user_id, params.strategy_type)
+
     # 전략 객체 생성 (1회만)
     if strategy_tag == "MACD":
         strategy = IncrementalMACDStrategy(
@@ -317,13 +320,18 @@ def run_live_loop(
             trailing_stop_pct=getattr(params, "trailing_stop_pct", TRAILING_STOP_PERCENT),
         )
     elif strategy_tag == "EMA":
+        # ✅ 조건 파일에서 above_base_ema 설정 읽기 (기본값: False)
+        use_base_ema_filter = conditions.get("buy", {}).get("above_base_ema", False)
+
         strategy = IncrementalEMAStrategy(
             take_profit=params.take_profit,
             stop_loss=params.stop_loss,
             min_holding_period=getattr(params, "min_holding_period", 0),
             trailing_stop_pct=getattr(params, "trailing_stop_pct", TRAILING_STOP_PERCENT),
-            use_base_ema=True,
+            use_base_ema=use_base_ema_filter,  # ✅ 조건 파일 설정 반영
         )
+
+        logger.info(f"[EMA 전략] use_base_ema={use_base_ema_filter} (조건 파일: {conditions.get('buy', {}).get('above_base_ema', 'not set')})")
     else:
         raise ValueError(f"Unknown strategy type: {strategy_tag}")
 

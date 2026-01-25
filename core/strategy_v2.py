@@ -128,8 +128,6 @@ class MACDStrategy(Strategy):
         self._last_sell_audit_bar = None
         self._last_sell_audit_ts = None
         self._sell_sample_n = 60
-        self._boot_start_bar = len(self.data) - 1
-        self._boot_start_ts = self.data.index[-1]
         self._last_buy_sig = None      # BUY 상태 시그니처(변화 감지용)
         self._buy_sample_n = 60        # 샘플링 주기(원하면 0/None으로 끔)
 
@@ -638,16 +636,7 @@ class MACDStrategy(Strategy):
 
         # 정상 BUY 평가/체결
         state = self._current_state()
-        ts = pd.Timestamp(state["timestamp"])
 
-        if getattr(self, "_boot_start_ts", None) is not None:
-            if ts < self._boot_start_ts:
-                # logger.info(f"[BUY] SKIP (boot replay) ts={ts} < boot_ts={self._boot_start_ts}")
-                return
-            
-        logger.info(f"[BUY] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
-        self._boot_start_ts = None
-        
         buy_cond = self.conditions.get("buy", {})
         report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
 
@@ -1256,8 +1245,6 @@ class EMAStrategy(Strategy):
         self._buy_sample_n = 60
         self._last_buy_sig = None
         self._last_sell_sig = None
-        self._boot_start_bar = len(self.data) - 1
-        self._boot_start_ts = self.data.index[-1]
 
         EMAStrategy.log_events = []
         EMAStrategy.trade_events = []
@@ -1568,15 +1555,7 @@ class EMAStrategy(Strategy):
             return
 
         state = self._current_state()
-        ts = pd.Timestamp(state["timestamp"])
 
-        if getattr(self, "_boot_start_ts", None) is not None:
-            if ts < self._boot_start_ts:
-                return
-            
-        logger.info(f"[EMA][BUY] BOOT FILTER LIFTED at ts={ts} (boot_ts={self._boot_start_ts})")
-        self._boot_start_ts = None
-        
         buy_cond = self.conditions.get("buy", {})
         report, enabled_keys, failed_keys, overall_ok = self._buy_checks_report(state, buy_cond)
 
