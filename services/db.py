@@ -1182,17 +1182,17 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         return None
 
 
-def estimate_entry_bar_from_audit(user_id: str, ticker: str) -> int | None:
+def estimate_bars_held_from_audit(user_id: str, ticker: str) -> int:
     """
-    bars_held=0일 때 대안: audit_trades에서 최근 BUY timestamp 조회 후 bar 추정
+    bars_held 간단하게 계산: 최근 BUY 이후 SELL 평가 개수 세기
 
-    로직 (스마트하게):
-    1. audit_trades에서 최근 BUY의 timestamp 조회
-    2. audit_sell_eval에서 해당 시각 이후 첫 번째 bar 조회
-    3. 그게 entry_bar!
+    로직 (간단하게):
+    1. audit_trades에서 최근 BUY timestamp 조회
+    2. audit_sell_eval에서 해당 시각 이후 레코드 개수 COUNT
+    3. 그게 bars_held!
 
     Returns:
-        추정된 entry_bar 번호 또는 None
+        bars_held 개수 (0 이상)
     """
     try:
         with get_db(user_id) as conn:
@@ -1207,30 +1207,24 @@ def estimate_entry_bar_from_audit(user_id: str, ticker: str) -> int | None:
 
             buy_row = cursor.fetchone()
             if not buy_row:
-                logger.warning(f"[ESTIMATE_BAR] No BUY trade in audit_trades for {ticker}")
-                return None
+                logger.warning(f"[BARS_HELD] audit_trades에 BUY 기록 없음 → 0")
+                return 0
 
             buy_timestamp = buy_row[0]
 
-            # 2. BUY 이후 첫 번째 SELL 평가 조회
+            # 2. BUY 이후 SELL 평가 개수 세기
             cursor.execute("""
-                SELECT bar FROM audit_sell_eval
+                SELECT COUNT(*) FROM audit_sell_eval
                 WHERE ticker = ? AND timestamp >= ?
-                ORDER BY timestamp ASC LIMIT 1
             """, (ticker, buy_timestamp))
 
-            eval_row = cursor.fetchone()
-            if eval_row:
-                estimated_bar = eval_row[0]
-                logger.info(f"[ESTIMATE_BAR] BUY={buy_timestamp} → entry_bar={estimated_bar}")
-                return estimated_bar
-
-            logger.warning(f"[ESTIMATE_BAR] No SELL eval found after BUY {buy_timestamp}")
-            return None
+            count = cursor.fetchone()[0]
+            logger.info(f"[BARS_HELD] BUY={buy_timestamp} 이후 SELL 평가 {count}개 → bars_held={count}")
+            return count
 
     except Exception as e:
-        logger.error(f"[ESTIMATE_BAR] Failed: {e}")
-        return None
+        logger.error(f"[BARS_HELD] 계산 실패: {e}")
+        return 0
 
 
 def fetch_inflight_orders(user_id: str | None = None):

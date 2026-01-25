@@ -7,7 +7,7 @@ from core.indicator_state import IndicatorState
 from core.position_state import PositionState
 from core.strategy_action import Action
 from core.trader import UpbitTrader
-from services.db import insert_buy_eval, insert_sell_eval, estimate_entry_bar_from_audit
+from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit
 from typing import Optional, Dict, Any
 import logging
 import queue
@@ -450,19 +450,9 @@ class StrategyEngine:
                 sl_price = entry_price * (1 - self.stop_loss) if entry_price else None
                 bars_held = self.position.get_bars_held(self.bar_count)
 
-                # ✅ bars_held가 0 이하일 때 대안: audit_trades 기반 추정
+                # ✅ bars_held가 0 이하일 때 대안: SELL 평가 개수 세기 (간단!)
                 if bars_held <= 0:
-                    estimated_entry_bar = estimate_entry_bar_from_audit(self.user_id, self.ticker)
-                    if estimated_entry_bar is not None and estimated_entry_bar <= self.bar_count:
-                        bars_held = self.bar_count - estimated_entry_bar
-                        logger.info(f"[BARS_HELD] 추정 성공: entry_bar={estimated_entry_bar}, current_bar={self.bar_count}, bars_held={bars_held}")
-                    else:
-                        # 추정 불가 시 0으로 설정
-                        bars_held = 0
-                        if estimated_entry_bar is not None:
-                            logger.warning(f"[BARS_HELD] 추정 실패: entry_bar={estimated_entry_bar} > current_bar={self.bar_count} (이전 세션 데이터) → bars_held=0")
-                        else:
-                            logger.warning(f"[BARS_HELD] 추정 불가: audit_trades에 데이터 없음 → bars_held=0")
+                    bars_held = estimate_bars_held_from_audit(self.user_id, self.ticker)
 
                 # ✅ SELL 평가 상세 정보 계산
                 pnl_pct = self.position.get_pnl_pct(current_price) if entry_price else 0.0
