@@ -324,6 +324,11 @@ def run_live_loop(
 
     # ✅ 조건 파일 로드 (매수/매도 조건)
     conditions = _load_trade_conditions(user_id, params.strategy_type)
+    buy_conditions = conditions.get("buy", {})  # ✅ 매수 조건 추출
+    sell_conditions = conditions.get("sell", {})  # ✅ 매도 조건 추출
+
+    logger.info(f"[전략 초기화] Loaded buy conditions: {buy_conditions}")
+    logger.info(f"[전략 초기화] Loaded sell conditions: {sell_conditions}")
 
     # 전략 객체 생성 (1회만)
     if strategy_tag == "MACD":
@@ -334,20 +339,24 @@ def run_live_loop(
             macd_crossover_threshold=getattr(params, "macd_crossover_threshold", 0.0),
             min_holding_period=getattr(params, "min_holding_period", 0),
             trailing_stop_pct=getattr(params, "trailing_stop_pct", TRAILING_STOP_PERCENT),
+            buy_conditions=buy_conditions,  # ✅ 조건 파일 전달 (BUY)
+            sell_conditions=sell_conditions,  # ✅ 조건 파일 전달 (SELL)
         )
     elif strategy_tag == "EMA":
-        # ✅ 조건 파일에서 above_base_ema 설정 읽기 (기본값: False)
-        use_base_ema_filter = conditions.get("buy", {}).get("above_base_ema", False)
+        # ✅ 조건 파일에서 use_base_ema 설정 읽기 (기본값: True, 하위호환성)
+        use_base_ema_filter = getattr(params, "use_base_ema", True)
 
         strategy = IncrementalEMAStrategy(
             take_profit=params.take_profit,
             stop_loss=params.stop_loss,
             min_holding_period=getattr(params, "min_holding_period", 0),
             trailing_stop_pct=getattr(params, "trailing_stop_pct", TRAILING_STOP_PERCENT),
-            use_base_ema=use_base_ema_filter,  # ✅ 조건 파일 설정 반영
+            use_base_ema=use_base_ema_filter,  # ✅ 파라미터 설정 반영
+            buy_conditions=buy_conditions,  # ✅ 조건 파일 전달 (BUY)
+            sell_conditions=sell_conditions,  # ✅ 조건 파일 전달 (SELL)
         )
 
-        logger.info(f"[EMA 전략] use_base_ema={use_base_ema_filter} (조건 파일: {conditions.get('buy', {}).get('above_base_ema', 'not set')})")
+        logger.info(f"[EMA 전략] use_base_ema={use_base_ema_filter}")
     else:
         raise ValueError(f"Unknown strategy type: {strategy_tag}")
 

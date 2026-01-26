@@ -88,6 +88,61 @@ class StrategyEngine:
         """
         return bar.ts != self.last_bar_ts
 
+    def _reconcile_position_with_wallet(self) -> None:
+        """
+        지갑 잔고 기반 PositionState 동기화
+
+        - 지갑과 메모리 상태 불일치 감지 시 강제 동기화
+        - force_liquidate, 수동 거래 등 외부 요인에 대응
+        - 매 봉마다 호출되어 방어적으로 상태 일관성 유지
+        """
+        try:
+            # 1. 실제 지갑 잔고 조회
+            actual_balance = float(self.trader._coin_balance(self.ticker))
+            has_coins_in_wallet = actual_balance >= 1e-6
+
+            # 2. 메모리 상태
+            memory_has_position = self.position.has_position
+
+            # 3. 불일치 감지 및 처리
+            if has_coins_in_wallet != memory_has_position:
+                logger.warning(
+                    f"🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! "
+                    f"wallet_has_coins={has_coins_in_wallet} (balance={actual_balance:.6f}), "
+                    f"memory_has_position={memory_has_position}"
+                )
+
+                # Case 1: 지갑에 코인 없지만 메모리는 포지션 있다고 판단
+                # → 강제 청산(force_liquidate) 또는 외부 매도로 인한 불일치
+                if not has_coins_in_wallet and memory_has_position:
+                    logger.warning(
+                        f"🚨 [POSITION-SYNC] 강제 포지션 종료 실행: "
+                        f"지갑 잔고={actual_balance:.6f} (거의 0) "
+                        f"but memory shows has_position=True (qty={self.position.qty:.6f})"
+                    )
+                    # PositionState 강제 리셋 (매도 완료 처리)
+                    self.position.close_position(ts=None)  # ts는 None (정확한 시각 불명)
+                    logger.info(
+                        f"✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False"
+                    )
+
+                # Case 2: 지갑에 코인 있지만 메모리는 포지션 없다고 판단
+                # → 외부 매수(force_buy 또는 수동 매수) 또는 엔진 재시작 후 복구 실패
+                elif has_coins_in_wallet and not memory_has_position:
+                    logger.warning(
+                        f"⚠️ [POSITION-SYNC] 외부 매수 감지: "
+                        f"지갑 잔고={actual_balance:.6f} "
+                        f"but memory shows has_position=False. "
+                        f"진입가/진입봉 정보 부족으로 자동 복구 불가. "
+                        f"엔진 재시작 또는 DB 수동 확인 필요."
+                    )
+                    # 여기서는 자동 복구하지 않음
+                    # 이유: 진입가(avg_price), 진입 봉(entry_bar) 정보 필요
+                    # → 엔진 재시작 시 _seed_entry_price_from_db()로 복구되어야 함
+
+        except Exception as e:
+            logger.error(f"[POSITION-SYNC] 동기화 실패: {e}")
+
     def on_new_bar(self, bar: Bar):
         """
         새 봉 확정 시 처리 (핵심 로직)
@@ -110,6 +165,10 @@ class StrategyEngine:
         if not self.is_new_bar(bar):
             logger.debug(f"⏭️ 중복 봉 무시: {bar.ts}")
             return
+
+        # ✅ Position-Wallet 동기화 체크 (전략 평가 전)
+        # force_liquidate, 수동 거래 등으로 인한 불일치 자동 해결
+        self._reconcile_position_with_wallet()
 
         # 1. 버퍼 추가
         self.buffer.append(bar)
