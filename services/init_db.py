@@ -359,6 +359,9 @@ def ensure_orders_extended_schema(user_id: str | None):
     conn.commit()
     conn.close()
 
+    # ✅ 자동 마이그레이션: audit 테이블의 bool → int 변환
+    _migrate_audit_checks_bool_to_int(uid)
+
 
 def ensure_core_tables(user_id: str):
     conn = _connect(user_id)
@@ -536,3 +539,67 @@ def init_db_if_needed_old(user_id):
     ensure_core_tables(user_id)
     add_audit_tables(user_id)
     # print(f"✅ Schema ensured: {db_path}")
+
+
+def _migrate_audit_checks_bool_to_int(user_id: str):
+    """
+    audit_sell_eval, audit_buy_eval 테이블의 checks JSON 필드에서
+    bool 값을 int로 자동 변환 (PyArrow 호환성)
+
+    - 최초 1회 실행 시 모든 레코드 변환
+    - 이후 실행 시 이미 변환된 레코드는 스킵 (성능 최적화)
+    """
+    import json
+
+    def convert_bool_recursive(obj):
+        """재귀적으로 dict/list 내 bool 값을 int로 변환"""
+        if isinstance(obj, bool):
+            return int(obj)
+        elif isinstance(obj, dict):
+            return {k: convert_bool_recursive(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_bool_recursive(item) for item in obj]
+        else:
+            return obj
+
+    def convert_json(json_str):
+        """JSON 문자열 내 모든 bool 값을 int로 변환"""
+        if not json_str:
+            return json_str
+        try:
+            data = json.loads(json_str)
+            converted = convert_bool_recursive(data)
+            return json.dumps(converted, ensure_ascii=False)
+        except (json.JSONDecodeError, TypeError):
+            return json_str
+
+    conn = _connect(user_id)
+    cur = conn.cursor()
+
+    tables = ['audit_sell_eval', 'audit_buy_eval']
+
+    for table in tables:
+        # 테이블 존재 확인
+        cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
+        if not cur.fetchone():
+            continue
+
+        # checks 필드가 있는 레코드 조회 (전체)
+        cur.execute(f"SELECT id, checks FROM {table} WHERE checks IS NOT NULL")
+        rows = cur.fetchall()
+
+        converted_count = 0
+        for row_id, checks_json in rows:
+            original = checks_json
+            converted = convert_json(checks_json)
+
+            # 변환이 발생한 경우에만 업데이트
+            if original != converted:
+                cur.execute(f"UPDATE {table} SET checks = ? WHERE id = ?", (converted, row_id))
+                converted_count += 1
+
+        if converted_count > 0:
+            conn.commit()
+            # print(f"✅ Migrated {converted_count} records in {table}")
+
+    conn.close()

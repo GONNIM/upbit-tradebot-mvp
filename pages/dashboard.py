@@ -214,7 +214,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.26.2120")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.27.1516")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -865,6 +865,26 @@ if latest:
 
     source = latest["source"]
 
+    # SELL 평가 정보
+    # ✅ checks JSON에서 cross_status 추출
+    checks_raw = latest.get('checks', '{}')
+    try:
+        import json
+        checks = json.loads(checks_raw) if isinstance(checks_raw, str) else checks_raw
+        cross_status = checks.get('cross_status', 'Neutral')
+    except Exception:
+        cross_status = 'Neutral'
+
+    # ✅ 상태 표시: triggered > cross_status 순으로 우선순위
+    if latest.get('triggered'):
+        triggered = "🔴 TRIGGERED"
+    elif cross_status == "Dead":
+        triggered = "🔴 Dead (대기)"
+    elif cross_status == "Golden":
+        triggered = "🟢 Golden"
+    else:
+        triggered = "⚪ Neutral"
+
     if source == "BUY":
         # BUY 평가 정보
         overall_ok = "✅ PASS" if latest.get('overall_ok') else "❌ FAIL"
@@ -883,20 +903,19 @@ if latest:
         cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
         cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
         cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-        cols1[3].markdown(f"**Price**<br>{price}", unsafe_allow_html=True)
-        cols1[4].markdown(f"**평가**<br>{overall_ok}", unsafe_allow_html=True)
+        cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
+        cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
 
-        cols2 = st.columns(4)
+        cols2 = st.columns(5)
         cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
         cols2[1].markdown(f"**{indicator_fast}**<br>{macd_val}", unsafe_allow_html=True)
         cols2[2].markdown(f"**{indicator_slow}**<br>{signal_val}", unsafe_allow_html=True)
         cols2[3].markdown(f"**실패 조건**<br>{failed_str}", unsafe_allow_html=True)
+        cols2[4].markdown(f"**평가**<br>{overall_ok}", unsafe_allow_html=True)
 
         st.caption(f"Source: **BUY** (매수 평가 감사로그)")
 
     elif source == "SELL":
-        # SELL 평가 정보
-        triggered = "🔴 TRIGGERED" if latest.get('triggered') else "⚪ No Signal"
         trigger_key = latest.get('trigger_key', '-')
         tp_price = latest.get('tp_price', '-')
         sl_price = latest.get('sl_price', '-')
@@ -917,16 +936,15 @@ if latest:
         cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
         cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
         cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-        cols1[3].markdown(f"**Price**<br>{price}", unsafe_allow_html=True)
+        cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
         cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
 
-        cols2 = st.columns(6)
+        cols2 = st.columns(5)
         cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
         cols2[1].markdown(f"**{indicator_fast}**<br>{macd_val}", unsafe_allow_html=True)
         cols2[2].markdown(f"**{indicator_slow}**<br>{signal_val}", unsafe_allow_html=True)
         cols2[3].markdown(f"**트리거**<br>{trigger_key}", unsafe_allow_html=True)
         cols2[4].markdown(f"**TP/SL**<br>{tp_price}/{sl_price}", unsafe_allow_html=True)
-        cols2[5].markdown(f"**보유봉**<br>{bars_held}", unsafe_allow_html=True)
 
         st.caption(f"Source: **SELL** (매도 평가 감사로그)")
 

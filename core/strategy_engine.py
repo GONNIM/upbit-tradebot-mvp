@@ -539,6 +539,19 @@ class StrategyEngine:
                 tp_hit = bool((tp_price is not None) and (current_price >= tp_price))
                 sl_hit = bool((sl_price is not None) and (current_price <= sl_price))
 
+                # ✅ Dead Cross 조건 체크 추가
+                ema_fast = indicators.get("ema_fast")
+                ema_slow = indicators.get("ema_slow")
+                prev_ema_fast = indicators.get("prev_ema_fast")
+                prev_ema_slow = indicators.get("prev_ema_slow")
+
+                ema_dead_cross = (
+                    prev_ema_fast is not None and prev_ema_slow is not None
+                    and prev_ema_fast >= prev_ema_slow
+                    and ema_fast is not None and ema_slow is not None
+                    and ema_fast < ema_slow
+                )
+
                 if action == Action.HOLD or action == Action.NOOP:
                     # 신호 없음
                     sell_checks = base_checks.copy()
@@ -546,9 +559,10 @@ class StrategyEngine:
                     sell_checks["entry_price"] = float(entry_price) if entry_price else None
                     sell_checks["pnl_pct"] = float(pnl_pct)
                     sell_checks["cross_status"] = cross_status
-                    sell_checks["tp_hit"] = tp_hit
-                    sell_checks["sl_hit"] = sl_hit
+                    sell_checks["tp_hit"] = int(tp_hit)  # ✅ bool → int
+                    sell_checks["sl_hit"] = int(sl_hit)  # ✅ bool → int
                     sell_checks["bars_held"] = int(bars_held)
+                    sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
 
                     insert_sell_eval(
                         user_id=self.user_id,
@@ -585,10 +599,11 @@ class StrategyEngine:
                     sell_checks["entry_price"] = float(entry_price) if entry_price else None
                     sell_checks["pnl_pct"] = float(pnl_pct)
                     sell_checks["cross_status"] = cross_status
-                    sell_checks["tp_hit"] = tp_hit
-                    sell_checks["sl_hit"] = sl_hit
+                    sell_checks["tp_hit"] = int(tp_hit)  # ✅ bool → int
+                    sell_checks["sl_hit"] = int(sl_hit)  # ✅ bool → int
                     sell_checks["bars_held"] = int(bars_held)
                     sell_checks["trigger_reason"] = trigger_reason
+                    sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
 
                     insert_sell_eval(
                         user_id=self.user_id,

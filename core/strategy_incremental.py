@@ -21,6 +21,8 @@ class IncrementalMACDStrategy:
 
     def __init__(
         self,
+        user_id: str,
+        ticker: str,
         macd_threshold: float = 0.0,
         take_profit: float = 0.03,
         stop_loss: float = 0.01,
@@ -32,6 +34,8 @@ class IncrementalMACDStrategy:
     ):
         """
         Args:
+            user_id: 사용자 ID
+            ticker: 거래 티커 (예: KRW-SUI)
             macd_threshold: MACD 임계값 (매수 시 MACD가 이 값 이상이어야 함)
             take_profit: 익절 비율 (예: 0.03 = 3%)
             stop_loss: 손절 비율 (예: 0.01 = 1%)
@@ -41,6 +45,8 @@ class IncrementalMACDStrategy:
             buy_conditions: 매수 조건 ON/OFF 설정 (buy_sell_conditions.json의 buy 섹션)
             sell_conditions: 매도 조건 ON/OFF 설정 (buy_sell_conditions.json의 sell 섹션)
         """
+        self.user_id = user_id
+        self.ticker = ticker
         self.macd_threshold = macd_threshold
         self.take_profit = take_profit
         self.stop_loss = stop_loss
@@ -208,11 +214,28 @@ class IncrementalMACDStrategy:
         else:
             current_price = bar.close
 
+            # 🔍 TRACE: SELL 블록 진입 확인
+            logger.info(f"🔥 [SELL_BLOCK_ENTRY] MACD Strategy sell evaluation started | bar_idx={current_bar_idx}")
+
             # 최소 보유 기간 체크
             bars_held = position.get_bars_held(current_bar_idx)
+
+            # ✅ bars_held 음수 보정: 봇 재시작으로 인한 entry_bar 불일치 해결
+            if bars_held <= 0:
+                from services.db import estimate_bars_held_from_audit
+                bars_held_from_audit = estimate_bars_held_from_audit(self.user_id, self.ticker)
+                logger.warning(
+                    f"⚠️ [MACD] bars_held={bars_held} (음수/0) 감지 → DB 감사로그 기준으로 보정: {bars_held_from_audit}"
+                )
+                bars_held = bars_held_from_audit
+
+            logger.info(
+                f"🔍 [MIN_HOLDING_CHECK] bars_held={bars_held}, min_required={self.min_holding_period}, "
+                f"will_skip={bars_held < self.min_holding_period}"
+            )
             if bars_held < self.min_holding_period:
-                logger.debug(
-                    f"⏳ Min holding period | held={bars_held} required={self.min_holding_period}"
+                logger.info(
+                    f"⏳ Min holding period not met | held={bars_held} required={self.min_holding_period} → SKIP"
                 )
                 return Action.HOLD
 
@@ -220,38 +243,88 @@ class IncrementalMACDStrategy:
             position.update_highest_price(current_price)
 
             # ✅ Stop Loss 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Stop Loss 조건 및 활성화 상태 로그 추가
             pnl_pct = position.get_pnl_pct(current_price)
+            stop_loss_triggered = pnl_pct is not None and pnl_pct <= -self.stop_loss
+
+            logger.info(
+                f"🔍 DEBUG [STOP_LOSS_CHECK] "
+                f"enable_stop_loss={self.enable_stop_loss}, "
+                f"stop_loss_triggered={stop_loss_triggered}, "
+                f"pnl_pct={pnl_pct:.2%} if pnl_pct else 'None', "
+                f"threshold=-{self.stop_loss:.2%}, "
+                f"current_price={current_price}"
+            )
+
             if self.enable_stop_loss:
-                if pnl_pct is not None and pnl_pct <= -self.stop_loss:
+                if stop_loss_triggered:
                     logger.info(
                         f"🛡️ Stop Loss triggered | pnl={pnl_pct:.2%} sl={self.stop_loss:.2%}"
                     )
                     return Action.SELL
             else:
-                logger.info(f"⏭️ Stop Loss disabled | pnl={pnl_pct:.2%}")
+                if stop_loss_triggered:
+                    logger.info(f"⏭️ Stop Loss disabled but condition met | pnl={pnl_pct:.2%}")
 
             # ✅ Take Profit 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Take Profit 조건 및 활성화 상태 로그 추가
+            take_profit_triggered = pnl_pct is not None and pnl_pct >= self.take_profit
+
+            logger.info(
+                f"🔍 DEBUG [TAKE_PROFIT_CHECK] "
+                f"enable_take_profit={self.enable_take_profit}, "
+                f"take_profit_triggered={take_profit_triggered}, "
+                f"pnl_pct={pnl_pct:.2%} if pnl_pct else 'None', "
+                f"threshold={self.take_profit:.2%}, "
+                f"current_price={current_price}"
+            )
+
             if self.enable_take_profit:
-                if pnl_pct is not None and pnl_pct >= self.take_profit:
+                if take_profit_triggered:
                     logger.info(
                         f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit:.2%}"
                     )
                     return Action.SELL
             else:
-                logger.info(f"⏭️ Take Profit disabled | pnl={pnl_pct:.2%}")
+                if take_profit_triggered:
+                    logger.info(f"⏭️ Take Profit disabled but condition met | pnl={pnl_pct:.2%}")
 
             # ✅ Trailing Stop 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Trailing Stop 조건 및 활성화 상태 로그 추가
+            highest_price = position.highest_price
+            trailing_stop_triggered = False
+            if self.trailing_stop_pct is not None:
+                trailing_stop_triggered = position.arm_trailing_stop(self.trailing_stop_pct, current_price)
+
+            logger.info(
+                f"🔍 DEBUG [TRAILING_STOP_CHECK] "
+                f"enable_trailing_stop={self.enable_trailing_stop}, "
+                f"trailing_stop_triggered={trailing_stop_triggered}, "
+                f"trailing_stop_pct={self.trailing_stop_pct:.2%} if self.trailing_stop_pct else 'None', "
+                f"highest_price={highest_price}, "
+                f"current_price={current_price}"
+            )
+
             if self.enable_trailing_stop:
-                if self.trailing_stop_pct is not None:
-                    if position.arm_trailing_stop(self.trailing_stop_pct, current_price):
-                        logger.info(
-                            f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
-                        )
-                        return Action.SELL
+                if trailing_stop_triggered:
+                    logger.info(
+                        f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
+                    )
+                    return Action.SELL
             else:
-                logger.info(f"⏭️ Trailing Stop disabled")
+                if trailing_stop_triggered:
+                    logger.info(f"⏭️ Trailing Stop disabled but condition met")
 
             # ✅ Dead Cross 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Dead Cross 조건 및 활성화 상태 로그 추가
+            logger.info(
+                f"🔍 DEBUG [DEAD_CROSS_CHECK] "
+                f"enable_dead_cross={self.enable_dead_cross}, "
+                f"dead_cross={dead_cross}, "
+                f"macd={macd:.6f}, "
+                f"signal={signal:.6f}"
+            )
+
             if self.enable_dead_cross:
                 if dead_cross:
                     logger.info(
@@ -273,6 +346,8 @@ class IncrementalEMAStrategy:
 
     def __init__(
         self,
+        user_id: str,
+        ticker: str,
         take_profit: float = 0.03,
         stop_loss: float = 0.01,
         min_holding_period: int = 0,
@@ -283,6 +358,8 @@ class IncrementalEMAStrategy:
     ):
         """
         Args:
+            user_id: 사용자 ID
+            ticker: 거래 티커 (예: KRW-SUI)
             take_profit: 익절 비율
             stop_loss: 손절 비율
             min_holding_period: 최소 보유 기간
@@ -291,6 +368,8 @@ class IncrementalEMAStrategy:
             buy_conditions: 매수 조건 ON/OFF 설정 (buy_sell_conditions.json의 buy 섹션)
             sell_conditions: 매도 조건 ON/OFF 설정 (buy_sell_conditions.json의 sell 섹션)
         """
+        self.user_id = user_id
+        self.ticker = ticker
         self.take_profit = take_profit
         self.stop_loss = stop_loss
         self.min_holding_period = min_holding_period
@@ -410,11 +489,28 @@ class IncrementalEMAStrategy:
         else:
             current_price = bar.close
 
+            # 🔍 TRACE: SELL 블록 진입 확인
+            logger.info(f"🔥 [SELL_BLOCK_ENTRY] EMA Strategy sell evaluation started | bar_idx={current_bar_idx}")
+
             # 최소 보유 기간 체크
             bars_held = position.get_bars_held(current_bar_idx)
+
+            # ✅ bars_held 음수 보정: 봇 재시작으로 인한 entry_bar 불일치 해결
+            if bars_held <= 0:
+                from services.db import estimate_bars_held_from_audit
+                bars_held_from_audit = estimate_bars_held_from_audit(self.user_id, self.ticker)
+                logger.warning(
+                    f"⚠️ [EMA] bars_held={bars_held} (음수/0) 감지 → DB 감사로그 기준으로 보정: {bars_held_from_audit}"
+                )
+                bars_held = bars_held_from_audit
+
+            logger.info(
+                f"🔍 [MIN_HOLDING_CHECK] bars_held={bars_held}, min_required={self.min_holding_period}, "
+                f"will_skip={bars_held < self.min_holding_period}"
+            )
             if bars_held < self.min_holding_period:
-                logger.debug(
-                    f"⏳ Min holding period | held={bars_held} required={self.min_holding_period}"
+                logger.info(
+                    f"⏳ Min holding period not met | held={bars_held} required={self.min_holding_period} → SKIP"
                 )
                 return Action.HOLD
 
@@ -422,38 +518,88 @@ class IncrementalEMAStrategy:
             position.update_highest_price(current_price)
 
             # ✅ Stop Loss 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Stop Loss 조건 및 활성화 상태 로그 추가
             pnl_pct = position.get_pnl_pct(current_price)
+            stop_loss_triggered = pnl_pct is not None and pnl_pct <= -self.stop_loss
+
+            logger.info(
+                f"🔍 DEBUG [STOP_LOSS_CHECK] "
+                f"enable_stop_loss={self.enable_stop_loss}, "
+                f"stop_loss_triggered={stop_loss_triggered}, "
+                f"pnl_pct={pnl_pct:.2%} if pnl_pct else 'None', "
+                f"threshold=-{self.stop_loss:.2%}, "
+                f"current_price={current_price}"
+            )
+
             if self.enable_stop_loss:
-                if pnl_pct is not None and pnl_pct <= -self.stop_loss:
+                if stop_loss_triggered:
                     logger.info(
                         f"🛡️ Stop Loss triggered | pnl={pnl_pct:.2%} sl={self.stop_loss:.2%}"
                     )
                     return Action.SELL
             else:
-                logger.info(f"⏭️ Stop Loss disabled | pnl={pnl_pct:.2%}")
+                if stop_loss_triggered:
+                    logger.info(f"⏭️ Stop Loss disabled but condition met | pnl={pnl_pct:.2%}")
 
             # ✅ Take Profit 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Take Profit 조건 및 활성화 상태 로그 추가
+            take_profit_triggered = pnl_pct is not None and pnl_pct >= self.take_profit
+
+            logger.info(
+                f"🔍 DEBUG [TAKE_PROFIT_CHECK] "
+                f"enable_take_profit={self.enable_take_profit}, "
+                f"take_profit_triggered={take_profit_triggered}, "
+                f"pnl_pct={pnl_pct:.2%} if pnl_pct else 'None', "
+                f"threshold={self.take_profit:.2%}, "
+                f"current_price={current_price}"
+            )
+
             if self.enable_take_profit:
-                if pnl_pct is not None and pnl_pct >= self.take_profit:
+                if take_profit_triggered:
                     logger.info(
                         f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit:.2%}"
                     )
                     return Action.SELL
             else:
-                logger.info(f"⏭️ Take Profit disabled | pnl={pnl_pct:.2%}")
+                if take_profit_triggered:
+                    logger.info(f"⏭️ Take Profit disabled but condition met | pnl={pnl_pct:.2%}")
 
             # ✅ Trailing Stop 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Trailing Stop 조건 및 활성화 상태 로그 추가
+            highest_price = position.highest_price
+            trailing_stop_triggered = False
+            if self.trailing_stop_pct is not None:
+                trailing_stop_triggered = position.arm_trailing_stop(self.trailing_stop_pct, current_price)
+
+            logger.info(
+                f"🔍 DEBUG [TRAILING_STOP_CHECK] "
+                f"enable_trailing_stop={self.enable_trailing_stop}, "
+                f"trailing_stop_triggered={trailing_stop_triggered}, "
+                f"trailing_stop_pct={self.trailing_stop_pct:.2%} if self.trailing_stop_pct else 'None', "
+                f"highest_price={highest_price}, "
+                f"current_price={current_price}"
+            )
+
             if self.enable_trailing_stop:
-                if self.trailing_stop_pct is not None:
-                    if position.arm_trailing_stop(self.trailing_stop_pct, current_price):
-                        logger.info(
-                            f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
-                        )
-                        return Action.SELL
+                if trailing_stop_triggered:
+                    logger.info(
+                        f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
+                    )
+                    return Action.SELL
             else:
-                logger.info(f"⏭️ Trailing Stop disabled")
+                if trailing_stop_triggered:
+                    logger.info(f"⏭️ Trailing Stop disabled but condition met")
 
             # ✅ EMA Dead Cross 체크 (조건 파일에서 ON일 때만)
+            # 🔍 DEBUG: Dead Cross 조건 및 활성화 상태 로그 추가
+            logger.info(
+                f"🔍 DEBUG [DEAD_CROSS_CHECK] "
+                f"enable_dead_cross={self.enable_dead_cross}, "
+                f"ema_dead_cross={ema_dead_cross}, "
+                f"prev_fast={prev_ema_fast}, prev_slow={prev_ema_slow}, "
+                f"curr_fast={ema_fast:.2f}, curr_slow={ema_slow:.2f}"
+            )
+
             if self.enable_dead_cross:
                 if ema_dead_cross:
                     logger.info(

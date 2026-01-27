@@ -327,12 +327,27 @@ def run_live_loop(
     buy_conditions = conditions.get("buy", {})  # ✅ 매수 조건 추출
     sell_conditions = conditions.get("sell", {})  # ✅ 매도 조건 추출
 
+    # 🔍 DEBUG: 조건 파일 로딩 상태 상세 로그
+    logger.info(f"🔍 DEBUG [CONDITIONS] Full conditions loaded: {conditions}")
     logger.info(f"[전략 초기화] Loaded buy conditions: {buy_conditions}")
     logger.info(f"[전략 초기화] Loaded sell conditions: {sell_conditions}")
+
+    # ✅ 필수 매도 조건 검증
+    if not sell_conditions:
+        logger.error(f"⚠️ CRITICAL: 매도 조건이 비어있습니다! conditions={conditions}")
+    else:
+        required_sell_keys = ["ema_dc", "stop_loss", "take_profit", "trailing_stop"]
+        missing_keys = [k for k in required_sell_keys if k not in sell_conditions]
+        if missing_keys:
+            logger.warning(f"⚠️ 누락된 매도 조건 키: {missing_keys}")
+        else:
+            logger.info(f"✅ 매도 조건 검증 완료: {list(sell_conditions.keys())}")
 
     # 전략 객체 생성 (1회만)
     if strategy_tag == "MACD":
         strategy = IncrementalMACDStrategy(
+            user_id=user_id,
+            ticker=params.upbit_ticker,
             macd_threshold=getattr(params, "macd_threshold", 0.0),
             take_profit=params.take_profit,
             stop_loss=params.stop_loss,
@@ -347,6 +362,8 @@ def run_live_loop(
         use_base_ema_filter = getattr(params, "use_base_ema", True)
 
         strategy = IncrementalEMAStrategy(
+            user_id=user_id,
+            ticker=params.upbit_ticker,
             take_profit=params.take_profit,
             stop_loss=params.stop_loss,
             min_holding_period=getattr(params, "min_holding_period", 0),
