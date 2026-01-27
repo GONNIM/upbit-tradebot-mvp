@@ -312,15 +312,31 @@ def run_live_loop(
     # 기존 포지션 복구 (지갑 기준)
     has_pos = _wallet_has_position(trader, params.upbit_ticker)
     if has_pos:
+        # ✅ 실제 지갑 잔고로 qty 설정 (Single Source of Truth)
+        actual_qty = _wallet_balance(trader, params.upbit_ticker)
+
         db_result = _seed_entry_price_from_db(params.upbit_ticker, user_id)
         if db_result:
             entry_price = db_result.get("price")
             entry_bar = db_result.get("entry_bar")
+
             position.has_position = True
             position.avg_price = entry_price
+            position.qty = actual_qty  # ✅ 매도 시 필수!
             if entry_bar is not None:
                 position.entry_bar = entry_bar
-            logger.info(f"🔁 Position recovered | entry={entry_price} entry_bar={entry_bar}")
+            logger.info(f"🔁 Position recovered | entry={entry_price} qty={actual_qty:.6f} entry_bar={entry_bar}")
+        else:
+            # ⚠️ DB에서 진입가를 찾지 못했지만 지갑에 코인이 있는 경우
+            logger.warning(
+                f"⚠️ 지갑에 코인({actual_qty:.6f})이 있지만 DB에서 진입가를 찾을 수 없습니다. "
+                f"포지션 복구 불가 - 수동 정리 또는 force_liquidate 필요"
+            )
+            # qty만이라도 설정해서 비상 매도는 가능하도록
+            position.has_position = True
+            position.qty = actual_qty
+            position.avg_price = None  # 진입가 불명
+            logger.warning(f"⚠️ 비상 모드: qty={actual_qty:.6f} 설정 완료, 진입가 없음")
 
     # ✅ 조건 파일 로드 (매수/매도 조건)
     conditions = _load_trade_conditions(user_id, params.strategy_type)
