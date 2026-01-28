@@ -59,7 +59,23 @@ class OrderReconciler:
             for r in rows:
                 u = r.get("uuid")
                 if u and u not in self._pending:
-                    self._pending[u] = {"user_id": r["user_id"], "ticker": r["ticker"], "side": r["side"], "last": None}
+                    # ✅ meta 복구 (JSON 파싱)
+                    meta_str = r.get("meta")
+                    meta_dict = {}
+                    if meta_str:
+                        try:
+                            import json
+                            meta_dict = json.loads(meta_str)
+                        except (json.JSONDecodeError, TypeError) as e:
+                            logger.warning(f"[OR] meta parsing failed for uuid={u}: {e}")
+
+                    self._pending[u] = {
+                        "user_id": r["user_id"],
+                        "ticker": r["ticker"],
+                        "side": r["side"],
+                        "last": None,
+                        "meta": meta_dict  # ✅ 전략 컨텍스트 복구
+                    }
         logger.info(f"[OR] recovered pending: {len(rows)}")
 
     def _run(self):

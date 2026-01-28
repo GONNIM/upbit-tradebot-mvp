@@ -133,7 +133,7 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str, interval_sec
     insert_log(user_id, "SELL", msg)
 
     try:
-        get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="SELL")
+        get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="SELL", meta=meta)
     except Exception as e:
         insert_log(user_id, "ERROR", f"⚠️ 강제청산 reconciler enqueue 실패: {e}")
 
@@ -275,7 +275,7 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: i
     )
 
     try:
-        get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="BUY")
+        get_reconciler().enqueue(uuid, user_id=user_id, ticker=ticker, side="BUY", meta=meta)
     except Exception as e:
         insert_log(user_id, "ERROR", f"⚠️ 강제매수 reconciler enqueue 실패: {e}")
 

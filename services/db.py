@@ -112,6 +112,7 @@ def insert_order(
     avg_price: float | None = None,
     paid_fee: float | None = None,
     entry_bar: int | None = None,  # ✅ bars_held 추적용
+    meta: str | None = None,  # ✅ 전략 컨텍스트 (JSON)
 ):
     ensure_schema(user_id)
     with get_db(user_id) as conn:
@@ -122,9 +123,9 @@ def insert_order(
                 user_id, timestamp, ticker, side, price, volume, status,
                 current_krw, current_coin, profit_krw,
                 provider_uuid, state, requested_at, executed_at, canceled_at,
-                executed_volume, avg_price, paid_fee, updated_at, entry_bar
+                executed_volume, avg_price, paid_fee, updated_at, entry_bar, meta
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -147,6 +148,7 @@ def insert_order(
                 paid_fee,
                 now_kst(),
                 entry_bar,  # ✅ entry_bar 저장
+                meta,  # ✅ 전략 컨텍스트 저장 (JSON)
             ),
         )
         conn.commit()
@@ -1237,7 +1239,7 @@ def fetch_inflight_orders(user_id: str | None = None):
         cur = conn.cursor()
         if user_id:
             cur.execute("""
-                SELECT id, user_id, ticker, side, provider_uuid, state
+                SELECT id, user_id, ticker, side, provider_uuid, state, meta
                 FROM orders
                 WHERE user_id = ? AND provider_uuid IS NOT NULL
                   AND state IN ('REQUESTED','PARTIALLY_FILLED')
@@ -1245,7 +1247,7 @@ def fetch_inflight_orders(user_id: str | None = None):
             """, (user_id,))
         else:
             cur.execute("""
-                SELECT id, user_id, ticker, side, provider_uuid, state
+                SELECT id, user_id, ticker, side, provider_uuid, state, meta
                 FROM orders
                 WHERE provider_uuid IS NOT NULL
                   AND state IN ('REQUESTED','PARTIALLY_FILLED')
@@ -1260,6 +1262,7 @@ def fetch_inflight_orders(user_id: str | None = None):
                 "side": r[3],
                 "uuid": r[4],
                 "state": r[5],
+                "meta": r[6],  # ✅ 전략 컨텍스트 (JSON)
             } for r in rows
         ]
 

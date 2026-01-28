@@ -276,6 +276,10 @@ class UpbitTrader:
             # ✅ meta에서 entry_bar 추출
             entry_bar = (meta or {}).get("bar") if meta else None
 
+            # ✅ meta를 JSON 문자열로 변환
+            import json
+            meta_json = json.dumps(meta) if meta else None
+
             insert_order(
                 self.user_id,
                 ticker,
@@ -287,6 +291,7 @@ class UpbitTrader:
                 state="REQUESTED",
                 requested_at=now_kst(),
                 entry_bar=entry_bar,  # ✅ bars_held 추적용
+                meta=meta_json,  # ✅ 전략 컨텍스트 저장
             )
             
             self._audit_trade(
@@ -419,16 +424,21 @@ class UpbitTrader:
                 return {}
 
 
+            # ✅ meta를 JSON 문자열로 변환
+            import json
+            meta_json = json.dumps(meta) if meta else None
+
             insert_order(
-                self.user_id, 
-                ticker, 
-                "SELL", 
-                price, 
-                qty, 
-                "requested", 
+                self.user_id,
+                ticker,
+                "SELL",
+                price,
+                qty,
+                "requested",
                 provider_uuid=uuid,
                 state="REQUESTED",
                 requested_at=now_kst(),
+                meta=meta_json,  # ✅ 전략 컨텍스트 저장
             )
 
             self._audit_trade(
