@@ -28,7 +28,7 @@ CONDITIONS_JSON_FILENAME = "buy_sell_conditions.json"
 DEFAULT_USER_ID = "mcmax33"
 
 # 리프레시 간격 (초)
-REFRESH_INTERVAL = 5
+REFRESH_INTERVAL = 10  # ✅ 최적화: 5초 → 10초 (API 호출 50% 감소)
 
 # ============================================================
 # 🧠 Strategy 공통 설정

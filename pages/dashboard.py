@@ -99,29 +99,33 @@ if is_live:
         capital_ok = capital_ok or bool(st.session_state["live_capital_set"])
 
 
-def get_current_balances(user_id: str, params_obj, is_live: bool):
+def get_current_balances(user_id: str, params_obj, is_live: bool, force_refresh: bool = False):
     """
     자산 현황용 현재 잔고 조회.
-    - TEST 모드: 기존처럼 DB(virtual_krw, account_positions) 기준
-    - LIVE 모드: Upbit 실계좌 우선, 실패 시 DB로 폴백
+    - TEST 모드: DB(virtual_krw, account_positions) 기준
+    - LIVE 모드:
+      * force_refresh=False (기본): DB 캐시 사용 (Reconciler가 2초마다 업데이트, 빠름!)
+      * force_refresh=True: Upbit API 실시간 조회 (강제매도/매수 직후만 사용)
     """
     ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
 
-    if is_live:
-        # 🔹 읽기 전용 용도로 트레이더 하나 생성
+    if is_live and force_refresh:
+        # ✅ 실시간 API 조회 (강제매도/매수 직후에만)
         trader_view = UpbitTrader(
             user_id,
             risk_pct=getattr(params_obj, "order_ratio", 1.0),
-            test_mode=False,   # ← 반드시 False (실계좌)
+            test_mode=False,
         )
         try:
             krw_live = float(trader_view._krw_balance())
             coin_live = float(trader_view._coin_balance(ticker))
+            logger.info(f"[DASH] 실시간 API 조회: KRW={krw_live:,.0f}, COIN={coin_live:.6f}")
             return krw_live, coin_live
         except Exception as e:
-            logger.warning(f"[DASH] live balance fetch failed, fallback to DB: {e}")
+            logger.warning(f"[DASH] API 조회 실패, DB 폴백: {e}")
 
-    # 🔹 TEST 모드 + LIVE 실패 시 공통 폴백: DB 스냅샷
+    # ✅ DB 캐시 사용 (TEST 모드 + LIVE 일반 모니터링)
+    # Reconciler가 주문 체결 시 실시간 업데이트하므로 충분히 정확함
     acc = get_account(user_id) or 0.0
     coin = get_coin_balance(user_id, ticker) or 0.0
     return float(acc), float(coin)
@@ -214,7 +218,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.28.1659")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.01.28.1808")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -340,10 +344,15 @@ if params_obj is None:
 # st.json(params_obj.model_dump())
 # st.write("strategy_type from params_obj:", params_obj.strategy_type)
 
+# ✅ 강제매도/매수 후 즉시 API 조회 여부 확인
+force_api_refresh = st.session_state.pop("needs_balance_refresh", False)
+
 # account_krw = get_account(user_id) or 0
 # st.write(account_krw)
 # coin_balance = get_coin_balance(user_id, params_obj.upbit_ticker) or 0.0
-account_krw, coin_balance = get_current_balances(user_id, params_obj, is_live)
+account_krw, coin_balance = get_current_balances(
+    user_id, params_obj, is_live, force_refresh=force_api_refresh
+)
 
 # ★ 현재 전략 태그 (MACD / EMA) – LiveParams에서 이미 대문자로 보장됨
 raw_strategy = getattr(params_obj, "strategy_type", None) or DEFAULT_STRATEGY_TYPE
@@ -1106,6 +1115,12 @@ with btn_col1:
                 st.success(msg, icon="✅")
             else:
                 st.info(msg, icon="📡")
+
+            # ✅ LIVE 모드: 주문 후 잔고 즉시 새로고침
+            if is_live and not msg.startswith("❌"):
+                time.sleep(2)  # Reconciler가 처리할 시간 제공
+                st.session_state["needs_balance_refresh"] = True
+                st.rerun()
         else:
             st.warning(f"⚠️ 강제매수 불가: 코인 보유 중 ({coin_value:,.0f}원 상당)")
 with btn_col2:
@@ -1123,6 +1138,12 @@ with btn_col2:
                 st.success(msg, icon="✅")
             else:
                 st.info(msg, icon="📡")
+
+            # ✅ LIVE 모드: 주문 후 잔고 즉시 새로고침
+            if is_live and not msg.startswith("❌"):
+                time.sleep(2)  # Reconciler가 처리할 시간 제공
+                st.session_state["needs_balance_refresh"] = True
+                st.rerun()
         else:
             st.warning(f"⚠️ 강제매도 불가: 코인 보유량 부족 ({coin_value:,.0f}원 상당)")
 with btn_col3:
