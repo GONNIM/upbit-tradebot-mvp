@@ -317,6 +317,13 @@ class UpbitTrader:
                 ),
             )
 
+            # ✅ OrderReconciler에 추적 등록
+            try:
+                from engine.reconciler_singleton import get_reconciler
+                get_reconciler().enqueue(uuid, user_id=self.user_id, ticker=ticker, side="BUY", meta=meta)
+            except Exception as e:
+                logger.error(f"⚠️ reconciler enqueue 실패: {e}")
+
             return {
                 "time": ts,
                 "side": "BUY",
@@ -463,6 +470,13 @@ class UpbitTrader:
                     f"(예상가≈{price:,.2f} KRW, 수량≈{qty:.6f}, uuid={uuid})"
                 ),
             )
+
+            # ✅ OrderReconciler에 추적 등록
+            try:
+                from engine.reconciler_singleton import get_reconciler
+                get_reconciler().enqueue(uuid, user_id=self.user_id, ticker=ticker, side="SELL", meta=meta)
+            except Exception as e:
+                logger.error(f"⚠️ reconciler enqueue 실패: {e}")
 
             return {
                 "time": ts,
