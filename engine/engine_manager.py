@@ -114,13 +114,13 @@ class EngineManager:
         captured_mode = current_mode()
         tm = (test_mode if test_mode is not None else (captured_mode != MODE_LIVE))
 
-        # LIVE 모드 첫 시작 시 Reconciler 기동 및 미체결 로딩
+        # LIVE 모드 Reconciler 기동 및 미체결 로딩
         if captured_mode == MODE_LIVE:
+            rec = get_reconciler()
+            rec.start()  # Idempotent: 이미 실행 중이면 자동 스킵
             if self._live_engine_count == 0:
-                rec = get_reconciler()
-                rec.start()
                 rec.load_inflight_from_db(fetch_inflight_orders)
-            self._live_engine_count = 1
+            self._live_engine_count += 1  # ✅ FIX: SET → INCREMENT
 
         return self._start_engine_internal(user_id, tm, restart_count, captured_mode)
     
