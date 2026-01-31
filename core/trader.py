@@ -293,20 +293,22 @@ class UpbitTrader:
                 entry_bar=entry_bar,  # ✅ bars_held 추적용
                 meta=meta_json,  # ✅ 전략 컨텍스트 저장
             )
-            
-            self._audit_trade(
-                side="BUY",
-                ticker=ticker,
-                price=price,
-                qty=None,
-                status_note="market buy(live-req)",
-                ts=ts,
-                meta=(meta or {}),
-                balances_before=(self._krw_balance(), self._coin_balance(ticker)),
-                balances_after=(None, None),
-                fee_ratio=MIN_FEE_RATIO,
-                risk_pct=self.risk_pct,
-            )
+
+            # ❌ LIVE 모드에서는 reconciler가 체결 후 audit 기록 담당
+            # (중복 방지: trader 요청 시 + reconciler 체결 시 = 2번 기록 문제 해결)
+            # self._audit_trade(
+            #     side="BUY",
+            #     ticker=ticker,
+            #     price=price,
+            #     qty=None,
+            #     status_note="market buy(live-req)",
+            #     ts=ts,
+            #     meta=(meta or {}),
+            #     balances_before=(self._krw_balance(), self._coin_balance(ticker)),
+            #     balances_after=(None, None),
+            #     fee_ratio=MIN_FEE_RATIO,
+            #     risk_pct=self.risk_pct,
+            # )
 
             insert_log(
                 self.user_id,
@@ -457,19 +459,21 @@ class UpbitTrader:
                 meta=meta_json,  # ✅ 전략 컨텍스트 저장
             )
 
-            self._audit_trade(
-                side="SELL",
-                ticker=ticker,
-                price=price,
-                qty=qty,
-                status_note="market sell(live-req)",
-                ts=ts,
-                meta=(meta or {}),
-                balances_before=(self._krw_balance(), self._coin_balance(ticker)),
-                balances_after=(None, None),
-                fee_ratio=MIN_FEE_RATIO,
-                risk_pct=self.risk_pct,
-            )
+            # ❌ LIVE 모드에서는 reconciler가 체결 후 audit 기록 담당
+            # (중복 방지: trader 요청 시 + reconciler 체결 시 = 2번 기록 문제 해결)
+            # self._audit_trade(
+            #     side="SELL",
+            #     ticker=ticker,
+            #     price=price,
+            #     qty=qty,
+            #     status_note="market sell(live-req)",
+            #     ts=ts,
+            #     meta=(meta or {}),
+            #     balances_before=(self._krw_balance(), self._coin_balance(ticker)),
+            #     balances_after=(None, None),
+            #     fee_ratio=MIN_FEE_RATIO,
+            #     risk_pct=self.risk_pct,
+            # )
 
             insert_log(
                 self.user_id,
