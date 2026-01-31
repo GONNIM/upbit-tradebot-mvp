@@ -345,9 +345,18 @@ class UpbitTrader:
         - LIVE: Upbit에 수량 기준 시장가 주문 → orders에는 'REQUESTED' + uuid 기록
                 실제 체결 결과(최종 수량/평단/수수료)는 OrderReconciler가 update_order_*()로 채움
         """
+        # 🔧 FIX: position.qty가 0일 때 실제 지갑 잔고 확인
         if qty <= 0:
-            logger.warning("[SELL] 수량이 0 이하입니다. 매도 생략")
-            return {}
+            actual_balance = self._coin_balance(ticker)
+            if actual_balance > 0:
+                logger.warning(
+                    f"[SELL] ⚠️ position.qty={qty} but wallet has {actual_balance:.6f} {ticker} "
+                    f"- using actual wallet balance to recover position sync"
+                )
+                qty = actual_balance
+            else:
+                logger.warning("[SELL] 수량이 0 이하입니다. 매도 생략")
+                return {}
         
         logger.info(f"[SELL] plan qty={qty} price={price:.8f} fee={MIN_FEE_RATIO}")
 
