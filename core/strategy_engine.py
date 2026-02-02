@@ -266,9 +266,14 @@ class StrategyEngine:
         # 매수 실행
         self.position.set_pending(True)
 
+        # ✅ 전략이 판정한 실제 reason 사용 (fallback: GoldenCross/EMA_GC)
+        buy_reason = getattr(self.strategy, "last_buy_reason", None) or (
+            "GoldenCross" if self.strategy_type == "MACD" else "EMA_GC"
+        )
+
         meta = {
             "bar": self.bar_count,
-            "reason": "GoldenCross" if self.strategy_type == "MACD" else "EMA_GC",
+            "reason": buy_reason,  # ✅ 동적 reason
             "macd": indicators.get("macd"),
             "signal": indicators.get("signal"),
             "ema_fast": indicators.get("ema_fast"),
@@ -327,9 +332,12 @@ class StrategyEngine:
         pnl_pct = self.position.get_pnl_pct(bar.close)
         bars_held = self.position.get_bars_held(self.bar_count)
 
+        # ✅ 전략이 판정한 실제 reason 사용 (fallback: DeadCross)
+        sell_reason = getattr(self.strategy, "last_sell_reason", None) or "DeadCross"
+
         meta = {
             "bar": self.bar_count,
-            "reason": "DeadCross",
+            "reason": sell_reason,  # ✅ 동적 reason (TP/SL/TS/DC 구분)
             "entry_bar": self.position.entry_bar,
             "entry_price": self.position.avg_price,
             "bars_held": bars_held,

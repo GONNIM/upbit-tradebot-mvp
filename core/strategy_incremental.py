@@ -90,6 +90,10 @@ class IncrementalMACDStrategy:
             f"dead_cross={self.enable_dead_cross}"
         )
 
+        # ✅ 마지막 BUY/SELL reason 추적용
+        self.last_buy_reason: Optional[str] = None
+        self.last_sell_reason: Optional[str] = None
+
     def on_bar(
         self,
         bar: Bar,
@@ -206,6 +210,7 @@ class IncrementalMACDStrategy:
                 f"🔔 MACD Buy Signal | macd={macd:.6f} signal={signal:.6f} "
                 f"threshold={self.macd_threshold:.6f}"
             )
+            self.last_buy_reason = "GOLDEN_CROSS"  # ✅ BUY reason 설정
             return Action.BUY
 
         # ========================================
@@ -261,6 +266,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🛡️ Stop Loss triggered | pnl={pnl_pct:.2%} sl={self.stop_loss:.2%}"
                     )
+                    self.last_sell_reason = "STOP_LOSS"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if stop_loss_triggered:
@@ -284,6 +290,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit:.2%}"
                     )
+                    self.last_sell_reason = "TAKE_PROFIT"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if take_profit_triggered:
@@ -310,6 +317,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
                     )
+                    self.last_sell_reason = "TRAILING_STOP"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if trailing_stop_triggered:
@@ -330,6 +338,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🔻 MACD Dead Cross | macd={macd:.6f} signal={signal:.6f}"
                     )
+                    self.last_sell_reason = "DEAD_CROSS"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if dead_cross:
@@ -403,6 +412,10 @@ class IncrementalEMAStrategy:
             f"trailing_stop={self.enable_trailing_stop}, "
             f"ema_dc={self.enable_dead_cross}"
         )
+
+        # ✅ 마지막 BUY/SELL reason 추적용
+        self.last_buy_reason: Optional[str] = None
+        self.last_sell_reason: Optional[str] = None
 
     def on_bar(
         self,
@@ -481,6 +494,7 @@ class IncrementalEMAStrategy:
             logger.info(
                 f"🔔 EMA Buy Signal | fast={ema_fast:.2f} slow={ema_slow:.2f}"
             )
+            self.last_buy_reason = "EMA_GC"  # ✅ BUY reason 설정
             return Action.BUY
 
         # ========================================
@@ -536,6 +550,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"🛡️ Stop Loss triggered | pnl={pnl_pct:.2%} sl={self.stop_loss:.2%}"
                     )
+                    self.last_sell_reason = "STOP_LOSS"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if stop_loss_triggered:
@@ -559,6 +574,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit:.2%}"
                     )
+                    self.last_sell_reason = "TAKE_PROFIT"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if take_profit_triggered:
@@ -585,6 +601,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
                     )
+                    self.last_sell_reason = "TRAILING_STOP"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if trailing_stop_triggered:
@@ -605,6 +622,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"🔻 EMA Dead Cross | fast={ema_fast:.2f} slow={ema_slow:.2f}"
                     )
+                    self.last_sell_reason = "DEAD_CROSS"  # ✅ reason 설정
                     return Action.SELL
             else:
                 if ema_dead_cross:
