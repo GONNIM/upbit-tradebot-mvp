@@ -133,12 +133,46 @@ class StrategyEngine:
                         f"⚠️ [POSITION-SYNC] 외부 매수 감지: "
                         f"지갑 잔고={actual_balance:.6f} "
                         f"but memory shows has_position=False. "
-                        f"진입가/진입봉 정보 부족으로 자동 복구 불가. "
-                        f"엔진 재시작 또는 DB 수동 확인 필요."
+                        f"DB에서 진입가/진입봉 자동 복구 시도..."
                     )
-                    # 여기서는 자동 복구하지 않음
-                    # 이유: 진입가(avg_price), 진입 봉(entry_bar) 정보 필요
-                    # → 엔진 재시작 시 _seed_entry_price_from_db()로 복구되어야 함
+
+                    # ✅ DB에서 최근 BUY 주문 정보 조회하여 자동 복구
+                    try:
+                        from services.db import get_last_open_buy_order
+                        db_result = get_last_open_buy_order(self.ticker, self.user_id)
+
+                        if db_result:
+                            entry_price = db_result.get("avg_price") or db_result.get("price")
+                            entry_bar = db_result.get("entry_bar")
+
+                            if entry_price is not None:
+                                self.position.has_position = True
+                                self.position.qty = actual_balance
+                                self.position.avg_price = float(entry_price)
+
+                                if entry_bar is not None:
+                                    self.position.entry_bar = int(entry_bar)
+                                else:
+                                    # entry_bar 없으면 현재 봉 사용 (최선)
+                                    self.position.entry_bar = self.bar_count
+
+                                logger.info(
+                                    f"✅ [POSITION-SYNC] 자동 복구 성공: "
+                                    f"qty={actual_balance:.6f}, entry_price={entry_price:.2f}, "
+                                    f"entry_bar={self.position.entry_bar}"
+                                )
+                            else:
+                                logger.error(
+                                    f"❌ [POSITION-SYNC] DB에서 진입가를 찾을 수 없음. "
+                                    f"수동 정리 또는 엔진 재시작 필요."
+                                )
+                        else:
+                            logger.error(
+                                f"❌ [POSITION-SYNC] DB에서 최근 BUY 주문을 찾을 수 없음. "
+                                f"수동 정리 또는 엔진 재시작 필요."
+                            )
+                    except Exception as e:
+                        logger.error(f"❌ [POSITION-SYNC] 자동 복구 실패: {e}")
 
         except Exception as e:
             logger.error(f"[POSITION-SYNC] 동기화 실패: {e}")

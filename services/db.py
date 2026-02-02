@@ -1137,13 +1137,24 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         params = [user_id, ticker]
 
         # 상태 컬럼: state 또는 status 중 존재하는 것 사용
+        # ✅ LIVE 모드: state='CANCELED'이지만 executed_volume > 0인 경우 포함 (즉시 체결된 시장가 주문)
         status_col = None
         for cand in ("state", "status"):
             if cand in cols:
                 status_col = cand
                 break
+
         if status_col:
-            where.append(f"{status_col} IN ('completed','filled')")
+            # ✅ 실제 체결된 주문만 필터링:
+            # 1) state/status IN ('completed', 'filled', 'FILLED')
+            # 2) OR (state='CANCELED' AND executed_volume > 0)  ← Upbit 즉시 체결 케이스
+            if "executed_volume" in cols:
+                where.append(
+                    f"({status_col} IN ('completed', 'filled', 'FILLED') "
+                    f"OR ({status_col} = 'CANCELED' AND executed_volume > 0))"
+                )
+            else:
+                where.append(f"{status_col} IN ('completed', 'filled', 'FILLED')")
 
         where_sql = " AND ".join(where)
 
@@ -1154,10 +1165,15 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         else:
             order_sql = "ROWID DESC"
 
+        # ✅ avg_price (실제 체결가) 우선, 없으면 price (주문 가격)
         # ✅ entry_bar 컬럼이 있으면 함께 조회
-        select_cols = "price"
+        if "avg_price" in cols:
+            select_cols = "COALESCE(avg_price, price) as price"
+        else:
+            select_cols = "price"
+
         if "entry_bar" in cols:
-            select_cols = "price, entry_bar"
+            select_cols += ", entry_bar"
 
         # 1) 상태 컬럼이 있으면 우선 해당 필터로 시도
         sql1 = f"SELECT {select_cols} FROM orders WHERE {where_sql} ORDER BY {order_sql} LIMIT 1"
