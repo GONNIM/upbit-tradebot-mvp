@@ -266,9 +266,9 @@ class StrategyEngine:
         # 매수 실행
         self.position.set_pending(True)
 
-        # ✅ 전략이 판정한 실제 reason 사용 (fallback: GoldenCross/EMA_GC)
+        # ✅ 전략이 판정한 실제 reason 사용 (fallback: 조건 키 대문자)
         buy_reason = getattr(self.strategy, "last_buy_reason", None) or (
-            "GoldenCross" if self.strategy_type == "MACD" else "EMA_GC"
+            "GOLDEN_CROSS" if self.strategy_type == "MACD" else "EMA_GC"
         )
 
         meta = {
@@ -332,8 +332,10 @@ class StrategyEngine:
         pnl_pct = self.position.get_pnl_pct(bar.close)
         bars_held = self.position.get_bars_held(self.bar_count)
 
-        # ✅ 전략이 판정한 실제 reason 사용 (fallback: DeadCross)
-        sell_reason = getattr(self.strategy, "last_sell_reason", None) or "DeadCross"
+        # ✅ 전략이 판정한 실제 reason 사용 (fallback: 조건 키 대문자)
+        sell_reason = getattr(self.strategy, "last_sell_reason", None) or (
+            "DEAD_CROSS" if self.strategy_type == "MACD" else "EMA_DC"
+        )
 
         meta = {
             "bar": self.bar_count,

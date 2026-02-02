@@ -210,7 +210,24 @@ class IncrementalMACDStrategy:
                 f"🔔 MACD Buy Signal | macd={macd:.6f} signal={signal:.6f} "
                 f"threshold={self.macd_threshold:.6f}"
             )
-            self.last_buy_reason = "GOLDEN_CROSS"  # ✅ BUY reason 설정
+            # ✅ 활성화된 조건들을 조합하여 reason 생성
+            active_conditions = []
+            if self.enable_golden_cross:
+                active_conditions.append("golden_cross")
+            if self.enable_macd_positive:
+                active_conditions.append("macd_positive")
+            if self.enable_signal_positive:
+                active_conditions.append("signal_positive")
+            if self.enable_bullish_candle:
+                active_conditions.append("bullish_candle")
+            if self.enable_macd_trending_up:
+                active_conditions.append("macd_trending_up")
+            if self.enable_above_ma20:
+                active_conditions.append("above_ma20")
+            if self.enable_above_ma60:
+                active_conditions.append("above_ma60")
+
+            self.last_buy_reason = "+".join(active_conditions).upper() if active_conditions else "GOLDEN_CROSS"
             return Action.BUY
 
         # ========================================
@@ -266,7 +283,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🛡️ Stop Loss triggered | pnl={pnl_pct:.2%} sl={self.stop_loss:.2%}"
                     )
-                    self.last_sell_reason = "STOP_LOSS"  # ✅ reason 설정
+                    self.last_sell_reason = "stop_loss".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
                 if stop_loss_triggered:
@@ -290,7 +307,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit:.2%}"
                     )
-                    self.last_sell_reason = "TAKE_PROFIT"  # ✅ reason 설정
+                    self.last_sell_reason = "take_profit".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
                 if take_profit_triggered:
@@ -317,7 +334,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
                     )
-                    self.last_sell_reason = "TRAILING_STOP"  # ✅ reason 설정
+                    self.last_sell_reason = "trailing_stop".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
                 if trailing_stop_triggered:
@@ -338,7 +355,7 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🔻 MACD Dead Cross | macd={macd:.6f} signal={signal:.6f}"
                     )
-                    self.last_sell_reason = "DEAD_CROSS"  # ✅ reason 설정
+                    self.last_sell_reason = "dead_cross".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
                 if dead_cross:
@@ -494,7 +511,16 @@ class IncrementalEMAStrategy:
             logger.info(
                 f"🔔 EMA Buy Signal | fast={ema_fast:.2f} slow={ema_slow:.2f}"
             )
-            self.last_buy_reason = "EMA_GC"  # ✅ BUY reason 설정
+            # ✅ 활성화된 조건들을 조합하여 reason 생성
+            active_conditions = []
+            if self.enable_ema_gc:
+                active_conditions.append("ema_gc")
+            if self.enable_above_base_ema:
+                active_conditions.append("above_base_ema")
+            if self.enable_bullish_candle:
+                active_conditions.append("bullish_candle")
+
+            self.last_buy_reason = "+".join(active_conditions).upper() if active_conditions else "EMA_GC"
             return Action.BUY
 
         # ========================================
@@ -550,7 +576,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"🛡️ Stop Loss triggered | pnl={pnl_pct:.2%} sl={self.stop_loss:.2%}"
                     )
-                    self.last_sell_reason = "STOP_LOSS"  # ✅ reason 설정
+                    self.last_sell_reason = "stop_loss".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
                 if stop_loss_triggered:
@@ -574,7 +600,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit:.2%}"
                     )
-                    self.last_sell_reason = "TAKE_PROFIT"  # ✅ reason 설정
+                    self.last_sell_reason = "take_profit".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
                 if take_profit_triggered:
@@ -601,7 +627,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
                     )
-                    self.last_sell_reason = "TRAILING_STOP"  # ✅ reason 설정
+                    self.last_sell_reason = "trailing_stop".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
                 if trailing_stop_triggered:
@@ -622,7 +648,7 @@ class IncrementalEMAStrategy:
                     logger.info(
                         f"🔻 EMA Dead Cross | fast={ema_fast:.2f} slow={ema_slow:.2f}"
                     )
-                    self.last_sell_reason = "DEAD_CROSS"  # ✅ reason 설정
+                    self.last_sell_reason = "ema_dc".upper()  # ✅ 조건 키를 대문자로 (EMA는 ema_dc 사용)
                     return Action.SELL
             else:
                 if ema_dead_cross:
