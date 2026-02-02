@@ -213,8 +213,10 @@ class OrderReconciler:
                 f"vol={exec_vol} avg={avg_px} fee={fee}"
             )
 
-            # ✅ LIVE 모드 체결 로그 기록 (FILLED 상태일 때만)
-            if state == "FILLED" and exec_vol > 0:
+            # ✅ LIVE 모드 체결 로그 기록
+            # FILLED 또는 CANCELED이지만 실제 체결량이 있는 경우 모두 기록
+            # (Upbit API는 즉시 체결된 시장가 주문을 'cancel' 상태로 반환하기도 함)
+            if exec_vol > 0:
                 with self._lock:
                     meta = self._pending.get(uuid, {}).get("meta", {})
 
