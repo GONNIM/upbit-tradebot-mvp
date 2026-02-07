@@ -540,16 +540,12 @@ if orders:
         df_orders["시간_dt"] = pd.to_datetime(df_orders["시간"], errors="coerce")  # ★ 추가
         # 표시용 문자열은 맨 끝에서 처리
 
-        # 현재금액 숫자 변환
-        df_orders["_현재금액_숫자"] = (
-            df_orders["현재금액"]
-            .astype(str)
-            .str.replace(",", "")
-            .str.replace(" KRW", "")
-            .replace("", "0")
-            .astype(float)
-        )
-        df_orders["_가격_숫자"] = df_orders["가격"].astype(float)
+        # 현재금액 숫자 변환 (안전한 방식)
+        df_orders["_현재금액_숫자"] = pd.to_numeric(
+            df_orders["현재금액"].astype(str).str.replace(",", "").str.replace(" KRW", ""),
+            errors='coerce'
+        ).fillna(0)
+        df_orders["_가격_숫자"] = pd.to_numeric(df_orders["가격"], errors='coerce').fillna(0)
 
         # -------------------------------
         # 손익 / 수익률 계산 (정확히 동작)
@@ -585,7 +581,7 @@ if orders:
         # 표시 포맷팅
         df_orders["가격"] = df_orders["_가격_숫자"].map(lambda x: f"{x:,.0f} KRW")
         df_orders["현재금액"] = df_orders["_현재금액_숫자"].map(lambda x: f"{x:,.0f} KRW")
-        df_orders["보유코인"] = df_orders["보유코인"].map(lambda x: f"{float(x):.6f}")
+        df_orders["보유코인"] = pd.to_numeric(df_orders["보유코인"], errors='coerce').fillna(0).map(lambda x: f"{x:.6f}")
         df_orders["손익"] = df_orders["손익"].apply(
             lambda x: f"{x:,.0f} KRW" if pd.notna(x) else "-"
         )
