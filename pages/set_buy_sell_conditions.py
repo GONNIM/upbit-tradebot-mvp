@@ -8,7 +8,9 @@ from config import (
     CONDITIONS_JSON_FILENAME,
     STRATEGY_TYPES,         # ✅ 전략 리스트 (예: ["MACD", "EMA"])
     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
+    PARAMS_JSON_FILENAME,   # ✅ 파라미터 파일명
 )
+from engine.params import load_params  # ✅ 파라미터 로드용
 
 
 # --- 페이지 설정 ---
@@ -103,6 +105,7 @@ EMA_BUY_CONDITIONS = {
     "ema_gc": "🟢 EMA Golden Cross",
     "above_base_ema": "📈 Price > Base EMA",
     "bullish_candle": "📈 Bullish Candle",
+    "base_ema_gap": "📊 Base EMA GAP (-0.5%↓)",
 }
 
 EMA_SELL_CONDITIONS = {
@@ -113,7 +116,13 @@ EMA_SELL_CONDITIONS = {
 }
 
 if strategy_tag == "EMA":
-    BUY_CONDITIONS = EMA_BUY_CONDITIONS
+    # ✅ EMA 전략: params에서 gap_diff 값을 읽어서 동적으로 레이블 생성
+    json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+    params_obj = load_params(json_path, strategy_type=strategy_tag)
+    gap_diff_value = getattr(params_obj, "base_ema_gap_diff", -0.005) if params_obj else -0.005
+
+    BUY_CONDITIONS = EMA_BUY_CONDITIONS.copy()
+    BUY_CONDITIONS["base_ema_gap"] = f"📊 Base EMA GAP ({gap_diff_value*100:.1f}%↓)"
     SELL_CONDITIONS = EMA_SELL_CONDITIONS
 else:
     # 기본은 MACD

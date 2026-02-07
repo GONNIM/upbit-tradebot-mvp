@@ -192,6 +192,24 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                     slow_buy = slow_sell = slow
 
                 base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)
+
+                # Base EMA GAP 전략 설정
+                st.divider()
+                st.subheader("📊 Base EMA GAP 전략")
+                gap_diff_default = DEFAULT_PARAMS.get("base_ema_gap_diff", -0.005) * 100
+                gap_diff = (
+                    st.number_input(
+                        "Base EMA GAP 임계값 (%)",
+                        min_value=-2.0,
+                        max_value=0.0,
+                        value=gap_diff_default,
+                        step=0.1,
+                        help="종가가 Base EMA(200일선)보다 이 값 이하로 떨어지면 매수 (예: -0.5%)"
+                    )
+                    / 100
+                )
+                st.info(f"현재가가 Base EMA 대비 {gap_diff*100:.1f}% 이하일 때 매수")
+
                 # EMA는 signal_period를 UI로 안 받되 값은 필요하므로 그대로 유지
                 signal_val = int(DEFAULT_PARAMS.get("signal_period", 9))
             else:
@@ -204,6 +222,7 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                 fast_buy = fast_sell = fast
                 slow_buy = slow_sell = slow
                 base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)
+                gap_diff = DEFAULT_PARAMS.get("base_ema_gap_diff", -0.005)
                 signal_val = st.number_input(
                     "신호선 기간", 1, 50, value=DEFAULT_PARAMS.get("signal_period", 9)
                 )
@@ -389,6 +408,7 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             macd_exit_enabled=macd_exit_enabled,
             signal_confirm_enabled=signal_confirm_enabled,
             base_ema_period=int(base_ema_period),
+            base_ema_gap_diff=float(gap_diff),
             ma_type=ma_type,
             strategy_type=current_strategy,
             engine_exec_mode=current_mode,

@@ -303,7 +303,7 @@ def run_live_loop(
         macd_signal=params.signal_period,
         ema_fast=getattr(params, "fast_period", 20),
         ema_slow=getattr(params, "slow_period", 60),
-        base_ema=getattr(params, "base_ema_period", 60),
+        base_ema=getattr(params, "base_ema_period", 200),  # ✅ 기본값 200 (200일선)
     )
 
     # PositionState 생성
@@ -385,6 +385,7 @@ def run_live_loop(
             min_holding_period=getattr(params, "min_holding_period", 0),
             trailing_stop_pct=getattr(params, "trailing_stop_pct", TRAILING_STOP_PERCENT),
             use_base_ema=use_base_ema_filter,  # ✅ 파라미터 설정 반영
+            base_ema_gap_diff=getattr(params, "base_ema_gap_diff", -0.005),  # ✅ Base EMA GAP 임계값
             buy_conditions=buy_conditions,  # ✅ 조건 파일 전달 (BUY)
             sell_conditions=sell_conditions,  # ✅ 조건 파일 전달 (SELL)
         )

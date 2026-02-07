@@ -379,6 +379,7 @@ class IncrementalEMAStrategy:
         min_holding_period: int = 0,
         trailing_stop_pct: Optional[float] = None,
         use_base_ema: bool = True,  # 기준선 사용 여부
+        base_ema_gap_diff: float = -0.005,  # ✅ Base EMA GAP 임계값
         buy_conditions: Optional[Dict[str, bool]] = None,  # ✅ 조건 파일 설정 (BUY)
         sell_conditions: Optional[Dict[str, bool]] = None,  # ✅ 조건 파일 설정 (SELL)
     ):
@@ -391,6 +392,7 @@ class IncrementalEMAStrategy:
             min_holding_period: 최소 보유 기간
             trailing_stop_pct: Trailing Stop 비율
             use_base_ema: 기준선(base_ema) 사용 여부
+            base_ema_gap_diff: Base EMA GAP 임계값 (예: -0.005 = -0.5%)
             buy_conditions: 매수 조건 ON/OFF 설정 (buy_sell_conditions.json의 buy 섹션)
             sell_conditions: 매도 조건 ON/OFF 설정 (buy_sell_conditions.json의 sell 섹션)
         """
@@ -401,18 +403,21 @@ class IncrementalEMAStrategy:
         self.min_holding_period = min_holding_period
         self.trailing_stop_pct = trailing_stop_pct
         self.use_base_ema = use_base_ema
+        self.base_ema_gap_diff = base_ema_gap_diff
 
         # ✅ BUY 조건 파일 설정 (기본값: 모두 True)
         self.buy_conditions = buy_conditions or {}
         self.enable_ema_gc = self.buy_conditions.get("ema_gc", True)
         self.enable_above_base_ema = self.buy_conditions.get("above_base_ema", True)
         self.enable_bullish_candle = self.buy_conditions.get("bullish_candle", True)
+        self.enable_base_ema_gap = self.buy_conditions.get("base_ema_gap", False)
 
         logger.info(
             f"[EMA Strategy] Buy conditions: "
             f"ema_gc={self.enable_ema_gc}, "
             f"above_base_ema={self.enable_above_base_ema}, "
-            f"bullish_candle={self.enable_bullish_candle}"
+            f"bullish_candle={self.enable_bullish_candle}, "
+            f"base_ema_gap={self.enable_base_ema_gap} (threshold={base_ema_gap_diff:.2%})"
         )
 
         # ✅ SELL 조건 파일 설정 (기본값: 모두 True)
@@ -479,6 +484,30 @@ class IncrementalEMAStrategy:
         # BUY 조건
         # ========================================
         if not position.has_position:
+            # ✅ Base EMA GAP 조건이 활성화되면 다른 조건 무시하고 GAP만 체크
+            if self.enable_base_ema_gap:
+                if ema_base is None or ema_base <= 0:
+                    logger.info(f"⏭️ Base EMA not available")
+                    return Action.HOLD
+
+                gap_pct = (bar.close - ema_base) / ema_base
+
+                if gap_pct <= self.base_ema_gap_diff:
+                    logger.info(
+                        f"🔔 Base EMA GAP Buy Signal | "
+                        f"close={bar.close:.2f} base_ema={ema_base:.2f} "
+                        f"gap={gap_pct:.2%} threshold={self.base_ema_gap_diff:.2%}"
+                    )
+                    self.last_buy_reason = "BASE_EMA_GAP"
+                    return Action.BUY
+                else:
+                    logger.info(
+                        f"⏭️ Base EMA GAP not met | "
+                        f"gap={gap_pct:.2%} > threshold={self.base_ema_gap_diff:.2%}"
+                    )
+                    return Action.HOLD
+
+            # ✅ 기존 EMA 조건들 (GAP 조건이 비활성화일 때만 실행)
             # ✅ EMA Golden Cross 체크 (조건 파일에서 ON일 때만)
             if self.enable_ema_gc:
                 if not ema_golden_cross:

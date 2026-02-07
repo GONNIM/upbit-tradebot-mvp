@@ -55,6 +55,14 @@ class LiveParams(BaseModel):
         description="EMA 전략에서 Base EMA 기간 (예: 200)",
     )
 
+    # Base EMA GAP 전략 (EMA 전용)
+    base_ema_gap_diff: float = Field(
+        default=-0.005,
+        ge=-0.02,
+        le=0.0,
+        description="Base EMA GAP 임계값 (종가가 Base EMA보다 이 값 이하일 때 매수, 예: -0.005 = -0.5%)"
+    )
+
     # 이동평균 계산 방식 (EMA 전략 전용)
     ma_type: str = Field(
         default="SMA",
@@ -317,6 +325,7 @@ def load_params(path: str, strategy_type: str | None = None) -> LiveParams | Non
     data.setdefault("strategy_type", DEFAULT_STRATEGY_TYPE)
     data.setdefault("engine_exec_mode", ENGINE_EXEC_MODE)
     data.setdefault("base_ema_period", 200)
+    data.setdefault("base_ema_gap_diff", -0.005)
     # 거래 시간 제한 (백워드 호환)
     data.setdefault("enable_trading_hours", False)
     data.setdefault("trading_start_time", "09:00")

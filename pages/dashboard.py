@@ -188,6 +188,80 @@ st.markdown(
         font-size: 30px !important;
         font-weight: 900 !important;
     }
+
+    /* 버튼 색상 커스터마이징 (모바일 구분 용이) - Streamlit 1.46.0 key 기반 */
+
+    /* 엔진 실행 - 초록색 */
+    div[class*="st-key-btn_start_engine"] button {
+        background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%) !important;
+        color: white !important;
+        border: 2px solid #16a34a !important;
+        font-weight: 700 !important;
+    }
+
+    /* 파라미터 설정 - 파란색 */
+    div[class*="st-key-btn_config"] button {
+        background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        border: 2px solid #2563eb !important;
+        font-weight: 700 !important;
+    }
+
+    /* 로그아웃 - 회색 */
+    div[class*="st-key-btn_logout"] button {
+        background: linear-gradient(180deg, #6b7280 0%, #4b5563 100%) !important;
+        color: white !important;
+        border: 2px solid #4b5563 !important;
+        font-weight: 700 !important;
+    }
+
+    /* 강제매수 - 연두색 */
+    div[class*="st-key-btn_force_buy"] button {
+        background: linear-gradient(180deg, #10b981 0%, #059669 100%) !important;
+        color: white !important;
+        border: 2px solid #059669 !important;
+        font-weight: 700 !important;
+    }
+
+    /* 강제매도 - 빨간색 */
+    div[class*="st-key-btn_force_sell"] button {
+        background: linear-gradient(180deg, #ef4444 0%, #dc2626 100%) !important;
+        color: white !important;
+        border: 2px solid #dc2626 !important;
+        font-weight: 700 !important;
+    }
+
+    /* 엔진 종료 - 주황색 */
+    div[class*="st-key-btn_stop_engine"] button {
+        background: linear-gradient(180deg, #f59e0b 0%, #d97706 100%) !important;
+        color: white !important;
+        border: 2px solid #d97706 !important;
+        font-weight: 700 !important;
+    }
+
+    /* 시스템 초기화 - 진한 빨간색 */
+    div[class*="st-key-btn_reset_system"] button {
+        background: linear-gradient(180deg, #dc2626 0%, #b91c1c 100%) !important;
+        color: white !important;
+        border: 2px solid #b91c1c !important;
+        font-weight: 700 !important;
+    }
+
+    /* 설정 버튼 - 파란색 */
+    div[class*="st-key-btn_settings"] button {
+        background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        border: 2px solid #2563eb !important;
+        font-weight: 700 !important;
+    }
+
+    /* 감사로그 뷰어 - 보라색 */
+    div[class*="st-key-btn_audit_log"] button {
+        background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%) !important;
+        color: white !important;
+        border: 2px solid #7c3aed !important;
+        font-weight: 700 !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -218,7 +292,7 @@ if not engine_status:
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.02.2208")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.07.1617")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -268,11 +342,14 @@ strategy_tag = str(strategy_tag).upper().strip()
 st.session_state["strategy_type"] = strategy_tag
 
 col10, col20, col30 = st.columns([1, 1, 1])
+
 with col10:
     # ✅ 실행되지 않았을 경우: 실행 버튼 표시
     if not engine_status:
         start_trading = st.button(
-            f"Upbit Trade Bot v1 ({mode}) 엔진 실행하기", use_container_width=True
+            f"Upbit Trade Bot v1 ({mode}) 엔진 실행하기",
+            key="btn_start_engine",
+            use_container_width=True
         )
         if start_trading:
             if not st.session_state.get("engine_started", False):
@@ -292,21 +369,27 @@ with col10:
                 st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
 with col20:
     start_setting = st.button(
-        f"Upbit Trade Bot v1 ({mode}) 파라미터 설정하기", use_container_width=True
+        f"Upbit Trade Bot v1 ({mode}) 파라미터 설정하기",
+        key="btn_config",
+        use_container_width=True
     )
     if start_setting:
+        # ✅ 엔진 실행 중이면 자동 정지
         if engine_status:
-            st.warning("⚠️ 먼저 트레이딩 엔진 종료해주세요.")
-            st.stop()
+            engine_manager.stop_engine(user_id)
+            insert_log(user_id, "INFO", f"⚡ 파라미터 설정을 위해 엔진 자동 종료됨 ({mode})")
+            st.session_state.engine_started = False
+            time.sleep(0.3)
 
+        # ✅ session_state에서 검증 정보 확실하게 읽기
         next_page = "set_config"
         params = urlencode({
-            "virtual_krw": st.session_state.virtual_krw,
-            "user_id": st.session_state.user_id,
+            "virtual_krw": st.session_state.get("virtual_krw", 0),
+            "user_id": st.session_state.get("user_id", ""),
             "mode": mode,
-            "verified": upbit_ok,
-            "capital_set": capital_ok,
-            "strategy_type": strategy_tag,  # ✅ 현재 전략 타입 전달
+            "verified": "1" if st.session_state.get("upbit_verified", False) else "0",
+            "capital_set": "1" if st.session_state.get("live_capital_set", False) else "0",
+            "strategy_type": strategy_tag,
         })
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
@@ -314,7 +397,7 @@ with col20:
         )
         st.switch_page(next_page)
 with col30:
-    logout = st.button("로그아웃하기", use_container_width=True)
+    logout = st.button("로그아웃하기", key="btn_logout", use_container_width=True)
     if logout:
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=/?redirected=1">',
@@ -1096,8 +1179,10 @@ st.subheader("⚙️ Option 기능")
 # ✅ 실행된 경우: 제어 및 모니터링 UI 출력
 # ✅ 제어 버튼
 btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1, 1, 1, 1])
+
 with btn_col1:
-    if st.button("🛑 강제매수하기", use_container_width=True):
+    force_buy_clicked = st.button("🛑 강제매수하기", key="btn_force_buy", use_container_width=True)
+    if force_buy_clicked:
         # ✅ 코인이 거의 없을 때 (5000원 이하는 무시)
         coin_value = coin_balance * last_price if last_price else 0
         if coin_value < 5000:
@@ -1120,7 +1205,8 @@ with btn_col1:
         else:
             st.warning(f"⚠️ 강제매수 불가: 코인 보유 중 ({coin_value:,.0f}원 상당)")
 with btn_col2:
-    if st.button("🛑 강제매도하기", use_container_width=True):
+    force_sell_clicked = st.button("🛑 강제매도하기", key="btn_force_sell", use_container_width=True)
+    if force_sell_clicked:
         # ✅ 코인이 있을 때 (5000원 이상)
         coin_value = coin_balance * last_price if last_price else 0
         if coin_value >= 5000:
@@ -1143,14 +1229,16 @@ with btn_col2:
         else:
             st.warning(f"⚠️ 강제매도 불가: 코인 보유량 부족 ({coin_value:,.0f}원 상당)")
 with btn_col3:
-    if st.button("🛑 트레이딩 엔진 종료", use_container_width=True):
+    stop_engine_clicked = st.button("🛑 트레이딩 엔진 종료", key="btn_stop_engine", use_container_width=True)
+    if stop_engine_clicked:
         engine_manager.stop_engine(user_id)
         insert_log(user_id, "INFO", f"🛑 트레이딩 엔진 수동 종료됨 ({mode})")
         st.session_state.engine_started = False
         time.sleep(0.2)
         st.rerun()
 with btn_col4:
-    if st.button("💥 시스템 초기화", use_container_width=True):
+    reset_system_clicked = st.button("💥 시스템 초기화", key="btn_reset_system", use_container_width=True)
+    if reset_system_clicked:
         params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id, "mode": mode})
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=./confirm_init_db?{params}">',
@@ -1205,6 +1293,7 @@ elif is_ema:
     # EMA 전략: 별도 매수/매도 확인
     use_separate = getattr(params_obj, "use_separate_ema", True)
     base_ema = getattr(params_obj, "base_ema_period", 200)
+    gap_diff = getattr(params_obj, "base_ema_gap_diff", -0.005)
     ma_type_raw = getattr(params_obj, "ma_type", "SMA")
 
     # ma_type 표시 매핑
@@ -1228,6 +1317,11 @@ elif is_ema:
         strategy_html_parts.append(
             f"<b>EMA (Common):</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}, MA계산={ma_type_display}"
         )
+
+    # Base EMA GAP 파라미터 표시
+    strategy_html_parts.append(
+        f"<b>Base EMA GAP:</b> {gap_diff*100:.1f}% (Base EMA={base_ema})"
+    )
 
 strategy_html_parts.append(
     f"<b>TP/SL:</b> {params_obj.take_profit*100:.1f}% / {params_obj.stop_loss*100:.1f}%"
@@ -1282,6 +1376,7 @@ EMA_BUY_CONDITIONS = {
     "ema_gc": "🟢 EMA Golden Cross",
     "above_base_ema": "📈 Price > Base EMA",
     "bullish_candle": "📈 Bullish Candle",
+    "base_ema_gap": "📊 Base EMA GAP (-0.5%↓)",
 }
 
 EMA_SELL_CONDITIONS = {
@@ -1293,7 +1388,10 @@ EMA_SELL_CONDITIONS = {
 
 # ★ 현재 전략에 맞는 조건 세트 선택
 if is_ema:
-    BUY_CONDITIONS = EMA_BUY_CONDITIONS
+    # ✅ Base EMA GAP 레이블을 사용자 설정값으로 동적 생성
+    gap_diff_display = getattr(params_obj, "base_ema_gap_diff", -0.005)
+    BUY_CONDITIONS = EMA_BUY_CONDITIONS.copy()
+    BUY_CONDITIONS["base_ema_gap"] = f"📊 Base EMA GAP ({gap_diff_display*100:.1f}%↓)"
     SELL_CONDITIONS = EMA_SELL_CONDITIONS
 else:
     BUY_CONDITIONS = MACD_BUY_CONDITIONS
@@ -1354,7 +1452,8 @@ with col1:
     # ★ 현재 전략 이름도 같이 표기
     st.subheader(f"⚙️ 매수 전략 (Strategy: {strategy_tag})")
 with col2:
-    if st.button("🛠️ 설정", use_container_width=True):
+    settings_clicked = st.button("🛠️ 설정", key="btn_settings", use_container_width=True)
+    if settings_clicked:
         params = urlencode({
             "virtual_krw": virtual_krw,
             "user_id": user_id,
@@ -1415,8 +1514,8 @@ with c3:
     default_tab = st.selectbox("Default Tab", ["buy", "sell", "trades", "settings"], index=0, key="audit_default_tab")
 
 with c4:
-    # 이동 버튼
-    if st.button("🔍 감사로그 뷰어 열기", use_container_width=True):
+    audit_log_clicked = st.button("🔍 감사로그 뷰어 열기", key="btn_audit_log", use_container_width=True)
+    if audit_log_clicked:
         # ticker 파라미터는 둘 중 있는 값으로 (프로젝트에 따라 params_obj.upbit_ticker 또는 params_obj.ticker 사용)
         ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
 
