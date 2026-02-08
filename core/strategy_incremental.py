@@ -439,6 +439,9 @@ class IncrementalEMAStrategy:
         self.last_buy_reason: Optional[str] = None
         self.last_sell_reason: Optional[str] = None
 
+        # ✅ Base EMA GAP 전략 상세 정보 (감사로그용)
+        self.gap_details: Optional[Dict[str, Any]] = None
+
     def on_bar(
         self,
         bar: Bar,
@@ -488,26 +491,69 @@ class IncrementalEMAStrategy:
             if self.enable_base_ema_gap:
                 if ema_base is None or ema_base <= 0:
                     logger.info(f"⏭️ Base EMA not available")
+                    self.gap_details = None
                     return Action.HOLD
 
+                # GAP 계산
                 gap_pct = (bar.close - ema_base) / ema_base
+                gap_to_target = gap_pct - self.base_ema_gap_diff  # 음수면 부족, 양수면 충족
+                price_needed = ema_base * (1 + self.base_ema_gap_diff)  # 매수 조건 달성 가격
 
-                if gap_pct <= self.base_ema_gap_diff:
-                    logger.info(
-                        f"🔔 Base EMA GAP Buy Signal | "
-                        f"close={bar.close:.2f} base_ema={ema_base:.2f} "
-                        f"gap={gap_pct:.2%} threshold={self.base_ema_gap_diff:.2%}"
-                    )
+                # 조건 충족 여부
+                condition_met = gap_pct <= self.base_ema_gap_diff
+
+                # ✅ 상세 정보 저장 (감사로그용)
+                self.gap_details = {
+                    "strategy_mode": "BASE_EMA_GAP",
+                    "base_ema_gap_enabled": True,
+                    "price": float(bar.close),
+                    "base_ema": float(ema_base),
+                    "gap_pct": float(gap_pct),
+                    "gap_threshold": float(self.base_ema_gap_diff),
+                    "gap_to_target": float(gap_to_target),
+                    "price_needed": float(price_needed),
+                    "condition_met": bool(condition_met),  # 🔧 numpy.bool_ → Python bool 변환
+                    "ema_fast": float(ema_fast) if ema_fast else None,
+                    "ema_slow": float(ema_slow) if ema_slow else None,
+                }
+
+                if condition_met:
+                    # GAP 초과 여부 판단
+                    gap_exceeded = gap_pct < (self.base_ema_gap_diff * 2)  # 목표의 2배 이상 하락
+
+                    if gap_exceeded:
+                        # 급락 감지
+                        logger.info(
+                            f"🔥 Base EMA GAP 급락 감지! | "
+                            f"gap={gap_pct:.2%} (목표: {self.base_ema_gap_diff:.2%}, 초과: {abs(gap_to_target):.2%}p) | "
+                            f"close={bar.close:.2f} base_ema={ema_base:.2f}"
+                        )
+                        self.gap_details["reason"] = "GAP_EXCEEDED"
+                    else:
+                        # 일반 매수 조건 충족
+                        logger.info(
+                            f"✅ Base EMA GAP 매수 조건 충족 | "
+                            f"gap={gap_pct:.2%} (목표: {self.base_ema_gap_diff:.2%}, 초과: {abs(gap_to_target):.2%}p) | "
+                            f"close={bar.close:.2f} base_ema={ema_base:.2f}"
+                        )
+                        self.gap_details["reason"] = "GAP_MET"
+
                     self.last_buy_reason = "BASE_EMA_GAP"
                     return Action.BUY
                 else:
+                    # 조건 미충족
                     logger.info(
-                        f"⏭️ Base EMA GAP not met | "
-                        f"gap={gap_pct:.2%} > threshold={self.base_ema_gap_diff:.2%}"
+                        f"📉 Base EMA GAP 대기 중 | "
+                        f"gap={gap_pct:.2%} (목표: {self.base_ema_gap_diff:.2%}, 부족: {abs(gap_to_target):.2%}p) | "
+                        f"매수가: ₩{price_needed:,.0f} | base_ema: ₩{ema_base:,.0f}"
                     )
+                    self.gap_details["reason"] = "GAP_INSUFFICIENT"
                     return Action.HOLD
 
             # ✅ 기존 EMA 조건들 (GAP 조건이 비활성화일 때만 실행)
+            # Base EMA GAP이 아닌 경우 gap_details 초기화
+            self.gap_details = None
+
             # ✅ EMA Golden Cross 체크 (조건 파일에서 ON일 때만)
             if self.enable_ema_gc:
                 if not ema_golden_cross:

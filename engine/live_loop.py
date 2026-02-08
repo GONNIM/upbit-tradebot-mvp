@@ -461,6 +461,12 @@ def run_live_loop(
     # 3단계: 라이브 루프 (증분 처리)
     # ============================================================
 
+    # ✅ 이전 yield에서 처리한 마지막 봉의 timestamp 추적 (합성 봉 누락 방지)
+    last_processed_ts = None
+
+    # ✅ WARMUP 루프 동안 이전 yield의 마지막 봉 추적 (WARMUP 완료 시 새 봉 감지용)
+    prev_warmup_last_ts = None
+
     try:
         for df in stream_candles(
             params.upbit_ticker,
@@ -487,7 +493,7 @@ def run_live_loop(
                         warmup_complete = True
                         logger.info(f"✅ Warmup 완료 | bars={len(df)}")
 
-                        # 버퍼에 과거 데이터 채우기 (시드용)
+                        # 버퍼에 과거 데이터 채우기 + WARMUP 로그 기록
                         for idx, row in df.iterrows():
                             bar = Bar(
                                 ts=idx,
@@ -500,31 +506,88 @@ def run_live_loop(
                             )
                             buffer.append(bar)
 
-                        # ✅ bar_count 초기화 (버퍼 길이와 동기화)
-                        engine.bar_count = len(buffer)
-                        engine.last_bar_ts = buffer.get_last_bar().ts if buffer.get_last_bar() else None
+                            # ✅ WARMUP 완료 시 모든 봉에 대해 평가 로그 기록
+                            engine.bar_count = len(buffer)
+                            engine.record_warmup_log(bar, f"(완료 {len(buffer)}/{min_hist})")
 
-                        logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count}")
+                        # ✅ bar_count는 이미 루프에서 설정됨
+
+                        # ★ 핵심: WARMUP 완료 시 버퍼의 마지막 봉을 기준점으로 설정
+                        # WARMUP 완료 시 버퍼에 이미 모든 과거 봉이 추가되었으므로,
+                        # 다음 yield부터 새 봉만 처리하도록 마지막 봉으로 설정
+                        # 예: 버퍼에 BAR 1~200 추가 완료 → engine.last_bar_ts = BAR 200.ts
+                        # → 다음 yield에서 BAR 201부터만 처리 (중복 평가 방지)
+                        engine.last_bar_ts = df.index[-1]
+
+                        logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count} | warmup_baseline={df.index[-1]}")
                 else:
-                    logger.info(f"[WARMUP] {len(df)}/{min_hist} bars...")
+                    # WARMUP 진행 중 - 새로 추가된 봉들에 대해 로그 기록
+                    if prev_warmup_last_ts is not None:
+                        # 이전 yield 이후 추가된 봉들만 추출
+                        new_bars_df = df[df.index > prev_warmup_last_ts]
+                    else:
+                        # 첫 yield: 모든 봉 처리
+                        new_bars_df = df
+
+                    # 새 봉들에 대해 WARMUP 로그 기록
+                    for idx, row in new_bars_df.iterrows():
+                        bar = Bar(
+                            ts=idx,
+                            open=row['Open'],
+                            high=row['High'],
+                            low=row['Low'],
+                            close=row['Close'],
+                            volume=row['Volume'],
+                            is_closed=True
+                        )
+                        engine.bar_count += 1
+                        engine.record_warmup_log(bar, f"({len(df)}/{min_hist})")
+
+                    prev_warmup_last_ts = df.index[-1] if not df.empty else None
+                    logger.info(f"[WARMUP] {len(df)}/{min_hist} bars... | 새 봉 {len(new_bars_df)}개 로그 기록")
                     time.sleep(1)
                     continue
 
-            # ★ 최신 봉 추출 (증분 처리)
-            latest_idx = df.index[-1]
-            latest_row = df.iloc[-1]
-            bar = Bar(
-                ts=latest_idx,
-                open=latest_row['Open'],
-                high=latest_row['High'],
-                low=latest_row['Low'],
-                close=latest_row['Close'],
-                volume=latest_row['Volume'],
-                is_closed=True  # stream_candles는 닫힌 봉만 제공
-            )
+            # ★ 새로 추가된 모든 봉 처리 (합성 봉 누락 방지)
+            if last_processed_ts is None:
+                # ★ 첫 yield: WARMUP 직후 새로 추가된 봉만 처리
+                # engine.last_bar_ts는 WARMUP 완료 시 버퍼의 마지막 봉 timestamp
+                if engine.last_bar_ts is not None:
+                    # WARMUP 이후 새로 추가된 봉들만 추출 (합성 봉 포함)
+                    new_bars_df = df[df.index > engine.last_bar_ts]
+                    if not new_bars_df.empty:
+                        logger.info(f"[첫 yield] WARMUP 이후 새 봉 {len(new_bars_df)}개 처리: {new_bars_df.index[0]} ~ {new_bars_df.index[-1]}")
+                    else:
+                        logger.info(f"[첫 yield] WARMUP 이후 새 봉 없음 (last_bar={engine.last_bar_ts})")
+                else:
+                    # 안전장치: engine.last_bar_ts가 없는 경우 마지막 봉만 처리
+                    new_bars_df = df.tail(1)
+                    logger.warning(f"[첫 yield] engine.last_bar_ts=None → 마지막 봉만 처리: {df.index[-1]}")
+            else:
+                # 이전 yield 이후 추가된 봉들만 추출
+                new_bars_df = df[df.index > last_processed_ts]
+                if not new_bars_df.empty:
+                    logger.info(f"[새 봉 감지] {len(new_bars_df)}개 | {new_bars_df.index[0]} ~ {new_bars_df.index[-1]}")
+                else:
+                    # 새 봉 없음 (드물지만 발생 가능)
+                    logger.debug(f"[새 봉 없음] last_processed={last_processed_ts}, df_last={df.index[-1]}")
 
-            # ★★★ 핵심: 엔진에 새 봉 전달 (Backtest 없음!) ★★★
-            engine.on_new_bar(bar)
+            # ★★★ 핵심: 새로 추가된 모든 봉을 엔진에 전달 ★★★
+            for idx, row in new_bars_df.iterrows():
+                bar = Bar(
+                    ts=idx,
+                    open=row['Open'],
+                    high=row['High'],
+                    low=row['Low'],
+                    close=row['Close'],
+                    volume=row['Volume'],
+                    is_closed=True  # stream_candles는 닫힌 봉만 제공
+                )
+                engine.on_new_bar(bar)
+
+            # ✅ 마지막 처리 timestamp 업데이트
+            if not new_bars_df.empty:
+                last_processed_ts = new_bars_df.index[-1]
 
     except Exception:
         logger.exception(f"❌ run_live_loop 예외 발생 ({mode_tag})")

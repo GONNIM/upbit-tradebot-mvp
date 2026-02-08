@@ -45,10 +45,21 @@ def initialize_confirm():
     if engine_manager.is_running(user_id):
         engine_manager.stop_engine(user_id)
         insert_log(user_id, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
+
+        # ✅ 엔진이 실제로 종료될 때까지 폴링 (최대 5초)
+        max_wait = 5.0
+        waited = 0.0
+        while engine_manager.is_running(user_id) and waited < max_wait:
+            time.sleep(0.1)  # 100ms마다 체크
+            waited += 0.1
+
+        if waited >= max_wait:
+            insert_log(user_id, "WARNING", f"⚠️ 엔진 종료 타임아웃 ({max_wait}초)")
+        else:
+            insert_log(user_id, "INFO", f"✅ 엔진 종료 완료 ({waited:.1f}초)")
     else:
         insert_log(user_id, "INFO", "ℹ️ 엔진이 실행 중이 아님")
 
-    time.sleep(1)  # 종료 대기
     reset_db(user_id)
 
     # st.session_state.engine_started = False  # ✅ 캐시 초기화

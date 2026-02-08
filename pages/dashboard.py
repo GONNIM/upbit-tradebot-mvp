@@ -25,7 +25,8 @@ from services.db import (
     fetch_latest_sell_eval,
     fetch_latest_trade_audit,
     get_db,
-    get_last_open_buy_order
+    get_last_open_buy_order,
+    get_engine_status
 )
 
 from config import (
@@ -283,16 +284,31 @@ st.markdown(
 # ✅ 자동 새로고침
 st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_autorefresh")
 
-# ✅ 현재 엔진 상태
-engine_status = engine_manager.is_running(user_id)
-# logger.info(f"engine_manager.is_running {engine_status}")
-if not engine_status:
-    engine_status = st.session_state.engine_started
-    # logger.info(f"st.session_state.engine_started {engine_status}")
+# ✅ 현재 엔진 상태 (실제 스레드 상태 우선)
+# 1) 엔진 매니저의 스레드 상태 확인 (실제 실행 중인 스레드)
+engine_status_thread = engine_manager.is_running(user_id)
+
+# 2) DB의 엔진 상태 확인 (이전 프로세스 잔재일 수 있음)
+engine_status_db = get_engine_status(user_id)
+
+# 3) 🔥 중요: 실제 스레드가 없는데 DB만 True면 잘못된 상태 → DB 정정
+if not engine_status_thread and engine_status_db:
+    from services.db import set_engine_status
+    set_engine_status(user_id, False)
+    engine_status_db = False
+    logger.warning(f"[ENGINE-STATE-RECOVERY] DB 상태 정정: {user_id} → False (실제 스레드 없음)")
+
+# 4) 최종 상태: 실제 스레드 상태만 신뢰
+engine_status = engine_status_thread
+
+# 5) 세션 상태 동기화
+st.session_state.engine_started = engine_status
+
+# logger.info(f"[ENGINE STATUS] thread={engine_status_thread}, db={engine_status_db}, final={engine_status}")
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.07.1617")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.08.1710")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -352,19 +368,15 @@ with col10:
             use_container_width=True
         )
         if start_trading:
-            if not st.session_state.get("engine_started", False):
-                if not engine_manager.is_running(user_id):  # ✅ 유저별 엔진 실행 여부 확인
-                    st.write("🔄 엔진 실행을 시작합니다...")
-                    success = engine_manager.start_engine(user_id, test_mode=(not is_live))
-                    if success:
-                        insert_log(user_id, "INFO", f"✅ 트레이딩 엔진 실행됨 ({mode})")
-                        st.session_state.engine_started = True
-                        st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
-                        st.rerun()
-                    else:
-                        st.warning("⚠️ 트레이딩 엔진 실행 실패")
+            if not engine_manager.is_running(user_id):
+                success = engine_manager.start_engine(user_id, test_mode=(not is_live))
+                if success:
+                    insert_log(user_id, "INFO", f"✅ 트레이딩 엔진 실행됨 ({mode})")
+                    st.session_state.engine_started = True
+                    st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
+                    st.rerun()
                 else:
-                    st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
+                    st.warning("⚠️ 트레이딩 엔진 실행 실패")
             else:
                 st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
 with col20:
@@ -975,33 +987,85 @@ if latest:
 
     if source == "BUY":
         # BUY 평가 정보
-        overall_ok = "✅ PASS" if latest.get('overall_ok') else "❌ FAIL"
-        failed_keys = latest.get('failed_keys', '')
-        if failed_keys and failed_keys != '-':
-            try:
-                import json
-                failed_list = json.loads(failed_keys) if isinstance(failed_keys, str) else failed_keys
-                failed_str = ", ".join(failed_list) if failed_list else "-"
-            except Exception:
-                failed_str = str(failed_keys)
+        # ✅ Base EMA GAP 전략 특별 처리
+        is_gap_strategy = checks.get('strategy_mode') == 'BASE_EMA_GAP'
+
+        if is_gap_strategy:
+            # Base EMA GAP 전략 전용 표시
+            gap_pct = checks.get('gap_pct', 0)
+            gap_threshold = checks.get('gap_threshold', 0)
+            gap_to_target = checks.get('gap_to_target', 0)
+            price_needed = checks.get('price_needed', 0)
+            condition_met = checks.get('condition_met', False)
+            base_ema = checks.get('base_ema', 0)
+
+            # 상태 아이콘
+            if cross_status == "🔥 GAP_EXCEEDED":
+                status_icon = "🔥 급락"
+            elif cross_status == "✅ GAP_MET":
+                status_icon = "✅ 조건 충족"
+            else:
+                status_icon = "📉 GAP 감시"
+
+            cols1 = st.columns(5)
+            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+            cols1[3].markdown(f"**가격**<br>₩{float(price):,.0f}", unsafe_allow_html=True)
+            cols1[4].markdown(f"**상태**<br>{status_icon}", unsafe_allow_html=True)
+
+            cols2 = st.columns(5)
+            cols2[0].markdown(f"**현재 GAP**<br>{gap_pct:.2%}", unsafe_allow_html=True)
+            cols2[1].markdown(f"**목표 GAP**<br>{gap_threshold:.2%}", unsafe_allow_html=True)
+
+            if condition_met:
+                gap_diff_label = f"초과 {abs(gap_to_target):.2%}p"
+            else:
+                gap_diff_label = f"부족 {abs(gap_to_target):.2%}p"
+            cols2[2].markdown(f"**차이**<br>{gap_diff_label}", unsafe_allow_html=True)
+
+            cols2[3].markdown(f"**매수가**<br>₩{price_needed:,.0f}", unsafe_allow_html=True)
+            cols2[4].markdown(f"**Base EMA**<br>₩{base_ema:,.0f}", unsafe_allow_html=True)
+
+            st.caption(f"Source: **BUY** (Base EMA GAP 전략)")
+
+            # 추가 정보 박스
+            if not condition_met:
+                st.info(f"💡 매수 조건: 가격이 ₩{price_needed:,.0f} 이하로 하락하면 매수 ({abs(gap_to_target):.2%}p 더 하락 필요)")
+            else:
+                if cross_status == "🔥 GAP_EXCEEDED":
+                    st.success(f"🔥 급락 감지! 목표 대비 {abs(gap_to_target):.2%}p 초과 하락")
+                else:
+                    st.success(f"✅ 매수 조건 충족! 목표 달성 ({abs(gap_to_target):.2%}p 초과)")
         else:
-            failed_str = "-"
+            # 일반 EMA/MACD 전략 표시 (기존 로직)
+            overall_ok = "✅ PASS" if latest.get('overall_ok') else "❌ FAIL"
+            failed_keys = latest.get('failed_keys', '')
+            if failed_keys and failed_keys != '-':
+                try:
+                    import json
+                    failed_list = json.loads(failed_keys) if isinstance(failed_keys, str) else failed_keys
+                    failed_str = ", ".join(failed_list) if failed_list else "-"
+                except Exception:
+                    failed_str = str(failed_keys)
+            else:
+                failed_str = "-"
 
-        cols1 = st.columns(5)
-        cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-        cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-        cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-        cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
-        cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
+            cols1 = st.columns(5)
+            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+            cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
+            cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
 
-        cols2 = st.columns(5)
-        cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
-        cols2[1].markdown(f"**{indicator_fast}**<br>{macd_val}", unsafe_allow_html=True)
-        cols2[2].markdown(f"**{indicator_slow}**<br>{signal_val}", unsafe_allow_html=True)
-        cols2[3].markdown(f"**실패 조건**<br>{failed_str}", unsafe_allow_html=True)
-        cols2[4].markdown(f"**평가**<br>{overall_ok}", unsafe_allow_html=True)
+            cols2 = st.columns(5)
+            cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
+            cols2[1].markdown(f"**{indicator_fast}**<br>{macd_val}", unsafe_allow_html=True)
+            cols2[2].markdown(f"**{indicator_slow}**<br>{signal_val}", unsafe_allow_html=True)
+            cols2[3].markdown(f"**실패 조건**<br>{failed_str}", unsafe_allow_html=True)
+            cols2[4].markdown(f"**평가**<br>{overall_ok}", unsafe_allow_html=True)
 
-        st.caption(f"Source: **BUY** (매수 평가 감사로그)")
+            st.caption(f"Source: **BUY** (매수 평가 감사로그)")
 
     elif source == "SELL":
         trigger_key = latest.get('trigger_key', '-')

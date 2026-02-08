@@ -232,32 +232,118 @@ if section == "buy":
                 return str(ts)
         df_buy["timestamp"] = df_buy["timestamp"].apply(_format_timestamp)
 
-        # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
-        df_buy["delta"] = df_buy["macd"] - df_buy["signal"]
+        # ✅ Base EMA GAP 전략 감지 (checks에서 strategy_mode 확인)
+        def _is_gap_strategy(checks):
+            if isinstance(checks, dict):
+                return checks.get('strategy_mode') == 'BASE_EMA_GAP'
+            return False
 
-        # ✅ cross_type 계산: Golden / Dead / Neutral
-        def _cross_type(delta):
-            if delta > 0:
-                return "🟢 Golden"
-            elif delta < 0:
-                return "🔴 Dead"
-            else:
-                return "⚪ Neutral"
-        df_buy["cross_type"] = df_buy["delta"].apply(_cross_type)
+        df_buy["is_gap_strategy"] = df_buy["checks"].apply(_is_gap_strategy)
+        has_gap_strategy = df_buy["is_gap_strategy"].any()
 
-        # 전략별 칼럼명 변경
-        df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
+        if has_gap_strategy:
+            # ✅ Base EMA GAP 전략: 특화 컬럼 추가
+            def _extract_gap_info(row):
+                checks = row.get("checks", {})
+                if isinstance(checks, dict) and checks.get('strategy_mode') == 'BASE_EMA_GAP':
+                    return pd.Series({
+                        "gap_pct": checks.get("gap_pct", 0),
+                        "gap_threshold": checks.get("gap_threshold", 0),
+                        "gap_to_target": checks.get("gap_to_target", 0),
+                        "price_needed": checks.get("price_needed", 0),
+                        "condition_met": checks.get("condition_met", False),
+                        "base_ema": checks.get("base_ema", 0),
+                        "gap_status": checks.get("cross_status", "")
+                    })
+                else:
+                    return pd.Series({
+                        "gap_pct": None,
+                        "gap_threshold": None,
+                        "gap_to_target": None,
+                        "price_needed": None,
+                        "condition_met": None,
+                        "base_ema": None,
+                        "gap_status": None
+                    })
 
-        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
-        column_order = [
-            "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
-            "ema_fast" if strategy_tag == "EMA" else "macd",
-            "ema_slow" if strategy_tag == "EMA" else "signal",
-            "have_position", "overall_ok", "failed_keys", "checks", "notes", "interval_sec"
-        ]
-        # 존재하는 컬럼만 필터링
-        column_order = [col for col in column_order if col in df_buy_display.columns]
-        df_buy_display = df_buy_display[column_order]
+            gap_info = df_buy.apply(_extract_gap_info, axis=1)
+            df_buy = pd.concat([df_buy, gap_info], axis=1)
+
+            # GAP 상태 표시
+            df_buy["gap_display"] = df_buy.apply(
+                lambda row: (
+                    f"{row['gap_pct']:.2%}" if pd.notna(row['gap_pct']) else "-"
+                ), axis=1
+            )
+            df_buy["gap_diff_display"] = df_buy.apply(
+                lambda row: (
+                    f"{'초과' if row['condition_met'] else '부족'} {abs(row['gap_to_target']):.2%}p"
+                    if pd.notna(row['gap_to_target']) else "-"
+                ), axis=1
+            )
+            # ✅ 목표GAP % 변환
+            df_buy["gap_threshold_display"] = df_buy.apply(
+                lambda row: (
+                    f"{row['gap_threshold']:.2%}" if pd.notna(row['gap_threshold']) else "-"
+                ), axis=1
+            )
+
+            # 전략별 칼럼명 변경
+            df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
+
+            # ✅ Base EMA GAP 전략 전용 컬럼 순서
+            column_order = [
+                "timestamp", "bar_time", "ticker", "bar", "price",
+                "gap_status", "gap_display", "gap_threshold_display", "gap_diff_display",
+                "price_needed", "base_ema",
+                "overall_ok", "notes"
+            ]
+            column_order = [col for col in column_order if col in df_buy_display.columns]
+            df_buy_display = df_buy_display[column_order]
+
+            # 컬럼명 한글화
+            df_buy_display = df_buy_display.rename(columns={
+                "timestamp": "기록시각",
+                "bar_time": "봉시각",
+                "ticker": "티커",
+                "bar": "BAR",
+                "price": "가격",
+                "gap_status": "GAP상태",
+                "gap_display": "현재GAP",
+                "gap_threshold_display": "목표GAP",
+                "gap_diff_display": "차이",
+                "price_needed": "매수가",
+                "base_ema": "Base EMA",
+                "overall_ok": "조건충족",
+                "notes": "메모"
+            })
+
+            st.info("📉 Base EMA GAP 전략 모드 - GAP 전용 컬럼 표시")
+        else:
+            # ✅ 일반 EMA/MACD 전략: 기존 로직
+            df_buy["delta"] = df_buy["macd"] - df_buy["signal"]
+
+            def _cross_type(delta):
+                if delta > 0:
+                    return "🟢 Golden"
+                elif delta < 0:
+                    return "🔴 Dead"
+                else:
+                    return "⚪ Neutral"
+            df_buy["cross_type"] = df_buy["delta"].apply(_cross_type)
+
+            # 전략별 칼럼명 변경
+            df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
+
+            # ✅ 컬럼 순서 재배치
+            column_order = [
+                "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
+                "ema_fast" if strategy_tag == "EMA" else "macd",
+                "ema_slow" if strategy_tag == "EMA" else "signal",
+                "have_position", "overall_ok", "failed_keys", "checks", "notes", "interval_sec"
+            ]
+            column_order = [col for col in column_order if col in df_buy_display.columns]
+            df_buy_display = df_buy_display[column_order]
 
         st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
@@ -314,32 +400,102 @@ elif section == "sell":
                 return str(ts)
         df_sell["timestamp"] = df_sell["timestamp"].apply(_format_timestamp)
 
-        # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
-        df_sell["delta"] = df_sell["macd"] - df_sell["signal"]
+        # ✅ Base EMA GAP 전략 감지 (checks에서 strategy_mode 확인)
+        def _is_gap_strategy(checks):
+            if isinstance(checks, dict):
+                return checks.get('strategy_mode') == 'BASE_EMA_GAP'
+            return False
 
-        # ✅ cross_type 계산: Golden / Dead / Neutral
-        def _cross_type(delta):
-            if delta > 0:
-                return "🟢 Golden"
-            elif delta < 0:
-                return "🔴 Dead"
-            else:
-                return "⚪ Neutral"
-        df_sell["cross_type"] = df_sell["delta"].apply(_cross_type)
+        df_sell["is_gap_strategy"] = df_sell["checks"].apply(_is_gap_strategy)
+        has_gap_strategy = df_sell["is_gap_strategy"].any()
 
-        # 전략별 칼럼명 변경
-        df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
+        if has_gap_strategy:
+            # ✅ Base EMA GAP 전략: SELL 특화 컬럼 추가
+            def _extract_sell_gap_info(row):
+                checks = row.get("checks", {})
+                if isinstance(checks, dict) and checks.get('strategy_mode') == 'BASE_EMA_GAP':
+                    pnl_pct = checks.get("pnl_pct", 0)
+                    entry_price = checks.get("entry_price", 0)
+                    base_ema = checks.get("ema_base", 0)
 
-        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에, delta 다음에 cross_type 추가
-        column_order = [
-            "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta", "cross_type",
-            "ema_fast" if strategy_tag == "EMA" else "macd",
-            "ema_slow" if strategy_tag == "EMA" else "signal",
-            "ts_pct", "ts_armed", "bars_held", "checks", "triggered", "trigger_key", "notes", "interval_sec"
-        ]
-        # 존재하는 컬럼만 필터링
-        column_order = [col for col in column_order if col in df_sell_display.columns]
-        df_sell_display = df_sell_display[column_order]
+                    return pd.Series({
+                        "pnl_pct": pnl_pct,
+                        "pnl_display": f"{pnl_pct:.2%}" if pnl_pct is not None else "-",
+                        "entry_price": entry_price,
+                        "base_ema": base_ema,
+                        "trigger_reason": checks.get("trigger_reason", checks.get("reason", "-"))
+                    })
+                else:
+                    return pd.Series({
+                        "pnl_pct": None,
+                        "pnl_display": "-",
+                        "entry_price": None,
+                        "base_ema": None,
+                        "trigger_reason": "-"
+                    })
+
+            sell_gap_info = df_sell.apply(_extract_sell_gap_info, axis=1)
+            df_sell = pd.concat([df_sell, sell_gap_info], axis=1)
+
+            # 전략별 칼럼명 변경
+            df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
+
+            # ✅ Base EMA GAP 전략 SELL 전용 컬럼 순서
+            column_order = [
+                "timestamp", "bar_time", "ticker", "bar", "price",
+                "pnl_display", "tp_price", "sl_price", "highest", "base_ema",
+                "bars_held", "triggered", "trigger_reason", "notes"
+            ]
+            column_order = [col for col in column_order if col in df_sell_display.columns]
+            df_sell_display = df_sell_display[column_order]
+
+            # 컬럼명 한글화
+            df_sell_display = df_sell_display.rename(columns={
+                "timestamp": "기록시각",
+                "bar_time": "봉시각",
+                "ticker": "티커",
+                "bar": "BAR",
+                "price": "현재가",
+                "pnl_display": "수익률",
+                "tp_price": "목표가",
+                "sl_price": "손절가",
+                "highest": "최고가",
+                "base_ema": "Base EMA",
+                "bars_held": "보유봉",
+                "triggered": "트리거",
+                "trigger_reason": "사유",
+                "notes": "메모"
+            })
+
+            st.info("📈 Base EMA GAP 전략 모드 - SELL 평가 전용 테이블")
+        else:
+            # ✅ 일반 EMA/MACD 전략: 기존 로직
+            # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
+            df_sell["delta"] = df_sell["macd"] - df_sell["signal"]
+
+            # ✅ cross_type 계산: Golden / Dead / Neutral
+            def _cross_type(delta):
+                if delta > 0:
+                    return "🟢 Golden"
+                elif delta < 0:
+                    return "🔴 Dead"
+                else:
+                    return "⚪ Neutral"
+            df_sell["cross_type"] = df_sell["delta"].apply(_cross_type)
+
+            # 전략별 칼럼명 변경
+            df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
+
+            # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에, delta 다음에 cross_type 추가
+            column_order = [
+                "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta", "cross_type",
+                "ema_fast" if strategy_tag == "EMA" else "macd",
+                "ema_slow" if strategy_tag == "EMA" else "signal",
+                "ts_pct", "ts_armed", "bars_held", "checks", "triggered", "trigger_key", "notes", "interval_sec"
+            ]
+            # 존재하는 컬럼만 필터링
+            column_order = [col for col in column_order if col in df_sell_display.columns]
+            df_sell_display = df_sell_display[column_order]
 
         st.dataframe(df_sell_display, use_container_width=True, hide_index=True)
     else:

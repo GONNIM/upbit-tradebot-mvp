@@ -77,7 +77,7 @@ REQUIRED_CANDLES = {
 # - EMA 전략: 200개로 시작 (불완전하지만 실시간으로 데이터 축적)
 ABSOLUTE_MIN_CANDLES = {
     "MACD": 600,  # MACD: 최대 파라미터 × 3
-    "EMA": 199,   # EMA: Upbit API 제한 (200개 수집 → dropna로 199개, 실시간 축적)
+    "EMA": 195,   # EMA: Upbit API 제한 (200개 수집 → dropna/중복제거로 195개 이상, 실시간 축적)
 }
 ABSOLUTE_MIN_CANDLES_DEFAULT = 600  # 전략 미지정 시 기본값
 
@@ -364,14 +364,16 @@ def _optimize_dataframe_memory(old_df, new_data, max_length):
         if len(old_df) >= max_length:
             old_df = old_df.iloc[-(max_length - 10):].copy()
         combined = pd.concat([old_df, new_data], ignore_index=False)
-        result = combined.drop_duplicates().sort_index().iloc[-max_length:]
+        # ✅ 인덱스(timestamp) 기준 중복 제거 - OHLCV 값이 동일해도 시간이 다르면 유지
+        result = combined[~combined.index.duplicated(keep='last')].sort_index().iloc[-max_length:]
         memory_usage_mb = result.memory_usage(deep=True).sum() / 1024 / 1024
         if memory_usage_mb > 10:
             logger.warning(f"⚠️ DataFrame 메모리 사용량 과다: {memory_usage_mb:.2f}MB")
         return result
     except Exception as e:
         logger.error(f"❌ DataFrame 최적화 실패: {e}")
-        return pd.concat([old_df, new_data]).drop_duplicates().sort_index().iloc[-max_length:]
+        combined_fallback = pd.concat([old_df, new_data], ignore_index=False)
+        return combined_fallback[~combined_fallback.index.duplicated(keep='last')].sort_index().iloc[-max_length:]
 
 def _force_memory_cleanup():
     try:
@@ -768,12 +770,18 @@ def stream_candles(
 
     _log("INFO", f"[초기] standardize 후 최종 데이터: {final_len}개 (목표: {max_length}개, 달성률: {success_rate:.1f}%)")
 
-    # ★ 절대 최소량 검증 (Upbit API 제약 고려)
+    # ★ 데이터 부족 경고 (엔진은 계속 실행하면서 실시간으로 데이터 축적)
     if final_len < absolute_min:
-        raise ValueError(
-            f"❌ 데이터 절대 부족으로 전략 시작 차단: {final_len}/{absolute_min} (절대 최소량) "
-            f"- MA 계산에 최소 {absolute_min}개 필요 (현재 {success_rate:.1f}%)"
-        )
+        _log("WARN", "")
+        _log("WARN", "=" * 80)
+        _log("WARN", f"⚠️  초기 데이터 부족: {final_len}/{absolute_min}개 (권장: {absolute_min}개)")
+        _log("WARN", "=" * 80)
+        _log("WARN", f"   - 현재 {final_len}개로 전략을 시작합니다.")
+        _log("WARN", f"   - 지표가 초기에 불완전할 수 있습니다.")
+        _log("WARN", f"   - 실시간으로 데이터를 수집하며 점진적으로 정확도가 향상됩니다.")
+        _log("WARN", f"   - 약 {absolute_min - final_len}분 후 권장 데이터량 달성")
+        _log("WARN", "=" * 80)
+        _log("WARN", "")
 
     # 목표 대비 50% 미만이면 경고 (전략은 실행)
     if final_len < max_length * WARNING_RATIO:
@@ -1077,11 +1085,23 @@ def stream_candles(
                         f"누락: {missing_bars}개 봉 ({missing_minutes}분)"
                     )
 
-                    # 🛡️ 백필 시도 강화: 최대 8회 (기존: 5회)
-                    # - 1분 갭은 치명적이므로 더 공격적으로 재시도
-                    # - 재시도 간격: 2초 → 4초 → 6초 → 8초 → 10초 → 12초 → 15초 → 20초
+                    # ✅ Interval 기반 백필 전략 (1분봉은 빠른 포기 필수!)
+                    # - 1분봉: 최대 3회, 간격 1~2초 (총 6초 이내) → 다음 봉 전에 완료
+                    # - 3분봉: 최대 5회, 간격 2~4초 (총 15초)
+                    # - 5분 이상: 최대 8회, 간격 2~20초 (총 77초)
+                    if iv == 1:
+                        max_backfill_retry = 3
+                        wait_times = [1, 2, 2]  # 총 5초 + API 호출 시간
+                    elif iv <= 3:
+                        max_backfill_retry = 5
+                        wait_times = [2, 3, 4, 5, 6]  # 총 20초
+                    else:
+                        max_backfill_retry = 8
+                        wait_times = [2, 4, 6, 8, 10, 12, 15, 20]  # 총 77초
+
+                    _log("DEBUG", f"[백필 전략] interval={iv}분 → max_retry={max_backfill_retry}")
+
                     backfill_success = False
-                    max_backfill_retry = 8  # 기존: 5
                     for backfill_attempt in range(1, max_backfill_retry + 1):
                         try:
                             _log("INFO",
@@ -1130,40 +1150,42 @@ def stream_candles(
                         except Exception as e:
                             _log("ERROR", f"[백필 실패] {e} (attempt {backfill_attempt}/{max_backfill_retry})")
 
-                        # 🛡️ 재시도 전 대기 강화: 점진적 증가 (기존: 2초 간격)
-                        # - 간격: 2초 → 4초 → 6초 → 8초 → 10초 → 12초 → 15초 → 20초
+                        # ✅ 재시도 전 대기 (interval 기반 wait_times 사용)
                         if backfill_attempt < max_backfill_retry:
-                            wait_times = [2, 4, 6, 8, 10, 12, 15, 20]
                             wait_time = wait_times[min(backfill_attempt - 1, len(wait_times) - 1)]
                             _log("INFO", f"[백필] {wait_time}초 후 재시도... (누락 방지 최우선)")
                             time.sleep(wait_time)
 
                     if not backfill_success:
                         _log("ERROR",
-                            f"❌ [백필 포기] {missing_bars}개 봉 영구 누락 가능! | "
+                            f"❌ [백필 포기] {missing_bars}개 봉 누락! | "
                             f"누락 구간: {new_last} ~ {expected_last} | "
-                            f"최대 {max_backfill_retry}회 재시도 실패 - 치명적 데이터 손실!"
+                            f"최대 {max_backfill_retry}회 재시도 실패"
                         )
-                        # 🛡️ 최후의 안전장치: 백필 포기 후에도 다음 루프에서 gap 계산으로 자동 복구 시도
-                        # - last_open을 업데이트하지 않으면 다음 루프에서 gap이 커져서 다시 시도됨
-                        _log("WARN", f"[백필 포기] 다음 루프에서 gap 계산으로 재시도 예정 (last_open 유지)")
 
-                        # ✅ 지연된 백필: 누락 구간을 기록하여 다음 루프에서 재조회
-                        # - Upbit API의 데이터 준비 시간을 충분히 확보 (60초 후 재시도)
-                        # - 과거 데이터는 시간이 지나면 안정적으로 조회 가능
-                        if not hasattr(stream_candles, '_pending_backfill'):
-                            stream_candles._pending_backfill = []
+                        # ✅ Interval 기반 백필 포기 후 전략
+                        if iv == 1:
+                            # 1분봉: 합성 봉으로 즉시 대체 (아래 로직으로 처리됨)
+                            _log("WARN", f"[백필 포기-1분봉] 합성 봉으로 대체 처리")
+                            # new.empty가 아니므로 아래 `len(new) < expected_bars` 조건으로 합성 봉 생성됨
+                        else:
+                            # 3분 이상: 지연 백필 예약 (다음 루프에서 재시도 여유 있음)
+                            _log("WARN", f"[백필 포기-{iv}분봉] 다음 루프에서 gap 계산으로 재시도 예정 (last_open 유지)")
 
-                        stream_candles._pending_backfill.append({
-                            'start': new_last,
-                            'end': expected_last,
-                            'missing_bars': missing_bars,
-                            'retry_after': time.time() + 30,  # 30초 후 재시도 (Phase 1: 60초에서 단축)
-                            'ticker': ticker,
-                            'interval': interval,
-                        })
+                            # ✅ 지연된 백필: 누락 구간을 기록하여 다음 루프에서 재조회
+                            if not hasattr(stream_candles, '_pending_backfill'):
+                                stream_candles._pending_backfill = []
 
-                        _log("INFO", f"✅ [지연 백필 예약] {missing_bars}개 봉 | 30초 후 재시도 예정")
+                            stream_candles._pending_backfill.append({
+                                'start': new_last,
+                                'end': expected_last,
+                                'missing_bars': missing_bars,
+                                'retry_after': time.time() + 30,  # 30초 후 재시도
+                                'ticker': ticker,
+                                'interval': interval,
+                            })
+
+                            _log("INFO", f"✅ [지연 백필 예약] {missing_bars}개 봉 | 30초 후 재시도 예정")
 
         # 🔍 PRICE-DEBUG: 실시간 standardize 후 데이터
         try:
@@ -1186,27 +1208,105 @@ def stream_candles(
         # 🔍 DEBUG: 필터링 결과
         _log("INFO", f"[실시간 필터링] before={before_filter_count} | after={len(new)} | filter_condition: {last_open} < index <= {boundary_open}")
 
-        # 🛡️ 방안 3-2: 필터링 후 empty 시 보호
-        if new.empty:
-            # API는 응답했지만 필터링 후 비어있음
-            # → 이미 가진 데이터와 중복이거나, API 응답이 과거 데이터만 포함
+        # ✅ 중간 봉 누락 감지 (부분 데이터 반환 대응)
+        elapsed_minutes = (boundary_open - last_open).total_seconds() / 60
+        expected_bars = int(elapsed_minutes / iv)
 
-            # 시간이 충분히 흘렀으면 last_open 강제 업데이트 (누락 방지)
-            elapsed_minutes = (boundary_open - last_open).total_seconds() / 60
+        # 🛡️ 방안 3-2: 필터링 후 empty이거나 중간 봉 누락 시 보호
+        if new.empty or len(new) < expected_bars:
+            # API가 부분 데이터만 반환 (예: 18:49만 있고 18:48 없음) 또는 응답 없음
+            _log("DEBUG", f"[누락 감지] expected={expected_bars}개 | actual={len(new)}개 | elapsed={elapsed_minutes:.2f}분")
+
+            # 시간이 충분히 흘렀으면 합성 봉 생성
             if elapsed_minutes >= iv:
-                _log("WARN",
-                    f"[실시간 필터링] 새 데이터 없지만 시간 경과 ({elapsed_minutes:.0f}분 ≥ {iv}분) → "
-                    f"last_open 강제 업데이트: {last_open} → {boundary_open}"
-                )
-                last_open = boundary_open
-                # yield 하지 않고 다음 루프 대기 (실제 새 데이터 없으므로)
+                # ✅ 거래가 없어도 이전 종가로 합성 봉 생성 (BUY 평가 기록용)
+                if not df.empty:
+                    last_close = float(df.iloc[-1]['Close'])
+
+                    # 🔥 FIX: 중간에 누락된 모든 봉에 대해 합성 봉 생성 (BUY 평가 연속성 보장)
+                    missing_bars_count = int(elapsed_minutes / iv)
+                    _log("DEBUG", f"[합성 봉 디버그] last_open={last_open} | boundary_open={boundary_open} | elapsed_minutes={elapsed_minutes:.2f} | missing_bars_count={missing_bars_count}")
+
+                    if missing_bars_count > 1:
+                        _log("WARN",
+                            f"[합성 봉 다중 생성] {missing_bars_count}개 봉 생성 필요 | "
+                            f"구간: {last_open} ~ {boundary_open}"
+                        )
+                        synthetic_bars = []
+                        synthetic_indices = []
+                        for i in range(1, missing_bars_count + 1):
+                            synthetic_time = last_open + timedelta(minutes=iv * i)
+                            _log("DEBUG", f"[합성 봉 루프] i={i} | synthetic_time={synthetic_time} | boundary_open={boundary_open} | 조건={synthetic_time <= boundary_open}")
+                            if synthetic_time <= boundary_open:
+                                synthetic_bars.append({
+                                    'Open': last_close,
+                                    'High': last_close,
+                                    'Low': last_close,
+                                    'Close': last_close,
+                                    'Volume': 0.0
+                                })
+                                synthetic_indices.append(synthetic_time)
+                                _log("INFO", f"[합성 봉] {synthetic_time} | OHLC={last_close:.2f} (Volume=0)")
+
+                        if synthetic_bars:
+                            synthetic_df = pd.DataFrame(synthetic_bars, index=synthetic_indices)
+                            # ✅ 기존 API 데이터와 병합 (API 데이터 우선, 중복 시 API 값 유지)
+                            if not new.empty:
+                                _log("DEBUG", f"[합성 봉 병합] synthetic={len(synthetic_df)}개 | api={len(new)}개")
+                                combined = pd.concat([synthetic_df, new])
+                                new = combined[~combined.index.duplicated(keep='last')].sort_index()
+                                _log("INFO", f"✅ [합성 봉 생성+병합 완료] {len(new)}개 | 첫봉={new.index[0]} | 마지막={new.index[-1]}")
+                            else:
+                                new = synthetic_df
+                                _log("INFO", f"✅ [합성 봉 생성 완료] {len(synthetic_bars)}개 | 첫봉={new.index[0]} | 마지막={new.index[-1]}")
+                        else:
+                            _log("ERROR", f"❌ [합성 봉 실패] synthetic_bars 리스트가 비어있음! (missing_bars_count={missing_bars_count})")
+                    else:
+                        # 단일 봉만 누락
+                        _log("WARN",
+                            f"[실시간 필터링] 새 데이터 없지만 시간 경과 → 합성 봉 생성 | "
+                            f"time={boundary_open} | OHLC={last_close:.2f} (이전 종가)"
+                        )
+                        # 합성 봉: Open=High=Low=Close=이전종가, Volume=0
+                        synthetic_bar = pd.DataFrame({
+                            'Open': [last_close],
+                            'High': [last_close],
+                            'Low': [last_close],
+                            'Close': [last_close],
+                            'Volume': [0.0]
+                        }, index=[boundary_open])
+
+                        # ✅ 기존 API 데이터와 병합 (단일 봉도 동일 로직 적용)
+                        if not new.empty:
+                            _log("DEBUG", f"[합성 봉 병합-단일] synthetic=1개 | api={len(new)}개")
+                            combined = pd.concat([synthetic_bar, new])
+                            new = combined[~combined.index.duplicated(keep='last')].sort_index()
+                        else:
+                            new = synthetic_bar
+
+                    # 🔥 중요: last_open은 나중에 df.index[-1]로 업데이트되므로 여기서는 변경 안 함
+                    # yield 계속 진행 (아래 df 병합 로직으로)
+                else:
+                    _log("WARN",
+                        f"[실시간 필터링] df가 비어있어 합성 봉 생성 불가 → last_open만 업데이트"
+                    )
+                    last_open = boundary_open
+                    continue
             else:
                 _log("INFO",
                     f"[실시간 필터링] 시간 경과 부족 ({elapsed_minutes:.1f}분 < {iv}분), "
                     f"last_open 유지: {last_open}"
                 )
+                continue
 
-            continue
+        # 🔍 MERGE-DEBUG: 병합 전 DataFrame 상태
+        try:
+            _log("DEBUG", f"[병합 전] df.shape={df.shape} | df 마지막 3개: {list(df.tail(3).index) if len(df) >= 3 else list(df.index)}")
+            _log("DEBUG", f"[병합 전] new.shape={new.shape} | new.empty={new.empty}")
+            if not new.empty:
+                _log("DEBUG", f"[병합 전] new 인덱스: {list(new.index[:3])}...{list(new.index[-3:])} (총 {len(new)}개)")
+        except Exception as e_merge_log:
+            _log("WARN", f"[병합 전] 로깅 실패: {e_merge_log}")
 
         # 중복/정렬은 _optimize_dataframe_memory 내부에서 처리되지만
         # 혹시 남은 중복에 대해 최신 값 우선으로 한 번 더 보정
@@ -1215,6 +1315,12 @@ def stream_candles(
         tmp = _optimize_dataframe_memory(df, new, max_length)
         df = tmp.loc[~tmp.index.duplicated(keep="last")].sort_index()
         del tmp
+
+        # 🔍 MERGE-DEBUG: 병합 후 DataFrame 상태
+        try:
+            _log("DEBUG", f"[병합 후] df.shape={df.shape} | df 마지막 3개: {list(df.tail(3).index)}")
+        except Exception as e_merge_log:
+            _log("WARN", f"[병합 후] 로깅 실패: {e_merge_log}")
 
         # 실시간 병합 후 DET 로깅 (로컬/서버 비교 핵심 지점)
         log_det(df, "LOOP_MERGED")

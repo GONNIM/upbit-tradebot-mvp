@@ -9,6 +9,7 @@ from core.strategy_action import Action
 from core.trader import UpbitTrader
 from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit
 from typing import Optional, Dict, Any
+from zoneinfo import ZoneInfo
 import logging
 import queue
 
@@ -441,6 +442,90 @@ class StrategyEngine:
 
         self.q.put((bar.ts, "LOG", msg))
 
+    def record_warmup_log(self, bar: Bar, warmup_progress: str):
+        """
+        WARMUP 구간 평가 로그 기록
+
+        Args:
+            bar: 현재 봉
+            warmup_progress: WARMUP 진행 상황 (예: "(150/200)" 또는 "(완료 200/200)")
+        """
+        try:
+            current_price = bar.close
+
+            # WARMUP 중에는 지표 값이 없으므로 None 처리
+            macd = None
+            signal = None
+
+            # 전략 타입에 따라 checks 구성
+            if self.strategy_type == "EMA":
+                checks = {
+                    "status": "WARMUP",
+                    "progress": warmup_progress,
+                    "reason": "WARMUP_IN_PROGRESS",
+                    "ema_fast": None,
+                    "ema_slow": None,
+                    "ema_base": None,
+                    "price": float(current_price) if current_price is not None else None,
+                }
+
+                # ✅ Base EMA GAP 전략 모드 감지
+                if hasattr(self.strategy, 'buy_conditions') and isinstance(self.strategy.buy_conditions, dict):
+                    if self.strategy.buy_conditions.get("base_ema_gap", False):
+                        checks["strategy_mode"] = "BASE_EMA_GAP"
+            else:  # MACD
+                checks = {
+                    "status": "WARMUP",
+                    "progress": warmup_progress,
+                    "reason": "WARMUP_IN_PROGRESS",
+                    "macd": None,
+                    "signal": None,
+                    "price": float(current_price) if current_price is not None else None,
+                }
+
+            notes = f"⏳ WARMUP 진행 중 {warmup_progress}"
+
+            # 포지션 없을 때: BUY 평가 로그 기록
+            if not self.position.has_position:
+                # bar.ts는 timezone-naive이므로 KST로 localize
+                bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                insert_buy_eval(
+                    user_id=self.user_id,
+                    ticker=self.ticker,
+                    interval_sec=self.interval_sec,
+                    bar=self.bar_count,
+                    price=current_price,
+                    macd=macd,
+                    signal=signal,
+                    have_position=False,
+                    overall_ok=False,
+                    failed_keys=["WARMUP_IN_PROGRESS"],
+                    checks=checks,
+                    notes=notes,
+                    timestamp=bar_ts_kst.isoformat()
+                )
+            else:
+                # 포지션 있을 때: SELL 평가 로그 기록
+                # bar.ts는 timezone-naive이므로 KST로 localize
+                bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                insert_sell_eval(
+                    user_id=self.user_id,
+                    ticker=self.ticker,
+                    interval_sec=self.interval_sec,
+                    bar=self.bar_count,
+                    price=current_price,
+                    macd=macd,
+                    signal=signal,
+                    have_position=True,
+                    overall_ok=False,
+                    failed_keys=["WARMUP_IN_PROGRESS"],
+                    checks=checks,
+                    notes=notes,
+                    timestamp=bar_ts_kst.isoformat()
+                )
+        except Exception as e:
+            logger.error(f"❌ WARMUP 로그 기록 실패: {e}")
+
     def _record_audit_log(self, bar: Bar, indicators: Dict[str, Any], action: Action):
         """
         감사 로그 기록 (매 봉마다)
@@ -481,33 +566,46 @@ class StrategyEngine:
                     "price": float(current_price) if current_price is not None else None,
                 }
 
+                # ✅ Base EMA GAP 전략 모드 감지 (SELL 로그용)
+                if hasattr(self.strategy, 'buy_conditions') and isinstance(self.strategy.buy_conditions, dict):
+                    if self.strategy.buy_conditions.get("base_ema_gap", False):
+                        base_checks["strategy_mode"] = "BASE_EMA_GAP"
+
             # 포지션 없을 때: BUY 평가 로그
             if not self.position.has_position:
-                # ✅ BUY 평가 상세 정보 계산
-                # Cross 상태 판단
-                cross_status = "Neutral"
-                if self.strategy_type == "EMA":
-                    ema_fast = indicators.get("ema_fast")
-                    ema_slow = indicators.get("ema_slow")
-                    if ema_fast and ema_slow:
-                        if ema_fast > ema_slow:
-                            cross_status = "Golden"
-                        elif ema_fast < ema_slow:
-                            cross_status = "Dead"
-                elif self.strategy_type == "MACD":
-                    macd_val = indicators.get("macd")
-                    signal_val = indicators.get("signal")
-                    if macd_val and signal_val:
-                        if macd_val > signal_val:
-                            cross_status = "Golden"
-                        elif macd_val < signal_val:
-                            cross_status = "Dead"
+                # ✅ Base EMA GAP 전략 특별 처리
+                gap_details = getattr(self.strategy, "gap_details", None)
 
-                if action == Action.HOLD or action == Action.NOOP:
-                    # 신호 없음
-                    buy_checks = base_checks.copy()
-                    buy_checks["reason"] = "NO_BUY_SIGNAL"
+                if gap_details and gap_details.get("strategy_mode") == "BASE_EMA_GAP":
+                    # Base EMA GAP 전략 전용 로그
+                    gap_pct = gap_details.get("gap_pct", 0)
+                    gap_threshold = gap_details.get("gap_threshold", 0)
+                    gap_to_target = gap_details.get("gap_to_target", 0)
+                    price_needed = gap_details.get("price_needed", 0)
+                    condition_met = gap_details.get("condition_met", False)
+                    reason = gap_details.get("reason", "GAP_INSUFFICIENT")
+
+                    # Cross status 설정
+                    if condition_met:
+                        if abs(gap_pct) > abs(gap_threshold * 2):
+                            cross_status = "🔥 GAP_EXCEEDED"
+                        else:
+                            cross_status = "✅ GAP_MET"
+                    else:
+                        cross_status = "📉 GAP_WATCH"
+
+                    # Checks 필드 구성
+                    buy_checks = gap_details.copy()
                     buy_checks["cross_status"] = cross_status
+
+                    # Notes 구성
+                    if condition_met:
+                        if cross_status == "🔥 GAP_EXCEEDED":
+                            notes = f"🔥 급락 감지! Base EMA GAP: {gap_pct:.2%} (목표: {gap_threshold:.2%}, 초과: {abs(gap_to_target):.2%}p) | Base: ₩{gap_details.get('base_ema', 0):,.0f}"
+                        else:
+                            notes = f"✅ Base EMA GAP 매수 조건 충족! {gap_pct:.2%} (목표: {gap_threshold:.2%}, 초과: {abs(gap_to_target):.2%}p) | Base: ₩{gap_details.get('base_ema', 0):,.0f}"
+                    else:
+                        notes = f"📉 Base EMA GAP: {gap_pct:.2%} (목표: {gap_threshold:.2%}, 부족: {abs(gap_to_target):.2%}p) | 매수가: ₩{price_needed:,.0f} | Base: ₩{gap_details.get('base_ema', 0):,.0f}"
 
                     insert_buy_eval(
                         user_id=self.user_id,
@@ -518,33 +616,72 @@ class StrategyEngine:
                         macd=macd,
                         signal=signal,
                         have_position=False,
-                        overall_ok=False,
-                        failed_keys=["NO_SIGNAL"],
+                        overall_ok=condition_met,
+                        failed_keys=[] if condition_met else [reason],
                         checks=buy_checks,
-                        notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}"
-                        # ✅ timestamp 제거 → 자동으로 now_kst() 사용
+                        notes=notes
                     )
-                elif action == Action.BUY:
-                    # BUY 신호 발생
-                    buy_checks = base_checks.copy()
-                    buy_checks["reason"] = "BUY_SIGNAL"
-                    buy_checks["cross_status"] = cross_status
+                else:
+                    # 일반 EMA/MACD 전략 로그 (기존 로직)
+                    # Cross 상태 판단
+                    cross_status = "Neutral"
+                    if self.strategy_type == "EMA":
+                        ema_fast = indicators.get("ema_fast")
+                        ema_slow = indicators.get("ema_slow")
+                        if ema_fast and ema_slow:
+                            if ema_fast > ema_slow:
+                                cross_status = "Golden"
+                            elif ema_fast < ema_slow:
+                                cross_status = "Dead"
+                    elif self.strategy_type == "MACD":
+                        macd_val = indicators.get("macd")
+                        signal_val = indicators.get("signal")
+                        if macd_val and signal_val:
+                            if macd_val > signal_val:
+                                cross_status = "Golden"
+                            elif macd_val < signal_val:
+                                cross_status = "Dead"
 
-                    insert_buy_eval(
-                        user_id=self.user_id,
-                        ticker=self.ticker,
-                        interval_sec=self.interval_sec,
-                        bar=self.bar_count,
-                        price=current_price,
-                        macd=macd,
-                        signal=signal,
-                        have_position=False,
-                        overall_ok=True,
-                        failed_keys=[],
-                        checks=buy_checks,
-                        notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}"
-                        # ✅ timestamp 제거 → 자동으로 now_kst() 사용
-                    )
+                    if action == Action.HOLD or action == Action.NOOP:
+                        # 신호 없음
+                        buy_checks = base_checks.copy()
+                        buy_checks["reason"] = "NO_BUY_SIGNAL"
+                        buy_checks["cross_status"] = cross_status
+
+                        insert_buy_eval(
+                            user_id=self.user_id,
+                            ticker=self.ticker,
+                            interval_sec=self.interval_sec,
+                            bar=self.bar_count,
+                            price=current_price,
+                            macd=macd,
+                            signal=signal,
+                            have_position=False,
+                            overall_ok=False,
+                            failed_keys=["NO_SIGNAL"],
+                            checks=buy_checks,
+                            notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}"
+                        )
+                    elif action == Action.BUY:
+                        # BUY 신호 발생
+                        buy_checks = base_checks.copy()
+                        buy_checks["reason"] = "BUY_SIGNAL"
+                        buy_checks["cross_status"] = cross_status
+
+                        insert_buy_eval(
+                            user_id=self.user_id,
+                            ticker=self.ticker,
+                            interval_sec=self.interval_sec,
+                            bar=self.bar_count,
+                            price=current_price,
+                            macd=macd,
+                            signal=signal,
+                            have_position=False,
+                            overall_ok=True,
+                            failed_keys=[],
+                            checks=buy_checks,
+                            notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}"
+                        )
 
             # 포지션 있을 때: SELL 평가 로그
             else:
