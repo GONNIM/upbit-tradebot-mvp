@@ -1,5 +1,6 @@
 from tracemalloc import start
 from urllib.parse import urlencode
+import logging
 import streamlit as st
 import streamlit_authenticator as stauth
 from ui.style import style_main
@@ -13,6 +14,8 @@ from services.health_monitor import start_health_monitoring
 from utils.smoke_test import render_db_smoke_test
 
 from services.upbit_api import validate_upbit_keys, get_server_public_ip
+
+logger = logging.getLogger(__name__)
 
 
 def _mask(s: str, head=4, tail=4):
@@ -225,6 +228,20 @@ elif authentication_status:
                         krw_balance = _extract_krw_balance(st.session_state.upbit_accounts)
                         st.session_state.live_krw_balance = krw_balance
                         st.session_state.live_capital_set = True
+
+                        # ✅ 계정 검증 성공 시 즉시 DB 잔고 동기화
+                        from services.db import update_account_from_balances, update_position_from_balances
+                        try:
+                            update_account_from_balances(username, data)
+                            # 모든 코인 포지션도 동기화
+                            for bal in (data or []):
+                                currency = bal.get("currency", "").upper()
+                                if currency and currency != "KRW":
+                                    ticker = f"KRW-{currency}"
+                                    update_position_from_balances(username, ticker, data)
+                            logger.info(f"✅ [VERIFY] DB 잔고 동기화 완료: user={username}")
+                        except Exception as e:
+                            logger.error(f"⚠️ [VERIFY] DB 잔고 동기화 실패: {e}")
 
                         st.success("Upbit 계정 검증 성공! 잔고 정보를 표로 표시합니다.")
                         if st.session_state.upbit_accounts:

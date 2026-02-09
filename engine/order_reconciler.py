@@ -14,13 +14,16 @@ logger = logging.getLogger(__name__)
 
 
 class OrderReconciler:
-    def __init__(self, upbit: pyupbit.Upbit, *, poll_interval=2.0):
+    def __init__(self, upbit: pyupbit.Upbit, *, poll_interval=2.0, balance_sync_interval=300.0):
         self.upbit = upbit
         self.poll_interval = poll_interval
+        self.balance_sync_interval = balance_sync_interval  # ✅ 주기적 잔고 동기화 간격 (초, 기본 5분)
         self._pending: Dict[str, Dict[str, Any]] = {}  # uuid -> meta
+        self._user_ids: set = set()  # ✅ 추적 중인 사용자 ID들 (잔고 동기화용)
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thr: Optional[threading.Thread] = None
+        self._last_balance_sync = 0.0  # ✅ 마지막 잔고 동기화 시각 (time.time())
 
     def start(self):
         if self._thr and self._thr.is_alive():
@@ -51,6 +54,7 @@ class OrderReconciler:
                 "last": None,
                 "meta": meta or {}  # ✅ 전략 컨텍스트 저장
             }
+            self._user_ids.add(user_id)  # ✅ 잔고 동기화 대상 사용자 추가
         logger.info(f"[OR] enqueued: {uuid} side={side} {ticker}")
 
     def load_inflight_from_db(self, fetch_func):
@@ -69,13 +73,15 @@ class OrderReconciler:
                         except (json.JSONDecodeError, TypeError) as e:
                             logger.warning(f"[OR] meta parsing failed for uuid={u}: {e}")
 
+                    user_id = r["user_id"]
                     self._pending[u] = {
-                        "user_id": r["user_id"],
+                        "user_id": user_id,
                         "ticker": r["ticker"],
                         "side": r["side"],
                         "last": None,
                         "meta": meta_dict  # ✅ 전략 컨텍스트 복구
                     }
+                    self._user_ids.add(user_id)  # ✅ 잔고 동기화 대상 사용자 추가
         logger.info(f"[OR] recovered pending: {len(rows)}")
 
     def _run(self):
@@ -95,6 +101,9 @@ class OrderReconciler:
                 except Exception as e:
                     logger.warning(f"[OR] get_order failed uuid={uuid}: {e}")
                 time.sleep(self.poll_interval)
+
+            # ✅ 주기적 잔고 동기화 (5분마다)
+            self._periodic_balance_sync()
 
             if not uuids:
                 time.sleep(1.0)
@@ -251,3 +260,57 @@ class OrderReconciler:
             update_position_from_balances(user_id, ticker, balances)
         except Exception as e:
             logger.error(f"[OR] finalize failed uuid={uuid}: {e}")
+
+    def _periodic_balance_sync(self):
+        """
+        주기적 잔고 동기화 (기본 5분마다)
+        - 주문 없이 외부 입출금 발생 시에도 자동 반영
+        - LIVE 모드에서만 동작 (Upbit API 호출)
+        """
+        now = time.time()
+        elapsed = now - self._last_balance_sync
+
+        # ✅ 동기화 주기 체크
+        if elapsed < self.balance_sync_interval:
+            return
+
+        # ✅ 추적 중인 사용자 ID 복사 (thread-safe)
+        with self._lock:
+            user_ids = list(self._user_ids)
+
+        if not user_ids:
+            # 추적 중인 사용자가 없으면 동기화 불필요
+            self._last_balance_sync = now
+            return
+
+        try:
+            # ✅ Upbit API 호출: 잔고 조회
+            balances = self.upbit.get_balances()
+            if not balances:
+                logger.warning("[OR] periodic sync: get_balances() returned empty")
+                return
+
+            # ✅ 모든 추적 중인 사용자의 잔고/포지션 업데이트
+            for user_id in user_ids:
+                try:
+                    update_account_from_balances(user_id, balances)
+
+                    # 모든 코인 포지션 동기화 (balances에 있는 모든 ticker)
+                    for bal in balances:
+                        currency = bal.get("currency", "").upper()
+                        if currency and currency != "KRW":
+                            ticker = f"KRW-{currency}"
+                            update_position_from_balances(user_id, ticker, balances)
+
+                    logger.info(f"[OR] periodic sync: user={user_id} updated")
+                except Exception as e:
+                    logger.error(f"[OR] periodic sync failed for user={user_id}: {e}")
+
+            # ✅ 마지막 동기화 시각 갱신
+            self._last_balance_sync = now
+            logger.info(f"[OR] periodic sync completed: {len(user_ids)} user(s), interval={self.balance_sync_interval}s")
+
+        except Exception as e:
+            logger.error(f"[OR] periodic sync failed: {e}")
+            # 실패해도 다음 주기에 재시도하도록 시각 갱신
+            self._last_balance_sync = now

@@ -7,6 +7,7 @@ import logging
 import sys
 import time
 import json
+import pandas as pd
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
 
@@ -418,6 +419,14 @@ def run_live_loop(
     # ============================================================
 
     min_hist = _min_history_bars_for(params, strategy_tag)
+
+    # ✅ Base EMA GAP 모드: period × 2 데이터 요청
+    # - 200-period MA를 안정적으로 계산하려면 period × 2 필요
+    if strategy_tag == "EMA" and buy_conditions.get("base_ema_gap", False):
+        base_period = getattr(params, "base_ema_period", 200)
+        min_hist = max(min_hist, base_period * 2)
+        logger.info(f"[WARMUP] Base EMA GAP 모드: {base_period} × 2 = {min_hist}개 요청")
+
     warmup_complete = False
 
     logger.info(f"[WARMUP] Required bars: {min_hist}")
@@ -484,6 +493,43 @@ def run_live_loop(
                 logger.info("❌ 데이터프레임 비어있음 → 5초 후 재시도")
                 time.sleep(5)
                 continue
+
+            # ✅ Base EMA GAP 모드: 누락된 타임스탬프를 이전 종가로 채우기
+            if strategy_tag == "EMA" and buy_conditions.get("base_ema_gap", False):
+                # interval별 봉 간격 매핑
+                interval_map = {
+                    "minute1": "1T",
+                    "minute3": "3T",
+                    "minute5": "5T",
+                    "minute10": "10T",
+                    "minute15": "15T",
+                    "minute30": "30T",
+                    "minute60": "60T",
+                    "day": "D",
+                }
+                freq = interval_map.get(params.interval, "1T")
+
+                # 연속된 타임스탬프 생성
+                start_time = df.index.min()
+                end_time = df.index.max()
+                full_range = pd.date_range(start=start_time, end=end_time, freq=freq)
+
+                # 누락 봉 개수 체크
+                missing_count = len(full_range) - len(df)
+                if missing_count > 0:
+                    logger.info(f"[ENGINE] Base EMA GAP: 누락 봉 {missing_count}개 감지, 이전 종가로 채움...")
+
+                    # reindex로 누락 타임스탬프 추가 후 forward fill
+                    df = df.reindex(full_range)
+
+                    # 누락된 봉은 이전 종가로 OHLC 채우기 (Volume은 0)
+                    df["Close"] = df["Close"].ffill()
+                    df["Open"] = df["Open"].fillna(df["Close"])
+                    df["High"] = df["High"].fillna(df["Close"])
+                    df["Low"] = df["Low"].fillna(df["Close"])
+                    df["Volume"] = df["Volume"].fillna(0)
+
+                    logger.info(f"[ENGINE] Base EMA GAP: 누락 봉 채우기 완료, 최종 데이터: {len(df)}개")
 
             # ★ 워밍업 단계: 지표 초기 시드
             if not warmup_complete:

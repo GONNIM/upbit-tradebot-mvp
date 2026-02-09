@@ -308,7 +308,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.08.1710")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.09.2200")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -1609,12 +1609,63 @@ st.divider()
 
 from ui.charts import macd_altair_chart, ema_altair_chart, debug_time_meta, _minus_9h_index
 from core.data_feed import get_ohlcv_once
+from engine.live_loop import _min_history_bars_for
 
 # ...
 ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
 interval_code = getattr(params_obj, "interval", params_obj.interval)
 
-df_live = get_ohlcv_once(ticker, interval_code, count=600)  # 최근 600봉
+# ✅ 엔진 로직과 동일한 워밍업 계산 (전략별 최적 데이터량)
+warmup_count = _min_history_bars_for(params_obj, strategy_tag)
+
+# ✅ Base EMA GAP 모드: base_ema_period를 고려해서 충분한 데이터 요청
+# - 200-period MA를 선으로 표시하려면 period × 2 = 400개 필요
+#   (처음 200개: warmup, 다음 200개: MA 값 표시 구간)
+# - pyupbit는 count > 200이면 여러 번 API 호출해서 이어붙여줌
+if strategy_tag == "EMA" and buy_state.get("base_ema_gap", False):
+    base_period = getattr(params_obj, "base_ema_period", 200)
+    # period × 2 공식 (충분한 MA 안정화)
+    warmup_count = max(warmup_count, base_period * 2)
+    logger.info(f"[CHART] Base EMA GAP 모드: warmup_count={warmup_count} (base={base_period} × 2)")
+
+df_live = get_ohlcv_once(ticker, interval_code, count=warmup_count)
+
+# ✅ Base EMA GAP 모드: 누락된 타임스탬프를 이전 종가로 채우기
+if strategy_tag == "EMA" and buy_state.get("base_ema_gap", False) and not df_live.empty:
+    # interval별 봉 간격 매핑
+    interval_map = {
+        "minute1": "1T",
+        "minute3": "3T",
+        "minute5": "5T",
+        "minute10": "10T",
+        "minute15": "15T",
+        "minute30": "30T",
+        "minute60": "60T",
+        "day": "D",
+    }
+    freq = interval_map.get(interval_code, "1T")
+
+    # 연속된 타임스탬프 생성
+    start_time = df_live.index.min()
+    end_time = df_live.index.max()
+    full_range = pd.date_range(start=start_time, end=end_time, freq=freq)
+
+    # 누락 봉 개수 체크
+    missing_count = len(full_range) - len(df_live)
+    if missing_count > 0:
+        logger.info(f"[CHART] Base EMA GAP: 누락 봉 {missing_count}개 감지, 이전 종가로 채움...")
+
+        # reindex로 누락 타임스탬프 추가 후 forward fill
+        df_live = df_live.reindex(full_range)
+
+        # 누락된 봉은 이전 종가로 OHLC 채우기 (Volume은 0)
+        df_live["Close"] = df_live["Close"].ffill()
+        df_live["Open"] = df_live["Open"].fillna(df_live["Close"])
+        df_live["High"] = df_live["High"].fillna(df_live["Close"])
+        df_live["Low"] = df_live["Low"].fillna(df_live["Close"])
+        df_live["Volume"] = df_live["Volume"].fillna(0)
+
+        logger.info(f"[CHART] Base EMA GAP: 누락 봉 채우기 완료, 최종 데이터: {len(df_live)}개")
 
 # ★ 차트 제목도 전략 표시 (MA 타입 포함)
 if strategy_tag == "EMA":
@@ -1628,8 +1679,11 @@ if strategy_tag == "EMA":
     # ✅ 사용자가 선택한 MA 타입 가져오기
     ma_type = getattr(params_obj, "ma_type", "EMA")
 
+    # ✅ Base EMA GAP 전략 감지
+    is_gap_mode = buy_state.get("base_ema_gap", False)
+
     # ✅ 로그 추가 (검증용)
-    logger.info(f"[CHART] MA 타입={ma_type} | 전략과 동일하게 표시")
+    logger.info(f"[CHART] MA 타입={ma_type} | Base EMA GAP 모드={is_gap_mode}")
 
     ema_altair_chart(
         df_live,
@@ -1640,6 +1694,7 @@ if strategy_tag == "EMA":
         slow_sell=getattr(params_obj, "slow_sell", None) or params_obj.slow_period,
         base=getattr(params_obj, "base_ema_period", 200),
         ma_type=ma_type,  # ✅ ma_type 파라미터 전달
+        gap_mode=is_gap_mode,  # ✅ Base EMA GAP 전용 모드
         max_bars=500,
     )
 else:

@@ -201,11 +201,12 @@ def macd_altair_chart(
         st.info("차트 표시할 데이터가 없습니다.")
         return
 
-    df = df_raw.tail(max_bars)
-    df = compute_macd(df, fast=fast, slow=slow, signal=signal)
+    # ✅ 전체 데이터로 MACD 계산 (충분한 워밍업 보장)
+    df = compute_macd(df_raw, fast=fast, slow=slow, signal=signal)
     df = _minus_9h_index(df)
 
-    df_plot = df.reset_index().rename(columns={"index": "Time"})
+    # ✅ 표시용으로만 max_bars 제한 (MACD는 이미 전체 계산 완료)
+    df_plot = df.tail(max_bars).reset_index().rename(columns={"index": "Time"})
     base = alt.Chart(df_plot).encode(x=alt.X("Time:T", axis=alt.Axis(format="%H:%M")))
 
     layers = []
@@ -261,6 +262,7 @@ def ema_altair_chart(
     slow_sell: int = 60,
     base: int = 200,
     ma_type: str = "EMA",
+    gap_mode: bool = False,
     max_bars: int = 500,
     show_price: bool = True,
     height_price: int = 400,
@@ -297,7 +299,39 @@ def ema_altair_chart(
     col1, col2 = st.columns(2)  # 1:1 비율
 
     with col1:
-        if use_separate:
+        # ✅ Base EMA GAP 전용 모드
+        if gap_mode:
+            setting_html = f'''
+            <div style="background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+                        padding: 12px;
+                        border-radius: 8px;
+                        border: 2px solid #3f51b5;
+                        color: #ffffff;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+                <div style="font-size: 15px; font-weight: bold; margin-bottom: 8px; color: #fff;">
+                    📌 전략 설정
+                </div>
+                <div style="margin-top: 8px;">
+                    <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                        <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                            📊 <strong style="color: #ffd54f;">전략:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                            Base EMA GAP (급락 매수)
+                        </span>
+                    </div>
+                    <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                        <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                            📊 <strong style="color: #ffd54f;">Base:</strong>
+                        </span>
+                        <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                            {base}일선 ({ma_type})
+                        </span>
+                    </div>
+                </div>
+            </div>
+            '''
+        elif use_separate:
             setting_html = f'''
             <div style="background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
                         padding: 12px;
@@ -385,7 +419,10 @@ def ema_altair_chart(
     # 기간별로 수집: {기간: [용도 라벨들]}
     period_labels = {}
 
-    if use_separate:
+    # ✅ Base EMA GAP 모드: Base만 표시
+    if gap_mode:
+        period_labels[base] = ["Base (GAP 기준선)"]
+    elif use_separate:
         # 별도 모드: 매수/매도 각각의 기간 수집
         if fast_buy not in period_labels:
             period_labels[fast_buy] = []
@@ -402,6 +439,11 @@ def ema_altair_chart(
         if slow_sell not in period_labels:
             period_labels[slow_sell] = []
         period_labels[slow_sell].append("Sell Slow")
+
+        # Base는 별도 처리
+        if base not in period_labels:
+            period_labels[base] = []
+        period_labels[base].append("Base")
     else:
         # 공통 모드: fast_sell, slow_sell 사용
         if fast_sell not in period_labels:
@@ -412,10 +454,10 @@ def ema_altair_chart(
             period_labels[slow_sell] = []
         period_labels[slow_sell].append("Slow")
 
-    # Base는 별도 처리
-    if base not in period_labels:
-        period_labels[base] = []
-    period_labels[base].append("Base")
+        # Base는 별도 처리
+        if base not in period_labels:
+            period_labels[base] = []
+        period_labels[base].append("Base")
 
     # 색상 팔레트 (기간별로 다른 색)
     color_palette = ["#4caf50", "#ff9800", "#d32f2f", "#9c27b0", "#2196f3", "#ff5722"]
@@ -440,7 +482,8 @@ def ema_altair_chart(
             labels = period_labels[period]
             label_str = " / ".join(labels)
             color = color_palette[idx % len(color_palette)]
-            has_base = "Base" in labels
+            # ✅ "Base"를 포함하는 라벨이 있는지 확인 (GAP 모드: "Base (GAP 기준선)")
+            has_base = any("Base" in label for label in labels)
 
             # HTML로 색상 라인 + 라벨 생성
             legend_html += f'<div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">'
@@ -462,9 +505,9 @@ def ema_altair_chart(
         st.markdown(legend_html, unsafe_allow_html=True)
 
     # ========== 📊 차트 데이터 준비 ==========
-    df = df_raw.tail(max_bars)
+    # ✅ 전체 데이터로 MA 계산 (충분한 워밍업 보장)
     df = compute_ema(
-        df,
+        df_raw,
         use_separate=use_separate,
         fast_buy=fast_buy,
         slow_buy=slow_buy,
@@ -475,25 +518,37 @@ def ema_altair_chart(
     )
     df = _minus_9h_index(df)
 
-    df_plot = df.reset_index().rename(columns={"index": "Time"})
+    # ✅ 표시용으로만 max_bars 제한 (MA는 이미 전체 계산 완료)
+    df_plot = df.tail(max_bars).reset_index().rename(columns={"index": "Time"})
     base_chart = alt.Chart(df_plot).encode(x=alt.X("Time:T", axis=alt.Axis(format="%H:%M")))
 
     # 가격 차트 레이어들
     price_layers = []
 
     if show_price:
-        # 캔들 차트: 고저선
-        rule = base_chart.mark_rule().encode(
-            y=alt.Y("Low:Q", scale=alt.Scale(zero=False), title="Price"),
-            y2="High:Q",
-        )
-        # 캔들 차트: 몸통
-        body = base_chart.mark_bar().encode(
-            y="Open:Q",
-            y2="Close:Q",
-            color=alt.condition("datum.Close >= datum.Open", alt.value("#26a69a"), alt.value("#ef5350")),
-        )
-        price_layers.extend([rule, body])
+        if gap_mode:
+            # ✅ GAP 모드: 종가를 실선으로 연결 (캔들 대신)
+            close_line = base_chart.mark_line(
+                strokeWidth=2,
+                color="#2196f3",  # 파란색
+            ).encode(
+                y=alt.Y("Close:Q", scale=alt.Scale(zero=False), title="Price")
+            )
+            price_layers.append(close_line)
+        else:
+            # 일반 모드: 캔들 차트
+            # 캔들 차트: 고저선
+            rule = base_chart.mark_rule().encode(
+                y=alt.Y("Low:Q", scale=alt.Scale(zero=False), title="Price"),
+                y2="High:Q",
+            )
+            # 캔들 차트: 몸통
+            body = base_chart.mark_bar().encode(
+                y="Open:Q",
+                y2="Close:Q",
+                color=alt.condition("datum.Close >= datum.Open", alt.value("#26a69a"), alt.value("#ef5350")),
+            )
+            price_layers.extend([rule, body])
 
     # MA 라인 추가 (중복 제거된 기간만)
     tooltip_fields = [
@@ -507,12 +562,18 @@ def ema_altair_chart(
         color = color_palette[idx % len(color_palette)]
 
         # Base가 포함된 경우 점선으로 구분 (Base 역할 강조)
-        has_base = "Base" in labels
-        stroke_dash = [5, 5] if has_base else []
+        # ✅ "Base"를 포함하는 라벨이 있는지 확인 (GAP 모드: "Base (GAP 기준선)")
+        has_base = any("Base" in label for label in labels)
+        # ✅ GAP 모드일 때는 점선을 더 명확하게
+        stroke_dash = [6, 4] if (has_base and gap_mode) else ([5, 5] if has_base else [])
 
         # 🔧 데이터프레임에서 해당 컬럼 찾기 (우선순위: Buy > Sell > Base)
         col_name = None
-        if use_separate:
+        if gap_mode:
+            # ✅ GAP 모드: Base만 표시
+            if period == base:
+                col_name = "EMA_Base"
+        elif use_separate:
             # 별도 모드: 우선순위에 따라 컬럼 선택
             if period == fast_buy:
                 col_name = "EMA_Fast_Buy"
@@ -537,9 +598,10 @@ def ema_altair_chart(
         if col_name is None:
             continue
 
-        # 라인 추가 (Base 포함 시 약간 굵게)
+        # 라인 추가 (Base 포함 시 약간 굵게, GAP 모드는 더 굵게)
+        line_width = 3.0 if (has_base and gap_mode) else (2.5 if has_base else 2)
         line = base_chart.mark_line(
-            strokeWidth=2.5 if has_base else 2,
+            strokeWidth=line_width,
             color=color,
             strokeDash=stroke_dash,
         ).encode(y=f"{col_name}:Q")
