@@ -10,7 +10,7 @@ from config import (
     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
     PARAMS_JSON_FILENAME,   # ✅ 파라미터 파일명
 )
-from engine.params import load_params  # ✅ 파라미터 로드용
+from engine.params import load_params, load_active_strategy  # ✅ 파라미터 로드용
 
 
 # --- 페이지 설정 ---
@@ -27,12 +27,21 @@ def _get_param(qp, key, default=None):
     return v
 
 
+user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+
+
 def _strategy_tag_from_qs() -> str:
     """
-    URL / 세션에서 strategy_type 을 읽어서
-    MACD / EMA 형태로 정규화.
+    ✅ active_strategy.txt 파일에서 실제 전략을 읽어서 MACD / EMA 반환.
+    파일이 없으면 URL / 세션 / 기본값 순서로 폴백.
     """
-    # URL이 최우선
+    # ✅ 1순위: active_strategy.txt 파일에서 읽기
+    file_strategy = load_active_strategy(user_id)
+    if file_strategy:
+        st.session_state["strategy_type"] = file_strategy
+        return file_strategy
+
+    # ✅ 2순위: URL 파라미터
     raw = _get_param(qp, "strategy", st.session_state.get("strategy_type", DEFAULT_STRATEGY_TYPE))
     if not raw:
         return DEFAULT_STRATEGY_TYPE.upper()
@@ -46,9 +55,6 @@ def _strategy_tag_from_qs() -> str:
     # 세션에도 동일하게 박아두기 (다른 페이지에서 재사용)
     st.session_state["strategy_type"] = tag
     return tag
-
-
-user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
 
 try:

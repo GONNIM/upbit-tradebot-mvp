@@ -730,40 +730,45 @@ def insert_buy_eval(
     failed_keys: list | None,
     checks: dict | None,
     notes: str = "",
-    timestamp: str | None = None  # ✅ 봉 시각 파라미터 (기본값: 현재 시각)
+    bar_time: str | None = None  # ✅ 봉 시각 파라미터 (필수)
 ):
     """
     BUY 평가 감사로그 기록 (UPSERT 방식)
-    - 같은 (ticker, timestamp)에 대해 기존 레코드가 있으면 UPDATE
+    - timestamp: 로그 기록 시각 (자동으로 현재 시각)
+    - bar_time: 봉 시각 (분석 대상 봉의 시각)
+    - 같은 (ticker, bar_time)에 대해 기존 레코드가 있으면 UPDATE
     - 없으면 INSERT
-    - 목적: NO_SIGNAL 기록 후 상세 평가 기록 시 중복 방지
+    - 목적: 같은 봉에 대해 중복 기록 방지 (무결성 보장)
     """
-    ts = timestamp if timestamp is not None else now_kst()
+    if bar_time is None:
+        raise ValueError("bar_time is required for audit_buy_eval")
+
+    timestamp_now = now_kst()
 
     with get_db(user_id) as conn:
         cur = conn.cursor()
 
-        # 1. 기존 레코드 확인 (같은 ticker, timestamp)
+        # 1. 기존 레코드 확인 (같은 ticker, bar_time)
         cur.execute(
             """
             SELECT id FROM audit_buy_eval
-            WHERE ticker=? AND timestamp=?
+            WHERE ticker=? AND bar_time=?
             """,
-            (ticker, ts)
+            (ticker, bar_time)
         )
         existing = cur.fetchone()
 
         if existing:
-            # 2-1. UPDATE: 기존 레코드 갱신 (나중 평가가 이전 기록 덮어씀)
+            # 2-1. UPDATE: 기존 레코드 갱신 (같은 봉에 대한 재평가)
             cur.execute(
                 """
                 UPDATE audit_buy_eval
-                SET interval_sec=?, bar=?, price=?, macd=?, signal=?,
+                SET timestamp=?, interval_sec=?, bar=?, price=?, macd=?, signal=?,
                     have_position=?, overall_ok=?, failed_keys=?, checks=?, notes=?
                 WHERE id=?
                 """,
                 (
-                    interval_sec, bar, price, macd, signal,
+                    timestamp_now, interval_sec, bar, price, macd, signal,
                     int(bool(have_position)), int(bool(overall_ok)),
                     json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
                     json.dumps(checks, ensure_ascii=False) if checks else None,
@@ -776,12 +781,12 @@ def insert_buy_eval(
             cur.execute(
                 """
                 INSERT INTO audit_buy_eval
-                (timestamp, ticker, interval_sec, bar, price, macd, signal,
+                (timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
                  have_position, overall_ok, failed_keys, checks, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    ts, ticker, interval_sec, bar, price, macd, signal,
+                    timestamp_now, bar_time, ticker, interval_sec, bar, price, macd, signal,
                     int(bool(have_position)), int(bool(overall_ok)),
                     json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
                     json.dumps(checks, ensure_ascii=False) if checks else None,
@@ -810,41 +815,46 @@ def insert_sell_eval(
     triggered: bool,
     trigger_key: str | None,
     notes: str = "",
-    timestamp: str | None = None  # ✅ 봉 시각 파라미터 (기본값: 현재 시각)
+    bar_time: str | None = None  # ✅ 봉 시각 파라미터 (필수)
 ):
     """
     SELL 평가 감사로그 기록 (UPSERT 방식)
-    - 같은 (ticker, timestamp)에 대해 기존 레코드가 있으면 UPDATE
+    - timestamp: 로그 기록 시각 (자동으로 현재 시각)
+    - bar_time: 봉 시각 (분석 대상 봉의 시각)
+    - 같은 (ticker, bar_time)에 대해 기존 레코드가 있으면 UPDATE
     - 없으면 INSERT
-    - 목적: NO_SIGNAL 기록 후 상세 평가 기록 시 중복 방지
+    - 목적: 같은 봉에 대해 중복 기록 방지 (무결성 보장)
     """
-    ts = timestamp if timestamp is not None else now_kst()
+    if bar_time is None:
+        raise ValueError("bar_time is required for audit_sell_eval")
+
+    timestamp_now = now_kst()
 
     with get_db(user_id) as conn:
         cur = conn.cursor()
 
-        # 1. 기존 레코드 확인 (같은 ticker, timestamp)
+        # 1. 기존 레코드 확인 (같은 ticker, bar_time)
         cur.execute(
             """
             SELECT id FROM audit_sell_eval
-            WHERE ticker=? AND timestamp=?
+            WHERE ticker=? AND bar_time=?
             """,
-            (ticker, ts)
+            (ticker, bar_time)
         )
         existing = cur.fetchone()
 
         if existing:
-            # 2-1. UPDATE: 기존 레코드 갱신 (나중 평가가 이전 기록 덮어씀)
+            # 2-1. UPDATE: 기존 레코드 갱신 (같은 봉에 대한 재평가)
             cur.execute(
                 """
                 UPDATE audit_sell_eval
-                SET interval_sec=?, bar=?, price=?, macd=?, signal=?,
+                SET timestamp=?, interval_sec=?, bar=?, price=?, macd=?, signal=?,
                     tp_price=?, sl_price=?, highest=?, ts_pct=?, ts_armed=?,
                     bars_held=?, checks=?, triggered=?, trigger_key=?, notes=?
                 WHERE id=?
                 """,
                 (
-                    interval_sec, bar, price, macd, signal,
+                    timestamp_now, interval_sec, bar, price, macd, signal,
                     tp_price, sl_price, highest, ts_pct, int(bool(ts_armed)),
                     bars_held,
                     json.dumps(checks, ensure_ascii=False) if checks else None,
@@ -857,13 +867,13 @@ def insert_sell_eval(
             cur.execute(
                 """
                 INSERT INTO audit_sell_eval
-                (timestamp, ticker, interval_sec, bar, price, macd, signal,
+                (timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
                  tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
                  checks, triggered, trigger_key, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    ts, ticker, interval_sec, bar, price, macd, signal,
+                    timestamp_now, bar_time, ticker, interval_sec, bar, price, macd, signal,
                     tp_price, sl_price, highest, ts_pct,
                     int(bool(ts_armed)), bars_held,
                     json.dumps(checks, ensure_ascii=False) if checks else None,
@@ -949,7 +959,7 @@ def fetch_buy_eval(user_id: str, ticker: str | None = None, only_failed=False, l
     with get_db(user_id) as conn:
         cur = conn.cursor()
         q = """
-            SELECT timestamp, ticker, interval_sec, bar, price, macd, signal,
+            SELECT timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
                    have_position, overall_ok, failed_keys, checks, notes
             FROM audit_buy_eval
             WHERE 1=1
@@ -970,7 +980,7 @@ def fetch_trades_audit(user_id: str, ticker: str | None = None, limit=500):
     with get_db(user_id) as conn:
         cur = conn.cursor()
         q = """
-            SELECT timestamp, ticker, interval_sec, bar, type, reason, price,
+            SELECT timestamp, bar_time, ticker, interval_sec, bar, type, reason, price,
                    macd, signal, entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed
             FROM audit_trades
             WHERE 1=1

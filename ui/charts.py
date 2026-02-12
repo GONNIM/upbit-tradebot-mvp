@@ -201,6 +201,79 @@ def macd_altair_chart(
         st.info("차트 표시할 데이터가 없습니다.")
         return
 
+    # ========== 📊 1. 사용자 설정값 요약 표시 ==========
+    col1, col2 = st.columns(2)  # 1:1 비율
+
+    with col1:
+        setting_html = f'''
+        <div style="background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+                    padding: 12px;
+                    border-radius: 8px;
+                    border: 2px solid #3f51b5;
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+            <div style="font-size: 15px; font-weight: bold; margin-bottom: 8px; color: #fff;">
+                📌 MACD 전략 설정
+            </div>
+            <div style="margin-top: 8px;">
+                <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                    <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                        ⚡ <strong style="color: #69f0ae;">Fast EMA:</strong>
+                    </span>
+                    <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                        {fast}일선
+                    </span>
+                </div>
+                <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                    <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                        🐢 <strong style="color: #ff5252;">Slow EMA:</strong>
+                    </span>
+                    <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                        {slow}일선
+                    </span>
+                </div>
+                <div style="margin: 6px 0; display: flex; align-items: center; background-color: rgba(255,255,255,0.1); padding: 4px 6px; border-radius: 4px;">
+                    <span style="font-size: 14px; color: #fff; font-weight: 500;">
+                        📊 <strong style="color: #ffd54f;">Signal EMA:</strong>
+                    </span>
+                    <span style="font-size: 14px; color: #fff; font-weight: 600; margin-left: 8px;">
+                        {signal}일선
+                    </span>
+                </div>
+            </div>
+        </div>
+        '''
+        st.markdown(setting_html, unsafe_allow_html=True)
+
+    with col2:
+        legend_html = f'''
+        <div style="background: linear-gradient(135deg, #004d40 0%, #00695c 100%);
+                    padding: 12px;
+                    border-radius: 8px;
+                    border: 2px solid #00897b;
+                    color: #ffffff;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+            <div style="font-size: 15px; font-weight: bold; margin-bottom: 8px; color: #fff;">
+                📊 MACD 지표 범례
+            </div>
+            <div style="margin-top: 8px;">
+                <div style="margin: 6px 0; display: flex; align-items: center;">
+                    <div style="width: 30px; height: 3px; background-color: #26a69a; margin-right: 8px; border-radius: 2px;"></div>
+                    <span style="font-size: 13px; color: #fff;">MACD Line (Fast{fast} - Slow{slow})</span>
+                </div>
+                <div style="margin: 6px 0; display: flex; align-items: center;">
+                    <div style="width: 30px; height: 3px; background-color: #ef5350; margin-right: 8px; border-radius: 2px;"></div>
+                    <span style="font-size: 13px; color: #fff;">Signal Line (Signal{signal})</span>
+                </div>
+                <div style="margin: 6px 0; display: flex; align-items: center;">
+                    <div style="width: 15px; height: 15px; background: linear-gradient(to right, #26a69a 50%, #ef5350 50%); margin-right: 8px; border-radius: 2px;"></div>
+                    <span style="font-size: 13px; color: #fff;">Histogram (MACD - Signal)</span>
+                </div>
+            </div>
+        </div>
+        '''
+        st.markdown(legend_html, unsafe_allow_html=True)
+
     # ✅ 전체 데이터로 MACD 계산 (충분한 워밍업 보장)
     df = compute_macd(df_raw, fast=fast, slow=slow, signal=signal)
     df = _minus_9h_index(df)
@@ -233,8 +306,8 @@ def macd_altair_chart(
         layers.append(price_layer)
 
     # 아랫패널: MACD/Signal + 히스토그램
-    macd_line = base.mark_line(strokeWidth=1, color="green").encode(y=alt.Y("MACD:Q", title="MACD / Signal"))
-    signal_line = base.mark_line(strokeWidth=1, color="red").encode(y="Signal:Q")
+    macd_line = base.mark_line(strokeWidth=2, color="#26a69a").encode(y=alt.Y("MACD:Q", title="MACD / Signal"))
+    signal_line = base.mark_line(strokeWidth=2, color="#ef5350").encode(y="Signal:Q")
     hist = base.mark_bar().encode(
         y="Hist:Q",
         color=alt.condition("datum.Hist >= 0", alt.value("#26a69a"), alt.value("#ef5350")),

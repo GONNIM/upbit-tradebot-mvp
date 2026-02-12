@@ -18,28 +18,106 @@ def get_db_path(user_id):
     return path
 
 
-def reset_db(user_id):
-    db_path = get_db_path(user_id)
+def _drop_all_tables(user_id):
+    """
+    모든 테이블 명시적 DROP (2-Layer 방어 전략)
 
-    # 엔진/스레드 정지는 기존 로직 유지
-    # 1) 체크포인트
+    파일 삭제 실패 시 사용:
+    - DB 파일이 잠겨있거나 삭제 불가능한 경우
+    - 테이블만 DROP하여 데이터 완전 삭제 보장
+    """
+    db_path = get_db_path(user_id)
+    if not os.path.exists(db_path):
+        return
+
     try:
         conn = sqlite3.connect(db_path)
-        conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
-        conn.close()
-    except Exception:
-        pass
+        cursor = conn.cursor()
 
-    # [FIX] DB 파일 자체 삭제 (WAL/SHM 포함)
-    for f in (db_path, f"{db_path}-wal", f"{db_path}-shm"):
-        try:
-            if os.path.exists(f):
+        # 모든 테이블 목록 가져오기
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+        tables = [row[0] for row in cursor.fetchall()]
+
+        # 모든 테이블 DROP
+        for table in tables:
+            try:
+                cursor.execute(f"DROP TABLE IF EXISTS {table}")
+                print(f"🗑️ DROP TABLE: {table}")
+            except Exception as e:
+                print(f"⚠️ DROP TABLE 실패 ({table}): {e}")
+
+        conn.commit()
+        conn.close()
+        print(f"✅ 모든 테이블 DROP 완료 (총 {len(tables)}개)")
+    except Exception as e:
+        print(f"❌ 테이블 DROP 실패: {e}")
+        raise
+
+
+def reset_db(user_id):
+    """
+    DB 완전 초기화
+
+    순서:
+    1. 엔진 중지 (DB 파일 잠금 해제)
+    2. WAL 체크포인트
+    3. DB 파일 삭제 검증 (실패 시 에러)
+    4. 테이블 DROP + 재생성 (2-Layer 방어)
+    """
+    db_path = get_db_path(user_id)
+
+    # ✅ STEP 1: 엔진 중지 (DB 파일 잠금 해제)
+    try:
+        from engine.engine_manager import engine_manager
+        if engine_manager.is_running(user_id):
+            print(f"🛑 엔진 중지 중: {user_id}")
+            engine_manager.stop_engine(user_id)
+
+            # 엔진이 완전히 종료될 때까지 대기 (최대 5초)
+            import time
+            max_wait = 5.0
+            waited = 0.0
+            while engine_manager.is_running(user_id) and waited < max_wait:
+                time.sleep(0.1)
+                waited += 0.1
+
+            if waited >= max_wait:
+                print(f"⚠️ 엔진 종료 타임아웃 ({max_wait}초)")
+            else:
+                print(f"✅ 엔진 종료 완료 ({waited:.1f}초)")
+    except Exception as e:
+        print(f"⚠️ 엔진 중지 실패 (계속 진행): {e}")
+
+    # ✅ STEP 2: WAL 체크포인트 (파일 잠금 해제)
+    try:
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE);")
+            conn.close()
+            print(f"✅ WAL 체크포인트 완료")
+    except Exception as e:
+        print(f"⚠️ WAL 체크포인트 실패: {e}")
+
+    # ✅ STEP 3: DB 파일 삭제 검증 (실패 시 테이블 DROP으로 대체)
+    files_to_remove = [db_path, f"{db_path}-wal", f"{db_path}-shm"]
+    deletion_failed = False
+
+    for f in files_to_remove:
+        if os.path.exists(f):
+            try:
                 os.remove(f)
                 print(f"🧹 removed: {f}")
-        except Exception as e:
-            print(f"⚠️ remove failed({f}): {e}")
+            except Exception as e:
+                print(f"❌ 파일 삭제 실패 ({f}): {e}")
+                deletion_failed = True
 
-    # [FIX] 깨끗한 새 파일로 스키마 생성
+    # ✅ STEP 4: 테이블 재생성 (2-Layer 방어)
+    if deletion_failed:
+        # 파일 삭제 실패 시 → 테이블 명시적 DROP 후 재생성
+        print(f"⚠️ 파일 삭제 실패 → 테이블 DROP 전략 사용")
+        _drop_all_tables(user_id)
+
+    # 깨끗한 스키마 생성
     initialize_db(user_id)
 
 
@@ -194,7 +272,8 @@ def add_audit_tables(user_id):
         """
         CREATE TABLE IF NOT EXISTS audit_buy_eval (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),  -- 로그 기록 시각 (실시간)
+            bar_time TEXT,                                          -- 봉 시각 (분석 대상)
             ticker TEXT,
             interval_sec INTEGER,
             bar INTEGER,
@@ -217,7 +296,8 @@ def add_audit_tables(user_id):
         """
         CREATE TABLE IF NOT EXISTS audit_trades (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),  -- 로그 기록 시각 (실시간)
+            bar_time TEXT,                                          -- 봉 시각 (전략 신호 발생 봉)
             ticker TEXT,
             interval_sec INTEGER,
             bar INTEGER,
@@ -262,7 +342,8 @@ def add_audit_tables(user_id):
         """
         CREATE TABLE IF NOT EXISTS audit_sell_eval (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp   TEXT DEFAULT (DATETIME('now', 'localtime')),
+            timestamp   TEXT DEFAULT (DATETIME('now', 'localtime')),  -- 로그 기록 시각 (실시간)
+            bar_time    TEXT,                                          -- 봉 시각 (분석 대상)
             ticker      TEXT,
             interval_sec INTEGER,
             bar         INTEGER,
@@ -511,6 +592,36 @@ def ensure_audit_settings_unique(user_id: str):
         conn.close()
 
 
+def ensure_audit_buy_eval_bar_time(user_id: str):
+    """
+    audit_buy_eval 테이블에 bar_time 컬럼 추가:
+      - timestamp: 로그 기록 시각 (실시간 현재 시각)
+      - bar_time: 봉 시각 (분석 대상 봉의 시각)
+      - UNIQUE INDEX (ticker, bar_time): 중복 방지
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE audit_buy_eval ADD COLUMN bar_time TEXT")
+    _safe_alter(conn, "CREATE INDEX IF NOT EXISTS idx_audit_buy_eval_bar_time ON audit_buy_eval(bar_time)")
+    _safe_alter(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_buy_eval_unique ON audit_buy_eval(ticker, bar_time)")
+    conn.commit()
+    conn.close()
+
+
+def ensure_audit_sell_eval_bar_time(user_id: str):
+    """
+    audit_sell_eval 테이블에 bar_time 컬럼 추가:
+      - timestamp: 로그 기록 시각 (실시간 현재 시각)
+      - bar_time: 봉 시각 (분석 대상 봉의 시각)
+      - UNIQUE INDEX (ticker, bar_time): 중복 방지
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE audit_sell_eval ADD COLUMN bar_time TEXT")
+    _safe_alter(conn, "CREATE INDEX IF NOT EXISTS idx_audit_sell_eval_bar_time ON audit_sell_eval(bar_time)")
+    _safe_alter(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_sell_eval_unique ON audit_sell_eval(ticker, bar_time)")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -521,6 +632,8 @@ def ensure_all_schemas(user_id: str):
     ensure_audit_trades_bar_time(user_id)
     ensure_audit_settings_bar_time(user_id)  # ✅ bar_time 컬럼 추가
     ensure_audit_settings_unique(user_id)    # ✅ UNIQUE 인덱스 (bar_time 기준)
+    ensure_audit_buy_eval_bar_time(user_id)  # ✅ audit_buy_eval bar_time 추가
+    ensure_audit_sell_eval_bar_time(user_id) # ✅ audit_sell_eval bar_time 추가
 
 
 def init_db_if_needed(user_id):

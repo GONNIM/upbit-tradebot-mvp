@@ -3,6 +3,7 @@ from config import (
     MIN_CASH,
     MIN_FEE_RATIO,
     PARAMS_JSON_FILENAME,
+    CONDITIONS_JSON_FILENAME,
     STRATEGY_TYPES,
     DEFAULT_STRATEGY_TYPE,
     ENGINE_EXEC_MODE,
@@ -422,3 +423,48 @@ def load_active_strategy(user_id: str) -> str | None:
     except Exception as e:
         logger.error(f"[ActiveStrategy] Failed to load active strategy for {user_id}: {e}")
         return None
+
+
+def load_active_strategy_with_conditions(user_id: str) -> str | None:
+    """
+    실제 사용 중인 전략을 판정 (buy_sell_conditions.json 고려).
+
+    로직:
+    1. active_strategy.txt에서 MACD/EMA 읽기
+    2. EMA인 경우, {user_id}_EMA_buy_sell_conditions.json 확인
+    3. buy.base_ema_gap == true면 "BASE_EMA_GAP" 반환
+    4. 그 외는 기본 전략 타입 반환
+
+    반환: "MACD" | "EMA" | "BASE_EMA_GAP" | None
+    """
+    # 1단계: 기본 전략 타입 로드
+    base_strategy = load_active_strategy(user_id)
+
+    if base_strategy != "EMA":
+        # MACD 또는 None이면 그대로 반환
+        return base_strategy
+
+    # 2단계: EMA인 경우 buy_sell_conditions.json 확인
+    conditions_path = Path(f"{user_id}_EMA_{CONDITIONS_JSON_FILENAME}")
+
+    if not conditions_path.exists():
+        logger.debug(f"[ActiveStrategy] No conditions file for {user_id}, using base strategy: {base_strategy}")
+        return base_strategy
+
+    try:
+        with open(conditions_path, "r", encoding="utf-8") as f:
+            conditions = json.load(f)
+
+        # buy.base_ema_gap 확인
+        base_ema_gap = conditions.get("buy", {}).get("base_ema_gap", False)
+
+        if base_ema_gap:
+            logger.info(f"[ActiveStrategy] {user_id}: EMA with base_ema_gap=True → BASE_EMA_GAP")
+            return "BASE_EMA_GAP"
+        else:
+            logger.info(f"[ActiveStrategy] {user_id}: EMA with base_ema_gap=False → EMA")
+            return "EMA"
+
+    except Exception as e:
+        logger.error(f"[ActiveStrategy] Failed to load conditions for {user_id}: {e}, using base strategy")
+        return base_strategy

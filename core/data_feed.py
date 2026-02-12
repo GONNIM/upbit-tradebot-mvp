@@ -644,22 +644,43 @@ def stream_candles(
     bar_close = _floor_boundary(now, interval)
     to_param = _fmt_to_param(bar_close)
 
-    # ★ Phase 2: DB 캐시 우선 확인
-    # ⚠️ TEMPORARY: 타임존 수정 후 캐시 무효화 (잘못된 타임스탬프 방지)
-    if False and user_id:  # 캐시 로직 임시 비활성화
+    # ★ Phase 2: DB 캐시 우선 확인 (타임존 검증 완료 - 활성화)
+    if user_id:
         try:
             from services.db import load_candle_cache
             cached_df = load_candle_cache(user_id, ticker, interval, max_length)
 
-            if cached_df is not None and len(cached_df) >= max_length * 0.9:  # 90% 이상이면 사용
-                df = cached_df
-                _log("INFO", f"[CACHE-HIT] {len(df)} candles loaded from DB cache (skip API)")
-            elif cached_df is not None:
-                _log("INFO", f"[CACHE-PARTIAL] {len(cached_df)} candles in cache (insufficient, will fetch from API)")
-        except Exception as e:
-            _log("WARN", f"[CACHE] Load failed, will use API: {e}")
+            if cached_df is not None and len(cached_df) >= max_length:
+                # ✅ 캐시에 충분한 데이터 존재 - 즉시 사용
+                df = cached_df.tail(max_length)
+                _log("INFO", f"[CACHE-HIT] {len(df)}개 로드 완료 (즉시 전략 시작 가능)")
+            elif cached_df is not None and len(cached_df) > 0:
+                # ✅ 캐시 부족 - API로 최신 데이터 수집하여 병합
+                needed = max_length - len(cached_df)
+                _log("INFO", f"[CACHE-PARTIAL] DB {len(cached_df)}개 존재, API로 최신 {needed}개 추가 수집")
 
-    _log("INFO", "[CACHE] 타임존 수정 후 캐시 임시 비활성화 - API에서 직접 수집")
+                # API로 최신 데이터 수집
+                api_df = pyupbit.get_ohlcv(ticker, interval=interval, count=needed)
+                if api_df is not None and not api_df.empty:
+                    # 컬럼명 통일
+                    api_df = api_df.rename(columns={
+                        "open": "Open", "high": "High", "low": "Low",
+                        "close": "Close", "volume": "Volume"
+                    })
+
+                    # 병합 및 중복 제거
+                    df = pd.concat([cached_df, api_df])
+                    df = df[~df.index.duplicated(keep='last')].sort_index()
+                    df = df.tail(max_length)
+                    _log("INFO", f"[CACHE-MERGE] 병합 완료: 최종 {len(df)}개 (DB + API)")
+                else:
+                    # API 실패 시 캐시만 사용
+                    df = cached_df
+                    _log("WARN", f"[CACHE-MERGE] API 실패, 캐시 {len(df)}개만 사용")
+            else:
+                _log("INFO", f"[CACHE-MISS] 캐시 없음, API로 전체 수집")
+        except Exception as e:
+            _log("WARN", f"[CACHE] 캐시 로드 실패, API로 전체 수집: {e}")
 
     # ✅ 전략별 최소 캔들 개수 결정
     strategy_tag = (strategy_type or "MACD").upper().strip()
@@ -670,12 +691,11 @@ def stream_candles(
     if df is None:
         _log("INFO", f"[초기] 데이터 수집 시작: ticker={ticker}, interval={interval}, max_length={max_length}")
 
-        # ⚠️ Upbit API 제한: 'to' 파라미터가 작동하지 않아 multi-fetch 불가
-        # - max_length > 200이어도 200개만 가져옴
-        # - EMA 전략: 200개로 시작 후 실시간 축적
-        effective_count = min(max_length, 200)
-        if effective_count != max_length:
-            _log("WARN", f"[초기] Upbit API 제한으로 {max_length}개 요청 → {effective_count}개로 조정")
+        # ✅ pyupbit는 내부적으로 multi-fetch 지원 (200개씩 여러 번 호출)
+        # - max_length=400 요청 시 자동으로 2번 호출하여 400개 반환
+        # - 초기 수집 시간: 약 10초 소요 (200개: 2초 → 400개: 10초)
+        effective_count = max_length
+        _log("INFO", f"[초기] pyupbit multi-fetch 활성화: {effective_count}개 요청")
 
         if True:  # 항상 단일 호출 사용
             for attempt in range(1, max_retry + 1):

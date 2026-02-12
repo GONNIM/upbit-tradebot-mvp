@@ -110,8 +110,8 @@ def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
     logical_min = slow * 2
 
     # ⚠️ Upbit API 제한: 최대 200개만 조회 가능
-    # - slow=200인 경우: logical_min=400이지만 200개로 제한
-    # - 초기에는 불완전하지만 실시간으로 데이터 축적하면서 정확도 향상
+    # - slow_buy=200 같은 긴 기간 설정 시, 초기에는 불완전한 이동평균으로 시작
+    # - 실시간 데이터가 쌓이면서 점진적으로 정확도 향상
     UPBIT_API_LIMIT = 200
     requested = max(base, logical_min, 200)
 
@@ -476,6 +476,11 @@ def run_live_loop(
     # ✅ WARMUP 루프 동안 이전 yield의 마지막 봉 추적 (WARMUP 완료 시 새 봉 감지용)
     prev_warmup_last_ts = None
 
+    # ✅ 중복 평가 방지: 이미 처리된 봉의 timestamp를 Set으로 추적
+    # - DataFrame 재구성 시에도 중복 평가 방지
+    # - DB 캐시 병합 후에도 안전
+    processed_bar_timestamps = set()
+
     try:
         for df in stream_candles(
             params.upbit_ticker,
@@ -553,8 +558,10 @@ def run_live_loop(
                             buffer.append(bar)
 
                             # ✅ WARMUP 완료 시 모든 봉에 대해 평가 로그 기록
+                            # ⚠️ min_hist 이하로만 표시 (초과분은 min_hist로 표시)
                             engine.bar_count = len(buffer)
-                            engine.record_warmup_log(bar, f"(완료 {len(buffer)}/{min_hist})")
+                            current_count = min(len(buffer), min_hist)
+                            engine.record_warmup_log(bar, f"(완료 {current_count}/{min_hist})")
 
                         # ✅ bar_count는 이미 루프에서 설정됨
 
@@ -565,7 +572,15 @@ def run_live_loop(
                         # → 다음 yield에서 BAR 201부터만 처리 (중복 평가 방지)
                         engine.last_bar_ts = df.index[-1]
 
+                        # ✅ 중복 방지: 모든 WARMUP 봉을 processed_bar_timestamps에 추가
+                        for idx in df.index:
+                            processed_bar_timestamps.add(idx)
+
+                        # ✅ last_processed_ts 즉시 초기화 (중복 방지 강화)
+                        last_processed_ts = df.index[-1]
+
                         logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count} | warmup_baseline={df.index[-1]}")
+                        logger.info(f"✅ 중복 방지 초기화 | processed_timestamps={len(processed_bar_timestamps)}개 | last_processed={last_processed_ts}")
                 else:
                     # WARMUP 진행 중 - 새로 추가된 봉들에 대해 로그 기록
                     if prev_warmup_last_ts is not None:
@@ -618,6 +633,36 @@ def run_live_loop(
                     # 새 봉 없음 (드물지만 발생 가능)
                     logger.debug(f"[새 봉 없음] last_processed={last_processed_ts}, df_last={df.index[-1]}")
 
+            # ✅ 중복 방지: 이미 처리된 봉 필터링
+            # DataFrame 재구성 시에도 중복 평가 방지
+            if not new_bars_df.empty:
+                before_filter = len(new_bars_df)
+                new_bars_df = new_bars_df[~new_bars_df.index.isin(processed_bar_timestamps)]
+                after_filter = len(new_bars_df)
+
+                if before_filter > after_filter:
+                    filtered_count = before_filter - after_filter
+                    logger.warning(
+                        f"⚠️ [중복 방지] {filtered_count}개 봉이 이미 처리됨 (필터링됨) | "
+                        f"before={before_filter}, after={after_filter}"
+                    )
+
+            # ✅ 중복 인덱스 제거: DataFrame에 같은 timestamp의 row가 여러 개 있는 경우
+            # - Base EMA GAP reindex() 후 발생 가능
+            # - 중복 timestamp가 있으면 iterrows()에서 같은 봉을 여러 번 처리
+            # - keep='last': 가장 최신 데이터 유지
+            if not new_bars_df.empty:
+                before_dedup = len(new_bars_df)
+                new_bars_df = new_bars_df[~new_bars_df.index.duplicated(keep='last')]
+                after_dedup = len(new_bars_df)
+
+                if before_dedup > after_dedup:
+                    dedup_count = before_dedup - after_dedup
+                    logger.warning(
+                        f"⚠️ [중복 인덱스 제거] DataFrame에 {dedup_count}개 중복 timestamp 발견 및 제거 | "
+                        f"before={before_dedup}, after={after_dedup}"
+                    )
+
             # ★★★ 핵심: 새로 추가된 모든 봉을 엔진에 전달 ★★★
             for idx, row in new_bars_df.iterrows():
                 bar = Bar(
@@ -630,6 +675,9 @@ def run_live_loop(
                     is_closed=True  # stream_candles는 닫힌 봉만 제공
                 )
                 engine.on_new_bar(bar)
+
+                # ✅ 처리 완료된 봉을 Set에 추가 (중복 방지)
+                processed_bar_timestamps.add(idx)
 
             # ✅ 마지막 처리 timestamp 업데이트
             if not new_bars_df.empty:

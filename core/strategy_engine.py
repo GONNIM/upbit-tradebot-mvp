@@ -272,9 +272,14 @@ class StrategyEngine:
             "GOLDEN_CROSS" if self.strategy_type == "MACD" else "EMA_GC"
         )
 
+        # bar.ts를 KST로 변환
+        from zoneinfo import ZoneInfo
+        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+
         meta = {
             "bar": self.bar_count,
             "reason": buy_reason,  # ✅ 동적 reason
+            "bar_time": bar_ts_kst.isoformat(),  # ✅ 봉 시각
             "macd": indicators.get("macd"),
             "signal": indicators.get("signal"),
             "ema_fast": indicators.get("ema_fast"),
@@ -338,9 +343,13 @@ class StrategyEngine:
             "DEAD_CROSS" if self.strategy_type == "MACD" else "EMA_DC"
         )
 
+        # ✅ bar_time: 해당 봉의 시각 (KST)
+        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+
         meta = {
             "bar": self.bar_count,
             "reason": sell_reason,  # ✅ 동적 reason (TP/SL/TS/DC 구분)
+            "bar_time": bar_ts_kst.isoformat(),  # ✅ 해당 봉의 시각
             "entry_bar": self.position.entry_bar,
             "entry_price": self.position.avg_price,
             "bars_held": bars_held,
@@ -473,6 +482,10 @@ class StrategyEngine:
                 if hasattr(self.strategy, 'buy_conditions') and isinstance(self.strategy.buy_conditions, dict):
                     if self.strategy.buy_conditions.get("base_ema_gap", False):
                         checks["strategy_mode"] = "BASE_EMA_GAP"
+                    else:
+                        checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
+                else:
+                    checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
             else:  # MACD
                 checks = {
                     "status": "WARMUP",
@@ -481,6 +494,7 @@ class StrategyEngine:
                     "macd": None,
                     "signal": None,
                     "price": float(current_price) if current_price is not None else None,
+                    "strategy_mode": "MACD",  # ✅ MACD 전략
                 }
 
             notes = f"⏳ WARMUP 진행 중 {warmup_progress}"
@@ -502,7 +516,7 @@ class StrategyEngine:
                     failed_keys=["WARMUP_IN_PROGRESS"],
                     checks=checks,
                     notes=notes,
-                    timestamp=bar_ts_kst.isoformat()
+                    bar_time=bar_ts_kst.isoformat()
                 )
             else:
                 # 포지션 있을 때: SELL 평가 로그 기록
@@ -516,12 +530,17 @@ class StrategyEngine:
                     price=current_price,
                     macd=macd,
                     signal=signal,
-                    have_position=True,
-                    overall_ok=False,
-                    failed_keys=["WARMUP_IN_PROGRESS"],
+                    tp_price=0,
+                    sl_price=0,
+                    highest=None,
+                    ts_pct=None,
+                    ts_armed=False,
+                    bars_held=0,
                     checks=checks,
+                    triggered=False,
+                    trigger_key=None,
                     notes=notes,
-                    timestamp=bar_ts_kst.isoformat()
+                    bar_time=bar_ts_kst.isoformat()
                 )
         except Exception as e:
             logger.error(f"❌ WARMUP 로그 기록 실패: {e}")
@@ -550,6 +569,7 @@ class StrategyEngine:
                     "macd": float(macd) if macd is not None else None,
                     "signal": float(signal) if signal is not None else None,
                     "price": float(current_price) if current_price is not None else None,
+                    "strategy_mode": "MACD",  # ✅ MACD 전략
                 }
             else:  # EMA
                 # EMA 전략: macd 컬럼에 ema_fast, signal 컬럼에 ema_slow 저장
@@ -570,6 +590,10 @@ class StrategyEngine:
                 if hasattr(self.strategy, 'buy_conditions') and isinstance(self.strategy.buy_conditions, dict):
                     if self.strategy.buy_conditions.get("base_ema_gap", False):
                         base_checks["strategy_mode"] = "BASE_EMA_GAP"
+                    else:
+                        base_checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
+                else:
+                    base_checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
 
             # 포지션 없을 때: BUY 평가 로그
             if not self.position.has_position:
@@ -607,6 +631,8 @@ class StrategyEngine:
                     else:
                         notes = f"📉 Base EMA GAP: {gap_pct:.2%} (목표: {gap_threshold:.2%}, 부족: {abs(gap_to_target):.2%}p) | 매수가: ₩{price_needed:,.0f} | Base: ₩{gap_details.get('base_ema', 0):,.0f}"
 
+                    # bar.ts는 timezone-naive이므로 KST로 localize
+                    bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
                     insert_buy_eval(
                         user_id=self.user_id,
                         ticker=self.ticker,
@@ -619,7 +645,8 @@ class StrategyEngine:
                         overall_ok=condition_met,
                         failed_keys=[] if condition_met else [reason],
                         checks=buy_checks,
-                        notes=notes
+                        notes=notes,
+                        bar_time=bar_ts_kst.isoformat()
                     )
                 else:
                     # 일반 EMA/MACD 전략 로그 (기존 로직)
@@ -648,6 +675,8 @@ class StrategyEngine:
                         buy_checks["reason"] = "NO_BUY_SIGNAL"
                         buy_checks["cross_status"] = cross_status
 
+                        # bar.ts는 timezone-naive이므로 KST로 localize
+                        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
                         insert_buy_eval(
                             user_id=self.user_id,
                             ticker=self.ticker,
@@ -660,7 +689,8 @@ class StrategyEngine:
                             overall_ok=False,
                             failed_keys=["NO_SIGNAL"],
                             checks=buy_checks,
-                            notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}"
+                            notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}",
+                            bar_time=bar_ts_kst.isoformat()
                         )
                     elif action == Action.BUY:
                         # BUY 신호 발생
@@ -668,6 +698,8 @@ class StrategyEngine:
                         buy_checks["reason"] = "BUY_SIGNAL"
                         buy_checks["cross_status"] = cross_status
 
+                        # bar.ts는 timezone-naive이므로 KST로 localize
+                        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
                         insert_buy_eval(
                             user_id=self.user_id,
                             ticker=self.ticker,
@@ -680,7 +712,8 @@ class StrategyEngine:
                             overall_ok=True,
                             failed_keys=[],
                             checks=buy_checks,
-                            notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}"
+                            notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}",
+                            bar_time=bar_ts_kst.isoformat()
                         )
 
             # 포지션 있을 때: SELL 평가 로그
@@ -745,6 +778,8 @@ class StrategyEngine:
                     sell_checks["bars_held"] = int(bars_held)
                     sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
 
+                    # bar.ts는 timezone-naive이므로 KST로 localize
+                    bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
                     insert_sell_eval(
                         user_id=self.user_id,
                         ticker=self.ticker,
@@ -762,8 +797,8 @@ class StrategyEngine:
                         checks=sell_checks,
                         triggered=False,
                         trigger_key=None,
-                        notes=f"{cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}"
-                        # ✅ timestamp 제거 → 자동으로 now_kst() 사용
+                        notes=f"{cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}",
+                        bar_time=bar_ts_kst.isoformat()
                     )
                 elif action == Action.SELL or action == Action.CLOSE:
                     # SELL 신호 발생 - 구체적인 트리거 원인 판단
@@ -786,6 +821,8 @@ class StrategyEngine:
                     sell_checks["trigger_reason"] = trigger_reason
                     sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
 
+                    # bar.ts는 timezone-naive이므로 KST로 localize
+                    bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
                     insert_sell_eval(
                         user_id=self.user_id,
                         ticker=self.ticker,
@@ -803,8 +840,8 @@ class StrategyEngine:
                         checks=sell_checks,
                         triggered=True,
                         trigger_key=trigger_reason,
-                        notes=f"🔴 SELL | {trigger_reason} | {cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}"
-                        # ✅ timestamp 제거 → 자동으로 now_kst() 사용
+                        notes=f"🔴 SELL | {trigger_reason} | {cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}",
+                        bar_time=bar_ts_kst.isoformat()
                     )
 
         except Exception as e:

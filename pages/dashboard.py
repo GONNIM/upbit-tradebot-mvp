@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from streamlit_autorefresh import st_autorefresh
 
 from engine.engine_manager import engine_manager
-from engine.params import load_params, load_active_strategy
+from engine.params import load_params, load_active_strategy, load_active_strategy_with_conditions
 
 from services.db import (
     get_account,
@@ -308,7 +308,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.09.2200")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.12.2238")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -348,14 +348,19 @@ with col2:
 style_metric_cards()
 
 # ✅ strategy_tag 변수를 먼저 정의 (버튼에서 사용하기 위해)
-# 우선순위: URL → 세션 → 활성 전략 파일 → 기본값
+# ✅ 우선순위: 활성 전략 파일 (conditions 고려) → URL → 세션 → 기본값
 json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
 strategy_from_url = _get_param(qp, "strategy_type", None)
 strategy_from_session = st.session_state.get("strategy_type", None)
-strategy_from_file = load_active_strategy(user_id)
-strategy_tag = (strategy_from_url or strategy_from_session or strategy_from_file or DEFAULT_STRATEGY_TYPE)
+
+# ✅ buy_sell_conditions.json까지 고려한 실제 전략 판정
+strategy_from_file = load_active_strategy_with_conditions(user_id)
+strategy_tag = (strategy_from_file or strategy_from_url or strategy_from_session or DEFAULT_STRATEGY_TYPE)
 strategy_tag = str(strategy_tag).upper().strip()
 st.session_state["strategy_type"] = strategy_tag
+
+# ✅ params 파일 로딩용 base strategy (BASE_EMA_GAP → EMA 변환)
+params_strategy = "EMA" if strategy_tag == "BASE_EMA_GAP" else strategy_tag
 
 col10, col20, col30 = st.columns([1, 1, 1])
 
@@ -423,12 +428,13 @@ init_db_if_needed(user_id)
 st.caption(f"DB file: `{get_db_path(user_id)}`")
 
 # ✅ 전략 타입을 전달해서 전략별 params를 로드
-params_obj = load_params(json_path, strategy_type=strategy_tag)
+# ✅ BASE_EMA_GAP는 EMA 파일에서 로드 (params_strategy 사용)
+params_obj = load_params(json_path, strategy_type=params_strategy)
 
 # ✅ 해당 전략 파일이 아직 없을 수 있으므로(최초 진입 등) 공용/디폴트로 한 번 더 폴백
 if params_obj is None:
     # 1) 공용 파일(기존 방식) 시도 → 혹시 남아있는 레거시가 있다면 살림
-    params_obj = load_params(json_path, strategy_type=strategy_tag)
+    params_obj = load_params(json_path, strategy_type=params_strategy)
     # 2) 그것도 없으면 치명적이므로 안내 후 중단
     if params_obj is None:
         st.error("❌ 파라미터가 없습니다. 먼저 '파라미터 설정하기'에서 저장해 주세요.")
@@ -449,11 +455,10 @@ account_krw, coin_balance = get_current_balances(
     user_id, params_obj, is_live, force_refresh=force_api_refresh
 )
 
-# ★ 현재 전략 태그 (MACD / EMA) – LiveParams에서 이미 대문자로 보장됨
-raw_strategy = getattr(params_obj, "strategy_type", None) or DEFAULT_STRATEGY_TYPE
-strategy_tag = str(raw_strategy).upper()
-is_macd = (strategy_tag == "MACD")
-is_ema = (strategy_tag == "EMA")
+# ★ 현재 전략 태그 (MACD / EMA) – params_strategy 기반 판정
+# ✅ BASE_EMA_GAP는 EMA 기반이므로 params_strategy 사용
+is_macd = (params_strategy == "MACD")
+is_ema = (params_strategy == "EMA")
 
 # ===================== 🔧 PATCH: 자산 현황(항상 ROI 표시) START =====================
 st.subheader("💰 자산 현황")
@@ -938,9 +943,9 @@ if latest:
         except (ValueError, TypeError):
             pass
 
-    # 전략별 지표명
-    indicator_fast = "EMA Fast" if strategy_tag == "EMA" else "MACD"
-    indicator_slow = "EMA Slow" if strategy_tag == "EMA" else "Signal"
+    # 전략별 지표명 (BASE_EMA_GAP는 EMA 기반)
+    indicator_fast = "EMA Fast" if params_strategy == "EMA" else "MACD"
+    indicator_slow = "EMA Slow" if params_strategy == "EMA" else "Signal"
 
     macd_val = latest.get('macd', '-')
     signal_val = latest.get('signal', '-')
@@ -1413,7 +1418,8 @@ st.divider()
 # ★ 전략별 Condition JSON 파일명:
 #   - MACD: {user_id}_MACD_buy_sell_conditions.json
 #   - EMA : {user_id}_EMA_buy_sell_conditions.json
-target_filename = f"{user_id}_{strategy_tag}_{CONDITIONS_JSON_FILENAME}"
+#   - BASE_EMA_GAP: {user_id}_EMA_buy_sell_conditions.json (EMA 파일 사용)
+target_filename = f"{user_id}_{params_strategy}_{CONDITIONS_JSON_FILENAME}"
 SAVE_PATH = Path(target_filename)
 
 # ★ MACD용 조건 정의
@@ -1616,22 +1622,25 @@ ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
 interval_code = getattr(params_obj, "interval", params_obj.interval)
 
 # ✅ 엔진 로직과 동일한 워밍업 계산 (전략별 최적 데이터량)
-warmup_count = _min_history_bars_for(params_obj, strategy_tag)
+# ✅ BASE_EMA_GAP는 EMA 기반이므로 params_strategy 사용
+warmup_count = _min_history_bars_for(params_obj, params_strategy)
 
-# ✅ Base EMA GAP 모드: base_ema_period를 고려해서 충분한 데이터 요청
+# ✅ EMA 전략: base_ema_period를 고려해서 충분한 데이터 요청
 # - 200-period MA를 선으로 표시하려면 period × 2 = 400개 필요
 #   (처음 200개: warmup, 다음 200개: MA 값 표시 구간)
 # - pyupbit는 count > 200이면 여러 번 API 호출해서 이어붙여줌
-if strategy_tag == "EMA" and buy_state.get("base_ema_gap", False):
+# ✅ BASE_EMA_GAP는 EMA 기반이므로 params_strategy 사용
+if params_strategy == "EMA":
     base_period = getattr(params_obj, "base_ema_period", 200)
     # period × 2 공식 (충분한 MA 안정화)
     warmup_count = max(warmup_count, base_period * 2)
-    logger.info(f"[CHART] Base EMA GAP 모드: warmup_count={warmup_count} (base={base_period} × 2)")
+    is_gap_mode = buy_state.get("base_ema_gap", False)
+    logger.info(f"[CHART] EMA 전략 (GAP={is_gap_mode}): warmup_count={warmup_count} (base={base_period} × 2)")
 
 df_live = get_ohlcv_once(ticker, interval_code, count=warmup_count)
 
 # ✅ Base EMA GAP 모드: 누락된 타임스탬프를 이전 종가로 채우기
-if strategy_tag == "EMA" and buy_state.get("base_ema_gap", False) and not df_live.empty:
+if params_strategy == "EMA" and buy_state.get("base_ema_gap", False) and not df_live.empty:
     # interval별 봉 간격 매핑
     interval_map = {
         "minute1": "1T",
@@ -1668,14 +1677,16 @@ if strategy_tag == "EMA" and buy_state.get("base_ema_gap", False) and not df_liv
         logger.info(f"[CHART] Base EMA GAP: 누락 봉 채우기 완료, 최종 데이터: {len(df_live)}개")
 
 # ★ 차트 제목도 전략 표시 (MA 타입 포함)
-if strategy_tag == "EMA":
+# ✅ BASE_EMA_GAP는 EMA 기반이므로 params_strategy 사용
+if params_strategy == "EMA":
     ma_type_display = getattr(params_obj, "ma_type", "EMA")
     st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag} · MA={ma_type_display}")
 else:
     st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag}")
 
 # 전략별 차트 렌더링
-if strategy_tag == "EMA":
+# ✅ BASE_EMA_GAP는 EMA 기반이므로 params_strategy 사용
+if params_strategy == "EMA":
     # ✅ 사용자가 선택한 MA 타입 가져오기
     ma_type = getattr(params_obj, "ma_type", "EMA")
 
