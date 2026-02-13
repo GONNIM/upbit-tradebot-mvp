@@ -196,6 +196,14 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                 # Base EMA GAP 전략 설정
                 st.divider()
                 st.subheader("📊 Base EMA GAP 전략")
+
+                base_ema_gap_enabled = st.checkbox(
+                    "Base EMA GAP 전략 사용",
+                    value=DEFAULT_PARAMS.get("base_ema_gap_enabled", False),
+                    help="종가가 Base EMA(200일선) 대비 급락 시 매수 (역추세 전략)",
+                    key="base_ema_gap_enabled_checkbox"
+                )
+
                 gap_diff_default = DEFAULT_PARAMS.get("base_ema_gap_diff", -0.005) * 100
                 gap_diff = (
                     st.number_input(
@@ -210,6 +218,31 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                 )
                 st.info(f"현재가가 Base EMA 대비 {gap_diff*100:.1f}% 이하일 때 매수")
 
+                # ========== EMA 급등 필터 (EMA 전략 전용) ==========
+                st.divider()
+                st.subheader("🔧 매수 필터 (급등 차단)")
+
+                ema_surge_filter_enabled = st.checkbox(
+                    "Slow EMA 급등 시 매수 금지",
+                    value=DEFAULT_PARAMS.get("ema_surge_filter_enabled", False),
+                    help="현재가가 Slow EMA 대비 임계값 이상 상승 시 매수 차단 (허위 상승 방지)",
+                    key="ema_surge_filter_enabled_checkbox"
+                )
+
+                surge_threshold_default = DEFAULT_PARAMS.get("ema_surge_threshold_pct", 0.01) * 100
+                ema_surge_threshold_pct = (
+                    st.number_input(
+                        "급등 임계값 (%)",
+                        min_value=0.0,
+                        max_value=10.0,
+                        value=surge_threshold_default,
+                        step=0.5,  # ✅ 0.5% 단위
+                        help="Slow EMA 대비 현재가 상승률 (예: 1.0% = Slow EMA보다 1% 이상 높으면 매수 금지)"
+                    )
+                    / 100  # % → 소수점 변환
+                )
+                st.info(f"현재가가 Slow EMA 대비 {ema_surge_threshold_pct*100:.1f}% 이상 상승 시 매수 차단")
+
                 # EMA는 signal_period를 UI로 안 받되 값은 필요하므로 그대로 유지
                 signal_val = int(DEFAULT_PARAMS.get("signal_period", 9))
             else:
@@ -222,7 +255,12 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                 fast_buy = fast_sell = fast
                 slow_buy = slow_sell = slow
                 base_ema_default = DEFAULT_PARAMS.get("base_ema_period", 200)
+                # MACD에서는 Base EMA GAP 전략 미사용 (기본값 유지)
+                base_ema_gap_enabled = False
                 gap_diff = DEFAULT_PARAMS.get("base_ema_gap_diff", -0.005)
+                # MACD에서는 급등 필터 미사용 (기본값 유지)
+                ema_surge_filter_enabled = False
+                ema_surge_threshold_pct = DEFAULT_PARAMS.get("ema_surge_threshold_pct", 0.01)
                 signal_val = st.number_input(
                     "신호선 기간", 1, 50, value=DEFAULT_PARAMS.get("signal_period", 9)
                 )
@@ -408,8 +446,12 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             macd_exit_enabled=macd_exit_enabled,
             signal_confirm_enabled=signal_confirm_enabled,
             base_ema_period=int(base_ema_period),
+            base_ema_gap_enabled=base_ema_gap_enabled if is_ema else False,
             base_ema_gap_diff=float(gap_diff),
             ma_type=ma_type,
+            # EMA 급등 필터 (EMA 전략 전용)
+            ema_surge_filter_enabled=ema_surge_filter_enabled if is_ema else False,
+            ema_surge_threshold_pct=float(ema_surge_threshold_pct) if is_ema else 0.01,
             strategy_type=current_strategy,
             engine_exec_mode=current_mode,
             # 거래 시간 제한

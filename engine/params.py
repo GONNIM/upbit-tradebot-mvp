@@ -57,6 +57,10 @@ class LiveParams(BaseModel):
     )
 
     # Base EMA GAP 전략 (EMA 전용)
+    base_ema_gap_enabled: bool = Field(
+        default=False,
+        description="Base EMA GAP 전략 활성화 (급락 시 매수, 역추세 전략)"
+    )
     base_ema_gap_diff: float = Field(
         default=-0.005,
         ge=-0.02,
@@ -68,6 +72,18 @@ class LiveParams(BaseModel):
     ma_type: str = Field(
         default="SMA",
         description="이동평균 계산 방식: SMA (단순), EMA (지수), WMA (가중)"
+    )
+
+    # EMA 급등 필터 (EMA 전략 전용)
+    ema_surge_filter_enabled: bool = Field(
+        default=False,
+        description="Slow EMA 대비 급등 시 매수 금지 필터 활성화 (허위 상승 차단용)"
+    )
+    ema_surge_threshold_pct: float = Field(
+        default=0.01,  # 1%
+        ge=0.0,
+        le=0.10,  # 최대 10%
+        description="Slow EMA 대비 현재가 상승률 임계값 (예: 0.01 = 1%, 초과 시 매수 금지)"
     )
 
     # EMA 매수/매도 별도 설정
@@ -326,6 +342,7 @@ def load_params(path: str, strategy_type: str | None = None) -> LiveParams | Non
     data.setdefault("strategy_type", DEFAULT_STRATEGY_TYPE)
     data.setdefault("engine_exec_mode", ENGINE_EXEC_MODE)
     data.setdefault("base_ema_period", 200)
+    data.setdefault("base_ema_gap_enabled", False)
     data.setdefault("base_ema_gap_diff", -0.005)
     # 거래 시간 제한 (백워드 호환)
     data.setdefault("enable_trading_hours", False)
@@ -340,6 +357,9 @@ def load_params(path: str, strategy_type: str | None = None) -> LiveParams | Non
     data.setdefault("slow_sell", None)
     # 이동평균 계산 방식 (백워드 호환)
     data.setdefault("ma_type", "SMA")
+    # EMA 급등 필터 (백워드 호환)
+    data.setdefault("ema_surge_filter_enabled", False)
+    data.setdefault("ema_surge_threshold_pct", 0.01)
 
     try:
         return LiveParams(**data)
@@ -427,12 +447,12 @@ def load_active_strategy(user_id: str) -> str | None:
 
 def load_active_strategy_with_conditions(user_id: str) -> str | None:
     """
-    실제 사용 중인 전략을 판정 (buy_sell_conditions.json 고려).
+    실제 사용 중인 전략을 판정 (params.base_ema_gap_enabled 기준).
 
     로직:
     1. active_strategy.txt에서 MACD/EMA 읽기
-    2. EMA인 경우, {user_id}_EMA_buy_sell_conditions.json 확인
-    3. buy.base_ema_gap == true면 "BASE_EMA_GAP" 반환
+    2. EMA인 경우 params 파일에서 base_ema_gap_enabled 확인
+    3. base_ema_gap_enabled == true면 "BASE_EMA_GAP" 반환
     4. 그 외는 기본 전략 타입 반환
 
     반환: "MACD" | "EMA" | "BASE_EMA_GAP" | None
@@ -444,27 +464,21 @@ def load_active_strategy_with_conditions(user_id: str) -> str | None:
         # MACD 또는 None이면 그대로 반환
         return base_strategy
 
-    # 2단계: EMA인 경우 buy_sell_conditions.json 확인
-    conditions_path = Path(f"{user_id}_EMA_{CONDITIONS_JSON_FILENAME}")
-
-    if not conditions_path.exists():
-        logger.debug(f"[ActiveStrategy] No conditions file for {user_id}, using base strategy: {base_strategy}")
-        return base_strategy
-
+    # 2단계: EMA인 경우 params 파일에서 base_ema_gap_enabled 확인
     try:
-        with open(conditions_path, "r", encoding="utf-8") as f:
-            conditions = json.load(f)
-
-        # buy.base_ema_gap 확인
-        base_ema_gap = conditions.get("buy", {}).get("base_ema_gap", False)
-
-        if base_ema_gap:
-            logger.info(f"[ActiveStrategy] {user_id}: EMA with base_ema_gap=True → BASE_EMA_GAP")
-            return "BASE_EMA_GAP"
+        params_obj = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type="EMA")
+        if params_obj:
+            base_ema_gap_enabled = getattr(params_obj, "base_ema_gap_enabled", False)
+            logger.info(f"[ActiveStrategy] {user_id}: base_ema_gap_enabled={base_ema_gap_enabled}")
+            if base_ema_gap_enabled:
+                logger.info(f"[ActiveStrategy] {user_id}: BASE_EMA_GAP strategy active")
+                return "BASE_EMA_GAP"
+            else:
+                logger.info(f"[ActiveStrategy] {user_id}: EMA strategy (base_ema_gap_enabled=False)")
+                return "EMA"
         else:
-            logger.info(f"[ActiveStrategy] {user_id}: EMA with base_ema_gap=False → EMA")
-            return "EMA"
-
+            logger.warning(f"[ActiveStrategy] {user_id}: params_obj is None, using base strategy")
+            return base_strategy
     except Exception as e:
-        logger.error(f"[ActiveStrategy] Failed to load conditions for {user_id}: {e}, using base strategy")
+        logger.error(f"[ActiveStrategy] Could not load params for {user_id}: {e}, using base strategy")
         return base_strategy

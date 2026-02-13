@@ -378,6 +378,11 @@ def run_live_loop(
         # ✅ 조건 파일에서 use_base_ema 설정 읽기 (기본값: True, 하위호환성)
         use_base_ema_filter = getattr(params, "use_base_ema", True)
 
+        # ✅ EMA SELL 조건 검증
+        from services.validation import validate_ema_sell_conditions
+        sell_conditions = validate_ema_sell_conditions(sell_conditions)
+        logger.info(f"✅ [EMA] SELL 조건 검증 완료")
+
         strategy = IncrementalEMAStrategy(
             user_id=user_id,
             ticker=params.upbit_ticker,
@@ -386,7 +391,10 @@ def run_live_loop(
             min_holding_period=getattr(params, "min_holding_period", 0),
             trailing_stop_pct=getattr(params, "trailing_stop_pct", TRAILING_STOP_PERCENT),
             use_base_ema=use_base_ema_filter,  # ✅ 파라미터 설정 반영
+            base_ema_gap_enabled=getattr(params, "base_ema_gap_enabled", False),  # ✅ Base EMA GAP 전략 활성화
             base_ema_gap_diff=getattr(params, "base_ema_gap_diff", -0.005),  # ✅ Base EMA GAP 임계값
+            ema_surge_filter_enabled=getattr(params, "ema_surge_filter_enabled", False),  # ✅ 급등 필터 활성화
+            ema_surge_threshold_pct=getattr(params, "ema_surge_threshold_pct", 0.01),  # ✅ 급등 임계값
             buy_conditions=buy_conditions,  # ✅ 조건 파일 전달 (BUY)
             sell_conditions=sell_conditions,  # ✅ 조건 파일 전달 (SELL)
         )
@@ -394,6 +402,20 @@ def run_live_loop(
         logger.info(f"[EMA 전략] use_base_ema={use_base_ema_filter}")
     else:
         raise ValueError(f"Unknown strategy type: {strategy_tag}")
+
+    # ✅ interval_min 계산 (minute1 → 1, minute3 → 3 등)
+    interval_str = params.interval  # e.g., "minute1", "minute3"
+    if interval_str.startswith("minute"):
+        interval_min = int(interval_str.replace("minute", ""))
+    else:
+        # 다른 interval 형식 처리 (기본값 1분)
+        logger.warning(f"Unknown interval format: {interval_str}, using default 1min")
+        interval_min = 1
+
+    # ✅ EMA 전략에 interval_min 전달
+    if strategy_tag == "EMA" and hasattr(strategy, 'set_interval_min'):
+        strategy.set_interval_min(interval_min)
+        logger.info(f"[EMA Strategy] interval_min={interval_min} 전달 완료")
 
     # StrategyEngine 생성
     engine = StrategyEngine(
@@ -422,7 +444,7 @@ def run_live_loop(
 
     # ✅ Base EMA GAP 모드: period × 2 데이터 요청
     # - 200-period MA를 안정적으로 계산하려면 period × 2 필요
-    if strategy_tag == "EMA" and buy_conditions.get("base_ema_gap", False):
+    if strategy_tag == "EMA" and getattr(params, "base_ema_gap_enabled", False):
         base_period = getattr(params, "base_ema_period", 200)
         min_hist = max(min_hist, base_period * 2)
         logger.info(f"[WARMUP] Base EMA GAP 모드: {base_period} × 2 = {min_hist}개 요청")
@@ -500,7 +522,7 @@ def run_live_loop(
                 continue
 
             # ✅ Base EMA GAP 모드: 누락된 타임스탬프를 이전 종가로 채우기
-            if strategy_tag == "EMA" and buy_conditions.get("base_ema_gap", False):
+            if strategy_tag == "EMA" and getattr(params, "base_ema_gap_enabled", False):
                 # interval별 봉 간격 매핑
                 interval_map = {
                     "minute1": "1T",

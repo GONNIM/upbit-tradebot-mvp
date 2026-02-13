@@ -41,4 +41,4 @@ env/
 credentials.yaml
 data/*.db*
 
-/claude-docs
+/claude-docs*

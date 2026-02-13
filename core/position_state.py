@@ -28,6 +28,9 @@ class PositionState:
         self.highest_price: Optional[float] = None
         self.trailing_armed: bool = False
 
+        # ✅ Stale Position Check용 (진입 이후 최고가)
+        self.highest_since_entry: Optional[float] = None
+
     def open_position(self, qty: float, price: float, bar_idx: int, ts):
         """
         매수 완료 (포지션 오픈)
@@ -49,6 +52,9 @@ class PositionState:
         # Trailing Stop 초기화
         self.highest_price = price
         self.trailing_armed = False
+
+        # ✅ Stale Position Check 초기화
+        self.highest_since_entry = price
 
         logger.info(
             f"✅ Position OPEN | qty={qty:.6f} price={price:.2f} bar={bar_idx}"
@@ -76,6 +82,9 @@ class PositionState:
         # Trailing Stop 초기화
         self.highest_price = None
         self.trailing_armed = False
+
+        # ✅ Stale Position Check 초기화
+        self.highest_since_entry = None
 
     def set_pending(self, pending: bool):
         """
@@ -158,6 +167,31 @@ class PositionState:
             return 0
 
         return current_bar - self.entry_bar
+
+    def update_highest_since_entry(self, current_price: float):
+        """
+        진입 이후 최고가 갱신 (Stale Position Check용)
+
+        Args:
+            current_price: 현재 가격
+        """
+        if not self.has_position:
+            return
+
+        if self.highest_since_entry is None or current_price > self.highest_since_entry:
+            self.highest_since_entry = current_price
+
+    def get_max_gain_from_entry(self) -> Optional[float]:
+        """
+        진입가 대비 최고 수익률 계산
+
+        Returns:
+            float or None: 최고 수익률 (예: 0.015 = 1.5%)
+        """
+        if not self.has_position or self.avg_price is None or self.highest_since_entry is None:
+            return None
+
+        return (self.highest_since_entry - self.avg_price) / self.avg_price
 
     def __repr__(self):
         return (

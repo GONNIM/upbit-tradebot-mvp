@@ -478,12 +478,9 @@ class StrategyEngine:
                     "price": float(current_price) if current_price is not None else None,
                 }
 
-                # ✅ Base EMA GAP 전략 모드 감지
-                if hasattr(self.strategy, 'buy_conditions') and isinstance(self.strategy.buy_conditions, dict):
-                    if self.strategy.buy_conditions.get("base_ema_gap", False):
-                        checks["strategy_mode"] = "BASE_EMA_GAP"
-                    else:
-                        checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
+                # ✅ Base EMA GAP 전략 모드 감지 (enable_base_ema_gap 속성 우선 확인)
+                if hasattr(self.strategy, 'enable_base_ema_gap') and self.strategy.enable_base_ema_gap:
+                    checks["strategy_mode"] = "BASE_EMA_GAP"
                 else:
                     checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
             else:  # MACD
@@ -586,12 +583,9 @@ class StrategyEngine:
                     "price": float(current_price) if current_price is not None else None,
                 }
 
-                # ✅ Base EMA GAP 전략 모드 감지 (SELL 로그용)
-                if hasattr(self.strategy, 'buy_conditions') and isinstance(self.strategy.buy_conditions, dict):
-                    if self.strategy.buy_conditions.get("base_ema_gap", False):
-                        base_checks["strategy_mode"] = "BASE_EMA_GAP"
-                    else:
-                        base_checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
+                # ✅ Base EMA GAP 전략 모드 감지 (enable_base_ema_gap 속성 우선 확인)
+                if hasattr(self.strategy, 'enable_base_ema_gap') and self.strategy.enable_base_ema_gap:
+                    base_checks["strategy_mode"] = "BASE_EMA_GAP"
                 else:
                     base_checks["strategy_mode"] = "EMA"  # ✅ 일반 EMA 전략
 
@@ -778,6 +772,21 @@ class StrategyEngine:
                     sell_checks["bars_held"] = int(bars_held)
                     sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
 
+                    # ✅ Stale Position 상태 추가
+                    if hasattr(self.strategy, 'enable_stale_position') and self.strategy.enable_stale_position:
+                        max_gain = self.position.get_max_gain_from_entry() or 0.0
+                        interval_min = getattr(self.strategy, 'interval_min', 1)
+                        required_bars = int(self.strategy.stale_hours * 60 / interval_min)
+
+                        sell_checks["stale_enabled"] = True
+                        sell_checks["stale_bars_held"] = int(bars_held)
+                        sell_checks["stale_required_bars"] = int(required_bars)
+                        sell_checks["stale_max_gain_pct"] = float(max_gain)
+                        sell_checks["stale_threshold_pct"] = float(self.strategy.stale_threshold_pct)
+                        sell_checks["stale_triggered"] = int(
+                            bars_held >= required_bars and max_gain < self.strategy.stale_threshold_pct
+                        )
+
                     # bar.ts는 timezone-naive이므로 KST로 localize
                     bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
                     insert_sell_eval(
@@ -809,6 +818,9 @@ class StrategyEngine:
                         trigger_reason = "TAKE_PROFIT"
                     elif cross_status == "Dead":
                         trigger_reason = "DEAD_CROSS"
+                    # ✅ Stale Position 트리거 확인
+                    elif hasattr(self.strategy, 'last_sell_reason') and self.strategy.last_sell_reason == "STALE_POSITION":
+                        trigger_reason = "STALE_POSITION"
 
                     sell_checks = base_checks.copy()
                     sell_checks["reason"] = "SELL_SIGNAL"
@@ -820,6 +832,19 @@ class StrategyEngine:
                     sell_checks["bars_held"] = int(bars_held)
                     sell_checks["trigger_reason"] = trigger_reason
                     sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
+
+                    # ✅ Stale Position 상태 추가
+                    if hasattr(self.strategy, 'enable_stale_position') and self.strategy.enable_stale_position:
+                        max_gain = self.position.get_max_gain_from_entry() or 0.0
+                        interval_min = getattr(self.strategy, 'interval_min', 1)
+                        required_bars = int(self.strategy.stale_hours * 60 / interval_min)
+
+                        sell_checks["stale_enabled"] = True
+                        sell_checks["stale_bars_held"] = int(bars_held)
+                        sell_checks["stale_required_bars"] = int(required_bars)
+                        sell_checks["stale_max_gain_pct"] = float(max_gain)
+                        sell_checks["stale_threshold_pct"] = float(self.strategy.stale_threshold_pct)
+                        sell_checks["stale_triggered"] = int(trigger_reason == "STALE_POSITION")
 
                     # bar.ts는 timezone-naive이므로 KST로 localize
                     bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))

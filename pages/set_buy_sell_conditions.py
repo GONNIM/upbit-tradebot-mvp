@@ -111,7 +111,6 @@ EMA_BUY_CONDITIONS = {
     "ema_gc": "🟢 EMA Golden Cross",
     "above_base_ema": "📈 Price > Base EMA",
     "bullish_candle": "📈 Bullish Candle",
-    "base_ema_gap": "📊 Base EMA GAP (-0.5%↓)",
 }
 
 EMA_SELL_CONDITIONS = {
@@ -119,16 +118,11 @@ EMA_SELL_CONDITIONS = {
     "trailing_stop": "🧮 Trailing Stop",
     "take_profit": "💰 Take Profit",
     "stop_loss": "🔻 Stop Loss",
+    "stale_position_check": "💤 정체 포지션 강제매도 (1시간 내 1% 미상승)",
 }
 
 if strategy_tag == "EMA":
-    # ✅ EMA 전략: params에서 gap_diff 값을 읽어서 동적으로 레이블 생성
-    json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
-    params_obj = load_params(json_path, strategy_type=strategy_tag)
-    gap_diff_value = getattr(params_obj, "base_ema_gap_diff", -0.005) if params_obj else -0.005
-
-    BUY_CONDITIONS = EMA_BUY_CONDITIONS.copy()
-    BUY_CONDITIONS["base_ema_gap"] = f"📊 Base EMA GAP ({gap_diff_value*100:.1f}%↓)"
+    BUY_CONDITIONS = EMA_BUY_CONDITIONS
     SELL_CONDITIONS = EMA_SELL_CONDITIONS
 else:
     # 기본은 MACD
@@ -155,12 +149,21 @@ def load_conditions():
                 st.session_state[key] = buy_saved.get(key, False)
             for key in SELL_CONDITIONS:
                 st.session_state[key] = sell_saved.get(key, False)
+
+            # ✅ Stale Position 파라미터 로드
+            st.session_state["stale_hours"] = sell_saved.get("stale_hours", 1.0)
+            st.session_state["stale_threshold_pct"] = sell_saved.get("stale_threshold_pct", 0.01)
+
         st.info(f"✅ [{strategy_tag}] 저장된 매수/매도 전략 Condition 설정을 불러왔습니다.")
     else:
         for key in BUY_CONDITIONS:
             st.session_state.setdefault(key, False)
         for key in SELL_CONDITIONS:
             st.session_state.setdefault(key, False)
+
+        # ✅ 기본값 설정
+        st.session_state.setdefault("stale_hours", 1.0)
+        st.session_state.setdefault("stale_threshold_pct", 0.01)
 
 
 # --- 상태 저장하기 ---
@@ -169,6 +172,12 @@ def save_conditions():
         "buy": {key: st.session_state[key] for key in BUY_CONDITIONS},
         "sell": {key: st.session_state[key] for key in SELL_CONDITIONS},
     }
+
+    # ✅ Stale Position 파라미터 추가 저장 (EMA 전략만)
+    if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
+        conditions["sell"]["stale_hours"] = st.session_state.get("stale_hours", 1.0)
+        conditions["sell"]["stale_threshold_pct"] = st.session_state.get("stale_threshold_pct", 0.01)
+
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
     st.success(f"✅ [{strategy_tag}] 매수/매도 전략 Condition 설정이 저장되었습니다.")
@@ -247,6 +256,41 @@ for key, label in SELL_CONDITIONS.items():
         label,
         value=st.session_state.get(key, False),
         key=f"toggle_{strategy_tag}_sell_{key}",
+    )
+
+# ✅ Stale Position Check 파라미터 입력 UI (EMA 전략만)
+if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
+    st.markdown("##### ⚙️ 정체 포지션 파라미터 설정")
+    st.markdown("_설정한 시간 동안 진입가 대비 설정한 수익률 이상 상승하지 못하면 강제 매도_")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        stale_hours = st.number_input(
+            "체크 시간 (시간)",
+            min_value=0.5,
+            max_value=24.0,
+            step=0.5,
+            value=st.session_state.get("stale_hours", 1.0),
+            key=f"input_stale_hours_{strategy_tag}",
+            help="포지션 보유 후 이 시간이 지나면 수익률 체크"
+        )
+        st.session_state["stale_hours"] = stale_hours
+
+    with col2:
+        stale_threshold_pct = st.number_input(
+            "최소 상승률 (%)",
+            min_value=0.1,
+            max_value=10.0,
+            step=0.1,
+            value=st.session_state.get("stale_threshold_pct", 1.0),
+            key=f"input_stale_threshold_{strategy_tag}",
+            help="진입가 대비 이 수익률 미달 시 강제 매도"
+        )
+        st.session_state["stale_threshold_pct"] = stale_threshold_pct / 100.0
+
+    st.info(
+        f"💡 현재 설정: **{stale_hours}시간** 동안 진입가 대비 "
+        f"**{stale_threshold_pct:.1f}%** 이상 상승하지 못하면 강제 매도"
     )
 
 st.divider()

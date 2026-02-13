@@ -7,11 +7,12 @@ from services.init_db import get_db_path
 from services.db import fetch_buy_eval, fetch_trades_audit  # 기존 제공 함수 재사용
 
 from services.db import fetch_buy_eval, fetch_trades_audit, get_account
-from engine.params import load_active_strategy_with_conditions
+from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
+from pathlib import Path
 
 from streamlit_autorefresh import st_autorefresh
-from config import REFRESH_INTERVAL
+from config import REFRESH_INTERVAL, CONDITIONS_JSON_FILENAME
 
 import time
 
@@ -80,6 +81,25 @@ strategy_from_file = load_active_strategy_with_conditions(user_id)
 strategy_tag = (strategy_from_url or strategy_from_file or strategy_from_session or DEFAULT_STRATEGY_TYPE)
 strategy_tag = str(strategy_tag).upper().strip()
 st.session_state["strategy_type"] = strategy_tag
+
+# 🔍 DEBUG: 전략 판정 과정 로깅
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f"[AuditViewer] Strategy detection: url={strategy_from_url}, file={strategy_from_file}, session={strategy_from_session}, final={strategy_tag}")
+
+# ✅ params 로딩 (Base EMA GAP 전략 판정용)
+params_strategy = "EMA" if strategy_tag == "BASE_EMA_GAP" else strategy_tag
+from config import PARAMS_JSON_FILENAME
+json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+params_obj = load_params(json_path, strategy_type=params_strategy)
+
+# ✅ Base EMA GAP 모드 확인 (params.base_ema_gap_enabled 사용)
+is_gap_mode = False
+if params_obj and params_strategy == "EMA":
+    is_gap_mode = getattr(params_obj, "base_ema_gap_enabled", False)
+    logger.info(f"[AuditViewer] base_ema_gap_enabled={is_gap_mode}")
+
+st.toast(f"🔍 Audit Viewer: Strategy={strategy_tag}, GAP mode={is_gap_mode}", icon="🔍")
 
 db_path = get_db_path(user_id)
 
@@ -178,12 +198,13 @@ st.divider()
 # -------------------
 # 전략별 칼럼명 매핑
 # -------------------
-if strategy_tag == "EMA":
+# ✅ BASE_EMA_GAP는 EMA 기반 전략이므로 EMA와 동일하게 처리
+if strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP":
     INDICATOR_COL_RENAME = {
         "macd": "ema_fast",
         "signal": "ema_slow"
     }
-    INDICATOR_DISPLAY_NAME = "EMA"
+    INDICATOR_DISPLAY_NAME = "BASE EMA GAP" if strategy_tag == "BASE_EMA_GAP" else "EMA"
 else:  # MACD or others
     INDICATOR_COL_RENAME = {}
     INDICATOR_DISPLAY_NAME = "MACD"
@@ -249,28 +270,17 @@ if section == "buy":
 
         df_buy["strategy_mode"] = df_buy["checks"].apply(_get_strategy_mode)
 
-        # ✅ 선택한 전략에 맞는 데이터만 필터링
-        if strategy_tag == "BASE_EMA_GAP":
-            df_buy = df_buy[df_buy["strategy_mode"] == "BASE_EMA_GAP"]
-        elif strategy_tag == "MACD":
-            # MACD 또는 strategy_mode가 없는 기존 데이터 (하위 호환성)
-            df_buy = df_buy[(df_buy["strategy_mode"] == "MACD") | (df_buy["strategy_mode"].isna())]
-        elif strategy_tag == "EMA":
-            df_buy = df_buy[df_buy["strategy_mode"] == "EMA"]
-        else:
-            # 알 수 없는 전략: 모든 데이터 표시
-            pass
-
-        # ✅ is_gap_strategy 컬럼 추가 (이후 로직에서 사용)
+        # ✅ is_gap_strategy 컬럼 추가
         df_buy["is_gap_strategy"] = df_buy["strategy_mode"] == "BASE_EMA_GAP"
 
-        # 필터링 후 데이터가 없으면 메시지 표시
-        if df_buy.empty:
-            st.info(f"선택한 전략({strategy_tag})의 BUY 평가 데이터가 없습니다.")
-        else:
-            has_gap_strategy = df_buy["is_gap_strategy"].any()
+        # ⚠️ 데이터 필터링 제거 - 모든 데이터 표시, 테이블 구조만 is_gap_mode로 결정
+        # (Base EMA GAP 전략 선택 시에도 기존 EMA 데이터를 볼 수 있어야 함)
 
-            if has_gap_strategy:
+        if df_buy.empty:
+            st.info(f"BUY 평가 데이터가 없습니다.")
+        else:
+            # ✅ params.base_ema_gap_enabled로 판단 (dashboard 차트와 동일한 조건 사용)
+            if is_gap_mode:
                 # ✅ Base EMA GAP 전략: 특화 컬럼 추가
                 def _extract_gap_info(row):
                     checks = row.get("checks", {})
@@ -367,8 +377,8 @@ if section == "buy":
                 # ✅ 컬럼 순서 재배치
                 column_order = [
                     "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
-                    "ema_fast" if strategy_tag == "EMA" else "macd",
-                    "ema_slow" if strategy_tag == "EMA" else "signal",
+                    "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
+                    "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                     "have_position", "overall_ok", "failed_keys", "checks", "notes", "interval_sec"
                 ]
                 column_order = [col for col in column_order if col in df_buy_display.columns]
@@ -443,28 +453,17 @@ elif section == "sell":
 
         df_sell["strategy_mode"] = df_sell["checks"].apply(_get_strategy_mode)
 
-        # ✅ 선택한 전략에 맞는 데이터만 필터링
-        if strategy_tag == "BASE_EMA_GAP":
-            df_sell = df_sell[df_sell["strategy_mode"] == "BASE_EMA_GAP"]
-        elif strategy_tag == "MACD":
-            # MACD 또는 strategy_mode가 없는 기존 데이터 (하위 호환성)
-            df_sell = df_sell[(df_sell["strategy_mode"] == "MACD") | (df_sell["strategy_mode"].isna())]
-        elif strategy_tag == "EMA":
-            df_sell = df_sell[df_sell["strategy_mode"] == "EMA"]
-        else:
-            # 알 수 없는 전략: 모든 데이터 표시
-            pass
-
-        # ✅ is_gap_strategy 컬럼 추가 (이후 로직에서 사용)
+        # ✅ is_gap_strategy 컬럼 추가
         df_sell["is_gap_strategy"] = df_sell["strategy_mode"] == "BASE_EMA_GAP"
 
-        # 필터링 후 데이터가 없으면 메시지 표시
-        if df_sell.empty:
-            st.info(f"선택한 전략({strategy_tag})의 SELL 평가 데이터가 없습니다.")
-        else:
-            has_gap_strategy = df_sell["is_gap_strategy"].any()
+        # ⚠️ 데이터 필터링 제거 - 모든 데이터 표시, 테이블 구조만 is_gap_mode로 결정
+        # (Base EMA GAP 전략 선택 시에도 기존 EMA 데이터를 볼 수 있어야 함)
 
-            if has_gap_strategy:
+        if df_sell.empty:
+            st.info(f"SELL 평가 데이터가 없습니다.")
+        else:
+            # ✅ params.base_ema_gap_enabled로 판단 (dashboard 차트와 동일한 조건 사용)
+            if is_gap_mode:
                 # ✅ Base EMA GAP 전략: SELL 특화 컬럼 추가
                 def _extract_sell_gap_info(row):
                     checks = row.get("checks", {})
@@ -544,8 +543,8 @@ elif section == "sell":
                 # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에, delta 다음에 cross_type 추가
                 column_order = [
                     "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta", "cross_type",
-                    "ema_fast" if strategy_tag == "EMA" else "macd",
-                    "ema_slow" if strategy_tag == "EMA" else "signal",
+                    "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
+                    "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                     "ts_pct", "ts_armed", "bars_held", "checks", "triggered", "trigger_key", "notes", "interval_sec"
                 ]
                 # 존재하는 컬럼만 필터링
@@ -603,22 +602,55 @@ elif section == "trades":
         if "bar_time" in df_tr.columns:
             df_tr["bar_time"] = df_tr["bar_time"].apply(_format_timestamp)
 
-        # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
-        df_tr["delta"] = df_tr["macd"] - df_tr["signal"]
+        # ✅ params.base_ema_gap_enabled로 판단 (dashboard 차트와 동일한 조건 사용)
+        if is_gap_mode:
+            # ✅ Base EMA GAP 전략: 간소화된 체결 테이블
+            # 전략별 칼럼명 변경
+            df_tr_display = df_tr.rename(columns=INDICATOR_COL_RENAME)
 
-        # 전략별 칼럼명 변경
-        df_tr_display = df_tr.rename(columns=INDICATOR_COL_RENAME)
+            # ✅ Base EMA GAP 전용 컬럼 순서 (delta 제거, 핵심 정보만)
+            column_order = [
+                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "price",
+                "entry_price", "bars_held", "tp", "sl", "highest"
+            ]
+            column_order = [col for col in column_order if col in df_tr_display.columns]
+            df_tr_display = df_tr_display[column_order]
 
-        # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
-        column_order = [
-            "timestamp", "bar_time", "ticker", "bar", "type", "reason", "price", "delta",
-            "ema_fast" if strategy_tag == "EMA" else "macd",
-            "ema_slow" if strategy_tag == "EMA" else "signal",
-            "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed", "interval_sec"
-        ]
-        # 존재하는 컬럼만 필터링
-        column_order = [col for col in column_order if col in df_tr_display.columns]
-        df_tr_display = df_tr_display[column_order]
+            # 컬럼명 한글화
+            df_tr_display = df_tr_display.rename(columns={
+                "timestamp": "체결시각",
+                "bar_time": "봉시각",
+                "ticker": "티커",
+                "bar": "BAR",
+                "type": "유형",
+                "reason": "사유",
+                "price": "체결가",
+                "entry_price": "진입가",
+                "bars_held": "보유봉",
+                "tp": "목표가",
+                "sl": "손절가",
+                "highest": "최고가"
+            })
+
+            st.info("📊 Base EMA GAP 전략 모드 - 체결 내역")
+        else:
+            # ✅ 일반 EMA/MACD 전략: 기존 로직
+            # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
+            df_tr["delta"] = df_tr["macd"] - df_tr["signal"]
+
+            # 전략별 칼럼명 변경
+            df_tr_display = df_tr.rename(columns=INDICATOR_COL_RENAME)
+
+            # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
+            column_order = [
+                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "price", "delta",
+                "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
+                "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
+                "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed", "interval_sec"
+            ]
+            # 존재하는 컬럼만 필터링
+            column_order = [col for col in column_order if col in df_tr_display.columns]
+            df_tr_display = df_tr_display[column_order]
 
         st.dataframe(df_tr_display, use_container_width=True, hide_index=True)
     else:
