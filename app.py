@@ -83,6 +83,54 @@ st.session_state.setdefault("live_capital_set", False) # LIVE 운용자산 설�
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 st.markdown(style_main, unsafe_allow_html=True)
 
+# 버튼 색상 커스터마이징
+st.markdown(
+    """
+    <style>
+    /* 계정 검증 - 보라색 */
+    div[class*="st-key-btn_verify"] button {
+        background: linear-gradient(180deg, #8b5cf6 0%, #7c3aed 100%) !important;
+        color: white !important;
+        border: 2px solid #7c3aed !important;
+        font-weight: 700 !important;
+    }
+
+    /* LIVE 운용자산 저장 - 파란색 */
+    div[class*="st-key-btn_save_capital"] button {
+        background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        border: 2px solid #2563eb !important;
+        font-weight: 700 !important;
+    }
+
+    /* 입장하기 버튼 - 초록색 */
+    div[class*="st-key-btn_start_trading"] button {
+        background: linear-gradient(180deg, #22c55e 0%, #16a34a 100%) !important;
+        color: white !important;
+        border: 2px solid #16a34a !important;
+        font-weight: 700 !important;
+    }
+
+    /* 파라미터 설정하기 - 파란색 */
+    div[class*="st-key-btn_start_setting"] button {
+        background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: white !important;
+        border: 2px solid #2563eb !important;
+        font-weight: 700 !important;
+    }
+
+    /* 로그아웃 - 회색 */
+    div[class*="st-key-btn_logout"] button {
+        background: linear-gradient(180deg, #6b7280 0%, #4b5563 100%) !important;
+        color: white !important;
+        border: 2px solid #4b5563 !important;
+        font-weight: 700 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 IS_CLOUD = st.secrets.get("environment") == "cloud"
 # 환경별 인증 정보 로딩
 if IS_CLOUD:
@@ -202,7 +250,7 @@ elif authentication_status:
                 st.caption(f"ACCESS: {_mask(ak)} / SECRET: {_mask(sk)}")
                 col1, col2 = st.columns([1,1])
                 with col1:
-                    do_verify = st.button("계정 검증 실행", use_container_width=True)
+                    do_verify = st.button("계정 검증 실행", key="btn_verify", use_container_width=True)
                 with col2:
                     with st.expander("🔍 서버 정보"):
                         server_ip = get_server_public_ip()
@@ -328,7 +376,7 @@ elif authentication_status:
                 step=10_000,
             )
 
-            save_live_capital = st.button("LIVE 운용자산 저장하기", use_container_width=True)
+            save_live_capital = st.button("LIVE 운용자산 저장하기", key="btn_save_capital", use_container_width=True)
 
             if save_live_capital:
                 st.session_state.virtual_krw = live_capital
@@ -350,6 +398,7 @@ elif authentication_status:
 
                 start_trading = st.button(
                     f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기",
+                    key="btn_start_trading_live",
                     use_container_width=True,
                 )
     else:
@@ -362,7 +411,7 @@ elif authentication_status:
             st.session_state.virtual_krw = virtual_krw
 
             start_trading = st.button(
-                f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기", use_container_width=True
+                f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기", key="btn_start_trading_test", use_container_width=True
             )
         else:
             st.subheader("🔧 운용자산 설정")
@@ -401,6 +450,7 @@ elif authentication_status:
 
                 start_trading = st.button(
                     f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기",
+                    key="btn_start_trading",
                     use_container_width=True,
                     disabled=disabled_live_gate,
                 )
@@ -428,6 +478,7 @@ elif authentication_status:
 
     start_setting = st.button(
         f"Upbit Trade Bot v1 ({mode_suffix}) 파라미터 설정하기",
+        key="btn_start_setting",
         use_container_width=True,
         disabled=(_mode == "LIVE" and not live_ready)
     )
@@ -452,7 +503,7 @@ elif authentication_status:
 
     # render_db_smoke_test(user_id=username, ticker="KRW-BTC", interval_sec=60)
 
-    logout = st.button("로그아웃하기", use_container_width=True)
+    logout = st.button("로그아웃하기", key="btn_logout", use_container_width=True)
     if logout:
         st.markdown(
             f'<meta http-equiv="refresh" content="0; url=/?redirected=1">',
