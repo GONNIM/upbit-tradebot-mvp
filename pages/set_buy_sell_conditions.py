@@ -282,7 +282,7 @@ if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False)
             min_value=0.1,
             max_value=10.0,
             step=0.1,
-            value=st.session_state.get("stale_threshold_pct", 1.0),
+            value=st.session_state.get("stale_threshold_pct", 0.01) * 100.0,
             key=f"input_stale_threshold_{strategy_tag}",
             help="진입가 대비 이 수익률 미달 시 강제 매도"
         )
