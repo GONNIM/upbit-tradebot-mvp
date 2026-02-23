@@ -308,7 +308,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.23.2234")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.23.2243")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -1733,27 +1733,44 @@ MACD_SELL_CONDITIONS = {
     "dead_cross": "🔴  Dead Cross",
 }
 
-EMA_BUY_CONDITIONS = {
+# ★ 전략별 조건 정의 - 전략과 필터로 구분
+EMA_BUY_STRATEGY = {
     "ema_gc": "🟢 EMA Golden Cross",
     "above_base_ema": "📈 Price > Base EMA",
     "bullish_candle": "📈 Bullish Candle",
 }
 
-EMA_SELL_CONDITIONS = {
-    "ema_dc": "🔴 EMA Dead Cross",
-    "trailing_stop": "🧮 Trailing Stop",
-    "take_profit": "💰 Take Profit",
+EMA_BUY_FILTERS = {
+    "surge_filter_enabled": "🚫 급등 차단 필터",
+}
+
+EMA_SELL_STRATEGY = {
     "stop_loss": "🔻 Stop Loss",
+    "take_profit": "💰 Take Profit",
+    "trailing_stop": "🧮 Trailing Stop",
+    "ema_dc": "🔴 EMA Dead Cross",
+}
+
+EMA_SELL_FILTERS = {
     "stale_position_check": "💤 정체 포지션 강제매도",
 }
 
-# ★ 현재 전략에 맞는 조건 세트 선택
+# ★ 전략별 선택
 if is_ema:
-    BUY_CONDITIONS = EMA_BUY_CONDITIONS
-    SELL_CONDITIONS = EMA_SELL_CONDITIONS
+    BUY_STRATEGY = EMA_BUY_STRATEGY
+    BUY_FILTERS = EMA_BUY_FILTERS
+    SELL_STRATEGY = EMA_SELL_STRATEGY
+    SELL_FILTERS = EMA_SELL_FILTERS
 else:
-    BUY_CONDITIONS = MACD_BUY_CONDITIONS
-    SELL_CONDITIONS = MACD_SELL_CONDITIONS
+    # MACD는 필터 없음
+    BUY_STRATEGY = MACD_BUY_CONDITIONS
+    BUY_FILTERS = {}
+    SELL_STRATEGY = MACD_SELL_CONDITIONS
+    SELL_FILTERS = {}
+
+# 하위 호환성을 위한 전체 조건 목록
+BUY_CONDITIONS = {**BUY_STRATEGY, **BUY_FILTERS} if is_ema else MACD_BUY_CONDITIONS
+SELL_CONDITIONS = {**SELL_STRATEGY, **SELL_FILTERS} if is_ema else MACD_SELL_CONDITIONS
 
 
 # --- 상태 불러오기 ---
@@ -1808,7 +1825,7 @@ st.markdown(
 col1, col2 = st.columns([6, 1])
 with col1:
     # ★ 현재 전략 이름도 같이 표기
-    st.subheader(f"⚙️ 매수 전략 (Strategy: {strategy_tag})")
+    st.subheader(f"⚙️ 매수 설정 (Strategy: {strategy_tag})")
 with col2:
     settings_clicked = st.button("🛠️ 설정", key="btn_settings", use_container_width=True)
     if settings_clicked:
@@ -1823,58 +1840,91 @@ with col2:
             f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">',
             unsafe_allow_html=True,
         )
-st.markdown(
-    "<table class='strategy-table'>"
-    "<colgroup><col><col></colgroup>"  # 칼럼 비율 고정
-    "<tr><th>Condition</th><th>Status</th></tr>"
-    + "".join(
-        f"<tr><td>{label}</td><td class='{ 'on' if buy_state.get(key, False) else 'off' }'>{ '✅ ON' if buy_state.get(key, False) else '❌ OFF' }</td></tr>"
-        for key, label in BUY_CONDITIONS.items()
+
+# 전략 표시
+if len(BUY_STRATEGY) > 0:
+    st.markdown("**⭐ 핵심 전략**")
+    st.markdown(
+        "<table class='strategy-table'>"
+        "<colgroup><col><col></colgroup>"
+        "<tr><th>Condition</th><th>Status</th></tr>"
+        + "".join(
+            f"<tr><td>{label}</td><td class='{ 'on' if buy_state.get(key, False) else 'off' }'>{ '✅ ON' if buy_state.get(key, False) else '❌ OFF' }</td></tr>"
+            for key, label in BUY_STRATEGY.items()
+        )
+        + "</table>",
+        unsafe_allow_html=True,
     )
-    + "</table>",
-    unsafe_allow_html=True,
-)
 
-# ✅ Surge Filter 파라미터 표시 (EMA 전략 전용)
-# buy_sell_conditions.json 우선, 없으면 params.json에서 읽기 (backward compatibility)
-if is_ema:
-    # 1순위: buy_sell_conditions.json
-    if "surge_filter_enabled" in buy_state:
-        surge_filter_enabled = buy_state.get("surge_filter_enabled", False)
+# 필터 표시
+if len(BUY_FILTERS) > 0:
+    st.markdown("**🔍 매수 필터**")
+    st.markdown(
+        "<table class='strategy-table'>"
+        "<colgroup><col><col></colgroup>"
+        "<tr><th>Filter</th><th>Status</th></tr>"
+        + "".join(
+            f"<tr><td>{label}</td><td class='{ 'on' if buy_state.get(key, False) else 'off' }'>{ '✅ ON' if buy_state.get(key, False) else '❌ OFF' }</td></tr>"
+            for key, label in BUY_FILTERS.items()
+        )
+        + "</table>",
+        unsafe_allow_html=True,
+    )
+
+    # ✅ Surge Filter 파라미터 표시 (EMA 전략 전용)
+    if is_ema and buy_state.get("surge_filter_enabled", False):
+        # 1순위: buy_sell_conditions.json
         surge_threshold_pct = buy_state.get("surge_threshold_pct", 0.01)
-    # 2순위: params.json (backward compatibility)
-    else:
-        surge_filter_enabled = params_obj.ema_surge_filter_enabled if hasattr(params_obj, 'ema_surge_filter_enabled') else False
-        surge_threshold_pct = params_obj.ema_surge_threshold_pct if hasattr(params_obj, 'ema_surge_threshold_pct') else 0.01
+        # 2순위: params.json (backward compatibility)
+        if "surge_threshold_pct" not in buy_state:
+            surge_threshold_pct = params_obj.ema_surge_threshold_pct if hasattr(params_obj, 'ema_surge_threshold_pct') else 0.01
 
-    if surge_filter_enabled:
         st.info(
             f"🚫 **급등 차단 필터**: Slow EMA 대비 {surge_threshold_pct * 100:.1f}% 이상 상승 시 매수 차단"
         )
 
 st.write("")
 
-st.subheader(f"⚙️ 매도 전략 (Strategy: {strategy_tag})")
-st.markdown(
-    "<table class='strategy-table'>"
-    "<colgroup><col><col></colgroup>"  # 칼럼 비율 고정
-    "<tr><th>Condition</th><th>Status</th></tr>"
-    + "".join(
-        f"<tr><td>{label}</td><td class='{ 'on' if sell_state.get(key, False) else 'off' }'>{ '✅ ON' if sell_state.get(key, False) else '❌ OFF' }</td></tr>"
-        for key, label in SELL_CONDITIONS.items()
-    )
-    + "</table>",
-    unsafe_allow_html=True,
-)
+st.subheader(f"⚙️ 매도 설정 (Strategy: {strategy_tag})")
 
-# ✅ Stale Position Check 파라미터 표시 (EMA 전략 + 활성화 시)
-if is_ema and sell_state.get("stale_position_check", False):
-    stale_hours = sell_state.get("stale_hours", 1.0)
-    stale_threshold_pct = sell_state.get("stale_threshold_pct", 0.01)
-    st.info(
-        f"💡 **정체 포지션 설정**: {stale_hours}시간 동안 진입가 대비 "
-        f"{stale_threshold_pct * 100:.1f}% 이상 상승하지 못하면 강제 매도"
+# 전략 표시
+if len(SELL_STRATEGY) > 0:
+    st.markdown("**⭐ 핵심 전략**")
+    st.markdown(
+        "<table class='strategy-table'>"
+        "<colgroup><col><col></colgroup>"
+        "<tr><th>Condition</th><th>Status</th></tr>"
+        + "".join(
+            f"<tr><td>{label}</td><td class='{ 'on' if sell_state.get(key, False) else 'off' }'>{ '✅ ON' if sell_state.get(key, False) else '❌ OFF' }</td></tr>"
+            for key, label in SELL_STRATEGY.items()
+        )
+        + "</table>",
+        unsafe_allow_html=True,
     )
+
+# 필터 표시
+if len(SELL_FILTERS) > 0:
+    st.markdown("**🔍 매도 필터**")
+    st.markdown(
+        "<table class='strategy-table'>"
+        "<colgroup><col><col></colgroup>"
+        "<tr><th>Filter</th><th>Status</th></tr>"
+        + "".join(
+            f"<tr><td>{label}</td><td class='{ 'on' if sell_state.get(key, False) else 'off' }'>{ '✅ ON' if sell_state.get(key, False) else '❌ OFF' }</td></tr>"
+            for key, label in SELL_FILTERS.items()
+        )
+        + "</table>",
+        unsafe_allow_html=True,
+    )
+
+    # ✅ Stale Position Check 파라미터 표시 (EMA 전략 + 활성화 시)
+    if is_ema and sell_state.get("stale_position_check", False):
+        stale_hours = sell_state.get("stale_hours", 1.0)
+        stale_threshold_pct = sell_state.get("stale_threshold_pct", 0.01)
+        st.info(
+            f"💡 **정체 포지션 필터**: {stale_hours}시간 동안 진입가 대비 최고 수익률이 "
+            f"{stale_threshold_pct * 100:.1f}% 미만이면 강제 매도"
+        )
 
 st.write("")
 
