@@ -9,6 +9,17 @@ from core.position_state import PositionState
 from typing import Dict, Any, Optional
 import logging
 
+# ✅ 필터 시스템 import
+from core.filters import BuyFilterManager, SellFilterManager
+from core.filters.buy_filters import SlowEmaSurgeFilter
+from core.filters.sell_filters import (
+    StopLossFilter,
+    TakeProfitFilter,
+    TrailingStopFilter,
+    DeadCrossFilter,
+    StalePositionFilter
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -411,14 +422,22 @@ class IncrementalEMAStrategy:
         self.use_base_ema = use_base_ema
         self.enable_base_ema_gap = base_ema_gap_enabled  # ✅ params에서 직접 받음
         self.base_ema_gap_diff = base_ema_gap_diff
-        self.ema_surge_filter_enabled = ema_surge_filter_enabled
-        self.ema_surge_threshold_pct = ema_surge_threshold_pct
 
         # ✅ BUY 조건 파일 설정 (기본값: 모두 True)
         self.buy_conditions = buy_conditions or {}
         self.enable_ema_gc = self.buy_conditions.get("ema_gc", True)
         self.enable_above_base_ema = self.buy_conditions.get("above_base_ema", True)
         self.enable_bullish_candle = self.buy_conditions.get("bullish_candle", True)
+
+        # ✅ Surge Filter: buy_conditions 우선, 없으면 params fallback
+        if "surge_filter_enabled" in self.buy_conditions:
+            self.ema_surge_filter_enabled = self.buy_conditions.get("surge_filter_enabled", False)
+            self.ema_surge_threshold_pct = self.buy_conditions.get("surge_threshold_pct", 0.01)
+            logger.info(f"[EMA Strategy] Surge Filter from buy_sell_conditions.json")
+        else:
+            self.ema_surge_filter_enabled = ema_surge_filter_enabled
+            self.ema_surge_threshold_pct = ema_surge_threshold_pct
+            logger.info(f"[EMA Strategy] Surge Filter from params.json (backward compatibility)")
 
         logger.info(
             f"[EMA Strategy] Buy conditions: "
@@ -430,8 +449,8 @@ class IncrementalEMAStrategy:
 
         logger.info(
             f"[EMA Strategy] Surge Filter: "
-            f"enabled={ema_surge_filter_enabled}, "
-            f"threshold={ema_surge_threshold_pct:.2%} (Slow EMA 대비)"
+            f"enabled={self.ema_surge_filter_enabled}, "
+            f"threshold={self.ema_surge_threshold_pct:.2%} (Slow EMA 대비)"
         )
 
         # ✅ SELL 조건 파일 설정 (기본값: 모두 True)
@@ -465,6 +484,46 @@ class IncrementalEMAStrategy:
 
         # ✅ interval_min 저장 (live_loop에서 전달)
         self.interval_min: int = 1  # 기본값
+
+        # ✅ 필터 시스템 초기화
+        self.buy_filter_manager = BuyFilterManager()
+        self.sell_filter_manager = SellFilterManager()
+        self._register_buy_filters()
+        self._register_sell_filters()
+
+    def _register_buy_filters(self):
+        """매수 필터 등록"""
+        # Slow EMA 급등 차단 필터
+        surge_filter = SlowEmaSurgeFilter(threshold_pct=self.ema_surge_threshold_pct)
+        surge_filter.set_enabled(self.ema_surge_filter_enabled)
+        self.buy_filter_manager.register(surge_filter)
+
+    def _register_sell_filters(self):
+        """매도 필터 등록 (카테고리 순서대로 실행됨)"""
+        # 핵심 전략 필터 (CORE_STRATEGY)
+        stop_loss_filter = StopLossFilter(stop_loss_pct=self.stop_loss)
+        stop_loss_filter.set_enabled(self.enable_stop_loss)
+        self.sell_filter_manager.register(stop_loss_filter)
+
+        take_profit_filter = TakeProfitFilter(take_profit_pct=self.take_profit)
+        take_profit_filter.set_enabled(self.enable_take_profit)
+        self.sell_filter_manager.register(take_profit_filter)
+
+        trailing_stop_filter = TrailingStopFilter(trailing_stop_pct=self.trailing_stop_pct)
+        trailing_stop_filter.set_enabled(self.enable_trailing_stop)
+        self.sell_filter_manager.register(trailing_stop_filter)
+
+        dead_cross_filter = DeadCrossFilter()
+        dead_cross_filter.set_enabled(self.enable_dead_cross)
+        self.sell_filter_manager.register(dead_cross_filter)
+
+        # 보조 필터 (SELL_AUXILIARY)
+        stale_position_filter = StalePositionFilter(
+            stale_hours=self.stale_hours,
+            stale_threshold_pct=self.stale_threshold_pct
+        )
+        stale_position_filter.set_enabled(self.enable_stale_position)
+        self.sell_filter_manager.register(stale_position_filter)
 
     def set_interval_min(self, interval_min: int):
         """
@@ -521,26 +580,16 @@ class IncrementalEMAStrategy:
         # BUY 조건
         # ========================================
         if not position.has_position:
-            # ✅ Surge Filter 체크 (Slow EMA 급등 필터)
+            # ✅ 매수 필터 체크 (Surge Filter 등)
             # ⚠️ 중요: Base EMA GAP 전략은 급락 매수 전략이므로 필터 미적용
-            if self.ema_surge_filter_enabled and not self.enable_base_ema_gap:
-                if ema_slow is None or ema_slow <= 0:
-                    logger.warning(f"⚠️ Slow EMA not available, skipping surge filter")
-                else:
-                    surge_pct = (bar.close - ema_slow) / ema_slow
-
-                    if surge_pct > self.ema_surge_threshold_pct:
-                        logger.warning(
-                            f"🚫 SURGE FILTER BLOCKED | "
-                            f"price={bar.close:.2f}, slow_ema={ema_slow:.2f}, "
-                            f"surge={surge_pct:.2%} (limit: {self.ema_surge_threshold_pct:.2%})"
-                        )
-                        return Action.HOLD
-                    else:
-                        logger.info(
-                            f"✅ Surge filter passed | "
-                            f"surge={surge_pct:.2%} (limit: {self.ema_surge_threshold_pct:.2%})"
-                        )
+            if not self.enable_base_ema_gap:
+                filter_result = self.buy_filter_manager.evaluate_all(
+                    bar=bar,
+                    ema_slow=ema_slow
+                )
+                if filter_result is not None and filter_result.should_block:
+                    # 필터가 매수 차단
+                    return Action.HOLD
 
             # ✅ Base EMA GAP 조건이 활성화되면 다른 조건 무시하고 GAP만 체크
             if self.enable_base_ema_gap:
@@ -687,139 +736,22 @@ class IncrementalEMAStrategy:
             # Highest Price 갱신
             position.update_highest_price(current_price)
 
-            # ✅ Stop Loss 체크 (조건 파일에서 ON일 때만)
-            # 🔍 DEBUG: Stop Loss 조건 및 활성화 상태 로그 추가
-            pnl_pct = position.get_pnl_pct(current_price)
-            stop_loss_triggered = pnl_pct is not None and pnl_pct <= -self.stop_loss
-
-            logger.info(
-                f"🔍 DEBUG [STOP_LOSS_CHECK] "
-                f"enable_stop_loss={self.enable_stop_loss}, "
-                f"stop_loss_triggered={stop_loss_triggered}, "
-                f"pnl_pct={pnl_pct:.2%} if pnl_pct else 'None', "
-                f"threshold=-{self.stop_loss:.2%}, "
-                f"current_price={current_price}"
+            # ✅ 매도 필터 시스템 (CORE_STRATEGY → SELL_AUXILIARY 순서로 실행)
+            filter_result = self.sell_filter_manager.evaluate_all(
+                position=position,
+                current_price=current_price,
+                bars_held=bars_held,
+                interval_min=self.interval_min,
+                ema_dead_cross=ema_dead_cross,
+                ema_fast=ema_fast,
+                ema_slow=ema_slow,
+                prev_ema_fast=prev_ema_fast,
+                prev_ema_slow=prev_ema_slow
             )
 
-            if self.enable_stop_loss:
-                if stop_loss_triggered:
-                    logger.info(
-                        f"🛡️ Stop Loss triggered | pnl={pnl_pct:.2%} sl={self.stop_loss:.2%}"
-                    )
-                    self.last_sell_reason = "stop_loss".upper()  # ✅ 조건 키를 대문자로
-                    return Action.SELL
-            else:
-                if stop_loss_triggered:
-                    logger.info(f"⏭️ Stop Loss disabled but condition met | pnl={pnl_pct:.2%}")
-
-            # ✅ Take Profit 체크 (조건 파일에서 ON일 때만)
-            # 🔍 DEBUG: Take Profit 조건 및 활성화 상태 로그 추가
-            take_profit_triggered = pnl_pct is not None and pnl_pct >= self.take_profit
-
-            logger.info(
-                f"🔍 DEBUG [TAKE_PROFIT_CHECK] "
-                f"enable_take_profit={self.enable_take_profit}, "
-                f"take_profit_triggered={take_profit_triggered}, "
-                f"pnl_pct={pnl_pct:.2%} if pnl_pct else 'None', "
-                f"threshold={self.take_profit:.2%}, "
-                f"current_price={current_price}"
-            )
-
-            if self.enable_take_profit:
-                if take_profit_triggered:
-                    logger.info(
-                        f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit:.2%}"
-                    )
-                    self.last_sell_reason = "take_profit".upper()  # ✅ 조건 키를 대문자로
-                    return Action.SELL
-            else:
-                if take_profit_triggered:
-                    logger.info(f"⏭️ Take Profit disabled but condition met | pnl={pnl_pct:.2%}")
-
-            # ✅ Trailing Stop 체크 (조건 파일에서 ON일 때만)
-            # 🔍 DEBUG: Trailing Stop 조건 및 활성화 상태 로그 추가
-            highest_price = position.highest_price
-            trailing_stop_triggered = False
-            if self.trailing_stop_pct is not None:
-                trailing_stop_triggered = position.arm_trailing_stop(self.trailing_stop_pct, current_price)
-
-            ts_pct_str = f"{self.trailing_stop_pct:.2%}" if self.trailing_stop_pct is not None else "None"
-            logger.info(
-                f"🔍 DEBUG [TRAILING_STOP_CHECK] "
-                f"enable_trailing_stop={self.enable_trailing_stop}, "
-                f"trailing_stop_triggered={trailing_stop_triggered}, "
-                f"trailing_stop_pct={ts_pct_str}, "
-                f"highest_price={highest_price}, "
-                f"current_price={current_price}"
-            )
-
-            if self.enable_trailing_stop:
-                if trailing_stop_triggered:
-                    logger.info(
-                        f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
-                    )
-                    self.last_sell_reason = "trailing_stop".upper()  # ✅ 조건 키를 대문자로
-                    return Action.SELL
-            else:
-                if trailing_stop_triggered:
-                    logger.info(f"⏭️ Trailing Stop disabled but condition met")
-
-            # ✅ ========================================
-            # ✅ Stale Position Check (DC 전에 실행)
-            # ✅ ========================================
-            if self.enable_stale_position:
-                # 필요 봉 개수 계산 (예: 1시간 = 60분 / 3분봉 = 20개)
-                required_bars = int(self.stale_hours * 60 / self.interval_min)
-
-                # 진입 이후 최고가 갱신
-                position.update_highest_since_entry(current_price)
-
-                # 조건 체크: 시간 경과 AND 목표 수익률 미달
-                if bars_held >= required_bars:
-                    max_gain = position.get_max_gain_from_entry()
-
-                    logger.info(
-                        f"🔍 DEBUG [STALE_POSITION_CHECK] "
-                        f"enable={self.enable_stale_position}, "
-                        f"bars_held={bars_held}, required_bars={required_bars}, "
-                        f"max_gain={max_gain:.2%} if max_gain else 'None', "
-                        f"threshold={self.stale_threshold_pct:.2%}, "
-                        f"entry_price={position.avg_price:.2f}, "
-                        f"highest_since_entry={position.highest_since_entry:.2f} if position.highest_since_entry else 'None', "
-                        f"current_price={current_price:.2f}"
-                    )
-
-                    if max_gain is not None and max_gain < self.stale_threshold_pct:
-                        logger.info(
-                            f"💤 Stale Position 감지 | "
-                            f"보유시간={bars_held}봉 (목표={required_bars}봉, {self.stale_hours}h), "
-                            f"최고수익률={max_gain:.2%} (목표={self.stale_threshold_pct:.2%}) | "
-                            f"진입가=₩{position.avg_price:,.0f}, "
-                            f"최고가=₩{position.highest_since_entry:,.0f}, "
-                            f"현재가=₩{current_price:,.0f}"
-                        )
-                        self.last_sell_reason = "STALE_POSITION"
-                        return Action.SELL
-
-            # ✅ EMA Dead Cross 체크 (조건 파일에서 ON일 때만)
-            # 🔍 DEBUG: Dead Cross 조건 및 활성화 상태 로그 추가
-            logger.info(
-                f"🔍 DEBUG [DEAD_CROSS_CHECK] "
-                f"enable_dead_cross={self.enable_dead_cross}, "
-                f"ema_dead_cross={ema_dead_cross}, "
-                f"prev_fast={prev_ema_fast}, prev_slow={prev_ema_slow}, "
-                f"curr_fast={ema_fast:.2f}, curr_slow={ema_slow:.2f}"
-            )
-
-            if self.enable_dead_cross:
-                if ema_dead_cross:
-                    logger.info(
-                        f"🔻 EMA Dead Cross | fast={ema_fast:.2f} slow={ema_slow:.2f}"
-                    )
-                    self.last_sell_reason = "ema_dc".upper()  # ✅ 조건 키를 대문자로 (EMA는 ema_dc 사용)
-                    return Action.SELL
-            else:
-                if ema_dead_cross:
-                    logger.info(f"⏭️ EMA Dead Cross disabled | fast={ema_fast:.2f} slow={ema_slow:.2f}")
+            if filter_result is not None and filter_result.should_block:
+                # 필터가 매도 신호 발생
+                self.last_sell_reason = filter_result.reason
+                return Action.SELL
 
         return Action.HOLD

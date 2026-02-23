@@ -308,7 +308,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.20.2020")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.02.23.2234")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -1834,6 +1834,24 @@ st.markdown(
     + "</table>",
     unsafe_allow_html=True,
 )
+
+# ✅ Surge Filter 파라미터 표시 (EMA 전략 전용)
+# buy_sell_conditions.json 우선, 없으면 params.json에서 읽기 (backward compatibility)
+if is_ema:
+    # 1순위: buy_sell_conditions.json
+    if "surge_filter_enabled" in buy_state:
+        surge_filter_enabled = buy_state.get("surge_filter_enabled", False)
+        surge_threshold_pct = buy_state.get("surge_threshold_pct", 0.01)
+    # 2순위: params.json (backward compatibility)
+    else:
+        surge_filter_enabled = params_obj.ema_surge_filter_enabled if hasattr(params_obj, 'ema_surge_filter_enabled') else False
+        surge_threshold_pct = params_obj.ema_surge_threshold_pct if hasattr(params_obj, 'ema_surge_threshold_pct') else 0.01
+
+    if surge_filter_enabled:
+        st.info(
+            f"🚫 **급등 차단 필터**: Slow EMA 대비 {surge_threshold_pct * 100:.1f}% 이상 상승 시 매수 차단"
+        )
+
 st.write("")
 
 st.subheader(f"⚙️ 매도 전략 (Strategy: {strategy_tag})")

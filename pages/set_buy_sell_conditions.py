@@ -84,11 +84,11 @@ target_filename = f"{user_id}_{strategy_tag}_{CONDITIONS_JSON_FILENAME}"
 SAVE_PATH = Path(target_filename)
 
 # ============================================================
-# 전략별 조건 목록 정의
-#   - MACD 전용 조건 (기존 그대로)
-#   - EMA 전용 조건 (예시)
+# 전략별 조건 목록 정의 - 전략과 필터로 구분
 # ============================================================
-MACD_BUY_CONDITIONS = {
+
+# ★ MACD 전략
+MACD_BUY_STRATEGY = {
     "golden_cross": "🟢  Golden Cross",
     "macd_positive": "✳️  MACD > threshold",
     "signal_positive": "➕  Signal > threshold",
@@ -98,36 +98,57 @@ MACD_BUY_CONDITIONS = {
     "above_ma60": "🧮  Above MA60",
 }
 
-MACD_SELL_CONDITIONS = {
-    "trailing_stop": "🧮 Trailing Stop - Peak (-10%)",
-    "take_profit": "💰  Take Profit",
+MACD_BUY_FILTERS = {}  # MACD는 매수 필터 없음
+
+MACD_SELL_STRATEGY = {
     "stop_loss": "🔻  Stop Loss",
+    "take_profit": "💰  Take Profit",
+    "trailing_stop": "🧮  Trailing Stop",
+    "dead_cross": "🔴  Dead Cross",
     "macd_negative": "📉  MACD < threshold",
     "signal_negative": "➖  Signal < threshold",
-    "dead_cross": "🔴  Dead Cross",
 }
 
-EMA_BUY_CONDITIONS = {
+MACD_SELL_FILTERS = {}  # MACD는 매도 필터 없음
+
+# ★ EMA 전략
+EMA_BUY_STRATEGY = {
     "ema_gc": "🟢 EMA Golden Cross",
     "above_base_ema": "📈 Price > Base EMA",
     "bullish_candle": "📈 Bullish Candle",
 }
 
-EMA_SELL_CONDITIONS = {
-    "ema_dc": "🔴 EMA Dead Cross",
-    "trailing_stop": "🧮 Trailing Stop",
-    "take_profit": "💰 Take Profit",
-    "stop_loss": "🔻 Stop Loss",
-    "stale_position_check": "💤 정체 포지션 강제매도 (1시간 내 1% 미상승)",
+EMA_BUY_FILTERS = {
+    "surge_filter_enabled": "🚫 급등 차단 필터 (Slow EMA 대비 급등 시 매수 차단)",
 }
 
+EMA_SELL_STRATEGY = {
+    "stop_loss": "🔻 Stop Loss",
+    "take_profit": "💰 Take Profit",
+    "trailing_stop": "🧮 Trailing Stop",
+    "ema_dc": "🔴 EMA Dead Cross",
+}
+
+EMA_SELL_FILTERS = {
+    "stale_position_check": "💤 정체 포지션 강제매도",
+}
+
+# 전략별 선택
 if strategy_tag == "EMA":
-    BUY_CONDITIONS = EMA_BUY_CONDITIONS
-    SELL_CONDITIONS = EMA_SELL_CONDITIONS
+    BUY_STRATEGY = EMA_BUY_STRATEGY
+    BUY_FILTERS = EMA_BUY_FILTERS
+    SELL_STRATEGY = EMA_SELL_STRATEGY
+    SELL_FILTERS = EMA_SELL_FILTERS
 else:
     # 기본은 MACD
-    BUY_CONDITIONS = MACD_BUY_CONDITIONS
-    SELL_CONDITIONS = MACD_SELL_CONDITIONS
+    BUY_STRATEGY = MACD_BUY_STRATEGY
+    BUY_FILTERS = MACD_BUY_FILTERS
+    SELL_STRATEGY = MACD_SELL_STRATEGY
+    SELL_FILTERS = MACD_SELL_FILTERS
+
+# 전체 조건 목록 (하위 호환성)
+BUY_CONDITIONS = {**BUY_STRATEGY, **BUY_FILTERS}
+SELL_CONDITIONS = {**SELL_STRATEGY, **SELL_FILTERS}
 
 
 # --- 상태 불러오기 ---
@@ -150,6 +171,9 @@ def load_conditions():
             for key in SELL_CONDITIONS:
                 st.session_state[key] = sell_saved.get(key, False)
 
+            # ✅ Surge Filter 파라미터 로드 (EMA 전략만)
+            st.session_state["surge_threshold_pct"] = buy_saved.get("surge_threshold_pct", 0.01)
+
             # ✅ Stale Position 파라미터 로드
             st.session_state["stale_hours"] = sell_saved.get("stale_hours", 1.0)
             st.session_state["stale_threshold_pct"] = sell_saved.get("stale_threshold_pct", 0.01)
@@ -162,6 +186,7 @@ def load_conditions():
             st.session_state.setdefault(key, False)
 
         # ✅ 기본값 설정
+        st.session_state.setdefault("surge_threshold_pct", 0.01)
         st.session_state.setdefault("stale_hours", 1.0)
         st.session_state.setdefault("stale_threshold_pct", 0.01)
 
@@ -172,6 +197,10 @@ def save_conditions():
         "buy": {key: st.session_state[key] for key in BUY_CONDITIONS},
         "sell": {key: st.session_state[key] for key in SELL_CONDITIONS},
     }
+
+    # ✅ Surge Filter 파라미터 추가 저장 (EMA 전략만)
+    if strategy_tag == "EMA" and st.session_state.get("surge_filter_enabled", False):
+        conditions["buy"]["surge_threshold_pct"] = st.session_state.get("surge_threshold_pct", 0.01)
 
     # ✅ Stale Position 파라미터 추가 저장 (EMA 전략만)
     if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
@@ -205,14 +234,48 @@ if not st.session_state.get(loaded_key, False):
     load_conditions()
     st.session_state[loaded_key] = True
 
-# --- 토글 UI 스타일 추가 ---
+# --- UI 스타일 추가 ---
 st.markdown(
     """
     <style>
-    /* 토글 라벨 크기 증가 */
+    /* 페이지 제목 */
+    h1 {
+        font-size: 2.2rem !important;
+        font-weight: 700 !important;
+        margin-bottom: 1.5rem !important;
+        padding-bottom: 0.5rem !important;
+        border-bottom: 2px solid #4CAF50;
+    }
+
+    /* 섹션 제목 (매수/매도) */
+    h2 {
+        font-size: 1.6rem !important;
+        font-weight: 600 !important;
+        margin-top: 2rem !important;
+        margin-bottom: 1rem !important;
+        color: #2E7D32;
+    }
+
+    /* 서브 제목 */
+    h4 {
+        font-size: 1.1rem !important;
+        font-weight: 600 !important;
+        margin-top: 1rem !important;
+        margin-bottom: 0.5rem !important;
+        color: #555;
+    }
+
+    /* Expander 제목 크기 */
+    details summary {
+        font-size: 1.15rem !important;
+        font-weight: 600 !important;
+        padding: 0.8rem !important;
+    }
+
+    /* 토글 라벨 크기 */
     [data-testid="stToggle"] label {
-        font-size: 1.2em;
-        padding: 0.4em 0.8em;
+        font-size: 1.05rem !important;
+        padding: 0.3rem 0.6rem !important;
     }
 
     /* 토글 배경색: 투명한 연두색 */
@@ -227,71 +290,156 @@ st.markdown(
         background-color: #76d275 !important;
     }
 
-    /* 전체 버튼 스타일 */
+    /* 버튼 스타일 */
     div.stButton > button {
-        font-size: 1.1em;
-        height: 3em;
-        border-radius: 0.4em;
+        font-size: 1.15rem !important;
+        height: 3.5em !important;
+        border-radius: 0.5em !important;
+        font-weight: 600 !important;
+    }
+
+    /* Number input 라벨 */
+    [data-testid="stNumberInput"] label {
+        font-size: 1rem !important;
+        font-weight: 500 !important;
+    }
+
+    /* 설명 텍스트 크기 통일 */
+    .stMarkdown p, .stMarkdown li {
+        font-size: 0.95rem !important;
+        line-height: 1.6 !important;
+    }
+
+    /* Info box 폰트 */
+    [data-testid="stAlert"] {
+        font-size: 0.95rem !important;
+    }
+
+    /* Caption 크기 */
+    .stCaption {
+        font-size: 0.85rem !important;
+        color: #666 !important;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# --- 제목 및 UI ---
-st.markdown(f"### 📊 [{strategy_tag}] 매수/매도 전략 Condition 설정")
-st.subheader("📋 매수 전략 Option 선택")
-for key, label in BUY_CONDITIONS.items():
-    st.session_state[key] = st.toggle(
-        label,
-        value=st.session_state.get(key, False),
-        key=f"toggle_{strategy_tag}_buy_{key}", 
-    )
+# --- 페이지 제목 ---
+st.markdown(f"# 📊 [{strategy_tag}] 매수/매도 전략 설정")
+
+# ============================================================
+# 📈 매수 설정
+# ============================================================
+st.markdown("## 📈 매수 설정")
+
+# --- 매수: 핵심 전략 조건 ---
+with st.expander("⭐ 핵심 전략 조건", expanded=True):
+    if len(BUY_STRATEGY) > 0:
+        for key, label in BUY_STRATEGY.items():
+            st.session_state[key] = st.toggle(
+                label,
+                value=st.session_state.get(key, False),
+                key=f"toggle_{strategy_tag}_buy_strategy_{key}",
+            )
+    else:
+        st.info("이 전략에는 매수 조건이 없습니다.")
+
+# --- 매수: 필터 ---
+if len(BUY_FILTERS) > 0:
+    with st.expander("🔍 매수 필터", expanded=True):
+        st.caption("매수를 차단하는 보조 필터 (리스크 관리용)")
+        for key, label in BUY_FILTERS.items():
+            st.session_state[key] = st.toggle(
+                label,
+                value=st.session_state.get(key, False),
+                key=f"toggle_{strategy_tag}_buy_filter_{key}",
+            )
+
+        # ✅ Surge Filter 파라미터 입력 UI (EMA 전략 + 활성화 시)
+        if strategy_tag == "EMA" and st.session_state.get("surge_filter_enabled", False):
+            st.markdown("#### ⚙️ 급등 차단 필터 파라미터")
+            st.caption("Slow EMA 대비 설정한 비율 이상 급등 시 매수를 차단합니다")
+
+            surge_threshold_pct = st.number_input(
+                "급등 임계값 (%)",
+                min_value=0.1,
+                max_value=10.0,
+                step=0.1,
+                value=st.session_state.get("surge_threshold_pct", 0.01) * 100.0,
+                key=f"input_surge_threshold_{strategy_tag}",
+                help="Slow EMA 대비 이 비율 이상 상승 시 매수 차단"
+            )
+            st.session_state["surge_threshold_pct"] = surge_threshold_pct / 100.0
+
+            st.info(
+                f"🚫 현재 설정: Slow EMA 대비 **{surge_threshold_pct:.1f}%** 이상 상승 시 매수 차단"
+            )
 
 st.divider()
 
-st.subheader("📋 매도 전략 Option 선택")
-for key, label in SELL_CONDITIONS.items():
-    st.session_state[key] = st.toggle(
-        label,
-        value=st.session_state.get(key, False),
-        key=f"toggle_{strategy_tag}_sell_{key}",
-    )
+# ============================================================
+# 📉 매도 설정
+# ============================================================
+st.markdown("## 📉 매도 설정")
 
-# ✅ Stale Position Check 파라미터 입력 UI (EMA 전략만)
-if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
-    st.markdown("##### ⚙️ 정체 포지션 파라미터 설정")
-    st.markdown("_설정한 시간 동안 진입가 대비 설정한 수익률 이상 상승하지 못하면 강제 매도_")
+# --- 매도: 핵심 전략 조건 ---
+with st.expander("⭐ 핵심 전략 조건", expanded=True):
+    if len(SELL_STRATEGY) > 0:
+        for key, label in SELL_STRATEGY.items():
+            st.session_state[key] = st.toggle(
+                label,
+                value=st.session_state.get(key, False),
+                key=f"toggle_{strategy_tag}_sell_strategy_{key}",
+            )
+    else:
+        st.info("이 전략에는 매도 조건이 없습니다.")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        stale_hours = st.number_input(
-            "체크 시간 (시간)",
-            min_value=0.5,
-            max_value=24.0,
-            step=0.5,
-            value=st.session_state.get("stale_hours", 1.0),
-            key=f"input_stale_hours_{strategy_tag}",
-            help="포지션 보유 후 이 시간이 지나면 수익률 체크"
-        )
-        st.session_state["stale_hours"] = stale_hours
+# --- 매도: 필터 ---
+if len(SELL_FILTERS) > 0:
+    with st.expander("🔍 매도 필터", expanded=True):
+        st.caption("매도를 트리거하는 보조 필터 (손실 방지용)")
+        for key, label in SELL_FILTERS.items():
+            st.session_state[key] = st.toggle(
+                label,
+                value=st.session_state.get(key, False),
+                key=f"toggle_{strategy_tag}_sell_filter_{key}",
+            )
 
-    with col2:
-        stale_threshold_pct = st.number_input(
-            "최소 상승률 (%)",
-            min_value=0.1,
-            max_value=10.0,
-            step=0.1,
-            value=st.session_state.get("stale_threshold_pct", 0.01) * 100.0,
-            key=f"input_stale_threshold_{strategy_tag}",
-            help="진입가 대비 이 수익률 미달 시 강제 매도"
-        )
-        st.session_state["stale_threshold_pct"] = stale_threshold_pct / 100.0
+        # ✅ Stale Position 파라미터 입력 UI (EMA 전략 + 활성화 시)
+        if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
+            st.markdown("#### ⚙️ 정체 포지션 필터 파라미터")
+            st.caption("설정한 시간 동안 목표 수익률을 달성하지 못하면 강제 매도합니다")
 
-    st.info(
-        f"💡 현재 설정: **{stale_hours}시간** 동안 진입가 대비 "
-        f"**{stale_threshold_pct:.1f}%** 이상 상승하지 못하면 강제 매도"
-    )
+            col1, col2 = st.columns(2)
+            with col1:
+                stale_hours = st.number_input(
+                    "체크 시간 (시간)",
+                    min_value=0.5,
+                    max_value=24.0,
+                    step=0.5,
+                    value=st.session_state.get("stale_hours", 1.0),
+                    key=f"input_stale_hours_{strategy_tag}",
+                    help="포지션 보유 후 이 시간이 지나면 수익률 체크"
+                )
+                st.session_state["stale_hours"] = stale_hours
+
+            with col2:
+                stale_threshold_pct = st.number_input(
+                    "최소 수익률 목표 (%)",
+                    min_value=0.1,
+                    max_value=10.0,
+                    step=0.1,
+                    value=st.session_state.get("stale_threshold_pct", 0.01) * 100.0,
+                    key=f"input_stale_threshold_{strategy_tag}",
+                    help="진입 후 최고가 기준 이 수익률 미달 시 강제 매도"
+                )
+                st.session_state["stale_threshold_pct"] = stale_threshold_pct / 100.0
+
+            st.info(
+                f"💤 현재 설정: **{stale_hours}시간** 동안 진입가 대비 최고 수익률이 "
+                f"**{stale_threshold_pct:.1f}%** 미만이면 강제 매도"
+            )
 
 st.divider()
 
@@ -301,11 +449,35 @@ if st.button("💾 설정 저장", use_container_width=True):
     go_dashboard()
 
 # --- 현재 상태 출력 ---
-st.subheader("⚙️ 현재 매수/매도 전략 Option 상태")
-st.markdown("**📈 매수 전략 상태**")
-for key, label in BUY_CONDITIONS.items():
-    st.write(f"{label}: {'✅ ON' if st.session_state[key] else '❌ OFF'}")
-    
-st.markdown("**📉 매도 전략 상태**")
-for key, label in SELL_CONDITIONS.items():
-    st.write(f"{label}: {'✅ ON' if st.session_state[key] else '❌ OFF'}")
+st.subheader("⚙️ 현재 설정 요약")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("**📈 매수 설정**")
+    if len(BUY_STRATEGY) > 0:
+        st.markdown("_핵심 전략:_")
+        for key, label in BUY_STRATEGY.items():
+            st.write(f"{'✅' if st.session_state[key] else '❌'} {label}")
+    if len(BUY_FILTERS) > 0:
+        st.markdown("_매수 필터:_")
+        for key, label in BUY_FILTERS.items():
+            st.write(f"{'✅' if st.session_state[key] else '❌'} {label}")
+            if key == "surge_filter_enabled" and st.session_state.get(key, False):
+                surge_pct = st.session_state.get("surge_threshold_pct", 0.01) * 100
+                st.caption(f"   └─ 임계값: {surge_pct:.1f}%")
+
+with col2:
+    st.markdown("**📉 매도 설정**")
+    if len(SELL_STRATEGY) > 0:
+        st.markdown("_핵심 전략:_")
+        for key, label in SELL_STRATEGY.items():
+            st.write(f"{'✅' if st.session_state[key] else '❌'} {label}")
+    if len(SELL_FILTERS) > 0:
+        st.markdown("_매도 필터:_")
+        for key, label in SELL_FILTERS.items():
+            st.write(f"{'✅' if st.session_state[key] else '❌'} {label}")
+            if key == "stale_position_check" and st.session_state.get(key, False):
+                hours = st.session_state.get("stale_hours", 1.0)
+                threshold = st.session_state.get("stale_threshold_pct", 0.01) * 100
+                st.caption(f"   └─ {hours}h, {threshold:.1f}%")
