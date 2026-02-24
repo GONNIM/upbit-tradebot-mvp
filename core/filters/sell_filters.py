@@ -274,17 +274,21 @@ class DeadCrossFilter(BaseFilter):
         prev_ema_fast: Optional[float] = kwargs.get('prev_ema_fast')
         prev_ema_slow: Optional[float] = kwargs.get('prev_ema_slow')
 
+        curr_fast_str = f"{ema_fast:.2f}" if ema_fast is not None else "None"
+        curr_slow_str = f"{ema_slow:.2f}" if ema_slow is not None else "None"
         logger.info(
             f"🔍 DEBUG [DEAD_CROSS_CHECK] "
             f"enable_dead_cross=True, "
             f"ema_dead_cross={ema_dead_cross}, "
             f"prev_fast={prev_ema_fast}, prev_slow={prev_ema_slow}, "
-            f"curr_fast={ema_fast:.2f if ema_fast else 'None'}, curr_slow={ema_slow:.2f if ema_slow else 'None'}"
+            f"curr_fast={curr_fast_str}, curr_slow={curr_slow_str}"
         )
 
         if ema_dead_cross:
+            fast_str = f"{ema_fast:.2f}" if ema_fast is not None else "None"
+            slow_str = f"{ema_slow:.2f}" if ema_slow is not None else "None"
             logger.info(
-                f"🔻 EMA Dead Cross | fast={ema_fast:.2f if ema_fast else 'None'} slow={ema_slow:.2f if ema_slow else 'None'}"
+                f"🔻 EMA Dead Cross | fast={fast_str} slow={slow_str}"
             )
             return FilterResult(
                 should_block=True,
