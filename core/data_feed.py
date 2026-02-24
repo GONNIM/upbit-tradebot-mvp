@@ -956,7 +956,7 @@ def stream_candles(
         # 기존 문제: continue → while 처음 복귀 → sleep 다시 실행 → 재시도 무효화!
         # 해결: 내부 for 루프로 재시도 → API 호출만 반복 → sleep 건너뛰지 않음
         new = None
-        max_delay_retry = 5  # 응답 지연 재시도 최대 횟수
+        max_delay_retry = 10  # ✅ CTO 승인: 5회 → 10회 (API 장애 대응 강화)
 
         for delay_retry_attempt in range(max_delay_retry):
             if stop_event and stop_event.is_set():
@@ -1106,18 +1106,19 @@ def stream_candles(
                     )
 
                     # ✅ Interval 기반 백필 전략 (1분봉은 빠른 포기 필수!)
-                    # - 1분봉: 최대 3회, 간격 1~2초 (총 6초 이내) → 다음 봉 전에 완료
-                    # - 3분봉: 최대 5회, 간격 2~4초 (총 15초)
-                    # - 5분 이상: 최대 8회, 간격 2~20초 (총 77초)
+                    # ✅ CTO 승인: 재시도 횟수 증가로 API 장애 대응 강화
+                    # - 1분봉: 최대 5회 (3→5), 간격 1~3초 → 다음 봉 전에 완료
+                    # - 3분봉: 최대 8회 (5→8), 간격 2~5초
+                    # - 5분 이상: 최대 10회 (8→10), 간격 2~20초
                     if iv == 1:
-                        max_backfill_retry = 3
-                        wait_times = [1, 2, 2]  # 총 5초 + API 호출 시간
+                        max_backfill_retry = 5  # 3 → 5
+                        wait_times = [1, 2, 2, 3, 3]  # 총 11초 + API 호출 시간
                     elif iv <= 3:
-                        max_backfill_retry = 5
-                        wait_times = [2, 3, 4, 5, 6]  # 총 20초
+                        max_backfill_retry = 8  # 5 → 8
+                        wait_times = [2, 3, 4, 5, 6, 6, 7, 8]  # 총 41초
                     else:
-                        max_backfill_retry = 8
-                        wait_times = [2, 4, 6, 8, 10, 12, 15, 20]  # 총 77초
+                        max_backfill_retry = 10  # 8 → 10
+                        wait_times = [2, 4, 6, 8, 10, 12, 15, 20, 20, 20]  # 총 117초
 
                     _log("DEBUG", f"[백필 전략] interval={iv}분 → max_retry={max_backfill_retry}")
 

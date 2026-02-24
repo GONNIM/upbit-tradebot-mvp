@@ -710,6 +710,7 @@ def run_live_loop(
         ts = time.time()
         exc_type, exc_value, tb = sys.exc_info()
         q.put((ts, "EXCEPTION", exc_type, exc_value, tb))
+        raise  # ✅ CTO 승인: 자동 재시작 로직 활성화 (engine_manager.py:209-255)
     finally:
         logger.info(f"🧹 run_live_loop 종료 ({mode_tag}) → stop_event set")
         stop_event.set()
