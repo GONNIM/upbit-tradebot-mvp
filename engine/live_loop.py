@@ -305,6 +305,12 @@ def run_live_loop(
         ema_fast=getattr(params, "fast_period", 20),
         ema_slow=getattr(params, "slow_period", 60),
         base_ema=getattr(params, "base_ema_period", 200),  # ✅ 기본값 200 (200일선)
+        # ✅ 매수/매도 별도 EMA 설정
+        use_separate_ema=getattr(params, "use_separate_ema", True),
+        ema_fast_buy=getattr(params, "fast_buy", None),
+        ema_slow_buy=getattr(params, "slow_buy", None),
+        ema_fast_sell=getattr(params, "fast_sell", None),
+        ema_slow_sell=getattr(params, "slow_sell", None),
     )
 
     # PositionState 생성

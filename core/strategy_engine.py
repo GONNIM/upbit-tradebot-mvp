@@ -213,8 +213,10 @@ class StrategyEngine:
         # 2. 지표 증분 갱신 ★ 핵심: 전체 재계산 없음
         self.indicators.update_incremental(bar.close)
 
-        # 3. 전략 평가
-        ind_snapshot = self.indicators.get_snapshot()
+        # 3. 전략 평가 (매수/매도에 맞는 EMA 스냅샷 사용)
+        # ✅ 포지션 유무에 따라 적절한 EMA 값 전달
+        is_buy_eval = not self.position.has_position
+        ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
         action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
 
         # 로그 출력
@@ -574,6 +576,13 @@ class StrategyEngine:
                 macd = indicators.get("ema_fast")
                 signal = indicators.get("ema_slow")
 
+                # ✅ 매수/매도 별도 EMA 정보 추출
+                use_separate_ema = indicators.get("use_separate_ema", False)
+                ema_fast_buy = indicators.get("ema_fast_buy")
+                ema_slow_buy = indicators.get("ema_slow_buy")
+                ema_fast_sell = indicators.get("ema_fast_sell")
+                ema_slow_sell = indicators.get("ema_slow_sell")
+
                 # checks 필드는 EMA 지표 기준 (JSON 직렬화를 위해 float 변환)
                 base_checks = {
                     "reason": None,  # 나중에 설정
@@ -581,6 +590,12 @@ class StrategyEngine:
                     "ema_slow": float(indicators.get("ema_slow")) if indicators.get("ema_slow") is not None else None,
                     "ema_base": float(indicators.get("ema_base")) if indicators.get("ema_base") is not None else None,
                     "price": float(current_price) if current_price is not None else None,
+                    # ✅ 매수/매도 별도 EMA 기록
+                    "use_separate_ema": bool(use_separate_ema),
+                    "ema_fast_buy": float(ema_fast_buy) if ema_fast_buy is not None else None,
+                    "ema_slow_buy": float(ema_slow_buy) if ema_slow_buy is not None else None,
+                    "ema_fast_sell": float(ema_fast_sell) if ema_fast_sell is not None else None,
+                    "ema_slow_sell": float(ema_slow_sell) if ema_slow_sell is not None else None,
                 }
 
                 # ✅ Base EMA GAP 전략 모드 감지 (enable_base_ema_gap 속성 우선 확인)
