@@ -772,6 +772,6 @@ def test_bar_time_accuracy():
 
 ---
 
-**작성 완료**: 2026-03-03
+**최종 업데이트**: 2026-03-03 22:00
 **작성자**: CTO Assistant (Claude Code)
-**버전**: v1.0
+**버전**: v1.1 (Issue #5 추가 - EMA 증분 업데이트 누락)
