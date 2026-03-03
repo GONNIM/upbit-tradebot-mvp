@@ -88,3 +88,33 @@ WEBSOCKET_HEARTBEAT_INTERVAL = 30  # 하트비트 간격 (초)
 
 # 캐시 TTL 설정
 CANDLE_CACHE_TTL = 3600  # 1시간 (초)
+
+# ============================================================
+# 🚀 REST Reconcile - Upbit 공식 차트 1:1 정합성 설정
+# ============================================================
+# 운영 모드
+# - "UPBIT_MATCH": REST Reconcile 활성화 (Upbit 차트 일치)
+# - "LEGACY_LOCAL": 기존 방식 (합성 봉 허용, 롤백용)
+RUN_MODE = os.getenv("RUN_MODE", "UPBIT_MATCH")
+
+# Candle Truth Source
+# - "REST": Upbit REST API = 단일 진실 원천
+# - "LOCAL": 봇 내부 시계열 (LEGACY_LOCAL 모드에서만)
+CANDLE_TRUTH = "REST" if RUN_MODE == "UPBIT_MATCH" else "LOCAL"
+
+# WebSocket 역할
+# - "HINT_ONLY": WS는 힌트만, 확정은 Clock 기반 (UPBIT_MATCH)
+# - "CONFIRM": WS로 봉 확정 (LEGACY_LOCAL)
+WS_ROLE = "HINT_ONLY" if RUN_MODE == "UPBIT_MATCH" else "CONFIRM"
+
+# Reconcile 설정
+RECONCILE_ON_EVERY_CLOSE = True  # 매 봉 확정 시 Reconcile 수행
+RECONCILE_LOOKBACK_BARS = int(os.getenv("RECONCILE_LOOKBACK_BARS", 400))  # 400개 (EMA200 안정화)
+
+# 합성 봉 허용 여부
+ALLOW_SYNTHETIC_BARS = (RUN_MODE == "LEGACY_LOCAL")  # UPBIT_MATCH에서는 금지
+
+# Timestamp 모드
+# - "UTC_INTERNAL": 내부 저장/계산은 UTC, 표시만 KST
+# - "KST_MIXED": 기존 방식 (비권장)
+TIMESTAMP_MODE = "UTC_INTERNAL"

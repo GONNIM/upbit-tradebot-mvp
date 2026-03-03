@@ -18,8 +18,13 @@ from core.position_state import PositionState
 from core.strategy_incremental import IncrementalMACDStrategy, IncrementalEMAStrategy
 from core.strategy_engine import StrategyEngine
 
+# 🚀 REST Reconcile 모듈
+from core.candle_clock import CandleClock
+from core.rest_reconcile import safe_fetch_rest, reconcile_series
+from core.time_utils import now_utc, format_kst
+
 # 기존 모듈
-from core.data_feed import stream_candles, fill_gaps_sync
+from core.data_feed import stream_candles, fill_gaps_sync, JITTER_BY_INTERVAL
 from core.trader import UpbitTrader
 from engine.params import LiveParams
 from services.db import (
@@ -35,6 +40,13 @@ from config import (
     DEFAULT_STRATEGY_TYPE,
     ENGINE_EXEC_MODE,
     TRAILING_STOP_PERCENT,
+    # 🚀 REST Reconcile 설정
+    RUN_MODE,
+    CANDLE_TRUTH,
+    WS_ROLE,
+    RECONCILE_ON_EVERY_CLOSE,
+    RECONCILE_LOOKBACK_BARS,
+    ALLOW_SYNTHETIC_BARS,
 )
 
 from engine.reconciler_singleton import get_reconciler
@@ -509,71 +521,340 @@ def run_live_loop(
     # - DB 캐시 병합 후에도 안전
     processed_bar_timestamps = set()
 
+    # 🚀 운영 모드 분기: UPBIT_MATCH vs LEGACY_LOCAL
+    logger.info(f"🚀 [RUN_MODE] {RUN_MODE} | CANDLE_TRUTH={CANDLE_TRUTH} | WS_ROLE={WS_ROLE}")
+
     try:
-        for df in stream_candles(
-            params.upbit_ticker,
-            params.interval,
-            q,
-            stop_event=stop_event,
-            max_length=500,
-            user_id=user_id,
-            strategy_type=strategy_tag,
-        ):
-            if stop_event.is_set():
-                break
+        if RUN_MODE == "UPBIT_MATCH":
+            # ========================================================
+            # 🚀 Clock-based REST Reconcile Loop (UPBIT_MATCH 모드)
+            # ========================================================
+            logger.info("🚀 [UPBIT_MATCH] Clock-based REST Reconcile 모드 시작")
 
-            if df is None or df.empty:
-                logger.info("❌ 데이터프레임 비어있음 → 5초 후 재시도")
-                time.sleep(5)
-                continue
+            # CandleClock 초기화
+            clock = CandleClock(params.interval)
+            logger.info(f"✅ CandleClock 초기화 | interval={params.interval} | interval_sec={clock.interval_sec}")
 
-            # ✅ Base EMA GAP 모드: 누락된 타임스탬프를 이전 종가로 채우기
-            if strategy_tag == "EMA" and getattr(params, "base_ema_gap_enabled", False):
-                # interval별 봉 간격 매핑
-                interval_map = {
-                    "minute1": "1T",
-                    "minute3": "3T",
-                    "minute5": "5T",
-                    "minute10": "10T",
-                    "minute15": "15T",
-                    "minute30": "30T",
-                    "minute60": "60T",
-                    "day": "D",
-                }
-                freq = interval_map.get(params.interval, "1T")
+            # 로컬 시계열 (Reconcile 누적용)
+            local_series = pd.DataFrame()
 
-                # 연속된 타임스탬프 생성
-                start_time = df.index.min()
-                end_time = df.index.max()
-                full_range = pd.date_range(start=start_time, end=end_time, freq=freq)
+            # ============================================================
+            # Warmup: 초기 REST 데이터 로드 (재시도 로직 포함)
+            # ============================================================
+            MAX_WARMUP_RETRIES = 5
+            initial_df = None
 
-                # 누락 봉 개수 체크
-                missing_count = len(full_range) - len(df)
-                if missing_count > 0:
-                    logger.info(f"[ENGINE] Base EMA GAP: 누락 봉 {missing_count}개 감지, 이전 종가로 채움...")
+            for attempt in range(1, MAX_WARMUP_RETRIES + 1):
+                logger.info(f"[WARMUP] REST 초기 데이터 요청 (attempt {attempt}/{MAX_WARMUP_RETRIES}) | count={min_hist}...")
+                initial_df = safe_fetch_rest(
+                    market=params.upbit_ticker,
+                    timeframe=params.interval,
+                    end_ts=now_utc(),
+                    total_count=min_hist
+                )
 
-                    # reindex로 누락 타임스탬프 추가 후 forward fill
-                    df = df.reindex(full_range)
+                if initial_df is not None and not initial_df.empty:
+                    logger.info(f"✅ [WARMUP] REST 데이터 로드 성공 (attempt {attempt}) | bars={len(initial_df)}")
+                    break
 
-                    # 누락된 봉은 이전 종가로 OHLC 채우기 (Volume은 0)
-                    df["Close"] = df["Close"].ffill()
-                    df["Open"] = df["Open"].fillna(df["Close"])
-                    df["High"] = df["High"].fillna(df["Close"])
-                    df["Low"] = df["Low"].fillna(df["Close"])
-                    df["Volume"] = df["Volume"].fillna(0)
+                if attempt < MAX_WARMUP_RETRIES:
+                    wait_sec = 2 ** attempt  # 2, 4, 8, 16, 32초
+                    logger.warning(f"⚠️ [WARMUP] 실패, {wait_sec}초 후 재시도... ({attempt}/{MAX_WARMUP_RETRIES})")
+                    time.sleep(wait_sec)
+            else:
+                # 5회 모두 실패 → 심각한 상황, 하지만 봇 전체 종료는 피함
+                logger.error("❌ [WARMUP] 5회 연속 실패 → LEGACY_LOCAL 모드로 fallback 권장")
+                logger.error("❌ [WARMUP] RUN_MODE를 'LEGACY_LOCAL'로 변경하거나 네트워크/API 상태를 확인하세요")
+                raise RuntimeError("REST Warmup failed after 5 retries - cannot start UPBIT_MATCH mode")
 
-                    logger.info(f"[ENGINE] Base EMA GAP: 누락 봉 채우기 완료, 최종 데이터: {len(df)}개")
+            if initial_df is None or initial_df.empty:
+                logger.error("❌ [WARMUP] REST 초기 데이터 로드 실패")
+                raise RuntimeError("REST Warmup failed - cannot start without initial data")
 
-            # ★ 워밍업 단계: 지표 초기 시드
-            if not warmup_complete:
-                if len(df) >= min_hist:
-                    closes = df['Close'].tolist()
-                    if indicators.seed_from_closes(closes):
-                        warmup_complete = True
-                        logger.info(f"✅ Warmup 완료 | bars={len(df)}")
+            logger.info(f"✅ [WARMUP] REST 데이터 로드 완료 | bars={len(initial_df)}")
 
-                        # 버퍼에 과거 데이터 채우기 + WARMUP 로그 기록
-                        for idx, row in df.iterrows():
+            # 지표 시드
+            closes = initial_df['Close'].tolist()
+            if indicators.seed_from_closes(closes):
+                warmup_complete = True
+                logger.info(f"✅ Warmup 완료 | bars={len(initial_df)}")
+
+                # 버퍼 채우기
+                for idx, row in initial_df.iterrows():
+                    bar = Bar(
+                        ts=idx,
+                        open=row['Open'],
+                        high=row['High'],
+                        low=row['Low'],
+                        close=row['Close'],
+                        volume=row['Volume'],
+                        is_closed=True
+                    )
+                    buffer.append(bar)
+                    engine.bar_count = len(buffer)
+                    current_count = min(len(buffer), min_hist)
+                    engine.record_warmup_log(bar, f"(완료 {current_count}/{min_hist})")
+
+                engine.last_bar_ts = initial_df.index[-1]
+                local_series = initial_df.copy()
+
+                logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count}")
+            else:
+                logger.error("❌ [WARMUP] Indicator seed 실패")
+                raise RuntimeError("Indicator warmup failed")
+
+            # ============================================================
+            # Clock-based 폴링 루프
+            # ============================================================
+            logger.info("🚀 [CLOCK-LOOP] 시작 - 1초마다 폴링, 봉 확정 시 REST Reconcile")
+
+            while not stop_event.is_set():
+                now = now_utc()
+
+                if clock.should_close(now):
+                    closed_ts = clock.get_closed_ts(now)
+
+                    # 이미 처리한 봉인지 확인 (중복 방지)
+                    if closed_ts <= engine.last_bar_ts:
+                        logger.debug(f"[CLOCK] 이미 처리된 봉 스킵 | closed={closed_ts} <= last={engine.last_bar_ts}")
+                        time.sleep(1)
+                        continue
+
+                    logger.info(f"⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts={format_kst(closed_ts)}")
+
+                    # ✅ Upbit API finalization 대기 (data_feed.py와 동일한 Jitter 로직)
+                    jitter = JITTER_BY_INTERVAL.get(params.interval, 8.0)
+                    logger.debug(f"[JITTER] {jitter}초 대기 (Upbit API finalization)")
+                    time.sleep(jitter)
+
+                    # REST에서 최신 데이터 fetch (Reconcile용)
+                    if RECONCILE_ON_EVERY_CLOSE:
+                        logger.info(f"🔄 [REST-RECONCILE] Fetching {RECONCILE_LOOKBACK_BARS} bars from REST...")
+                        rest_df = safe_fetch_rest(
+                            market=params.upbit_ticker,
+                            timeframe=params.interval,
+                            end_ts=now_utc(),  # ✅ 현재 시각 기준 (Jitter 후)
+                            total_count=RECONCILE_LOOKBACK_BARS
+                        )
+
+                        # Reconcile: REST vs Local
+                        merged, diff_summary = reconcile_series(local_series, rest_df)
+
+                        # ✅ High-Risk Fix: local_series 크기 제한 (메모리 누수 방지)
+                        MAX_LOCAL_SERIES_LEN = 500
+                        if len(merged) > MAX_LOCAL_SERIES_LEN:
+                            local_series = merged.tail(MAX_LOCAL_SERIES_LEN)
+                            logger.debug(f"[MEMORY] local_series 크기 제한 | {len(merged)} → {MAX_LOCAL_SERIES_LEN}")
+                        else:
+                            local_series = merged
+
+                        rest_failed = diff_summary.get("rest_failed", False)
+                        changed_count = diff_summary.get("changed_count", 0)
+
+                        if rest_failed:
+                            logger.warning(f"⚠️ [REST-RECONCILE] REST 실패 → Fallback to Local")
+                        elif changed_count > 0:
+                            logger.info(f"🔄 [REST-RECONCILE] {changed_count}개 봉 변경 감지 → 부분 재계산")
+                        else:
+                            logger.info(f"✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트")
+                    else:
+                        # Reconcile 비활성화: 로컬 증분만
+                        diff_summary = {"rest_failed": True, "changed_count": 0, "changed_ts": []}
+                        logger.info(f"[NO-RECONCILE] 로컬 증분 업데이트만 수행")
+
+                    # 확정된 봉 추출
+                    if closed_ts in local_series.index:
+                        row = local_series.loc[closed_ts]
+                        bar = Bar(
+                            ts=closed_ts,
+                            open=row['Open'],
+                            high=row['High'],
+                            low=row['Low'],
+                            close=row['Close'],
+                            volume=row['Volume'],
+                            is_closed=True,
+                            is_confirmed=True,  # REST 확정
+                            source="REST_RECONCILED"
+                        )
+
+                        # 엔진에 확정 봉 전달
+                        engine.on_new_bar_confirmed(bar, local_series, diff_summary)
+
+                        # ✅ Critical Fix: engine.last_bar_ts 업데이트 (중복 방지)
+                        engine.last_bar_ts = closed_ts
+
+                        logger.info(f"✅ [CONFIRMED] 봉 처리 완료 | ts={format_kst(closed_ts)} | close={bar.close}")
+                    else:
+                        # ✅ Medium-Risk Fix: closed_ts 누락 시 재조회 (Progressive Retry)
+                        logger.warning(f"⚠️ [CLOCK-CLOSE] closed_ts={format_kst(closed_ts)}가 local_series에 없음")
+
+                        # 🔄 Progressive Retry: 최대 3회 재시도 (5초 → 8초 → 10초 대기)
+                        retry_waits = [5, 8, 10]  # 초 단위 대기 시간 (점진적 증가)
+                        retry_success = False
+
+                        for retry_num, wait_sec in enumerate(retry_waits, start=1):
+                            logger.info(f"🔄 [RETRY-{retry_num}/{len(retry_waits)}] {wait_sec}초 대기 후 재조회 시도...")
+                            time.sleep(wait_sec)
+                            logger.debug(f"[RETRY-JITTER] {wait_sec}초 추가 대기 완료")
+
+                            retry_df = safe_fetch_rest(
+                                market=params.upbit_ticker,
+                                timeframe=params.interval,
+                                end_ts=now_utc(),  # ✅ 현재 시각 기준 (추가 Jitter 후)
+                                total_count=10  # 최근 10개만
+                            )
+
+                            if retry_df is not None and closed_ts in retry_df.index:
+                                # 재조회 성공 → local_series 업데이트
+                                local_series = pd.concat([local_series, retry_df]).sort_index()
+                                local_series = local_series[~local_series.index.duplicated(keep='last')]
+                                logger.info(f"✅ [RETRY-{retry_num}] 재조회 성공 | closed_ts={format_kst(closed_ts)} | wait={wait_sec}s")
+
+                                # 이제 처리 가능
+                                row = local_series.loc[closed_ts]
+                                bar = Bar(
+                                    ts=closed_ts,
+                                    open=row['Open'],
+                                    high=row['High'],
+                                    low=row['Low'],
+                                    close=row['Close'],
+                                    volume=row['Volume'],
+                                    is_closed=True,
+                                    is_confirmed=True,
+                                    source="REST_RECONCILED"
+                                )
+
+                                engine.on_new_bar_confirmed(bar, local_series, diff_summary)
+                                engine.last_bar_ts = closed_ts
+                                logger.info(f"✅ [CONFIRMED] 재조회 후 봉 처리 완료 | ts={format_kst(closed_ts)} | retry={retry_num}")
+                                retry_success = True
+                                break  # 성공 시 retry 루프 탈출
+                            else:
+                                logger.warning(f"⚠️ [RETRY-{retry_num}] 재조회 실패 | closed_ts={format_kst(closed_ts)} | wait={wait_sec}s")
+
+                        # 모든 재시도 실패 시 처리
+                        if not retry_success:
+                            logger.error(f"❌ [RETRY] 모든 재조회 실패 ({len(retry_waits)}회) → 봉 스킵 | closed_ts={format_kst(closed_ts)}")
+                            logger.error(f"💡 [FALLBACK] Upbit REST API 지연 ({sum(retry_waits)}초 대기했으나 데이터 미수신) → 다음 봉 대기")
+
+                time.sleep(1)  # 1초마다 폴링
+
+        else:
+            # ========================================================
+            # 🔄 Legacy WS-based Loop (LEGACY_LOCAL 모드)
+            # ========================================================
+            logger.info("🔄 [LEGACY_LOCAL] WS-based 스트리밍 모드 시작")
+
+            for df in stream_candles(
+                params.upbit_ticker,
+                params.interval,
+                q,
+                stop_event=stop_event,
+                max_length=500,
+                user_id=user_id,
+                strategy_type=strategy_tag,
+            ):
+                if stop_event.is_set():
+                    break
+
+                if df is None or df.empty:
+                    logger.info("❌ 데이터프레임 비어있음 → 5초 후 재시도")
+                    time.sleep(5)
+                    continue
+
+                # ✅ Base EMA GAP 모드: 누락된 타임스탬프를 이전 종가로 채우기
+                if strategy_tag == "EMA" and getattr(params, "base_ema_gap_enabled", False):
+                    # interval별 봉 간격 매핑
+                    interval_map = {
+                        "minute1": "1T",
+                        "minute3": "3T",
+                        "minute5": "5T",
+                        "minute10": "10T",
+                        "minute15": "15T",
+                        "minute30": "30T",
+                        "minute60": "60T",
+                        "day": "D",
+                    }
+                    freq = interval_map.get(params.interval, "1T")
+
+                    # 연속된 타임스탬프 생성
+                    start_time = df.index.min()
+                    end_time = df.index.max()
+                    full_range = pd.date_range(start=start_time, end=end_time, freq=freq)
+
+                    # 누락 봉 개수 체크
+                    missing_count = len(full_range) - len(df)
+                    if missing_count > 0:
+                        logger.info(f"[ENGINE] Base EMA GAP: 누락 봉 {missing_count}개 감지, 이전 종가로 채움...")
+
+                        # reindex로 누락 타임스탬프 추가 후 forward fill
+                        df = df.reindex(full_range)
+
+                        # 누락된 봉은 이전 종가로 OHLC 채우기 (Volume은 0)
+                        df["Close"] = df["Close"].ffill()
+                        df["Open"] = df["Open"].fillna(df["Close"])
+                        df["High"] = df["High"].fillna(df["Close"])
+                        df["Low"] = df["Low"].fillna(df["Close"])
+                        df["Volume"] = df["Volume"].fillna(0)
+
+                        logger.info(f"[ENGINE] Base EMA GAP: 누락 봉 채우기 완료, 최종 데이터: {len(df)}개")
+
+                # ★ 워밍업 단계: 지표 초기 시드
+                if not warmup_complete:
+                    if len(df) >= min_hist:
+                        closes = df['Close'].tolist()
+                        if indicators.seed_from_closes(closes):
+                            warmup_complete = True
+                            logger.info(f"✅ Warmup 완료 | bars={len(df)}")
+
+                            # 버퍼에 과거 데이터 채우기 + WARMUP 로그 기록
+                            for idx, row in df.iterrows():
+                                bar = Bar(
+                                    ts=idx,
+                                    open=row['Open'],
+                                    high=row['High'],
+                                    low=row['Low'],
+                                    close=row['Close'],
+                                    volume=row['Volume'],
+                                    is_closed=True
+                                )
+                                buffer.append(bar)
+
+                                # ✅ WARMUP 완료 시 모든 봉에 대해 평가 로그 기록
+                                # ⚠️ min_hist 이하로만 표시 (초과분은 min_hist로 표시)
+                                engine.bar_count = len(buffer)
+                                current_count = min(len(buffer), min_hist)
+                                engine.record_warmup_log(bar, f"(완료 {current_count}/{min_hist})")
+
+                            # ✅ bar_count는 이미 루프에서 설정됨
+
+                            # ★ 핵심: WARMUP 완료 시 버퍼의 마지막 봉을 기준점으로 설정
+                            # WARMUP 완료 시 버퍼에 이미 모든 과거 봉이 추가되었으므로,
+                            # 다음 yield부터 새 봉만 처리하도록 마지막 봉으로 설정
+                            # 예: 버퍼에 BAR 1~200 추가 완료 → engine.last_bar_ts = BAR 200.ts
+                            # → 다음 yield에서 BAR 201부터만 처리 (중복 평가 방지)
+                            engine.last_bar_ts = df.index[-1]
+
+                            # ✅ 중복 방지: 모든 WARMUP 봉을 processed_bar_timestamps에 추가
+                            for idx in df.index:
+                                processed_bar_timestamps.add(idx)
+
+                            # ✅ last_processed_ts 즉시 초기화 (중복 방지 강화)
+                            last_processed_ts = df.index[-1]
+
+                            logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count} | warmup_baseline={df.index[-1]}")
+                            logger.info(f"✅ 중복 방지 초기화 | processed_timestamps={len(processed_bar_timestamps)}개 | last_processed={last_processed_ts}")
+                    else:
+                        # WARMUP 진행 중 - 새로 추가된 봉들에 대해 로그 기록
+                        if prev_warmup_last_ts is not None:
+                            # 이전 yield 이후 추가된 봉들만 추출
+                            new_bars_df = df[df.index > prev_warmup_last_ts]
+                        else:
+                            # 첫 yield: 모든 봉 처리
+                            new_bars_df = df
+
+                        # 새 봉들에 대해 WARMUP 로그 기록
+                        for idx, row in new_bars_df.iterrows():
                             bar = Bar(
                                 ts=idx,
                                 open=row['Open'],
@@ -583,133 +864,87 @@ def run_live_loop(
                                 volume=row['Volume'],
                                 is_closed=True
                             )
-                            buffer.append(bar)
+                            engine.bar_count += 1
+                            engine.record_warmup_log(bar, f"({len(df)}/{min_hist})")
 
-                            # ✅ WARMUP 완료 시 모든 봉에 대해 평가 로그 기록
-                            # ⚠️ min_hist 이하로만 표시 (초과분은 min_hist로 표시)
-                            engine.bar_count = len(buffer)
-                            current_count = min(len(buffer), min_hist)
-                            engine.record_warmup_log(bar, f"(완료 {current_count}/{min_hist})")
+                        prev_warmup_last_ts = df.index[-1] if not df.empty else None
+                        logger.info(f"[WARMUP] {len(df)}/{min_hist} bars... | 새 봉 {len(new_bars_df)}개 로그 기록")
+                        time.sleep(1)
+                        continue
 
-                        # ✅ bar_count는 이미 루프에서 설정됨
-
-                        # ★ 핵심: WARMUP 완료 시 버퍼의 마지막 봉을 기준점으로 설정
-                        # WARMUP 완료 시 버퍼에 이미 모든 과거 봉이 추가되었으므로,
-                        # 다음 yield부터 새 봉만 처리하도록 마지막 봉으로 설정
-                        # 예: 버퍼에 BAR 1~200 추가 완료 → engine.last_bar_ts = BAR 200.ts
-                        # → 다음 yield에서 BAR 201부터만 처리 (중복 평가 방지)
-                        engine.last_bar_ts = df.index[-1]
-
-                        # ✅ 중복 방지: 모든 WARMUP 봉을 processed_bar_timestamps에 추가
-                        for idx in df.index:
-                            processed_bar_timestamps.add(idx)
-
-                        # ✅ last_processed_ts 즉시 초기화 (중복 방지 강화)
-                        last_processed_ts = df.index[-1]
-
-                        logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count} | warmup_baseline={df.index[-1]}")
-                        logger.info(f"✅ 중복 방지 초기화 | processed_timestamps={len(processed_bar_timestamps)}개 | last_processed={last_processed_ts}")
-                else:
-                    # WARMUP 진행 중 - 새로 추가된 봉들에 대해 로그 기록
-                    if prev_warmup_last_ts is not None:
-                        # 이전 yield 이후 추가된 봉들만 추출
-                        new_bars_df = df[df.index > prev_warmup_last_ts]
+                # ★ 새로 추가된 모든 봉 처리 (합성 봉 누락 방지)
+                if last_processed_ts is None:
+                    # ★ 첫 yield: WARMUP 직후 새로 추가된 봉만 처리
+                    # engine.last_bar_ts는 WARMUP 완료 시 버퍼의 마지막 봉 timestamp
+                    if engine.last_bar_ts is not None:
+                        # WARMUP 이후 새로 추가된 봉들만 추출 (합성 봉 포함)
+                        new_bars_df = df[df.index > engine.last_bar_ts]
+                        if not new_bars_df.empty:
+                            logger.info(f"[첫 yield] WARMUP 이후 새 봉 {len(new_bars_df)}개 처리: {new_bars_df.index[0]} ~ {new_bars_df.index[-1]}")
+                        else:
+                            logger.info(f"[첫 yield] WARMUP 이후 새 봉 없음 (last_bar={engine.last_bar_ts})")
                     else:
-                        # 첫 yield: 모든 봉 처리
-                        new_bars_df = df
-
-                    # 새 봉들에 대해 WARMUP 로그 기록
-                    for idx, row in new_bars_df.iterrows():
-                        bar = Bar(
-                            ts=idx,
-                            open=row['Open'],
-                            high=row['High'],
-                            low=row['Low'],
-                            close=row['Close'],
-                            volume=row['Volume'],
-                            is_closed=True
-                        )
-                        engine.bar_count += 1
-                        engine.record_warmup_log(bar, f"({len(df)}/{min_hist})")
-
-                    prev_warmup_last_ts = df.index[-1] if not df.empty else None
-                    logger.info(f"[WARMUP] {len(df)}/{min_hist} bars... | 새 봉 {len(new_bars_df)}개 로그 기록")
-                    time.sleep(1)
-                    continue
-
-            # ★ 새로 추가된 모든 봉 처리 (합성 봉 누락 방지)
-            if last_processed_ts is None:
-                # ★ 첫 yield: WARMUP 직후 새로 추가된 봉만 처리
-                # engine.last_bar_ts는 WARMUP 완료 시 버퍼의 마지막 봉 timestamp
-                if engine.last_bar_ts is not None:
-                    # WARMUP 이후 새로 추가된 봉들만 추출 (합성 봉 포함)
-                    new_bars_df = df[df.index > engine.last_bar_ts]
+                        # 안전장치: engine.last_bar_ts가 없는 경우 마지막 봉만 처리
+                        new_bars_df = df.tail(1)
+                        logger.warning(f"[첫 yield] engine.last_bar_ts=None → 마지막 봉만 처리: {df.index[-1]}")
+                else:
+                    # 이전 yield 이후 추가된 봉들만 추출
+                    new_bars_df = df[df.index > last_processed_ts]
                     if not new_bars_df.empty:
-                        logger.info(f"[첫 yield] WARMUP 이후 새 봉 {len(new_bars_df)}개 처리: {new_bars_df.index[0]} ~ {new_bars_df.index[-1]}")
+                        logger.info(f"[새 봉 감지] {len(new_bars_df)}개 | {new_bars_df.index[0]} ~ {new_bars_df.index[-1]}")
                     else:
-                        logger.info(f"[첫 yield] WARMUP 이후 새 봉 없음 (last_bar={engine.last_bar_ts})")
-                else:
-                    # 안전장치: engine.last_bar_ts가 없는 경우 마지막 봉만 처리
-                    new_bars_df = df.tail(1)
-                    logger.warning(f"[첫 yield] engine.last_bar_ts=None → 마지막 봉만 처리: {df.index[-1]}")
-            else:
-                # 이전 yield 이후 추가된 봉들만 추출
-                new_bars_df = df[df.index > last_processed_ts]
+                        # 새 봉 없음 (드물지만 발생 가능)
+                        logger.debug(f"[새 봉 없음] last_processed={last_processed_ts}, df_last={df.index[-1]}")
+
+                # ✅ 중복 방지: 이미 처리된 봉 필터링
+                # DataFrame 재구성 시에도 중복 평가 방지
                 if not new_bars_df.empty:
-                    logger.info(f"[새 봉 감지] {len(new_bars_df)}개 | {new_bars_df.index[0]} ~ {new_bars_df.index[-1]}")
-                else:
-                    # 새 봉 없음 (드물지만 발생 가능)
-                    logger.debug(f"[새 봉 없음] last_processed={last_processed_ts}, df_last={df.index[-1]}")
+                    before_filter = len(new_bars_df)
+                    new_bars_df = new_bars_df[~new_bars_df.index.isin(processed_bar_timestamps)]
+                    after_filter = len(new_bars_df)
 
-            # ✅ 중복 방지: 이미 처리된 봉 필터링
-            # DataFrame 재구성 시에도 중복 평가 방지
-            if not new_bars_df.empty:
-                before_filter = len(new_bars_df)
-                new_bars_df = new_bars_df[~new_bars_df.index.isin(processed_bar_timestamps)]
-                after_filter = len(new_bars_df)
+                    if before_filter > after_filter:
+                        filtered_count = before_filter - after_filter
+                        logger.warning(
+                            f"⚠️ [중복 방지] {filtered_count}개 봉이 이미 처리됨 (필터링됨) | "
+                            f"before={before_filter}, after={after_filter}"
+                        )
 
-                if before_filter > after_filter:
-                    filtered_count = before_filter - after_filter
-                    logger.warning(
-                        f"⚠️ [중복 방지] {filtered_count}개 봉이 이미 처리됨 (필터링됨) | "
-                        f"before={before_filter}, after={after_filter}"
+                # ✅ 중복 인덱스 제거: DataFrame에 같은 timestamp의 row가 여러 개 있는 경우
+                # - Base EMA GAP reindex() 후 발생 가능
+                # - 중복 timestamp가 있으면 iterrows()에서 같은 봉을 여러 번 처리
+                # - keep='last': 가장 최신 데이터 유지
+                if not new_bars_df.empty:
+                    before_dedup = len(new_bars_df)
+                    new_bars_df = new_bars_df[~new_bars_df.index.duplicated(keep='last')]
+                    after_dedup = len(new_bars_df)
+
+                    if before_dedup > after_dedup:
+                        dedup_count = before_dedup - after_dedup
+                        logger.warning(
+                            f"⚠️ [중복 인덱스 제거] DataFrame에 {dedup_count}개 중복 timestamp 발견 및 제거 | "
+                            f"before={before_dedup}, after={after_dedup}"
+                        )
+
+                # ★★★ 핵심: 새로 추가된 모든 봉을 엔진에 전달 ★★★
+                for idx, row in new_bars_df.iterrows():
+                    bar = Bar(
+                        ts=idx,
+                        open=row['Open'],
+                        high=row['High'],
+                        low=row['Low'],
+                        close=row['Close'],
+                        volume=row['Volume'],
+                        is_closed=True  # stream_candles는 닫힌 봉만 제공
                     )
+                    engine.on_new_bar(bar)
 
-            # ✅ 중복 인덱스 제거: DataFrame에 같은 timestamp의 row가 여러 개 있는 경우
-            # - Base EMA GAP reindex() 후 발생 가능
-            # - 중복 timestamp가 있으면 iterrows()에서 같은 봉을 여러 번 처리
-            # - keep='last': 가장 최신 데이터 유지
-            if not new_bars_df.empty:
-                before_dedup = len(new_bars_df)
-                new_bars_df = new_bars_df[~new_bars_df.index.duplicated(keep='last')]
-                after_dedup = len(new_bars_df)
+                    # ✅ 처리 완료된 봉을 Set에 추가 (중복 방지)
+                    processed_bar_timestamps.add(idx)
 
-                if before_dedup > after_dedup:
-                    dedup_count = before_dedup - after_dedup
-                    logger.warning(
-                        f"⚠️ [중복 인덱스 제거] DataFrame에 {dedup_count}개 중복 timestamp 발견 및 제거 | "
-                        f"before={before_dedup}, after={after_dedup}"
-                    )
-
-            # ★★★ 핵심: 새로 추가된 모든 봉을 엔진에 전달 ★★★
-            for idx, row in new_bars_df.iterrows():
-                bar = Bar(
-                    ts=idx,
-                    open=row['Open'],
-                    high=row['High'],
-                    low=row['Low'],
-                    close=row['Close'],
-                    volume=row['Volume'],
-                    is_closed=True  # stream_candles는 닫힌 봉만 제공
-                )
-                engine.on_new_bar(bar)
-
-                # ✅ 처리 완료된 봉을 Set에 추가 (중복 방지)
-                processed_bar_timestamps.add(idx)
-
-            # ✅ 마지막 처리 timestamp 업데이트
-            if not new_bars_df.empty:
-                last_processed_ts = new_bars_df.index[-1]
+                # ✅ 마지막 처리 timestamp 업데이트
+                if not new_bars_df.empty:
+                    last_processed_ts = new_bars_df.index[-1]
 
     except Exception:
         logger.exception(f"❌ run_live_loop 예외 발생 ({mode_tag})")

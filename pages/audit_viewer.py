@@ -384,6 +384,16 @@ if section == "buy":
                 column_order = [col for col in column_order if col in df_buy_display.columns]
                 df_buy_display = df_buy_display[column_order]
 
+            # ✅ Arrow 직렬화를 위해 dict/list 타입 컬럼을 문자열로 변환
+            if "checks" in df_buy_display.columns:
+                df_buy_display["checks"] = df_buy_display["checks"].apply(
+                    lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else str(x) if x is not None else ""
+                )
+            if "failed_keys" in df_buy_display.columns:
+                df_buy_display["failed_keys"] = df_buy_display["failed_keys"].apply(
+                    lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else str(x) if x is not None else ""
+                )
+
             st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
@@ -550,6 +560,12 @@ elif section == "sell":
                 # 존재하는 컬럼만 필터링
                 column_order = [col for col in column_order if col in df_sell_display.columns]
                 df_sell_display = df_sell_display[column_order]
+
+            # ✅ Arrow 직렬화를 위해 dict/list 타입 컬럼을 문자열로 변환
+            if "checks" in df_sell_display.columns:
+                df_sell_display["checks"] = df_sell_display["checks"].apply(
+                    lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else str(x) if x is not None else ""
+                )
 
             st.dataframe(df_sell_display, use_container_width=True, hide_index=True)
     else:

@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class Bar:
-    """단일 봉 데이터"""
+    """단일 봉 데이터 (REST Reconcile 메타데이터 포함)"""
 
     def __init__(
         self,
@@ -22,7 +22,9 @@ class Bar:
         low: float,
         close: float,
         volume: float,
-        is_closed: bool = True
+        is_closed: bool = True,
+        is_confirmed: bool = False,  # REST 확정 여부
+        source: str = "WS"  # "REST_RECONCILED", "WS", "LEGACY"
     ):
         self.ts = ts
         self.open = open
@@ -31,9 +33,11 @@ class Bar:
         self.close = close
         self.volume = volume
         self.is_closed = is_closed
+        self.is_confirmed = is_confirmed
+        self.source = source
 
     def __repr__(self):
-        return f"Bar(ts={self.ts}, O={self.open:.0f}, H={self.high:.0f}, L={self.low:.0f}, C={self.close:.0f}, closed={self.is_closed})"
+        return f"Bar(ts={self.ts}, O={self.open:.0f}, H={self.high:.0f}, L={self.low:.0f}, C={self.close:.0f}, closed={self.is_closed}, confirmed={self.is_confirmed}, src={self.source})"
 
 
 class CandleBuffer:

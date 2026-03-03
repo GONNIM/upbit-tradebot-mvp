@@ -232,6 +232,92 @@ class StrategyEngine:
         # 4. 주문 실행
         self.execute(action, bar, ind_snapshot)
 
+    def on_new_bar_confirmed(
+        self,
+        bar: Bar,
+        full_series: 'pd.DataFrame',
+        diff_summary: Dict
+    ):
+        """
+        REST 확정 봉 처리 (Reconcile 기반)
+
+        🔒 리스크 헷지:
+        - REST 실패 시 local 유지
+        - changed_ts 있으면 부분 재계산
+        - 확정 봉으로만 매매 판단
+
+        Args:
+            bar: REST 확정된 봉
+            full_series: REST 전체 시계열
+            diff_summary: Reconcile 결과 {changed_count, changed_ts, rest_failed}
+        """
+        # ✅ 확정 봉 검증
+        if not bar.is_closed:
+            logger.error(f"[ENGINE] 미확정 봉 거부 | {bar.ts}")
+            return
+
+        # ✅ 중복 방지
+        if not self.is_new_bar(bar):
+            logger.debug(f"[ENGINE] 중복 봉 무시 | {bar.ts}")
+            return
+
+        # ✅ Position-Wallet 동기화
+        self._reconcile_position_with_wallet()
+
+        # 1. 버퍼 추가
+        self.buffer.append(bar)
+        self.last_bar_ts = bar.ts
+        self.bar_count += 1
+
+        # 2. Reconcile 변경 처리
+        rest_failed = diff_summary.get("rest_failed", False)
+        changed_count = diff_summary.get("changed_count", 0)
+        changed_ts = diff_summary.get("changed_ts", [])
+
+        if rest_failed:
+            # ❌ REST 실패 → local 유지 (fallback)
+            logger.warning(
+                f"[ENGINE] REST 실패 → local 지표 유지 (증분만) | "
+                f"bar_count={self.bar_count}"
+            )
+            # 증분 업데이트만
+            self.indicators.update_incremental(bar.close)
+
+        elif changed_count > 0:
+            # ✅ Reconcile 변경 발생 → 부분 재계산
+            logger.warning(
+                f"[ENGINE] Reconcile 변경 감지 → 부분 재계산 | "
+                f"changed={changed_count} | "
+                f"range: {min(changed_ts)} ~ {max(changed_ts)}"
+            )
+
+            # 🔒 리스크 헷지: 전체 400개 재계산 금지
+            # changed_ts 이후만 재계산
+            self.indicators.recompute_from_changed_ts(full_series, changed_ts)
+
+        else:
+            # ✅ 변경 없음 → 증분 업데이트만
+            logger.debug(f"[ENGINE] 변경 없음 → 증분 업데이트 | bar_count={self.bar_count}")
+            self.indicators.update_incremental(bar.close)
+
+        # 3. 전략 평가
+        is_buy_eval = not self.position.has_position
+        ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
+        action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
+
+        # 로그 출력
+        self._log_bar_evaluation(bar, ind_snapshot, action)
+
+        # 이벤트 큐
+        if self.q is not None:
+            self._send_log_event(bar, ind_snapshot)
+
+        # 감사 로그
+        self._record_audit_log(bar, ind_snapshot, action)
+
+        # 4. 주문 실행
+        self.execute(action, bar, ind_snapshot)
+
     def execute(self, action: Action, bar: Bar, indicators: Dict[str, Any]):
         """
         주문 실행 (중복 방지 포함)
@@ -276,7 +362,8 @@ class StrategyEngine:
 
         # bar.ts를 KST로 변환
         from zoneinfo import ZoneInfo
-        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+        # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+        bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
 
         meta = {
             "bar": self.bar_count,
@@ -346,7 +433,8 @@ class StrategyEngine:
         )
 
         # ✅ bar_time: 해당 봉의 시각 (KST)
-        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+        # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+        bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
 
         meta = {
             "bar": self.bar_count,
@@ -500,8 +588,9 @@ class StrategyEngine:
 
             # 포지션 없을 때: BUY 평가 로그 기록
             if not self.position.has_position:
-                # bar.ts는 timezone-naive이므로 KST로 localize
-                bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                # ✅ bar.ts는 UTC timezone-aware → KST로 변환
+                # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+                bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
                 insert_buy_eval(
                     user_id=self.user_id,
                     ticker=self.ticker,
@@ -519,8 +608,9 @@ class StrategyEngine:
                 )
             else:
                 # 포지션 있을 때: SELL 평가 로그 기록
-                # bar.ts는 timezone-naive이므로 KST로 localize
-                bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                # ✅ bar.ts는 UTC timezone-aware → KST로 변환
+                # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+                bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
                 insert_sell_eval(
                     user_id=self.user_id,
                     ticker=self.ticker,
@@ -640,8 +730,9 @@ class StrategyEngine:
                     else:
                         notes = f"📉 Base EMA GAP: {gap_pct:.2%} (목표: {gap_threshold:.2%}, 부족: {abs(gap_to_target):.2%}p) | 매수가: ₩{price_needed:,.0f} | Base: ₩{gap_details.get('base_ema', 0):,.0f}"
 
-                    # bar.ts는 timezone-naive이므로 KST로 localize
-                    bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                    # ✅ bar.ts는 UTC timezone-aware → KST로 변환
+                    # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+                    bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
                     insert_buy_eval(
                         user_id=self.user_id,
                         ticker=self.ticker,
@@ -684,8 +775,9 @@ class StrategyEngine:
                         buy_checks["reason"] = "NO_BUY_SIGNAL"
                         buy_checks["cross_status"] = cross_status
 
-                        # bar.ts는 timezone-naive이므로 KST로 localize
-                        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                        # ✅ bar.ts는 UTC timezone-aware → KST로 변환
+                        # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+                        bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
                         insert_buy_eval(
                             user_id=self.user_id,
                             ticker=self.ticker,
@@ -707,8 +799,9 @@ class StrategyEngine:
                         buy_checks["reason"] = "BUY_SIGNAL"
                         buy_checks["cross_status"] = cross_status
 
-                        # bar.ts는 timezone-naive이므로 KST로 localize
-                        bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                        # ✅ bar.ts는 UTC timezone-aware → KST로 변환
+                        # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+                        bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
                         insert_buy_eval(
                             user_id=self.user_id,
                             ticker=self.ticker,
@@ -802,8 +895,9 @@ class StrategyEngine:
                             bars_held >= required_bars and max_gain < self.strategy.stale_threshold_pct
                         )
 
-                    # bar.ts는 timezone-naive이므로 KST로 localize
-                    bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                    # ✅ bar.ts는 UTC timezone-aware → KST로 변환
+                    # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+                    bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
                     insert_sell_eval(
                         user_id=self.user_id,
                         ticker=self.ticker,
@@ -861,8 +955,9 @@ class StrategyEngine:
                         sell_checks["stale_threshold_pct"] = float(self.strategy.stale_threshold_pct)
                         sell_checks["stale_triggered"] = int(trigger_reason == "STALE_POSITION")
 
-                    # bar.ts는 timezone-naive이므로 KST로 localize
-                    bar_ts_kst = bar.ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                    # ✅ bar.ts는 UTC timezone-aware → KST로 변환
+                    # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
+                    bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
                     insert_sell_eval(
                         user_id=self.user_id,
                         ticker=self.ticker,

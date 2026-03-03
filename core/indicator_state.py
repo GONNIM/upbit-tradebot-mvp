@@ -180,6 +180,51 @@ class IndicatorState:
             )
         return True
 
+    def recompute_from_changed_ts(self, full_series: 'pd.DataFrame', changed_ts: List) -> None:
+        """
+        부분 재계산 (Reconcile 변경 시)
+
+        🔒 리스크 헷지:
+        - 전체 400 bars 재계산 금지 (CPU 보호)
+        - changed_ts 이후만 재계산
+
+        Args:
+            full_series: 전체 시계열 (DataFrame with Close column)
+            changed_ts: 변경된 timestamp 리스트
+
+        Example:
+            >>> indicators.recompute_from_changed_ts(full_series, [ts1, ts2])
+            # ts1 이후의 봉들만 재계산
+        """
+        if not changed_ts:
+            logger.debug("[INDICATORS] 변경 없음, 재계산 skip")
+            return
+
+        # changed_ts의 가장 오래된 시점
+        recompute_start = min(changed_ts)
+
+        # 해당 시점 이후 데이터만 추출
+        tail = full_series.loc[recompute_start:]
+
+        if tail.empty:
+            logger.warning("[INDICATORS] 재계산 범위 없음 (tail empty)")
+            return
+
+        logger.info(
+            f"[INDICATORS] 부분 재계산 시작 | "
+            f"changed_count={len(changed_ts)} bars={len(tail)} | "
+            f"range: {tail.index[0]} ~ {tail.index[-1]}"
+        )
+
+        # tail로 seed (전체가 아닌 tail만 재계산)
+        closes = tail['Close'].tolist()
+        self.seed_from_closes(closes)
+
+        logger.info(
+            f"[INDICATORS] 부분 재계산 완료 | "
+            f"ema_fast={self.ema_fast:.2f} ema_slow={self.ema_slow:.2f}"
+        )
+
     def update_incremental(self, close: float):
         """
         새 봉 1개 기준으로 증분 갱신

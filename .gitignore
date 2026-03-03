@@ -42,3 +42,4 @@ credentials.yaml
 data/*.db*
 
 /claude-docs*
+/thoughts*
