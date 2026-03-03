@@ -295,6 +295,11 @@ class StrategyEngine:
             # changed_ts 이후만 재계산
             self.indicators.recompute_from_changed_ts(full_series, changed_ts)
 
+            # ✅ 재계산 후 현재 봉 반영 (CRITICAL!)
+            # recompute_from_changed_ts는 full_series(과거 데이터)로만 재시드
+            # 현재 봉(bar.close)은 아직 반영되지 않으므로 증분 업데이트 필수
+            self.indicators.update_incremental(bar.close)
+
         else:
             # ✅ 변경 없음 → 증분 업데이트만
             logger.debug(f"[ENGINE] 변경 없음 → 증분 업데이트 | bar_count={self.bar_count}")
