@@ -308,7 +308,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.03.03.2205")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.03.05.2140")
 st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
 col1, col2 = st.columns([4, 1])
@@ -1156,22 +1156,22 @@ if latest:
             if trigger_key and trigger_key != '-' and trigger_key != 'None':
                 st.info(f"🔔 **트리거**: {trigger_key}")
 
-            # Stale Position 상세 정보
+            # Stale Position 상세 정보 (시간 기반)
             if checks.get('stale_enabled'):
                 stale_triggered = checks.get('stale_triggered', 0)
-                stale_bars_held = checks.get('stale_bars_held', 0)
-                stale_required_bars = checks.get('stale_required_bars', 0)
+                stale_elapsed_hours = checks.get('stale_elapsed_hours', 0.0)
+                stale_required_hours = checks.get('stale_required_hours', 2.0)
                 stale_max_gain_pct = checks.get('stale_max_gain_pct', 0)
                 stale_threshold_pct = checks.get('stale_threshold_pct', 0.01)
 
                 if stale_triggered:
                     st.warning(
-                        f"💤 **정체 포지션 트리거**: {stale_bars_held}봉 보유 (목표={stale_required_bars}봉), "
+                        f"💤 **정체 포지션 트리거**: {stale_elapsed_hours:.2f}시간 보유 (목표={stale_required_hours:.2f}시간), "
                         f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
                     )
-                elif stale_bars_held >= stale_required_bars * 0.8:
+                elif stale_elapsed_hours >= stale_required_hours * 0.8:
                     st.info(
-                        f"⏳ **정체 포지션 감시 중**: {stale_bars_held}봉 / {stale_required_bars}봉, "
+                        f"⏳ **정체 포지션 감시 중**: {stale_elapsed_hours:.2f}시간 / {stale_required_hours:.2f}시간, "
                         f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
                     )
 
@@ -1225,22 +1225,22 @@ if latest:
             if trigger_key and trigger_key != '-' and trigger_key != 'None':
                 st.info(f"🔔 **트리거**: {trigger_key}")
 
-            # Stale Position 상세 정보
+            # Stale Position 상세 정보 (시간 기반)
             if checks.get('stale_enabled'):
                 stale_triggered = checks.get('stale_triggered', 0)
-                stale_bars_held = checks.get('stale_bars_held', 0)
-                stale_required_bars = checks.get('stale_required_bars', 0)
+                stale_elapsed_hours = checks.get('stale_elapsed_hours', 0.0)
+                stale_required_hours = checks.get('stale_required_hours', 2.0)
                 stale_max_gain_pct = checks.get('stale_max_gain_pct', 0)
                 stale_threshold_pct = checks.get('stale_threshold_pct', 0.01)
 
                 if stale_triggered:
                     st.warning(
-                        f"💤 **정체 포지션 트리거**: {stale_bars_held}봉 보유 (목표={stale_required_bars}봉), "
+                        f"💤 **정체 포지션 트리거**: {stale_elapsed_hours:.2f}시간 보유 (목표={stale_required_hours:.2f}시간), "
                         f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
                     )
-                elif stale_bars_held >= stale_required_bars * 0.8:
+                elif stale_elapsed_hours >= stale_required_hours * 0.8:
                     st.info(
-                        f"⏳ **정체 포지션 감시 중**: {stale_bars_held}봉 / {stale_required_bars}봉, "
+                        f"⏳ **정체 포지션 감시 중**: {stale_elapsed_hours:.2f}시간 / {stale_required_hours:.2f}시간, "
                         f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
                     )
 

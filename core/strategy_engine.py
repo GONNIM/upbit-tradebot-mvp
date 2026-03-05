@@ -885,19 +885,24 @@ class StrategyEngine:
                     sell_checks["bars_held"] = int(bars_held)
                     sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
 
-                    # ✅ Stale Position 상태 추가
+                    # ✅ Stale Position 상태 추가 (시간 기반)
                     if hasattr(self.strategy, 'enable_stale_position') and self.strategy.enable_stale_position:
                         max_gain = self.position.get_max_gain_from_entry() or 0.0
-                        interval_min = getattr(self.strategy, 'interval_min', 1)
-                        required_bars = int(self.strategy.stale_hours * 60 / interval_min)
+                        required_hours = self.strategy.stale_hours
+
+                        # ✅ 실제 경과 시간 계산
+                        elapsed_hours = 0.0
+                        if self.position.entry_ts:
+                            elapsed = bar.ts - self.position.entry_ts
+                            elapsed_hours = elapsed.total_seconds() / 3600
 
                         sell_checks["stale_enabled"] = True
-                        sell_checks["stale_bars_held"] = int(bars_held)
-                        sell_checks["stale_required_bars"] = int(required_bars)
+                        sell_checks["stale_elapsed_hours"] = float(elapsed_hours)
+                        sell_checks["stale_required_hours"] = float(required_hours)
                         sell_checks["stale_max_gain_pct"] = float(max_gain)
                         sell_checks["stale_threshold_pct"] = float(self.strategy.stale_threshold_pct)
                         sell_checks["stale_triggered"] = int(
-                            bars_held >= required_bars and max_gain < self.strategy.stale_threshold_pct
+                            elapsed_hours >= required_hours and max_gain < self.strategy.stale_threshold_pct
                         )
 
                     # ✅ bar.ts는 UTC timezone-aware → KST로 변환
@@ -947,15 +952,20 @@ class StrategyEngine:
                     sell_checks["trigger_reason"] = trigger_reason
                     sell_checks["ema_dc_detected"] = int(ema_dead_cross)  # ✅ Dead Cross 조건 추가 (bool → int)
 
-                    # ✅ Stale Position 상태 추가
+                    # ✅ Stale Position 상태 추가 (시간 기반)
                     if hasattr(self.strategy, 'enable_stale_position') and self.strategy.enable_stale_position:
                         max_gain = self.position.get_max_gain_from_entry() or 0.0
-                        interval_min = getattr(self.strategy, 'interval_min', 1)
-                        required_bars = int(self.strategy.stale_hours * 60 / interval_min)
+                        required_hours = self.strategy.stale_hours
+
+                        # ✅ 실제 경과 시간 계산
+                        elapsed_hours = 0.0
+                        if self.position.entry_ts:
+                            elapsed = bar.ts - self.position.entry_ts
+                            elapsed_hours = elapsed.total_seconds() / 3600
 
                         sell_checks["stale_enabled"] = True
-                        sell_checks["stale_bars_held"] = int(bars_held)
-                        sell_checks["stale_required_bars"] = int(required_bars)
+                        sell_checks["stale_elapsed_hours"] = float(elapsed_hours)
+                        sell_checks["stale_required_hours"] = float(required_hours)
                         sell_checks["stale_max_gain_pct"] = float(max_gain)
                         sell_checks["stale_threshold_pct"] = float(self.strategy.stale_threshold_pct)
                         sell_checks["stale_triggered"] = int(trigger_reason == "STALE_POSITION")

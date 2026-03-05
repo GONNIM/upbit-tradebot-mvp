@@ -108,6 +108,8 @@ class TakeProfitFilter(BaseFilter):
 
     def evaluate(self, **kwargs) -> FilterResult:
         """
+        ✅ 변경: trailing_armed 상태면 체크 스킵
+
         Args:
             position (PositionState): 현재 포지션
             current_price (float): 현재가
@@ -123,6 +125,15 @@ class TakeProfitFilter(BaseFilter):
                 should_block=False,
                 reason="NO_DATA",
                 details="Position or price data not provided"
+            )
+
+        # ✅ NEW: Trailing Stop 활성화 상태면 Take Profit 체크 스킵
+        if position.trailing_armed:
+            logger.info("⏭️ Take Profit 스킵 (Trailing Stop 활성화 상태)")
+            return FilterResult(
+                should_block=False,
+                reason="TP_SKIPPED_TS_ARMED",
+                details="Take profit skipped: Trailing stop is armed"
             )
 
         pnl_pct = position.get_pnl_pct(current_price)
@@ -167,24 +178,31 @@ class TakeProfitFilter(BaseFilter):
 
 class TrailingStopFilter(BaseFilter):
     """
-    트레일링 스톱 (Trailing Stop) 필터
+    트레일링 스톱 (Trailing Stop) 필터 - 수익 기반
 
-    최고가 대비 일정 비율 이상 하락 시 매도 신호 발생.
+    ✅ 변경: Take Profit 도달 후 활성화되며, 벌어들인 수익의 N%가 사라지면 매도.
     """
 
-    def __init__(self, trailing_stop_pct: Optional[float] = 0.02):
+    def __init__(self, trailing_stop_pct: Optional[float] = 0.10,
+                 take_profit_pct: Optional[float] = 0.03):
         """
         Args:
-            trailing_stop_pct: 트레일링 스톱 비율 (기본 2% = 0.02)
+            trailing_stop_pct: 수익 손실률 임계값 (기본 10% = 0.10)
+            take_profit_pct: 활성화 트리거 임계값 (기본 3% = 0.03)
         """
         super().__init__(FilterCategory.CORE_STRATEGY)
         self.trailing_stop_pct = trailing_stop_pct
+        self.take_profit_pct = take_profit_pct
 
     def get_name(self) -> str:
         return "TrailingStopFilter"
 
     def evaluate(self, **kwargs) -> FilterResult:
         """
+        ✅ 변경: 수익 기반 Trailing Stop
+        1. Take Profit 도달 체크 → trailing_armed 활성화
+        2. trailing_armed 상태에서 수익 기반 하락률 체크
+
         Args:
             position (PositionState): 현재 포지션
             current_price (float): 현재가
@@ -209,31 +227,69 @@ class TrailingStopFilter(BaseFilter):
                 details="Trailing stop percentage not set"
             )
 
-        highest_price = position.highest_price
-        trailing_stop_triggered = position.arm_trailing_stop(self.trailing_stop_pct, current_price)
+        # ✅ STEP 1: Take Profit 도달 체크 (trailing_armed 활성화 트리거)
+        if not position.trailing_armed:
+            pnl_pct = position.get_pnl_pct(current_price)
 
-        ts_pct_str = f"{self.trailing_stop_pct:.2%}" if self.trailing_stop_pct is not None else "None"
-        logger.info(
-            f"🔍 DEBUG [TRAILING_STOP_CHECK] "
-            f"enable_trailing_stop=True, "
-            f"trailing_stop_triggered={trailing_stop_triggered}, "
-            f"trailing_stop_pct={ts_pct_str}, "
-            f"highest_price={highest_price}, "
-            f"current_price={current_price}"
+            if pnl_pct is not None and pnl_pct >= self.take_profit_pct:
+                # Take Profit 도달 → Trailing Stop 활성화
+                position.activate_trailing_stop(current_price)
+
+                logger.info(
+                    f"🔄 AUTO-SWITCH: Take Profit 도달 ({pnl_pct:.2%}) "
+                    f"→ Trailing Stop 활성화 | "
+                    f"진입가=₩{position.avg_price:,.0f} 현재가=₩{current_price:,.0f}"
+                )
+            else:
+                # 아직 Take Profit 미도달 → Trailing Stop 미작동
+                return FilterResult(should_block=False, reason="TS_NOT_ARMED")
+
+        # ✅ STEP 2: 수익 기반 Trailing Stop 체크
+        trailing_stop_triggered = position.arm_trailing_stop(
+            self.trailing_stop_pct,
+            current_price
         )
 
-        if trailing_stop_triggered:
+        # 상세 로그
+        if position.trailing_armed:
+            max_profit = position.highest_price - position.avg_price if position.highest_price and position.avg_price else None
+            profit_drop = position.highest_price - current_price if position.highest_price else None
+            profit_drop_pct = (profit_drop / max_profit) if (max_profit and max_profit > 0) else None
+
             logger.info(
-                f"📉 Trailing Stop triggered | ts={self.trailing_stop_pct:.2%}"
+                f"🔍 DEBUG [TRAILING_STOP_PROFIT_BASED] "
+                f"armed={position.trailing_armed}, "
+                f"entry=₩{position.avg_price:,.0f}, "
+                f"highest=₩{position.highest_price:,.0f}, "
+                f"current=₩{current_price:,.0f}, "
+                f"max_profit=₩{max_profit:,.0f} if max_profit else 'N/A', "
+                f"profit_drop=₩{profit_drop:,.0f} if profit_drop else 'N/A' ({profit_drop_pct:.2%} if profit_drop_pct else 'N/A'), "
+                f"threshold={self.trailing_stop_pct:.2%}, "
+                f"triggered={trailing_stop_triggered}"
             )
+
+        if trailing_stop_triggered:
+            max_profit = position.highest_price - position.avg_price
+            profit_drop = position.highest_price - current_price
+
+            logger.info(
+                f"📉 Trailing Stop 발동 (수익 기반) | "
+                f"최대수익=₩{max_profit:,.0f} 손실=₩{profit_drop:,.0f} "
+                f"({profit_drop/max_profit:.2%}) >= {self.trailing_stop_pct:.2%}"
+            )
+
             return FilterResult(
                 should_block=True,
                 reason="TRAILING_STOP",
-                details=f"Trailing stop triggered: {self.trailing_stop_pct:.2%}",
+                details=f"Profit-based trailing stop: {profit_drop/max_profit:.2%} loss from peak profit",
                 metadata={
                     'trailing_stop_pct': self.trailing_stop_pct,
-                    'highest_price': highest_price,
-                    'current_price': current_price
+                    'entry_price': position.avg_price,
+                    'highest_price': position.highest_price,
+                    'current_price': current_price,
+                    'max_profit': max_profit,
+                    'profit_drop': profit_drop,
+                    'profit_drop_pct': profit_drop / max_profit
                 }
             )
 
@@ -333,16 +389,16 @@ class StalePositionFilter(BaseFilter):
         Args:
             position (PositionState): 현재 포지션
             current_price (float): 현재가
-            bars_held (int): 보유 봉 개수
-            interval_min (int): 봉 간격 (분)
+            current_time (datetime): 현재 시각 (timezone-aware)
 
         Returns:
             FilterResult: 정체 포지션 조건 충족 시 매도 신호
         """
+        from datetime import datetime, timedelta
+
         position: PositionState = kwargs.get('position')
         current_price: float = kwargs.get('current_price')
-        bars_held: int = kwargs.get('bars_held', 0)
-        interval_min: int = kwargs.get('interval_min', 3)
+        current_time: datetime = kwargs.get('current_time')
 
         if position is None or current_price is None:
             return FilterResult(
@@ -351,23 +407,41 @@ class StalePositionFilter(BaseFilter):
                 details="Position or price data not provided"
             )
 
-        # 필요 봉 개수 계산 (예: 2시간 = 120분 / 3분봉 = 40개)
-        required_bars = int(self.stale_hours * 60 / interval_min)
+        if not position.has_position or position.entry_ts is None:
+            return FilterResult(
+                should_block=False,
+                reason="NO_POSITION",
+                details="No active position"
+            )
+
+        if current_time is None:
+            logger.warning("⚠️ [STALE_POSITION] current_time not provided, skipping check")
+            return FilterResult(
+                should_block=False,
+                reason="NO_TIME",
+                details="Current time not provided"
+            )
+
+        # ✅ 실제 경과 시간 계산 (시간 기반)
+        elapsed = current_time - position.entry_ts
+        elapsed_hours = elapsed.total_seconds() / 3600
 
         # 진입 이후 최고가 갱신
         position.update_highest_since_entry(current_price)
 
         # 조건 체크: 시간 경과 AND 목표 수익률 미달
-        if bars_held >= required_bars:
+        if elapsed_hours >= self.stale_hours:
             max_gain = position.get_max_gain_from_entry()
 
             logger.info(
                 f"🔍 DEBUG [STALE_POSITION_CHECK] "
                 f"enable=True, "
-                f"bars_held={bars_held}, required_bars={required_bars}, "
+                f"elapsed_hours={elapsed_hours:.2f}h, required_hours={self.stale_hours}h, "
                 f"max_gain={max_gain:.2%} if max_gain else 'None', "
                 f"threshold={self.stale_threshold_pct:.2%}, "
                 f"entry_price={position.avg_price:.2f}, "
+                f"entry_time={position.entry_ts}, "
+                f"current_time={current_time}, "
                 f"highest_since_entry={position.highest_since_entry:.2f} if position.highest_since_entry else 'None', "
                 f"current_price={current_price:.2f}"
             )
@@ -375,7 +449,7 @@ class StalePositionFilter(BaseFilter):
             if max_gain is not None and max_gain < self.stale_threshold_pct:
                 logger.info(
                     f"💤 Stale Position 감지 | "
-                    f"보유시간={bars_held}봉 (목표={required_bars}봉, {self.stale_hours}h), "
+                    f"보유시간={elapsed_hours:.2f}h (목표={self.stale_hours}h), "
                     f"최고수익률={max_gain:.2%} (목표={self.stale_threshold_pct:.2%}) | "
                     f"진입가=₩{position.avg_price:,.0f}, "
                     f"최고가=₩{position.highest_since_entry:,.0f}, "
@@ -384,13 +458,15 @@ class StalePositionFilter(BaseFilter):
                 return FilterResult(
                     should_block=True,
                     reason="STALE_POSITION",
-                    details=f"Stale position detected: held {bars_held} bars ({self.stale_hours}h), max gain {max_gain:.2%} < {self.stale_threshold_pct:.2%}",
+                    details=f"Stale position detected: held {elapsed_hours:.2f}h (>= {self.stale_hours}h), max gain {max_gain:.2%} < {self.stale_threshold_pct:.2%}",
                     metadata={
-                        'bars_held': bars_held,
-                        'required_bars': required_bars,
+                        'elapsed_hours': elapsed_hours,
+                        'required_hours': self.stale_hours,
                         'max_gain': max_gain,
                         'threshold': self.stale_threshold_pct,
                         'entry_price': position.avg_price,
+                        'entry_time': str(position.entry_ts),
+                        'current_time': str(current_time),
                         'highest_since_entry': position.highest_since_entry,
                         'current_price': current_price
                     }

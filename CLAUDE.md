@@ -431,6 +431,270 @@ tail -f mcmax33_engine_debug.log | grep ema_fast
 
 ---
 
+### 🔴 Issue #6: 정체 포지션 필터 - 봉 개수 기반 계산 (잘못된 설계)
+
+**발생일**: 2026-03-04 20:00
+**심각도**: 🔴 Critical (사용자 기대와 100% 불일치)
+
+#### 문제
+
+**사용자 설정**:
+```
+💡 정체 포지션 필터: 2.0시간 동안 진입가 대비 최고 수익률이 1.0% 미만이면 강제 매도
+```
+
+**사용자 기대**: 정확히 **2.0시간** 경과 후 매도
+
+**실제 동작**:
+- 매수: 2026-03-04 01:05 KST (bar=282)
+- 매도: 2026-03-04 08:02 KST (bar=402)
+- **경과 시간**: ~7시간 (사용자 기대: 2시간)
+
+#### 근본 원인
+
+**잘못된 설계**: `StalePositionFilter`가 **봉 개수** 기반으로 계산
+
+```python
+# core/filters/sell_filters.py:355 (변경 전)
+required_bars = int(self.stale_hours * 60 / interval_min)
+# 2.0시간 * 60분 / 1분 = 120봉
+
+if bars_held >= required_bars:  # 120봉 경과 시 매도
+```
+
+**문제점**:
+1. **interval_min 의존**: 1분봉 설정이지만 `set_interval_min()` 미호출로 기본값 1 유지
+2. **실제 봉 간격 불일치**: 1분봉 설정이지만 실제로는 평균 3.5분 간격으로 생성됨
+   - REST API 지연
+   - 합성 봉 생성 간격
+   - 서버 타이밍 이슈
+3. **결과**: 120봉 = 실제로는 420분(7시간) 소요
+
+**계산 검증**:
+- 120봉 × 3.5분/봉 = 420분 = 7시간 ✅
+
+#### 교훈
+
+**"2.0시간"이라고 명시했으면 실제 시간으로 계산되어야 한다**
+
+- ❌ **잘못된 설계**: 봉 개수 기반 (환경에 따라 2시간~7시간 가변)
+- ✅ **올바른 설계**: 실제 경과 시간 기반 (정확히 2.0시간)
+
+**일반 원칙**:
+1. **UI/문서에 표시된 단위와 실제 구현 일치 필수**
+   - "N시간" → `timedelta` 계산
+   - "N봉" → 봉 개수 계산
+2. **불확실성이 있는 간접 계산 금지**
+   - 봉 간격은 이론적 값 (1분, 3분)이지 실제 값이 아님
+3. **사용자 피드백 경청**
+   > "정체 포지션 필터는 당연히 시간 기반으로 계산이 되어야지..."
+
+#### 수정
+
+**Before (잘못된 설계)**:
+```python
+# core/filters/sell_filters.py:331-422
+def evaluate(self, **kwargs) -> FilterResult:
+    position: PositionState = kwargs.get('position')
+    current_price: float = kwargs.get('current_price')
+    bars_held: int = kwargs.get('bars_held', 0)
+    interval_min: int = kwargs.get('interval_min', 3)  # ❌ 의존
+
+    # 필요 봉 개수 계산 (예: 2시간 = 120분 / 3분봉 = 40개)
+    required_bars = int(self.stale_hours * 60 / interval_min)  # ❌ 간접 계산
+
+    if bars_held >= required_bars:  # ❌ 봉 개수 기반
+```
+
+**After (올바른 설계)**:
+```python
+# core/filters/sell_filters.py:331-422
+def evaluate(self, **kwargs) -> FilterResult:
+    from datetime import datetime, timedelta
+
+    position: PositionState = kwargs.get('position')
+    current_price: float = kwargs.get('current_price')
+    current_time: datetime = kwargs.get('current_time')  # ✅ 현재 시각
+
+    if not position.has_position or position.entry_ts is None:
+        return FilterResult(should_block=False, reason="NO_POSITION")
+
+    # ✅ 실제 경과 시간 계산 (시간 기반)
+    elapsed = current_time - position.entry_ts
+    elapsed_hours = elapsed.total_seconds() / 3600
+
+    if elapsed_hours >= self.stale_hours:  # ✅ 시간 기반
+        max_gain = position.get_max_gain_from_entry()
+        if max_gain is not None and max_gain < self.stale_threshold_pct:
+            return FilterResult(should_block=True, reason="STALE_POSITION", ...)
+```
+
+**호출부 수정** (`strategy_incremental.py:740`):
+```python
+# Before
+filter_result = self.sell_filter_manager.evaluate_all(
+    position=position,
+    current_price=current_price,
+    bars_held=bars_held,  # ❌ 봉 개수
+    interval_min=self.interval_min,  # ❌ 간격 추정
+    ...
+)
+
+# After
+filter_result = self.sell_filter_manager.evaluate_all(
+    position=position,
+    current_price=current_price,
+    current_time=bar.ts,  # ✅ 현재 시각 (timezone-aware)
+    ...
+)
+```
+
+#### 영향 범위
+
+- **파일 1**: `core/filters/sell_filters.py` (StalePositionFilter.evaluate 메서드)
+- **파일 2**: `core/strategy_incremental.py` (IncrementalEMAStrategy.on_bar 메서드)
+- **데이터**: `PositionState.entry_ts` 이미 존재하여 추가 작업 불필요
+
+#### 검증 방법
+
+```python
+# 테스트 시나리오
+# 1. 매수 진입: 2026-03-04 10:00:00
+# 2. 설정: stale_hours=2.0
+# 3. 현재 시각: 2026-03-04 12:00:01
+# 4. 기대 결과: STALE_POSITION 매도 발생
+
+position.entry_ts = datetime(2026, 3, 4, 10, 0, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+current_time = datetime(2026, 3, 4, 12, 0, 1, tzinfo=ZoneInfo("Asia/Seoul"))
+elapsed_hours = (current_time - position.entry_ts).total_seconds() / 3600
+# elapsed_hours = 2.0003 > 2.0 ✅ 매도 발생
+```
+
+#### 사용자 피드백
+
+> "💡 정체 포지션 필터: 2.0시간 동안 진입가 대비 최고 수익률이 1.0% 미만이면 강제 매도 >>> 정체 포지션 필터는 당연히 시간 기반으로 계산이 되어야지..."
+
+**핵심 메시지**:
+- ✅ 사용자가 옳다
+- ❌ 구현이 잘못되었다
+- 📝 즉시 수정 완료
+
+---
+
+### 🔴 Issue #7: Trailing Stop 계산 방식 오류 (Peak-based → Profit-based)
+
+**발생일**: 2026-03-05
+**심각도**: 🔴 Critical (사용자 기대와 100% 불일치)
+
+#### 문제
+
+**사용자 설정**: Trailing Stop 10%
+
+**사용자 기대**:
+```
+진입 ₩1,000 → 최고가 ₩1,500 → 수익 ₩500
+하락 허용: 500 × 10% = ₩50
+매도가: ₩1,450
+```
+
+**실제 동작 (기존 구현)**:
+```
+진입 ₩1,000 → 최고가 ₩1,500
+하락 허용: 1,500 × 10% = ₩150
+매도가: ₩1,350 ❌ (사용자 기대: ₩1,450)
+```
+
+#### 근본 원인
+
+**잘못된 계산 방식**: Peak-based Trailing Stop (최고가 대비 하락률)
+```python
+# ❌ 기존 구현
+drop_pct = (highest_price - current_price) / highest_price
+```
+
+**문제점**:
+1. 최고가 기준 계산으로 하락 허용폭이 너무 넓음
+2. "수익의 N%가 사라지면 매도"라는 사용자 의도와 불일치
+3. Take Profit 도달 전에도 작동하여 초기 변동성에 취약
+
+#### 교훈
+
+**"사용자가 말한 그대로 구현하라"**
+
+사용자: "1,500 - 1,000 = 500 수익에서 10% (50원) 하락 시 매도"
+- ❌ 잘못된 이해: "최고가에서 10% 하락 시 매도"
+- ✅ 올바른 이해: "벌어들인 수익의 10%가 사라지면 매도"
+
+**일반 원칙**:
+1. **사용자 요구사항을 수식으로 정확히 변환**
+   - "수익의 10%" → `(수익) × 0.10`
+   - NOT "최고가의 10%" → `(최고가) × 0.10`
+2. **예시 시나리오로 검증 필수**
+3. **관례적 구현보다 사용자 의도 우선**
+
+#### 수정
+
+**Before (Peak-based)**:
+```python
+# core/position_state.py
+def arm_trailing_stop(self, threshold_pct, current_price):
+    drop_pct = (self.highest_price - current_price) / self.highest_price
+    return drop_pct >= threshold_pct
+```
+
+**After (Profit-based)**:
+```python
+# core/position_state.py
+def arm_trailing_stop(self, threshold_pct, current_price):
+    # ✅ 수익 기반 하락률
+    max_profit = self.highest_price - self.avg_price  # 최대 수익
+    profit_drop = self.highest_price - current_price  # 수익 손실
+    profit_drop_pct = profit_drop / max_profit  # 수익 손실률
+
+    return profit_drop_pct >= threshold_pct
+
+def activate_trailing_stop(self, current_price):
+    # ✅ NEW: Take Profit 도달 시 활성화
+    self.trailing_armed = True
+    self.highest_price = current_price
+```
+
+**추가 개선**:
+1. **Take Profit 도달 후 활성화**: 최소 수익 확보 후에만 작동
+2. **자동 전환**: Take Profit 도달 → Trailing Stop 자동 활성화
+3. **Take Profit 필터 스킵**: `trailing_armed == True` 상태에서는 중복 체크 방지
+
+#### 영향 범위
+
+- **파일 1**: `core/position_state.py` (3개 메서드 수정)
+- **파일 2**: `core/filters/sell_filters.py` (TrailingStopFilter, TakeProfitFilter)
+- **파일 3**: `core/strategy_incremental.py` (TrailingStopFilter 생성 부분)
+
+#### 비교표
+
+| 구분 | Before (Peak-based) | After (Profit-based) |
+|------|---------------------|----------------------|
+| 계산 기준 | 최고가 대비 | **수익 금액 대비** |
+| 하락 허용 (₩1,500 → 10%) | ₩150 | **₩50** |
+| 매도가 | ₩1,350 | **₩1,450** |
+| 최종 수익 | +35.0% | **+45.0%** |
+| 활성화 조건 | 진입 즉시 | **Take Profit 도달 후** |
+| 특징 | 공격적 | **보수적 (수익 보호)** |
+
+#### 사용자 피드백
+
+> "Trailing Stop을 잘못 이해하고 있다. 1,500 - 1,000 = 500 수익에서 10% (50원) 하락 시 매도하기. 1,450 매도 발동"
+
+**핵심 메시지**:
+- ✅ 사용자 설명이 명확했다
+- ❌ 관례적 구현으로 오해했다
+- 📝 수식으로 정확히 변환하여 수정 완료
+
+**파일**: `core/position_state.py`, `core/filters/sell_filters.py`, `core/strategy_incremental.py`
+**문서**: `thoughts/20260305-Trailing-Stop-Profit-Based.md`
+
+---
+
 ## 🟡 High-Risk Issues - 놓칠 뻔한 사항들
 
 ### Issue #3: IndentationError (Mass Replace 부작용)
@@ -703,23 +967,33 @@ def standardize_dataframe(df):
 | 2026-03-03 20:15 | bar_time 9시간 오프셋 | 🔴 Critical | 1 file, 9 lines | 15분 |
 | 2026-03-03 21:06 | REST API 지연 현재 봉 미조회 | 🔴 Critical | 2 files, 3 lines | 20분 |
 | 2026-03-03 22:00 | EMA 증분 업데이트 누락 | 🔴 Critical | 1 file, 4 lines | 10분 |
+| 2026-03-04 20:30 | 정체 포지션 필터 봉 개수 기반 | 🔴 Critical | 2 files, 80 lines | 30분 |
+| 2026-03-05 | Trailing Stop 계산 방식 오류 | 🔴 Critical | 3 files, ~100 lines | 40분 |
 
 ### 교훈
 
-- **총 놓친 버그**: 4개 (모두 Critical)
+- **총 놓친 버그**: 6개 (모두 Critical)
 - **근본 원인**:
   - 가정 기반 코딩
   - 외부 API 검증 부족
   - timezone 이해 부족
   - 기존 검증된 코드 미참조
-  - **분기별 일관성 검증 부족** (신규)
-  - **함수 책임 명확화 부족** (신규)
+  - 분기별 일관성 검증 부족
+  - 함수 책임 명확화 부족
+  - **설계 단위와 구현 단위 불일치**
+  - **사용자 기대 무시**
+  - **관례적 구현에 의존** (신규 - Issue #7)
+  - **요구사항을 수식으로 변환하지 않음** (신규 - Issue #7)
 - **재발 방지**:
   - 검증 프로세스 확립
   - Best Practices 문서화
   - 기존 동작 코드 우선 참조
-  - **분기별 체크리스트 적용** (신규)
-  - **End-to-End 로그 검증** (신규)
+  - 분기별 체크리스트 적용
+  - End-to-End 로그 검증
+  - **UI/문서 표시 단위와 실제 구현 일치 검증**
+  - **사용자 피드백 즉시 반영**
+  - **요구사항을 수식으로 명확히 변환** (신규 - Issue #7)
+  - **예시 시나리오로 구현 검증** (신규 - Issue #7)
 
 ---
 
@@ -765,13 +1039,15 @@ def test_bar_time_accuracy():
 2. **Timezone 변환 시 `.astimezone()` 사용 필수**
 3. **모드 전환 시 기존 가정을 재검증하라**
 4. **End-to-End 테스트로 실제 데이터 확인하라**
+5. **사용자 요구사항을 수식으로 정확히 변환하라** (신규 - Issue #7)
 
 **REST Reconcile의 원칙을 코딩에도 적용**:
 - "추정하지 말고, 진실을 복원하라" (Don't estimate, restore truth)
 - "가정하지 말고, 검증하라" (Don't assume, verify)
+- "사용자가 말한 그대로 구현하라" (Implement exactly as user described) (신규 - Issue #7)
 
 ---
 
-**최종 업데이트**: 2026-03-03 22:00
+**최종 업데이트**: 2026-03-05
 **작성자**: CTO Assistant (Claude Code)
-**버전**: v1.1 (Issue #5 추가 - EMA 증분 업데이트 누락)
+**버전**: v1.3 (Issue #7 추가 - Trailing Stop 수익 기반 개선)

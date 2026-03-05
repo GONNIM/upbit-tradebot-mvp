@@ -103,10 +103,16 @@ class PositionState:
         """
         Trailing Stop용 최고가 갱신
 
+        ✅ 변경: trailing_armed == True일 때만 갱신
+
         Args:
             current_price: 현재 가격
         """
         if not self.has_position:
+            return
+
+        # ✅ trailing_armed 상태일 때만 최고가 추적
+        if not self.trailing_armed:
             return
 
         if self.highest_price is None or current_price > self.highest_price:
@@ -114,29 +120,63 @@ class PositionState:
 
     def arm_trailing_stop(self, threshold_pct: float, current_price: float) -> bool:
         """
-        Trailing Stop 발동 조건 체크
+        Trailing Stop 발동 조건 체크 (수익 기반)
+
+        ✅ 변경: 수익 금액 대비 하락률 계산
+        profit_drop_pct = (최고가 - 현재가) / (최고가 - 진입가)
 
         Args:
-            threshold_pct: 최고가 대비 하락률 임계값 (예: 0.02 = 2%)
+            threshold_pct: 수익 손실률 임계값 (예: 0.10 = 10%)
             current_price: 현재 가격
 
         Returns:
             bool: Trailing Stop 발동 여부
         """
-        if not self.has_position or self.highest_price is None:
+        # trailing_armed 상태 체크
+        if not self.trailing_armed:
             return False
 
-        drop_pct = (self.highest_price - current_price) / self.highest_price
+        if not self.has_position or self.highest_price is None or self.avg_price is None:
+            return False
 
-        if drop_pct >= threshold_pct:
+        # ✅ 수익 기반 하락률 계산
+        max_profit = self.highest_price - self.avg_price  # 최대 수익
+
+        # 수익이 0 이하면 Trailing Stop 미작동 (방어 로직)
+        if max_profit <= 0:
+            return False
+
+        profit_drop = self.highest_price - current_price  # 수익 손실 금액
+        profit_drop_pct = profit_drop / max_profit  # 수익 손실률
+
+        if profit_drop_pct >= threshold_pct:
             logger.warning(
-                f"🚨 Trailing Stop TRIGGERED | "
-                f"highest={self.highest_price:.2f} curr={current_price:.2f} "
-                f"drop={drop_pct:.2%} (threshold={threshold_pct:.2%})"
+                f"🚨 Trailing Stop TRIGGERED (Profit-based) | "
+                f"entry={self.avg_price:.2f} highest={self.highest_price:.2f} curr={current_price:.2f} | "
+                f"max_profit={max_profit:.2f} profit_drop={profit_drop:.2f} ({profit_drop_pct:.2%}) "
+                f"threshold={threshold_pct:.2%}"
             )
             return True
 
         return False
+
+    def activate_trailing_stop(self, current_price: float):
+        """
+        ✅ NEW: Trailing Stop 활성화 (Take Profit 도달 시 호출)
+
+        Args:
+            current_price: 현재 가격 (최고가 초기값으로 사용)
+        """
+        if not self.has_position:
+            return
+
+        self.trailing_armed = True
+        self.highest_price = current_price  # 현재가를 최고가 초기값으로
+
+        logger.info(
+            f"🔓 Trailing Stop ACTIVATED | "
+            f"entry=₩{self.avg_price:,.0f} initial_highest=₩{current_price:,.0f}"
+        )
 
     def get_pnl_pct(self, current_price: float) -> Optional[float]:
         """

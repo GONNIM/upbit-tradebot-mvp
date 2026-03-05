@@ -509,7 +509,10 @@ class IncrementalEMAStrategy:
         take_profit_filter.set_enabled(self.enable_take_profit)
         self.sell_filter_manager.register(take_profit_filter)
 
-        trailing_stop_filter = TrailingStopFilter(trailing_stop_pct=self.trailing_stop_pct)
+        trailing_stop_filter = TrailingStopFilter(
+            trailing_stop_pct=self.trailing_stop_pct,
+            take_profit_pct=self.take_profit  # ✅ NEW: Take Profit 값 전달 (활성화 트리거)
+        )
         trailing_stop_filter.set_enabled(self.enable_trailing_stop)
         self.sell_filter_manager.register(trailing_stop_filter)
 
@@ -740,6 +743,7 @@ class IncrementalEMAStrategy:
             filter_result = self.sell_filter_manager.evaluate_all(
                 position=position,
                 current_price=current_price,
+                current_time=bar.ts,  # ✅ 시간 기반 Stale Position Check
                 bars_held=bars_held,
                 interval_min=self.interval_min,
                 ema_dead_cross=ema_dead_cross,
