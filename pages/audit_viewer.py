@@ -11,7 +11,6 @@ from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
 from pathlib import Path
 
-from streamlit_autorefresh import st_autorefresh
 from config import REFRESH_INTERVAL, CONDITIONS_JSON_FILENAME
 
 import time
@@ -46,9 +45,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-# ✅ 자동 새로고침
-st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_autorefresh")
 
 # ✅ 쿼리 파라미터 처리
 qp = st.query_params
@@ -99,12 +95,18 @@ if params_obj and params_strategy == "EMA":
     is_gap_mode = getattr(params_obj, "base_ema_gap_enabled", False)
     logger.info(f"[AuditViewer] base_ema_gap_enabled={is_gap_mode}")
 
-st.toast(f"🔍 Audit Viewer: Strategy={strategy_tag}, GAP mode={is_gap_mode}", icon="🔍")
-
 db_path = get_db_path(user_id)
 
 st.markdown(f"### 📑 감사 로그 뷰어")
-st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+# 🕒 현재 시각 및 수동 리프레시 버튼
+time_col, refresh_col = st.columns([8, 1])
+with time_col:
+    st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+with refresh_col:
+    if st.button("🔄 새로고침", key="manual_refresh_audit", use_container_width=True):
+        st.rerun()
+
 # --- Context bar (sticky) ---
 st.markdown("""
 <style>

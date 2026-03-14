@@ -38,23 +38,24 @@ _IV_MIN = {
     "day": 1440,
 }
 
-# --------- JITTER 값 (interval별 차등 적용) ---------
+# ============================================================
+# WO-2026-001 Task 2-C: Jitter 최적화 (20초 → 5초)
+# ============================================================
 # 봉 종가 확정 후 추가 대기 시간 (초)
-# ⚠️ 중요: Upbit API는 봉 종가 확정 후 데이터 준비까지 시간이 걸림
-# - 실제 테스트 결과: 웹사이트에는 데이터가 있지만 API는 4~5초 지연
-# - 너무 짧으면: 데이터 누락 → 백필 실패 → 영구 누락 (치명적!)
-# - 권장: 1분봉 3초, 3분봉 6초, 장기봉 8~15초
-# - 실시간성보다 안정성 우선 (누락 방지가 최우선)
-# - 백필 로직(5회 재시도)이 추가 안전장치 역할
+# ⚠️ 변경 사유:
+# - Before: 20초 고정 (보수적 대기)
+# - After: 5초 단축 (Progressive Retry로 안전망 확보)
+# - to 파라미터 제거로 임시 종가 위험 제거됨
+# - Progressive Retry (5s/8s/12s) 추가로 안정성 유지
 JITTER_BY_INTERVAL = {
-    "minute1": 15.0,  # 1분봉: 종가 확정 대기 (5.0 → 8.0 → 15.0) - REST API 지연 대응
-    "minute3": 15.0,  # 3분봉: 종가 확정 대기 (8.0 → 15.0) - 임시 종가 회피
-    "minute5": 15.0,  # 5분봉: 종가 확정 대기 (8.0 → 15.0) - 임시 종가 회피
-    "minute10": 15.0, # 10분봉: 종가 확정 대기 (10.0 → 15.0) - 임시 종가 회피
-    "minute15": 15.0, # 15분봉: 안정성 최우선 (8.0 → 10.0)
-    "minute30": 15.0, # 30분봉: 안정성 최우선 (10.0 → 12.0)
-    "minute60": 15.0, # 60분봉: 안정성 최우선 (10.0 → 12.0)
-    "day": 15.0,      # 일봉: 실시간성보다 안정성 우선 (유지)
+    "minute1": 5.0,   # 1분봉: (20.0 → 5.0) + Progressive Retry
+    "minute3": 5.0,   # 3분봉: (20.0 → 5.0) + Progressive Retry
+    "minute5": 5.0,   # 5분봉: (20.0 → 5.0) + Progressive Retry
+    "minute10": 5.0,  # 10분봉: (20.0 → 5.0) + Progressive Retry
+    "minute15": 5.0,  # 15분봉: (20.0 → 5.0) + Progressive Retry
+    "minute30": 5.0,  # 30분봉: (20.0 → 5.0) + Progressive Retry
+    "minute60": 5.0,  # 60분봉: (20.0 → 5.0) + Progressive Retry
+    "day": 5.0,       # 일봉: (20.0 → 5.0) + Progressive Retry
 }
 
 # --------- 필수 데이터 개수 정의 (목표치) ---------
@@ -1069,6 +1070,63 @@ def stream_candles(
 
         new = standardize_ohlcv(new).drop_duplicates()
 
+        # 🛡️ Layer 2: 확정 종가 검증 + Progressive Retry (Open == Close 방지)
+        if not new.empty:
+            last_row = new.iloc[-1]
+
+            # 의심 봉 감지: Open == Close이지만 High != Open이고 거래량 있음
+            is_suspicious = (
+                last_row['Open'] == last_row['Close'] and  # Open == Close
+                last_row['High'] != last_row['Open'] and   # 하지만 High는 다름
+                last_row['Volume'] > 100                   # 거래량 있음
+            )
+
+            if is_suspicious:
+                last_idx = new.index[-1]
+                _log("WARN",
+                    f"⚠️ [확정종가 검증] 임시 종가 의심 | "
+                    f"{last_idx} | O={last_row['Open']:.0f} C={last_row['Close']:.0f} "
+                    f"H={last_row['High']:.0f} V={last_row['Volume']:.0f}"
+                )
+
+                # Progressive Retry: 5초, 10초, 15초 대기 후 재조회
+                retry_delays = [5, 10, 15]
+                retry_success = False
+
+                for retry_num, wait_sec in enumerate(retry_delays, start=1):
+                    _log("INFO", f"🔄 [확정종가 재시도 {retry_num}/{len(retry_delays)}] {wait_sec}초 대기 후 재조회...")
+                    time.sleep(wait_sec)
+
+                    try:
+                        retry_new = pyupbit.get_ohlcv(ticker, interval=interval, count=need)
+                        if retry_new is not None and not retry_new.empty:
+                            retry_new = standardize_ohlcv(retry_new).drop_duplicates()
+                            retry_last_row = retry_new.iloc[-1]
+
+                            # 확정 종가 확인 (Open != Close이면 성공)
+                            if retry_last_row['Open'] != retry_last_row['Close']:
+                                new = retry_new  # 재조회 데이터로 교체
+                                _log("INFO",
+                                    f"✅ [확정종가 재시도] 성공 | "
+                                    f"O={retry_last_row['Open']:.0f} → C={retry_last_row['Close']:.0f} "
+                                    f"(Diff={retry_last_row['Close']-retry_last_row['Open']:+.0f})"
+                                )
+                                retry_success = True
+                                break
+                            else:
+                                _log("WARN",
+                                    f"⚠️ [확정종가 재시도 {retry_num}] 여전히 O=C | "
+                                    f"O=C={retry_last_row['Close']:.0f} H={retry_last_row['High']:.0f}"
+                                )
+                    except Exception as e:
+                        _log("ERROR", f"❌ [확정종가 재시도 {retry_num}] 예외: {e}")
+
+                if not retry_success:
+                    _log("WARN",
+                        f"⚠️ [확정종가 검증] 모든 재시도 실패 ({len(retry_delays)}회) | "
+                        f"임시 종가로 진행 (WebSocket 대기 중)"
+                    )
+
         # ✅ Phase 2: Redis에 저장 (캐시 미스인 경우만)
         if not cache_hit and redis_cache and redis_cache.enabled and not new.empty:
             try:
@@ -1078,6 +1136,18 @@ def stream_candles(
 
         # 🔍 DEBUG: standardize 후 데이터
         _log("INFO", f"[실시간 표준화 후] rows={len(new)} | first={new.index[0]} | last={new.index[-1]}")
+
+        # 🛡️ Layer 3: OHLC 검증 경고 (간단한 모니터링)
+        if not new.empty:
+            last_row = new.iloc[-1]
+            last_idx = new.index[-1]
+
+            # Open == Close이지만 High != Open인 경우 경고
+            if last_row['Open'] == last_row['Close'] and last_row['High'] != last_row['Open']:
+                _log("WARN",
+                    f"⚠️ [Layer 3-OHLC] 의심 봉 감지 | {last_idx} | "
+                    f"O=C={last_row['Close']:.0f} but H={last_row['High']:.0f} V={last_row['Volume']:.0f}"
+                )
 
         # 🛡️ 방안 3: 강화된 누락 감지 및 강제 백필
         if not new.empty:

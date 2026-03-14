@@ -5,7 +5,6 @@ import pandas as pd
 import time
 import logging
 from urllib.parse import urlencode
-from streamlit_autorefresh import st_autorefresh
 
 from engine.engine_manager import engine_manager
 from engine.params import load_params, load_active_strategy, load_active_strategy_with_conditions
@@ -281,9 +280,6 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# ✅ 자동 새로고침
-st_autorefresh(interval=REFRESH_INTERVAL * 1000, key="dashboard_autorefresh")
-
 # ✅ 현재 엔진 상태 (실제 스레드 상태 우선)
 # 1) 엔진 매니저의 스레드 상태 확인 (실제 실행 중인 스레드)
 engine_status_thread = engine_manager.is_running(user_id)
@@ -308,8 +304,15 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.03.05.2140")
-st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.03.14.1805")
+
+# 🕒 현재 시각 및 수동 리프레시 버튼
+time_col, refresh_col = st.columns([8, 1])
+with time_col:
+    st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+with refresh_col:
+    if st.button("🔄 새로고침", key="manual_refresh_dashboard", use_container_width=True):
+        st.rerun()
 
 col1, col2 = st.columns([4, 1])
 with col1:

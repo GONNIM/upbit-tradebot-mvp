@@ -20,8 +20,9 @@ from core.strategy_engine import StrategyEngine
 
 # 🚀 REST Reconcile 모듈
 from core.candle_clock import CandleClock
-from core.rest_reconcile import safe_fetch_rest, reconcile_series
-from core.time_utils import now_utc, format_kst
+from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle
+from core.time_utils import now_utc, format_kst, floor_to_interval
+from core.candle_validator import CandleValidator
 
 # 기존 모듈
 from core.data_feed import stream_candles, fill_gaps_sync, JITTER_BY_INTERVAL
@@ -91,9 +92,9 @@ def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
     """
     전략 실행/매매를 시작하기 위한 최소 웜업 바 수
 
-    ⚠️ Upbit API 제한: 최대 200개 봉만 조회 가능
-    - slow_buy=200 같은 긴 기간 설정 시, 초기에는 불완전한 이동평균으로 시작
-    - 실시간 데이터가 쌓이면서 점진적으로 정확도 향상
+    ✅ WO-2026-001: 다중 호출로 200개 이상 조회 가능
+    - rest_reconcile.py가 자동으로 다중 batch 처리
+    - EMA slow=200 → 400개 요청 → Batch 1 (200) + Batch 2 (200)
     """
     iv = getattr(params, "interval", None)
     strategy_tag = strategy_type.upper()
@@ -108,39 +109,38 @@ def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
     else:
         base = 300
 
-    # ✅ EMA 전략: use_separate_ema일 때는 slow_buy, slow_sell 중 최대값 사용
-    # base_ema_period는 선택적 필터이므로 WARMUP 계산에서 제외
+    # ============================================================
+    # ✅ FIX-2026-003-14: Indicator seed 실제 요구량과 정확히 일치
+    # - indicator_state.py:119-133의 required 계산 로직 적용
+    # - max(macd_slow, ema_slow, base_ema)
+    # ============================================================
+
+    # 1. MACD slow period (MACD 전략 또는 EMA 전략에서도 사용)
+    macd_slow = getattr(params, "macd_slow_period", 26) or 26
+
+    # 2. EMA slow period (use_separate_ema 고려)
     if strategy_tag == "EMA" and getattr(params, "use_separate_ema", False):
         slow_buy = getattr(params, "slow_buy", None) or params.slow_period
         slow_sell = getattr(params, "slow_sell", None) or params.slow_period
-        slow = max(slow_buy, slow_sell)
+        ema_slow = max(slow_buy, slow_sell)
     else:
-        slow = getattr(params, "slow_period", 26) or 26
+        ema_slow = getattr(params, "slow_period", 26) or 26
 
-    # ✅ EMA 계산은 period * 2배면 충분히 안정화됨
-    # base_ema_period는 WARMUP 계산에서 제외 (선택적 필터)
-    logical_min = slow * 2
+    # 3. Base EMA period (EMA 전략만)
+    if strategy_tag == "EMA":
+        base_ema = getattr(params, "base_ema_period", 200)
+    else:
+        base_ema = 0
 
-    # ⚠️ Upbit API 제한: 최대 200개만 조회 가능
-    # - slow_buy=200 같은 긴 기간 설정 시, 초기에는 불완전한 이동평균으로 시작
-    # - 실시간 데이터가 쌓이면서 점진적으로 정확도 향상
-    UPBIT_API_LIMIT = 200
+    # ✅ Seed 최소 요구량 (indicator_state.py와 동일)
+    # - 이전: slow * 2 (안정화 목표, 과도함)
+    # - 수정: max(periods) (실제 seed 요구량)
+    logical_min = max(macd_slow, ema_slow, base_ema)
+
+    # ✅ 최종 요청량 (base, logical_min, 200 중 최대값)
+    # - 주의: Upbit API는 200개 제한이지만 rest_reconcile.py가 다중 호출 처리
+    # - 하지만 실제로는 200개 이상 받지 못하는 경우 발생 (데이터 부족, API 제한)
     requested = max(base, logical_min, 200)
-
-    if requested > UPBIT_API_LIMIT:
-        logger.warning(
-            f"⚠️  [WARMUP] Upbit API 제한으로 인한 조정: "
-            f"{requested}개 요청 → {UPBIT_API_LIMIT}개로 제한"
-        )
-        logger.warning(
-            f"⚠️  [WARMUP] slow={slow} 설정에 최적 데이터 수는 {logical_min}개이지만, "
-            f"초기에는 {UPBIT_API_LIMIT}개로 시작합니다."
-        )
-        logger.warning(
-            f"⚠️  [WARMUP] 실시간 데이터가 쌓이면서 점진적으로 정확도가 향상됩니다. "
-            f"완전한 {slow}일 이동평균은 약 {slow}분 후 계산됩니다."
-        )
-        requested = UPBIT_API_LIMIT
 
     return requested
 
@@ -535,6 +535,12 @@ def run_live_loop(
             clock = CandleClock(params.interval)
             logger.info(f"✅ CandleClock 초기화 | interval={params.interval} | interval_sec={clock.interval_sec}")
 
+            # ============================================================
+            # WO-2026-001 Task 2-A: CandleValidator 초기화
+            # ============================================================
+            candle_validator = CandleValidator(max_spike_ratio=0.05)
+            logger.info("✅ CandleValidator 초기화 | max_spike_ratio=5%")
+
             # 로컬 시계열 (Reconcile 누적용)
             local_series = pd.DataFrame()
 
@@ -545,12 +551,14 @@ def run_live_loop(
             initial_df = None
 
             for attempt in range(1, MAX_WARMUP_RETRIES + 1):
-                logger.info(f"[WARMUP] REST 초기 데이터 요청 (attempt {attempt}/{MAX_WARMUP_RETRIES}) | count={min_hist}...")
+                # WO-2026-001 Task 1-B: +1개 요청 후 마지막 봉 제거 (현재 진행 중 봉 방지)
+                warmup_request = min_hist + 1
+                logger.info(f"[WARMUP] REST 초기 데이터 요청 (attempt {attempt}/{MAX_WARMUP_RETRIES}) | count={warmup_request} (마지막 봉 제거 예정)...")
                 initial_df = safe_fetch_rest(
                     market=params.upbit_ticker,
                     timeframe=params.interval,
-                    end_ts=now_utc(),
-                    total_count=min_hist
+                    end_ts=None,  # ✅ to 파라미터 없음
+                    total_count=warmup_request
                 )
 
                 if initial_df is not None and not initial_df.empty:
@@ -572,6 +580,37 @@ def run_live_loop(
                 raise RuntimeError("REST Warmup failed - cannot start without initial data")
 
             logger.info(f"✅ [WARMUP] REST 데이터 로드 완료 | bars={len(initial_df)}")
+
+            # ============================================================
+            # WO-2026-001 Task 1-B: 마지막 봉 제거 (현재 진행 중 봉 방지)
+            # ✅ FIX-2026-003-14: 조건부 제거 (데이터 부족 시 유지)
+            # ============================================================
+            # ✅ Upbit는 to 파라미터 없어도 현재 진행 중인 봉을 포함할 수 있음
+            # ✅ 안전을 위해 마지막 봉 제거 (단, 여유분이 있을 때만)
+            if len(initial_df) > min_hist:
+                # 여유분이 있으면 마지막 봉 제거 (안전)
+                last_ts_before = initial_df.index[-1]
+                initial_df = initial_df.iloc[:-1]
+                logger.info(
+                    f"[WARMUP] 마지막 봉 제거 ✅ | "
+                    f"removed_ts={format_kst(last_ts_before)} | "
+                    f"최종 봉 수={len(initial_df)} | "
+                    f"최종 마지막 봉={format_kst(initial_df.index[-1])}"
+                )
+            elif len(initial_df) == min_hist:
+                # 정확히 필요한 만큼이면 그대로 사용 (마지막 봉 유지)
+                logger.warning(
+                    f"[WARMUP] 마지막 봉 유지 (여유분 없음) | "
+                    f"bars={len(initial_df)} = min_hist={min_hist} | "
+                    f"마지막 봉={format_kst(initial_df.index[-1])}"
+                )
+            else:
+                # 부족하면 에러
+                logger.error(
+                    f"❌ [WARMUP] 데이터 부족 | "
+                    f"received={len(initial_df)} < min_hist={min_hist}"
+                )
+                raise RuntimeError(f"Insufficient warmup data: {len(initial_df)} < {min_hist}")
 
             # 지표 시드
             closes = initial_df['Close'].tolist()
@@ -665,6 +704,25 @@ def run_live_loop(
                     # 확정된 봉 추출
                     if closed_ts in local_series.index:
                         row = local_series.loc[closed_ts]
+
+                        # WO-2026-001 Task 2-B: 🔒 봉 데이터 검증 가드
+                        valid, reason = candle_validator.validate(row)
+                        if not valid:
+                            logger.error(
+                                f"[STRATEGY] 봉 검증 실패 ❌ | {reason} | "
+                                f"ts={format_kst(closed_ts)} | "
+                                f"O={row['Open']:.0f} H={row['High']:.0f} "
+                                f"L={row['Low']:.0f} C={row['Close']:.0f} V={row['Volume']:.2f} | "
+                                f"→ 전략 실행 차단 (포지션 현상 유지)"
+                            )
+                            time.sleep(1)
+                            continue
+
+                        logger.debug(
+                            f"[VALIDATOR] 봉 검증 통과 ✅ | ts={format_kst(closed_ts)} | "
+                            f"C={row['Close']:.0f}"
+                        )
+
                         bar = Bar(
                             ts=closed_ts,
                             open=row['Open'],

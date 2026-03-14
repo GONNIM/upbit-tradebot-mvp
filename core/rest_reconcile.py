@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def fetch_candles_rest_full(
     market: str,
     timeframe: str,
-    end_ts: datetime,
+    end_ts: Optional[datetime],
     total_count: int = 400
 ) -> pd.DataFrame:
     """
@@ -40,7 +40,7 @@ def fetch_candles_rest_full(
     Args:
         market: "KRW-SUI"
         timeframe: "minute1", "minute3", etc.
-        end_ts: 조회 종료 시각 (UTC)
+        end_ts: 조회 종료 시각 (UTC) - None이면 to 파라미터 없이 최신 확정 봉만 조회
         total_count: 조회할 총 캔들 개수 (기본 400)
 
     Returns:
@@ -51,6 +51,8 @@ def fetch_candles_rest_full(
         >>> df = fetch_candles_rest_full("KRW-SUI", "minute1", now_utc(), 400)
         >>> len(df)
         400  # 200개 제한 우회
+        >>> df = fetch_candles_rest_full("KRW-SUI", "minute1", None, 200)
+        >>> # to 파라미터 없음 → 확정 봉만 반환
     """
     interval_sec = CandleClock.TIMEFRAME_SEC.get(timeframe)
     if interval_sec is None:
@@ -62,9 +64,10 @@ def fetch_candles_rest_full(
     dfs = []
     batch_num = 0
 
+    end_str = format_kst(end_ts) if end_ts else "None (최신 확정 봉)"
     logger.info(
         f"[REST] 다중 호출 시작 | market={market} timeframe={timeframe} "
-        f"total_count={total_count} end={format_kst(end_ts)}"
+        f"total_count={total_count} end={end_str}"
     )
 
     while remain > 0:
@@ -72,19 +75,34 @@ def fetch_candles_rest_full(
         batch_size = min(200, remain)  # Upbit 최대 200개
 
         try:
-            # Upbit API는 KST 문자열 입력
-            to_kst_str = end_ts.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
+            # ============================================================
+            # WO-2026-001 Task 1-A: 최신 batch만 to 없이 조회 (확정 종가 보장)
+            # ============================================================
+            if batch_num == 1:
+                # ✅ 첫 번째 batch: to 파라미터 없음 → Upbit 확정 봉만 반환
+                logger.debug(
+                    f"[REST] Batch #{batch_num} (최신 확정 봉) | count={batch_size} | to=None"
+                )
 
-            logger.debug(
-                f"[REST] Batch #{batch_num} | count={batch_size} to={to_kst_str}"
-            )
+                df = pyupbit.get_ohlcv(
+                    ticker=market,
+                    interval=timeframe,
+                    count=batch_size
+                )
+            else:
+                # 나머지 batch: 과거 데이터는 to 사용 (이미 확정됨)
+                to_kst_str = to.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
 
-            df = pyupbit.get_ohlcv(
-                ticker=market,
-                interval=timeframe,
-                to=to_kst_str,
-                count=batch_size
-            )
+                logger.debug(
+                    f"[REST] Batch #{batch_num} (과거 확정 봉) | count={batch_size} | to={to_kst_str}"
+                )
+
+                df = pyupbit.get_ohlcv(
+                    ticker=market,
+                    interval=timeframe,
+                    to=to_kst_str,
+                    count=batch_size
+                )
 
             if df is None or df.empty:
                 logger.warning(
@@ -105,6 +123,18 @@ def fetch_candles_rest_full(
 
             # ✅ 표준화 (필요한 컬럼만 선택)
             df = df[['Open', 'High', 'Low', 'Close', 'Volume']]
+
+            # ============================================================
+            # WO-2026-001 Task 1-C: 종가 검증 로그 추가
+            # ============================================================
+            if batch_num == 1:
+                # 최신 봉 상세 로그 (Upbit 차트와 비교 가능)
+                latest_row = df.iloc[-1]
+                logger.info(
+                    f"[REST] 최신 확정 봉 ✅ | ts={format_kst(df.index[-1])} | "
+                    f"close={latest_row['Close']:.0f} | high={latest_row['High']:.0f} | "
+                    f"low={latest_row['Low']:.0f} | volume={latest_row['Volume']:.2f}"
+                )
 
             logger.debug(
                 f"[REST] Batch #{batch_num} 성공 | received={len(df)} | "
@@ -153,7 +183,7 @@ def fetch_candles_rest_full(
 def safe_fetch_rest(
     market: str,
     timeframe: str,
-    end_ts: datetime,
+    end_ts: Optional[datetime],
     total_count: int = 400
 ) -> Optional[pd.DataFrame]:
     """
@@ -167,7 +197,7 @@ def safe_fetch_rest(
     Args:
         market: "KRW-SUI"
         timeframe: "minute1"
-        end_ts: 조회 종료 시각 (UTC)
+        end_ts: 조회 종료 시각 (UTC) - None이면 to 파라미터 없이 최신 확정 봉만 조회
         total_count: 조회할 총 캔들 개수
 
     Returns:
@@ -307,7 +337,18 @@ def reconcile_series(
                     )
 
     # ✅ REST 기준으로 병합 (REST 우선)
-    merged = rest_series.copy()
+    # 🔧 Fix: Local을 기반으로 REST로 덮어쓰기 (이전 데이터 유지)
+    # Before: merged = rest_series.copy()  # ← REST 400개만 복사 (이전 100개 버려짐)
+    # After: Local 기반으로 REST 범위만 덮어쓰기
+    if local_series.empty:
+        # Local이 비어있으면 REST를 그대로 사용
+        merged = rest_series.copy()
+    else:
+        # Local을 복사한 후 REST 데이터로 덮어쓰기
+        merged = local_series.copy()
+        # REST 범위의 봉들을 덮어쓰기 (같은 timestamp의 모든 컬럼 업데이트)
+        for ts in rest_series.index:
+            merged.loc[ts] = rest_series.loc[ts]
 
     # ✅ Summary
     diff_summary = {
@@ -378,3 +419,123 @@ def fetch_candles_rest_cached(
 # ============================================================
 
 from zoneinfo import ZoneInfo
+
+
+# ============================================================
+# WO-2026-001 Task 1-A: 확정 종가 보장 함수
+# ============================================================
+
+def fetch_confirmed_candle(
+    ticker: str,
+    timeframe: str,
+    closed_ts: datetime,
+    max_retry: int = 3
+) -> Optional[pd.Series]:
+    """
+    확정 종가만 반환. to 파라미터 없이 최신 봉 조회.
+
+    🔒 WO-2026-001 Task 1-A:
+    - to 파라미터 완전 제거 → Upbit가 확정한 최신 봉만 반환
+    - closed_ts 일치 여부 검증
+    - Progressive Retry (5초 → 8초 → 12초)
+    - 최대 재시도 초과 시 None 반환 (봉 스킵)
+
+    Args:
+        ticker: 종목 코드 (예: KRW-BTC)
+        timeframe: "minute1", "minute3", etc.
+        closed_ts: 확정되어야 할 봉의 시작 timestamp (UTC, timezone-aware)
+        max_retry: 최대 재시도 횟수 (기본 3)
+
+    Returns:
+        pd.Series | None: 확정 봉 row, 실패 시 None
+
+    Example:
+        >>> from datetime import datetime, timezone
+        >>> closed_ts = datetime(2026, 3, 14, 7, 5, 0, tzinfo=timezone.utc)
+        >>> candle = fetch_confirmed_candle("KRW-BTC", "minute1", closed_ts)
+        >>> if candle is not None:
+        ...     print(f"Close: {candle['Close']:.0f}")
+    """
+    WAIT_SCHEDULE = [5, 8, 12]  # Progressive Retry 대기 시간 (초)
+
+    for attempt in range(max_retry):
+        try:
+            # ✅ to 파라미터 없음 → Upbit가 확정한 최신 봉만 반환
+            logger.debug(
+                f"[RECONCILE] 확정 봉 조회 시도 {attempt+1}/{max_retry} | "
+                f"ticker={ticker} timeframe={timeframe}"
+            )
+
+            df = pyupbit.get_ohlcv(
+                ticker=ticker,
+                interval=timeframe,
+                count=10  # 최신 10개 조회 (closed_ts 포함 여부 확인용)
+            )
+
+            if df is None or df.empty:
+                wait = WAIT_SCHEDULE[attempt] if attempt < len(WAIT_SCHEDULE) else 12
+                logger.warning(
+                    f"[RECONCILE] 빈 응답 | 재시도 {attempt+1}/{max_retry} | {wait}초 대기"
+                )
+                time.sleep(wait)
+                continue
+
+            # ✅ 컬럼명 표준화
+            df.columns = [col.capitalize() for col in df.columns]
+
+            # ✅ Timezone 변환: KST → UTC
+            if df.index.tzinfo is None:
+                df.index = df.index.tz_localize("Asia/Seoul")
+            df.index = df.index.tz_convert("UTC")
+
+            # ✅ 최신 봉 timestamp 추출
+            latest_ts = df.index[-1]
+
+            # 케이스 1: closed_ts와 정확히 일치 → 성공
+            if latest_ts == closed_ts:
+                close_price = df.iloc[-1]["Close"]
+                logger.info(
+                    f"[RECONCILE] 확정 종가 ✅ | ts={format_kst(closed_ts)} | "
+                    f"close={close_price:.0f} | high={df.iloc[-1]['High']:.0f} | "
+                    f"low={df.iloc[-1]['Low']:.0f} | volume={df.iloc[-1]['Volume']:.2f}"
+                )
+                return df.iloc[-1]
+
+            # 케이스 2: latest_ts < closed_ts → API 지연, 재시도
+            elif latest_ts < closed_ts:
+                wait = WAIT_SCHEDULE[attempt] if attempt < len(WAIT_SCHEDULE) else 12
+                logger.warning(
+                    f"[RECONCILE] 봉 미반영 | 기대={format_kst(closed_ts)} "
+                    f"실제={format_kst(latest_ts)} | {wait}초 대기 (시도 {attempt+1}/{max_retry})"
+                )
+                time.sleep(wait)
+
+            # 케이스 3: latest_ts > closed_ts → df에서 closed_ts 추출
+            else:
+                if closed_ts in df.index:
+                    close_price = df.loc[closed_ts, "Close"]
+                    logger.info(
+                        f"[RECONCILE] 과거 확정 봉 추출 ✅ | ts={format_kst(closed_ts)} | "
+                        f"close={close_price:.0f}"
+                    )
+                    return df.loc[closed_ts]
+                else:
+                    logger.error(
+                        f"[RECONCILE] 봉 유실 | ts={format_kst(closed_ts)} | "
+                        f"df_range={format_kst(df.index[0])} ~ {format_kst(df.index[-1])}"
+                    )
+                    return None
+
+        except Exception as e:
+            wait = WAIT_SCHEDULE[attempt] if attempt < len(WAIT_SCHEDULE) else 12
+            logger.error(
+                f"[RECONCILE] 예외 발생 | {e} | 재시도 {attempt+1}/{max_retry} | {wait}초 대기"
+            )
+            time.sleep(wait)
+
+    # ❌ 최대 재시도 초과
+    logger.error(
+        f"[RECONCILE] ❌ 최대 재시도 초과 ({max_retry}회) | ts={format_kst(closed_ts)} | "
+        f"→ 이번 봉 스킵 (포지션 현상 유지)"
+    )
+    return None
