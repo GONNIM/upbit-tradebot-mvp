@@ -760,6 +760,12 @@ def insert_buy_eval(
 
         if existing:
             # 2-1. UPDATE: 기존 레코드 갱신 (같은 봉에 대한 재평가)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"[AUDIT-UPDATE] BUY 평가 UPDATE | ticker={ticker} | bar_time={bar_time} | "
+                f"old_id={existing[0]} | new_price={price:.0f}"
+            )
             cur.execute(
                 """
                 UPDATE audit_buy_eval
@@ -778,6 +784,12 @@ def insert_buy_eval(
             )
         else:
             # 2-2. INSERT: 새 레코드 생성
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(
+                f"[AUDIT-INSERT] BUY 평가 INSERT | ticker={ticker} | bar_time={bar_time} | "
+                f"price={price:.0f}"
+            )
             cur.execute(
                 """
                 INSERT INTO audit_buy_eval
@@ -845,6 +857,12 @@ def insert_sell_eval(
 
         if existing:
             # 2-1. UPDATE: 기존 레코드 갱신 (같은 봉에 대한 재평가)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"[AUDIT-UPDATE] SELL 평가 UPDATE | ticker={ticker} | bar_time={bar_time} | "
+                f"old_id={existing[0]} | new_price={price:.0f}"
+            )
             cur.execute(
                 """
                 UPDATE audit_sell_eval

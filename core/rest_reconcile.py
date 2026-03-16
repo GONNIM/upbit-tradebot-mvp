@@ -429,25 +429,25 @@ def fetch_confirmed_candle(
     ticker: str,
     timeframe: str,
     closed_ts: datetime,
-    max_retry: int = 3
+    max_retry: int = None
 ) -> Optional[pd.Series]:
     """
     확정 종가만 반환. to 파라미터 없이 최신 봉 조회.
 
-    🔒 WO-2026-001 Task 1-A:
+    🔒 WO-2026-001 Task 1-A + Issue #8 강화:
     - to 파라미터 완전 제거 → Upbit가 확정한 최신 봉만 반환
     - closed_ts 일치 여부 검증
-    - Progressive Retry (5초 → 8초 → 12초)
-    - 최대 재시도 초과 시 None 반환 (봉 스킵)
+    - Progressive Retry → interval의 50% 시간까지만 대기
+    - 최대 재시도 초과 시 None 반환 → BACKFILL로 처리
 
     Args:
         ticker: 종목 코드 (예: KRW-BTC)
         timeframe: "minute1", "minute3", etc.
         closed_ts: 확정되어야 할 봉의 시작 timestamp (UTC, timezone-aware)
-        max_retry: 최대 재시도 횟수 (기본 3)
+        max_retry: 최대 재시도 횟수 (None이면 interval에 따라 자동 계산)
 
     Returns:
-        pd.Series | None: 확정 봉 row, 실패 시 None
+        pd.Series | None: 확정 봉 row, 실패 시 None (BACKFILL로 처리)
 
     Example:
         >>> from datetime import datetime, timezone
@@ -456,7 +456,21 @@ def fetch_confirmed_candle(
         >>> if candle is not None:
         ...     print(f"Close: {candle['Close']:.0f}")
     """
-    WAIT_SCHEDULE = [5, 8, 12]  # Progressive Retry 대기 시간 (초)
+    # Interval별 재시도 횟수 계산 (interval의 50% 시간만 사용)
+    # - 1분봉: (60초 - 5초 JITTER) * 50% = 27초 → 5회
+    # - 3분봉: (180초 - 5초 JITTER) * 50% = 87초 → 17회
+    if max_retry is None:
+        interval_sec = CandleClock.TIMEFRAME_SEC.get(timeframe, 60)
+        jitter = 5  # JITTER_BY_INTERVAL 기본값
+        available_time = (interval_sec - jitter) * 0.5  # 50%만 사용
+        max_retry = max(1, int(available_time / 5))  # 5초 간격
+        logger.debug(
+            f"[RECONCILE] 자동 계산된 재시도 | interval={timeframe} "
+            f"interval_sec={interval_sec} max_retry={max_retry} "
+            f"max_wait={max_retry * 5}초"
+        )
+
+    WAIT_SCHEDULE = [5] * max_retry  # 5초씩 max_retry회
 
     for attempt in range(max_retry):
         try:
@@ -534,8 +548,182 @@ def fetch_confirmed_candle(
             time.sleep(wait)
 
     # ❌ 최대 재시도 초과
+    total_wait = sum(WAIT_SCHEDULE[:max_retry])
     logger.error(
-        f"[RECONCILE] ❌ 최대 재시도 초과 ({max_retry}회) | ts={format_kst(closed_ts)} | "
-        f"→ 이번 봉 스킵 (포지션 현상 유지)"
+        f"[RECONCILE] ❌ 최대 재시도 초과 ({max_retry}회, {total_wait}초 대기) | ts={format_kst(closed_ts)} | "
+        f"→ 이번 봉 스킵 → BACKFILL로 처리 예정"
     )
     return None
+
+
+# ============================================================
+# Issue #8: 과거 봉 최종종가 검증 시스템
+# ============================================================
+
+def verify_past_candles_with_upbit(
+    ticker: str,
+    timeframe: str,
+    past_series: pd.DataFrame,
+    tolerance: float = 1.0
+) -> bool:
+    """
+    과거 봉들이 Upbit 차트와 일치하는지 검증
+
+    🎯 목적:
+    - 이전 봉들(n-1, n-2, ...)은 반드시 Upbit 차트와 동일해야 함
+    - 현재 봉(n)은 미확정 허용 (즉시 매매 유지)
+
+    🔒 검증 프로세스:
+    1. Upbit REST API에서 동일 시각 봉 조회
+    2. 종가 비교 (±tolerance 이내)
+    3. 불일치 발견 시:
+       - 5초 간격 3회 재조회
+       - 재조회 실패 → False 반환 (봉 스킵)
+    4. 모두 일치 → True 반환
+
+    Args:
+        ticker: 종목 코드 (예: KRW-BTC)
+        timeframe: "minute1", "minute3", etc.
+        past_series: 과거 봉 DataFrame (현재 봉 제외)
+        tolerance: 허용 오차 (기본 ±1원)
+
+    Returns:
+        True: 모든 과거 봉이 Upbit와 일치
+        False: 불일치 발견 또는 조회 실패
+
+    Example:
+        >>> past_series = local_series[local_series.index < closed_ts]
+        >>> ok = verify_past_candles_with_upbit("KRW-BTC", "minute1", past_series.tail(200))
+        >>> if not ok:
+        ...     logger.error("과거 봉 검증 실패 → 봉 스킵")
+    """
+    if past_series.empty:
+        logger.info("[VERIFY] 과거 봉 없음 → 검증 스킵")
+        return True
+
+    timestamps = past_series.index.tolist()
+    logger.info(
+        f"[VERIFY] 과거 봉 검증 시작 | count={len(timestamps)} | "
+        f"range={format_kst(timestamps[0])} ~ {format_kst(timestamps[-1])}"
+    )
+
+    # ============================================================
+    # Step 1: Upbit에서 동일 시각 봉 조회
+    # ============================================================
+    try:
+        # 과거 봉 범위 조회 (가장 오래된 ~ 가장 최신)
+        start_ts = timestamps[0]
+        end_ts = timestamps[-1]
+
+        # 필요한 봉 개수 (+10% 여유분)
+        required_count = int(len(timestamps) * 1.1)
+
+        logger.debug(
+            f"[VERIFY] Upbit REST API 호출 | "
+            f"start={format_kst(start_ts)} end={format_kst(end_ts)} count={required_count}"
+        )
+
+        upbit_df = safe_fetch_rest(
+            market=ticker,
+            timeframe=timeframe,
+            end_ts=end_ts,
+            total_count=required_count
+        )
+
+        if upbit_df is None or upbit_df.empty:
+            logger.error("[VERIFY] ❌ Upbit 조회 실패 → 검증 실패")
+            return False
+
+        logger.debug(
+            f"[VERIFY] Upbit 조회 성공 | received={len(upbit_df)} | "
+            f"range={format_kst(upbit_df.index[0])} ~ {format_kst(upbit_df.index[-1])}"
+        )
+
+    except Exception as e:
+        logger.error(f"[VERIFY] ❌ Upbit 조회 예외 | {e} → 검증 실패")
+        return False
+
+    # ============================================================
+    # Step 2: 종가 비교
+    # ============================================================
+    mismatch_count = 0
+    fixed_count = 0
+
+    for ts in timestamps:
+        if ts not in upbit_df.index:
+            logger.warning(f"[VERIFY] ⚠️ Upbit에 없는 timestamp | ts={format_kst(ts)} (스킵)")
+            continue
+
+        local_close = past_series.loc[ts, 'Close']
+        upbit_close = upbit_df.loc[ts, 'Close']
+        diff = abs(local_close - upbit_close)
+
+        if diff > tolerance:
+            mismatch_count += 1
+            logger.warning(
+                f"[VERIFY] 불일치 발견 | ts={format_kst(ts)} | "
+                f"local={local_close:.0f} upbit={upbit_close:.0f} diff={diff:.0f}"
+            )
+
+            # ============================================================
+            # Step 3: 재조회 3회
+            # ============================================================
+            retry_success = False
+            for retry_num in range(1, 4):
+                logger.info(f"[VERIFY-RETRY] {retry_num}/3회 재조회 | ts={format_kst(ts)}")
+                time.sleep(5)
+
+                try:
+                    retry_candle = fetch_confirmed_candle(
+                        ticker=ticker,
+                        timeframe=timeframe,
+                        closed_ts=ts,
+                        max_retry=1  # 단일 재시도
+                    )
+
+                    if retry_candle is not None:
+                        retry_close = retry_candle['Close']
+                        retry_diff = abs(local_close - retry_close)
+
+                        if retry_diff <= tolerance:
+                            logger.info(
+                                f"[VERIFY-RETRY] ✅ 재조회 성공 ({retry_num}/3) | "
+                                f"ts={format_kst(ts)} | close={retry_close:.0f}"
+                            )
+                            retry_success = True
+                            fixed_count += 1
+                            break
+                        else:
+                            logger.warning(
+                                f"[VERIFY-RETRY] 여전히 불일치 ({retry_num}/3) | "
+                                f"diff={retry_diff:.0f}"
+                            )
+                    else:
+                        logger.warning(f"[VERIFY-RETRY] 조회 실패 ({retry_num}/3)")
+
+                except Exception as e:
+                    logger.error(f"[VERIFY-RETRY] 예외 ({retry_num}/3) | {e}")
+
+            if not retry_success:
+                logger.error(
+                    f"[VERIFY] ❌ 재조회 모두 실패 | ts={format_kst(ts)} | "
+                    f"local={local_close:.0f} upbit={upbit_close:.0f} | "
+                    f"→ 검증 실패"
+                )
+                return False
+
+    # ============================================================
+    # Step 4: 검증 완료
+    # ============================================================
+    if mismatch_count == 0:
+        logger.info(
+            f"[VERIFY] ✅ 모든 과거 봉 일치 | count={len(timestamps)} | "
+            f"tolerance=±{tolerance:.0f}원"
+        )
+    else:
+        logger.info(
+            f"[VERIFY] ✅ 검증 통과 (재조회 보정) | "
+            f"total={len(timestamps)} mismatch={mismatch_count} fixed={fixed_count}"
+        )
+
+    return True

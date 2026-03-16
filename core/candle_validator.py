@@ -32,13 +32,16 @@ class CandleValidator:
         ...     print(f"Invalid: {reason}")
     """
 
-    def __init__(self, max_spike_ratio: float = 0.05):
+    def __init__(self, max_spike_ratio: float = 0.05, continuity_tolerance_pct: float = 0.01):
         """
         Args:
             max_spike_ratio: 스파이크 감지 임계값 (기본 5%)
                            전 봉 대비 5% 이상 변동 시 경고
+            continuity_tolerance_pct: 연속 봉 일관성 허용 오차 (기본 1%)
+                                     open[n]과 close[n-1]의 차이가 1% 초과 시 경고
         """
         self.max_spike_ratio = max_spike_ratio
+        self.continuity_tolerance_pct = continuity_tolerance_pct
         self.prev_close: Optional[float] = None
 
     def validate(self, candle: pd.Series) -> Tuple[bool, str]:
@@ -86,7 +89,23 @@ class CandleValidator:
                 )
 
             # ============================================================
-            # 2. 스파이크 감지 (경고만, 스킵하지 않음)
+            # 2. 연속 봉 일관성 검증 (경고만)
+            # ============================================================
+            # open[n]과 close[n-1]이 일치해야 함 (갭 거래 제외)
+            if self.prev_close is not None and self.prev_close > 0:
+                continuity_diff_pct = abs(open_ - self.prev_close) / self.prev_close
+
+                if continuity_diff_pct > self.continuity_tolerance_pct:
+                    logger.warning(
+                        f"[VALIDATOR] 봉 불연속 감지 ⚠️ | "
+                        f"close[n-1]={self.prev_close:.0f} vs open[n]={open_:.0f} | "
+                        f"차이={continuity_diff_pct:.2%} (허용={self.continuity_tolerance_pct:.2%}) | "
+                        f"(경고만, 봉 스킵하지 않음)"
+                    )
+                    # ⚠️ 중요: 경고만 하고 검증은 통과 (갭 거래, API 지연 등 정상적인 불연속 존재)
+
+            # ============================================================
+            # 3. 스파이크 감지 (경고만, 스킵하지 않음)
             # ============================================================
             if self.prev_close is not None and self.prev_close > 0:
                 ratio = abs(close - self.prev_close) / self.prev_close
@@ -100,7 +119,7 @@ class CandleValidator:
                     # ⚠️ 중요: 경고만 하고 검증은 통과
 
             # ============================================================
-            # 3. 유령 봉 차단
+            # 4. 유령 봉 차단
             # ============================================================
             if volume == 0:
                 return False, "거래량 0 — 유령 봉"

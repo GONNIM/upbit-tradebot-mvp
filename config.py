@@ -62,9 +62,9 @@ AUDIT_DEDUP_PER_BAR = True        # 같은 bar 중복 적재 방지
 
 # 감사 로그 튜닝 파라미터
 AUDIT_BUY_SAMPLE_N = 1          # 동일 상태가 지속되어도 N bar마다 1회 기록
-AUDIT_BUY_COOLDOWN_BARS = 15     # 동일 상태에서 최소 대기 bar 수
+AUDIT_BUY_COOLDOWN_BARS = 0     # 동일 상태에서 최소 대기 bar 수 (0 = 샘플링 제거, 모든 봉 기록)
 AUDIT_SELL_SAMPLE_N = 60         # (SELL 평가 샘플링 간격; 필요 시)
-AUDIT_SELL_COOLDOWN_BARS = 10    # SELL 평가 쿨다운
+AUDIT_SELL_COOLDOWN_BARS = 0    # SELL 평가 쿨다운 (0 = 샘플링 제거)
 
 # 엔진 실행 모드: 
 # - "BACKTEST" : 지금처럼 _run_backtest_once만 사용

@@ -20,7 +20,7 @@ from core.strategy_engine import StrategyEngine
 
 # 🚀 REST Reconcile 모듈
 from core.candle_clock import CandleClock
-from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle
+from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle, verify_past_candles_with_upbit
 from core.time_utils import now_utc, format_kst, floor_to_interval
 from core.candle_validator import CandleValidator
 
@@ -49,6 +49,7 @@ from config import (
     RECONCILE_LOOKBACK_BARS,
     ALLOW_SYNTHETIC_BARS,
 )
+from utils.logging_util import log_to_file
 
 from engine.reconciler_singleton import get_reconciler
 
@@ -669,12 +670,46 @@ def run_live_loop(
                     # REST에서 최신 데이터 fetch (Reconcile용)
                     if RECONCILE_ON_EVERY_CLOSE:
                         logger.info(f"🔄 [REST-RECONCILE] Fetching {RECONCILE_LOOKBACK_BARS} bars from REST...")
+
+                        # ✅ WO-2026-001 Task 1-A + Issue #8 강화: 최신 봉 확정 검증
+                        # closed_ts 봉을 별도로 조회하여 확정 종가만 반환 보장
+                        # Progressive Retry: interval의 50% 시간만 사용 (다음 봉 놓치지 않도록)
+                        # - 1분봉: 최대 27초 (5회)
+                        # - 3분봉: 최대 87초 (17회)
+                        confirmed_row = fetch_confirmed_candle(
+                            ticker=params.upbit_ticker,
+                            timeframe=params.interval,
+                            closed_ts=closed_ts
+                            # max_retry는 자동 계산 (interval 기반)
+                        )
+
+                        # 과거 데이터는 safe_fetch_rest로 조회 (이미 확정됨)
                         rest_df = safe_fetch_rest(
                             market=params.upbit_ticker,
                             timeframe=params.interval,
-                            end_ts=now_utc(),  # ✅ 현재 시각 기준 (Jitter 후)
+                            end_ts=closed_ts,  # ✅ closed_ts 기준 (최신 봉 포함)
                             total_count=RECONCILE_LOOKBACK_BARS
                         )
+
+                        # ✅ 확정 봉 검증 성공 시 rest_df 업데이트 (미확정 종가 덮어쓰기)
+                        if confirmed_row is not None and rest_df is not None:
+                            if closed_ts in rest_df.index:
+                                # rest_df의 closed_ts 봉을 fetch_confirmed_candle 결과로 덮어쓰기
+                                original_close = rest_df.loc[closed_ts, 'Close']
+                                rest_df.loc[closed_ts] = confirmed_row
+                                new_close = rest_df.loc[closed_ts, 'Close']
+
+                                if abs(original_close - new_close) > 0.01:
+                                    logger.warning(
+                                        f"[CONFIRMED-FIX] 최신 봉 종가 보정 | ts={format_kst(closed_ts)} | "
+                                        f"미확정={original_close:.0f} → 확정={new_close:.0f}"
+                                    )
+                            else:
+                                # rest_df에 closed_ts 없으면 추가
+                                logger.warning(f"[CONFIRMED-ADD] closed_ts={format_kst(closed_ts)} 추가")
+                                rest_df = pd.concat([rest_df, confirmed_row.to_frame().T]).sort_index()
+                        elif confirmed_row is None:
+                            logger.error(f"❌ [CONFIRMED] closed_ts={format_kst(closed_ts)} 조회 실패 → Reconcile 계속 (미확정 종가 사용 가능)")
 
                         # Reconcile: REST vs Local
                         merged, diff_summary = reconcile_series(local_series, rest_df)
@@ -693,13 +728,116 @@ def run_live_loop(
                         if rest_failed:
                             logger.warning(f"⚠️ [REST-RECONCILE] REST 실패 → Fallback to Local")
                         elif changed_count > 0:
-                            logger.info(f"🔄 [REST-RECONCILE] {changed_count}개 봉 변경 감지 → 부분 재계산")
+                            msg = f"🔄 [REST-RECONCILE] {changed_count}개 봉 변경 감지 → 부분 재계산"
+                            logger.info(msg)
+                            log_to_file(msg, user_id)
+
+                            # 🔄 누락된 봉 backfill (새로 추가된 봉에 대해 감사 로그 기록)
+                            changed_ts_list = diff_summary.get("changed_ts", [])
+                            # 현재 봉은 제외하고 과거 봉만 backfill
+                            # ✅ reconcile_series가 이미 local_series에 누락 봉을 병합했으므로
+                            # changed_ts에 있는 모든 봉(누락+변경)을 처리해야 함
+                            backfill_ts_list = [ts for ts in changed_ts_list if ts != closed_ts]
+
+                            if backfill_ts_list:
+                                msg = f"🔄 [BACKFILL] {len(backfill_ts_list)}개 누락 봉 평가 시작"
+                                logger.info(msg)
+                                log_to_file(msg, user_id)
+
+                                for ts in sorted(backfill_ts_list):
+                                    try:
+                                        row = local_series.loc[ts]
+
+                                        # 봉 검증
+                                        valid, reason = candle_validator.validate(row)
+                                        if not valid:
+                                            logger.warning(f"[BACKFILL] 봉 검증 실패 | ts={format_kst(ts)} | {reason}")
+                                            continue
+
+                                        # Bar 객체 생성
+                                        bar = Bar(
+                                            ts=ts,
+                                            open=row['Open'],
+                                            high=row['High'],
+                                            low=row['Low'],
+                                            close=row['Close'],
+                                            volume=row['Volume'],
+                                            is_closed=True,
+                                            is_confirmed=True,
+                                            source="REST_BACKFILL"
+                                        )
+
+                                        # 감사 로그만 기록 (실제 매매는 하지 않음)
+                                        msg = f"🔄 [BACKFILL] 누락 봉 평가 | ts={format_kst(ts)} | close={bar.close:.0f}"
+                                        logger.info(msg)
+                                        log_to_file(msg, user_id)
+
+                                        # backfill_mode 플래그 추가하여 전략 엔진에서 실제 매매를 하지 않도록 함
+                                        backfill_diff_summary = {
+                                            "rest_failed": False,
+                                            "changed_count": 0,
+                                            "changed_ts": [],
+                                            "backfill_mode": True  # 실제 매매 금지 플래그
+                                        }
+                                        engine.on_new_bar_confirmed(bar, local_series, backfill_diff_summary)
+
+                                    except Exception as e:
+                                        logger.error(f"[BACKFILL] 봉 평가 실패 | ts={format_kst(ts)} | {e}")
+                                        continue
+
+                                msg = f"✅ [BACKFILL] {len(backfill_ts_list)}개 누락 봉 평가 완료"
+                                logger.info(msg)
+                                log_to_file(msg, user_id)
                         else:
-                            logger.info(f"✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트")
+                            msg = f"✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트"
+                            logger.info(msg)
+                            log_to_file(msg, user_id)
                     else:
                         # Reconcile 비활성화: 로컬 증분만
                         diff_summary = {"rest_failed": True, "changed_count": 0, "changed_ts": []}
                         logger.info(f"[NO-RECONCILE] 로컬 증분 업데이트만 수행")
+
+                    # ============================================================
+                    # Issue #8: 과거 봉 최종종가 검증 (현재 봉 처리 전)
+                    # ============================================================
+                    # 🎯 목적: 이전 봉들(n-1, n-2, ...)은 반드시 Upbit 차트와 동일
+                    # 🔒 검증 실패 시: 현재 봉 스킵 (전략 평가 안 함)
+                    past_series = local_series[local_series.index < closed_ts]
+
+                    if not past_series.empty:
+                        # 최근 200개 봉만 검증 (200일선 기준)
+                        verify_count = min(200, len(past_series))
+                        past_to_verify = past_series.tail(verify_count)
+
+                        logger.info(
+                            f"[VERIFY] 과거 봉 검증 시작 | count={verify_count} | "
+                            f"현재 봉={format_kst(closed_ts)}"
+                        )
+
+                        verification_ok = verify_past_candles_with_upbit(
+                            ticker=params.upbit_ticker,
+                            timeframe=params.interval,
+                            past_series=past_to_verify,
+                            tolerance=1.0  # ±1원
+                        )
+
+                        if not verification_ok:
+                            msg = (
+                                f"❌ [VERIFY] 과거 봉 검증 실패 → 현재 봉 스킵 | "
+                                f"ts={format_kst(closed_ts)} | "
+                                f"→ 이전 봉들이 Upbit 차트와 불일치 (포지션 현상 유지)"
+                            )
+                            logger.error(msg)
+                            log_to_file(msg, user_id)
+                            time.sleep(1)
+                            continue  # ← 현재 봉 처리 안 함
+
+                        logger.info(
+                            f"✅ [VERIFY] 과거 봉 검증 통과 | count={verify_count} | "
+                            f"현재 봉 처리 진행"
+                        )
+                    else:
+                        logger.info("[VERIFY] 과거 봉 없음 → 검증 스킵 (초기 봉)")
 
                     # 확정된 봉 추출
                     if closed_ts in local_series.index:

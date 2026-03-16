@@ -256,18 +256,25 @@ class StrategyEngine:
             logger.error(f"[ENGINE] 미확정 봉 거부 | {bar.ts}")
             return
 
-        # ✅ 중복 방지
-        if not self.is_new_bar(bar):
+        # ✅ 중복 방지 (BACKFILL 모드는 제외)
+        # Issue #9: BACKFILL은 이미 처리된 봉을 재평가하여 audit 로그를 UPDATE하므로
+        # 중복 체크를 우회해야 함
+        backfill_mode = diff_summary.get("backfill_mode", False)
+        if not backfill_mode and not self.is_new_bar(bar):
             logger.debug(f"[ENGINE] 중복 봉 무시 | {bar.ts}")
             return
 
         # ✅ Position-Wallet 동기화
         self._reconcile_position_with_wallet()
 
-        # 1. 버퍼 추가
-        self.buffer.append(bar)
-        self.last_bar_ts = bar.ts
-        self.bar_count += 1
+        # 1. 버퍼 추가 (BACKFILL 모드는 제외)
+        # Issue #9: BACKFILL은 과거 봉 재평가이므로 버퍼 추가/bar_count 증가 불필요
+        if not backfill_mode:
+            self.buffer.append(bar)
+            self.last_bar_ts = bar.ts
+            self.bar_count += 1
+        else:
+            logger.info(f"[BACKFILL] 버퍼 추가 스킵 (재평가 모드) | ts={bar.ts} | close={bar.close:.0f}")
 
         # 2. Reconcile 변경 처리
         rest_failed = diff_summary.get("rest_failed", False)
@@ -321,7 +328,12 @@ class StrategyEngine:
         self._record_audit_log(bar, ind_snapshot, action)
 
         # 4. 주문 실행
-        self.execute(action, bar, ind_snapshot)
+        # ✅ Backfill 모드일 때는 감사 로그만 기록하고 실제 주문은 건너뜀
+        backfill_mode = diff_summary.get("backfill_mode", False)
+        if not backfill_mode:
+            self.execute(action, bar, ind_snapshot)
+        else:
+            logger.debug(f"[BACKFILL] 실제 주문 건너뜀 (감사 로그만 기록) | ts={bar.ts}")
 
     def execute(self, action: Action, bar: Bar, indicators: Dict[str, Any]):
         """

@@ -190,10 +190,21 @@ def query(sql, params=()):
 label_map = [("🟢 BUY 평가", "buy"), ("🔴 SELL 평가", "sell"), ("💹 체결", "trades"), ("⚙️ 설정 스냅샷", "settings")]
 labels = [l for l,_ in label_map]
 key_from_label = {l:k for l,k in label_map}
-default_idx = next((i for i,(_,k) in enumerate(label_map) if k == default_tab), 0)
+label_from_key = {k:l for l,k in label_map}
+
+# ✅ 새로고침 시 선택 유지: session_state의 audit_section (라벨) 우선 → default_tab (key) → "buy"
+if "audit_section" in st.session_state and st.session_state["audit_section"] in labels:
+    # 이미 선택된 라벨이 있으면 그것 사용
+    default_idx = labels.index(st.session_state["audit_section"])
+else:
+    # 없으면 default_tab (key)에서 라벨 찾기
+    default_idx = next((i for i,(_,k) in enumerate(label_map) if k == default_tab), 0)
 
 choice = st.radio("보기", labels, index=default_idx, horizontal=True, key="audit_section")
 section = key_from_label[choice]
+
+# ✅ 선택한 섹션을 session_state에 저장 (다음 새로고침 시 사용)
+st.session_state["tab"] = section
 
 st.divider()
 
