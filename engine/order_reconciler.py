@@ -209,6 +209,25 @@ class OrderReconciler:
         - state: 'FILLED' | 'CANCELED' | (필요 시 'REJECTED' 등 확장)
         """
         try:
+            # ✅ 잔고 조회 (대시보드 표시용 current_krw, current_coin 저장)
+            balances = self.upbit.get_balances()
+
+            # ✅ KRW 잔고 추출
+            current_krw = None
+            for bal in balances:
+                if bal.get("currency", "").upper() == "KRW":
+                    current_krw = float(bal.get("balance", 0.0))
+                    break
+
+            # ✅ 해당 ticker의 코인 보유량 추출 (예: KRW-BTC → BTC)
+            current_coin = None
+            coin_currency = ticker.split("-")[-1].upper() if "-" in ticker else None
+            if coin_currency:
+                for bal in balances:
+                    if bal.get("currency", "").upper() == coin_currency:
+                        current_coin = float(bal.get("balance", 0.0))
+                        break
+
             update_order_completed(
                 user_id,
                 uuid,
@@ -216,10 +235,12 @@ class OrderReconciler:
                 executed_volume=exec_vol,
                 avg_price=avg_px or None,
                 paid_fee=fee or None,
+                current_krw=current_krw,  # ✅ 체결 후 KRW 잔고
+                current_coin=current_coin,  # ✅ 체결 후 코인 보유량
             )
             logger.info(
                 f"[OR] final {state} uuid={uuid} user={user_id} side={side} "
-                f"vol={exec_vol} avg={avg_px} fee={fee}"
+                f"vol={exec_vol} avg={avg_px} fee={fee} krw={current_krw} coin={current_coin}"
             )
 
             # ✅ LIVE 모드 체결 로그 기록
@@ -255,7 +276,6 @@ class OrderReconciler:
                 except Exception as e:
                     logger.error(f"[OR] insert_trade_audit failed uuid={uuid}: {e}")
 
-            balances = self.upbit.get_balances()
             update_account_from_balances(user_id, balances)
             update_position_from_balances(user_id, ticker, balances)
         except Exception as e:

@@ -1359,6 +1359,8 @@ def update_order_completed(
     paid_fee: float | None = None,
     executed_at: str | None = None,
     canceled_at: str | None = None,
+    current_krw: float | None = None,  # ✅ 체결 후 잔고 (대시보드 표시용)
+    current_coin: float | None = None,  # ✅ 체결 후 코인 보유량 (대시보드 표시용)
 ):
     """
     최종 완료/취소/거절로 전환. 필요 시 누적치도 함께 덮어씀.
@@ -1374,6 +1376,8 @@ def update_order_completed(
                 paid_fee        = COALESCE(?, paid_fee),
                 executed_at     = COALESCE(executed_at, ?),
                 canceled_at     = COALESCE(canceled_at, ?),
+                current_krw     = COALESCE(?, current_krw),
+                current_coin    = COALESCE(?, current_coin),
                 updated_at      = ?
             WHERE user_id = ? AND provider_uuid = ?
         """, (
@@ -1383,6 +1387,8 @@ def update_order_completed(
             paid_fee,
             executed_at,
             canceled_at,
+            current_krw,
+            current_coin,
             now_kst(),
             user_id,
             provider_uuid
