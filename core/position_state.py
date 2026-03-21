@@ -2,8 +2,11 @@
 실거래 포지션 상태 관리
 Backtesting 라이브러리의 self.position과 완전히 분리
 """
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 import logging
+
+if TYPE_CHECKING:
+    from core.trader import UpbitTrader
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +16,23 @@ class PositionState:
     실거래 포지션 상태
     - Backtesting 라이브러리와 무관
     - 실제 지갑 잔고 기반으로 관리
+
+    ✅ Issue #10: Audit vs Execution Mismatch 수정
+    - has_position을 내부 플래그가 아닌 실제 지갑/DB 잔고로 판단
+    - sync_from_wallet() 메서드로 명시적 동기화
     """
 
-    def __init__(self):
-        self.has_position: bool = False           # 포지션 보유 여부
+    def __init__(self, trader: Optional["UpbitTrader"] = None, ticker: Optional[str] = None):
+        """
+        Args:
+            trader: UpbitTrader 인스턴스 (실제 잔고 조회용)
+            ticker: 거래 ticker (예: "KRW-ZRO")
+        """
+        self.trader = trader
+        self.ticker = ticker
+
+        # ✅ 내부 상태 (캐시용)
+        self._has_position: bool = False           # 포지션 보유 여부 (캐시)
         self.qty: float = 0.0                     # 보유 수량
         self.avg_price: Optional[float] = None    # 평균 단가
         self.entry_bar: Optional[int] = None      # 진입 시점 bar index
@@ -30,6 +46,62 @@ class PositionState:
 
         # ✅ Stale Position Check용 (진입 이후 최고가)
         self.highest_since_entry: Optional[float] = None
+
+    @property
+    def has_position(self) -> bool:
+        """
+        ✅ 포지션 보유 여부 (실제 잔고 기반)
+        - trader가 설정되지 않았으면 내부 캐시 사용
+        - trader가 있으면 실제 잔고 조회 (호출 시마다 최신 상태)
+
+        주의: 매번 API/DB 호출하므로 성능 고려 필요
+        대신 sync_from_wallet() 메서드 사용 권장
+        """
+        return self._has_position
+
+    @has_position.setter
+    def has_position(self, value: bool):
+        """내부 캐시 설정 (open_position, close_position에서 사용)"""
+        self._has_position = value
+
+    def sync_from_wallet(self) -> bool:
+        """
+        ✅ 실제 지갑/DB 잔고로부터 포지션 상태 동기화
+
+        Returns:
+            bool: 동기화된 has_position 값
+        """
+        if self.trader is None or self.ticker is None:
+            logger.warning("[POS-SYNC] trader 또는 ticker 미설정 → 동기화 스킵")
+            return self._has_position
+
+        try:
+            # trader._coin_balance()는 test_mode에 따라 DB 또는 Upbit API 호출
+            actual_balance = float(self.trader._coin_balance(self.ticker))
+            actual_has_position = actual_balance >= 1e-6
+
+            # ✅ 내부 캐시 업데이트
+            old_state = self._has_position
+            self._has_position = actual_has_position
+            self.qty = actual_balance
+
+            if old_state != actual_has_position:
+                logger.warning(
+                    f"🔄 [POS-SYNC] 포지션 상태 변경 감지 | "
+                    f"old={old_state} → new={actual_has_position} | "
+                    f"qty={actual_balance:.6f} | ticker={self.ticker}"
+                )
+            else:
+                logger.debug(
+                    f"[POS-SYNC] 상태 일치 | has_pos={actual_has_position} | "
+                    f"qty={actual_balance:.6f} | ticker={self.ticker}"
+                )
+
+            return self._has_position
+
+        except Exception as e:
+            logger.error(f"[POS-SYNC] 동기화 실패: {e} → 기존 상태 유지")
+            return self._has_position
 
     def open_position(self, qty: float, price: float, bar_idx: int, ts):
         """

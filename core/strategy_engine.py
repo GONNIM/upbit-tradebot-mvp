@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 import logging
 import queue
+import threading  # ✅ Issue #10: 스레드 락 추가
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,9 @@ class StrategyEngine:
 
         self.last_bar_ts = None
         self.bar_count = 0
+
+        # ✅ Issue #10: 스레드 락 (audit 로깅 ~ execution 원자적 보장)
+        self._execution_lock = threading.Lock()
 
     def is_new_bar(self, bar: Bar) -> bool:
         """
@@ -213,24 +217,62 @@ class StrategyEngine:
         # 2. 지표 증분 갱신 ★ 핵심: 전체 재계산 없음
         self.indicators.update_incremental(bar.close)
 
-        # 3. 전략 평가 (매수/매도에 맞는 EMA 스냅샷 사용)
-        # ✅ 포지션 유무에 따라 적절한 EMA 값 전달
-        is_buy_eval = not self.position.has_position
-        ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
-        action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
+        # 3. 전략 평가 및 실행 (스레드 락으로 원자적 보장)
+        # ✅ Issue #10: audit 로깅과 execution 사이 position 상태 변경 방지
+        with self._execution_lock:
+            # ✅ 포지션 상태 동기화 (평가 직전)
+            logger.debug(f"[ENGINE] 평가 시작 전 포지션 상태 동기화 | bar={self.bar_count}")
+            self.position.sync_from_wallet()
+            has_position_before_eval = self.position.has_position
 
-        # 로그 출력
-        self._log_bar_evaluation(bar, ind_snapshot, action)
+            # 포지션 유무에 따라 적절한 EMA 값 전달
+            is_buy_eval = not self.position.has_position
+            ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
+            action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
 
-        # 이벤트 큐에 LOG 전송 (Streamlit용)
-        if self.q is not None:
-            self._send_log_event(bar, ind_snapshot)
+            # 로그 출력
+            self._log_bar_evaluation(bar, ind_snapshot, action)
 
-        # ✅ 감사 로그 기록 (매 봉마다)
-        self._record_audit_log(bar, ind_snapshot, action)
+            # 이벤트 큐에 LOG 전송 (Streamlit용)
+            if self.q is not None:
+                self._send_log_event(bar, ind_snapshot)
 
-        # 4. 주문 실행
-        self.execute(action, bar, ind_snapshot)
+            # ✅ 포지션 상태 재확인 (audit 로깅 직전)
+            logger.debug(f"[ENGINE] Audit 로깅 전 포지션 상태 재확인 | bar={self.bar_count}")
+            self.position.sync_from_wallet()
+            has_position_before_audit = self.position.has_position
+
+            if has_position_before_eval != has_position_before_audit:
+                logger.error(
+                    f"🚨 [ENGINE] 포지션 상태 불일치 감지 (평가~Audit) | "
+                    f"before_eval={has_position_before_eval} → before_audit={has_position_before_audit} | "
+                    f"bar={self.bar_count}"
+                )
+
+            # 감사 로그 기록 (매 봉마다)
+            self._record_audit_log(bar, ind_snapshot, action)
+
+            # 4. 주문 실행
+            # ✅ 포지션 상태 최종 확인 (execution 직전)
+            logger.debug(f"[ENGINE] Execution 전 포지션 상태 최종 확인 | bar={self.bar_count}")
+            self.position.sync_from_wallet()
+            has_position_before_exec = self.position.has_position
+
+            if has_position_before_audit != has_position_before_exec:
+                logger.error(
+                    f"🚨 [ENGINE] 포지션 상태 불일치 감지 (Audit~Exec) | "
+                    f"before_audit={has_position_before_audit} → before_exec={has_position_before_exec} | "
+                    f"bar={self.bar_count}"
+                )
+
+            self.execute(action, bar, ind_snapshot)
+
+            # ✅ 디버그: 최종 포지션 상태 로깅
+            logger.debug(
+                f"[ENGINE] 평가/실행 완료 | bar={self.bar_count} | "
+                f"final_has_position={self.position.has_position} | "
+                f"action={action.action if action else 'NONE'}"
+            )
 
     def on_new_bar_confirmed(
         self,
@@ -312,28 +354,66 @@ class StrategyEngine:
             logger.debug(f"[ENGINE] 변경 없음 → 증분 업데이트 | bar_count={self.bar_count}")
             self.indicators.update_incremental(bar.close)
 
-        # 3. 전략 평가
-        is_buy_eval = not self.position.has_position
-        ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
-        action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
+        # 3. 전략 평가 및 실행 (스레드 락으로 원자적 보장)
+        # ✅ Issue #10: audit 로깅과 execution 사이 position 상태 변경 방지
+        with self._execution_lock:
+            # ✅ 포지션 상태 동기화 (평가 직전)
+            logger.debug(f"[ENGINE] 평가 시작 전 포지션 상태 동기화 | bar={self.bar_count}")
+            self.position.sync_from_wallet()
+            has_position_before_eval = self.position.has_position
 
-        # 로그 출력
-        self._log_bar_evaluation(bar, ind_snapshot, action)
+            is_buy_eval = not self.position.has_position
+            ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
+            action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
 
-        # 이벤트 큐
-        if self.q is not None:
-            self._send_log_event(bar, ind_snapshot)
+            # 로그 출력
+            self._log_bar_evaluation(bar, ind_snapshot, action)
 
-        # 감사 로그
-        self._record_audit_log(bar, ind_snapshot, action)
+            # 이벤트 큐
+            if self.q is not None:
+                self._send_log_event(bar, ind_snapshot)
 
-        # 4. 주문 실행
-        # ✅ Backfill 모드일 때는 감사 로그만 기록하고 실제 주문은 건너뜀
-        backfill_mode = diff_summary.get("backfill_mode", False)
-        if not backfill_mode:
-            self.execute(action, bar, ind_snapshot)
-        else:
-            logger.debug(f"[BACKFILL] 실제 주문 건너뜀 (감사 로그만 기록) | ts={bar.ts}")
+            # ✅ 포지션 상태 재확인 (audit 로깅 직전)
+            logger.debug(f"[ENGINE] Audit 로깅 전 포지션 상태 재확인 | bar={self.bar_count}")
+            self.position.sync_from_wallet()
+            has_position_before_audit = self.position.has_position
+
+            if has_position_before_eval != has_position_before_audit:
+                logger.error(
+                    f"🚨 [ENGINE] 포지션 상태 불일치 감지 (평가~Audit) | "
+                    f"before_eval={has_position_before_eval} → before_audit={has_position_before_audit} | "
+                    f"bar={self.bar_count}"
+                )
+
+            # 감사 로그
+            self._record_audit_log(bar, ind_snapshot, action)
+
+            # 4. 주문 실행
+            # ✅ Backfill 모드일 때는 감사 로그만 기록하고 실제 주문은 건너뜀
+            backfill_mode = diff_summary.get("backfill_mode", False)
+            if not backfill_mode:
+                # ✅ 포지션 상태 최종 확인 (execution 직전)
+                logger.debug(f"[ENGINE] Execution 전 포지션 상태 최종 확인 | bar={self.bar_count}")
+                self.position.sync_from_wallet()
+                has_position_before_exec = self.position.has_position
+
+                if has_position_before_audit != has_position_before_exec:
+                    logger.error(
+                        f"🚨 [ENGINE] 포지션 상태 불일치 감지 (Audit~Exec) | "
+                        f"before_audit={has_position_before_audit} → before_exec={has_position_before_exec} | "
+                        f"bar={self.bar_count}"
+                    )
+
+                self.execute(action, bar, ind_snapshot)
+            else:
+                logger.debug(f"[BACKFILL] 실제 주문 건너뜀 (감사 로그만 기록) | ts={bar.ts}")
+
+            # ✅ 디버그: 최종 포지션 상태 로깅
+            logger.debug(
+                f"[ENGINE] 평가/실행 완료 | bar={self.bar_count} | "
+                f"final_has_position={self.position.has_position} | "
+                f"action={action.action if action else 'NONE'}"
+            )
 
     def execute(self, action: Action, bar: Bar, indicators: Dict[str, Any]):
         """

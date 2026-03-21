@@ -327,10 +327,13 @@ def run_live_loop(
     )
 
     # PositionState 생성
-    position = PositionState()
+    # ✅ Issue #10: trader와 ticker를 전달하여 실제 지갑/DB 잔고 기반 동기화 가능
+    position = PositionState(trader=trader, ticker=params.upbit_ticker)
 
     # 기존 포지션 복구 (지갑 기준)
-    has_pos = _wallet_has_position(trader, params.upbit_ticker)
+    # ✅ sync_from_wallet()로 실제 잔고 동기화
+    position.sync_from_wallet()
+    has_pos = position.has_position
     if has_pos:
         # ✅ 실제 지갑 잔고로 qty 설정 (Single Source of Truth)
         actual_qty = _wallet_balance(trader, params.upbit_ticker)
