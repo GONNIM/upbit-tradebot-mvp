@@ -37,6 +37,7 @@ env/
 *.db-wal
 *.txt
 *.md
+*.sh
 
 # 민감 정보 YAML
 credentials.yaml
