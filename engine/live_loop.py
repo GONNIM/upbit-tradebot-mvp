@@ -776,10 +776,13 @@ def run_live_loop(
                                         'prev_ema_slow_sell': engine.indicators.prev_ema_slow_sell,
                                     })
 
+                                # 디버그 로그 (None 처리)
+                                prev_fast_str = f"{saved_indicators['prev_ema_fast']:.2f}" if saved_indicators['prev_ema_fast'] is not None else "None"
+                                prev_slow_str = f"{saved_indicators['prev_ema_slow']:.2f}" if saved_indicators['prev_ema_slow'] is not None else "None"
                                 logger.debug(
                                     f"[BACKFILL] 지표 상태 백업 | "
-                                    f"prev_ema_fast={saved_indicators['prev_ema_fast']:.2f} "
-                                    f"prev_ema_slow={saved_indicators['prev_ema_slow']:.2f}"
+                                    f"prev_ema_fast={prev_fast_str} "
+                                    f"prev_ema_slow={prev_slow_str}"
                                 )
 
                                 for ts in sorted(backfill_ts_list):
@@ -852,10 +855,13 @@ def run_live_loop(
                                     engine.indicators.prev_ema_fast_sell = saved_indicators['prev_ema_fast_sell']
                                     engine.indicators.prev_ema_slow_sell = saved_indicators['prev_ema_slow_sell']
 
+                                # 디버그 로그 (None 처리)
+                                prev_fast_str = f"{engine.indicators.prev_ema_fast:.2f}" if engine.indicators.prev_ema_fast is not None else "None"
+                                prev_slow_str = f"{engine.indicators.prev_ema_slow:.2f}" if engine.indicators.prev_ema_slow is not None else "None"
                                 logger.debug(
                                     f"[BACKFILL] 지표 상태 복원 완료 | "
-                                    f"prev_ema_fast={engine.indicators.prev_ema_fast:.2f} "
-                                    f"prev_ema_slow={engine.indicators.prev_ema_slow:.2f}"
+                                    f"prev_ema_fast={prev_fast_str} "
+                                    f"prev_ema_slow={prev_slow_str}"
                                 )
                         else:
                             msg = f"✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트"
