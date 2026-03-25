@@ -159,6 +159,353 @@ sqlite3 services/data/tradebot_mcmax33.db \
 
 ---
 
+### 🔴 Issue #10: Enum 속성 접근 오류 (action.action → AttributeError)
+
+**발생일**: 2026-03-24
+**심각도**: 🔴 Critical (엔진 중단 100% 재현)
+
+#### 문제
+
+봇이 bar=201 평가 후 반복적으로 중단됨:
+
+```
+2026-03-24 09:09:36 | bar=201 평가 완료
+❌ 예외: AttributeError: 'Action' object has no attribute 'action'
+🛑 엔진 종료
+```
+
+**발생 이력**:
+- 2026-03-21 19:09:15 (bar=201)
+- 2026-03-21 19:36:44 (bar=201)
+- 2026-03-21 19:38:54 (bar=201)
+- 2026-03-22 16:30:36 (bar=201)
+- 2026-03-24 09:09:36 (bar=201) ← 가장 최근
+
+#### 근본 원인
+
+**`strategy_engine.py:274, 415` Enum 속성 오접근**:
+
+```python
+# ❌ 잘못된 코드
+logger.debug(
+    f"action={action.action if action else 'NONE'}"
+)
+```
+
+**왜 문제인가?**
+
+- `Action`은 Python Enum 클래스:
+  ```python
+  class Action(Enum):
+      BUY = "BUY"
+      SELL = "SELL"
+      HOLD = "HOLD"
+  ```
+- Enum 객체의 속성:
+  - `.value`: Enum 값 (`"BUY"`, `"SELL"` 등)
+  - `.name`: Enum 이름 (`"BUY"`, `"SELL"` 등)
+  - ❌ `.action`: **존재하지 않음** → AttributeError
+
+- `action.action` 접근 시도:
+  - `Action.BUY.action` → ❌ AttributeError
+  - 디버그 로그 실행 시점에 예외 발생
+  - 엔진 전체 중단
+
+#### 왜 놓쳤나?
+
+1. **Python Enum 표준 속성 이해 부족**
+   - `.value`, `.name` 대신 `.action` 사용
+   - 존재하지 않는 속성 접근
+
+2. **테스트 부족**
+   - 해당 디버그 로그가 실행되는 경로 미테스트
+   - bar=201 도달 시에만 발생하는 경로
+   - 초기 bar < 201일 때는 실행 안 됨
+
+3. **복사-붙여넣기 오류**
+   - 2곳에서 동일 패턴 반복 (274, 415번 라인)
+   - Mass Replace 없이 개별 작성 시 발생
+
+#### 교훈
+
+1. **Python 기본 타입 속성 명확히 이해**
+   ```python
+   # ✅ 올바른 Enum 사용
+   action = Action.BUY
+   action.value  # "BUY" ✅
+   action.name   # "BUY" ✅
+   str(action)   # "BUY" ✅ (__str__ 메서드 활용)
+
+   # ❌ 잘못된 접근
+   action.action  # AttributeError ❌
+   ```
+
+2. **디버그 코드도 테스트 필수**
+   - 디버그 로그라도 런타임 에러 발생 가능
+   - 모든 코드 경로 테스트 필요
+
+3. **Early Warning 시스템 부족**
+   - bar=201 이전에는 발견 안 됨
+   - 초기화 단계에서 기본 검증 필요
+
+#### 수정
+
+**Before (잘못됨)**:
+```python
+# core/strategy_engine.py:274, 415
+logger.debug(
+    f"[ENGINE] 평가/실행 완료 | bar={self.bar_count} | "
+    f"final_has_position={self.position.has_position} | "
+    f"action={action.action if action else 'NONE'}"  # ❌
+)
+```
+
+**After (올바름)**:
+```python
+# core/strategy_engine.py:274, 415
+logger.debug(
+    f"[ENGINE] 평가/실행 완료 | bar={self.bar_count} | "
+    f"final_has_position={self.position.has_position} | "
+    f"action={action.value if action else 'NONE'}"  # ✅
+)
+```
+
+#### 영향 범위
+
+- **파일**: `core/strategy_engine.py`
+- **라인**: 274, 415 (2곳)
+- **수정 방법**: `action.action` → `action.value`
+
+#### 검증 방법
+
+```bash
+# 1. 구문 검증
+python3 -m py_compile core/strategy_engine.py
+
+# 2. 동일 패턴 검색
+grep -rn "action\.action" --include="*.py"
+# 결과: 패턴 없음 (수정 완료)
+
+# 3. 봇 재시작 후 bar=201 이후 정상 동작 확인
+tail -f mcmax33_engine_debug.log | grep "평가/실행 완료"
+```
+
+**파일**: `core/strategy_engine.py`
+**문서**: `CLAUDE.md` (Issue #10)
+
+---
+
+### 🔴 Issue #11: BACKFILL이 실시간 지표를 오염시켜 Golden Cross 미감지
+
+**발생일**: 2026-03-25
+**심각도**: 🔴 Critical (Golden Cross 타이밍 100% 놓침)
+
+#### 문제
+
+Dead Cross → Golden Cross 전환 시점인데 매수 신호가 발생하지 않음:
+
+```
+2026-03-24 16:50:35 | bar=2856 | Dead Cross | ema_fast=3210.14 < ema_slow=3211.88
+2026-03-24 16:52:30 | bar=2857 | Golden Cross | ema_fast=3214.00 > ema_slow=3213.03
+                              → BUY 신호 (BACKFILL)
+2026-03-24 16:53:06 | bar=2857 | Golden Cross | ema_fast=3215.70 > ema_slow=3213.55
+                              → NO_SIGNAL ❌ (실시간)
+```
+
+**DB 기록**:
+```
+timestamp          | bar_time  | bar  | ema_fast | ema_slow | overall_ok | notes
+16:52:30 (BACKFILL)| 16:51:00  | 2857 | 3214.00  | 3213.03  | 1          | 🟢 BUY | Golden
+16:53:06 (실시간)   | 16:52:00  | 2857 | 3215.70  | 3213.55  | 0          | Golden | NO_SIGNAL
+```
+
+**문제점**:
+- 16:52:30 BACKFILL에서 Golden Cross 감지했지만 **실제 주문 실행 안 함** (설계 의도)
+- 16:53:06 실시간 처리에서 **Golden Cross 감지 실패** → NO_SIGNAL
+
+#### 근본 원인
+
+**BACKFILL이 지표 상태(`prev_ema_fast`, `prev_ema_slow`)를 덮어씀**:
+
+**타임라인 (수정 전):**
+
+```python
+# Step 1: 16:50:35 - bar=2856 실시간 처리
+update_incremental(3264)
+→ prev_ema_fast = 3210.14 (Dead)
+→ prev_ema_slow = 3211.88 (Dead)
+→ ema_fast = 3210.14
+→ ema_slow = 3211.88
+
+# Step 2: 16:52:30 - BACKFILL로 16:51 봉 처리
+update_incremental(3268)  # ← BACKFILL인데도 호출!
+→ prev_ema_fast = 3210.14 → 3214.00 (덮어씀!)
+→ prev_ema_slow = 3211.88 → 3213.03 (덮어씀!)
+→ ema_fast = 3214.00
+→ ema_slow = 3213.03
+
+Golden Cross 체크:
+  prev (3210.14 Dead) → current (3214.00 Golden) = GC 감지! ✅
+  하지만 BACKFILL이라 주문 건너뜀 ❌
+
+# Step 3: 16:53:06 - 16:52 봉 실시간 처리
+update_incremental(3266)
+→ prev_ema_fast = 3214.00 (BACKFILL에서 오염된 값!)
+→ prev_ema_slow = 3213.03 (BACKFILL에서 오염된 값!)
+→ ema_fast = 3215.70
+→ ema_slow = 3213.55
+
+Golden Cross 체크:
+  prev (3214.00 Golden) → current (3215.70 Golden) = 변화 없음 ❌
+  → Golden Cross 감지 실패!
+```
+
+**핵심 문제:**
+- BACKFILL에서 `update_incremental` 호출 시 `prev` 값을 덮어씀
+- 다음 실시간 봉에서 `prev = BACKFILL에서 업데이트된 값`이 됨
+- **16:50 Dead → 16:52 Golden 변화를 추적하지 못함**
+
+#### 왜 놓쳤나?
+
+1. **Issue #5 수정 시 부작용 미고려**
+   - Issue #5: "EMA 증분 업데이트 누락" 수정
+   - `update_incremental(bar.close)` 추가 (재계산 후)
+   - 하지만 **BACKFILL 모드 여부를 확인하지 않음**
+   - 항상 실행되어 `prev` 상태 오염
+
+2. **BACKFILL 설계 가정 오류**
+   - 가정: "BACKFILL은 감사 로그만 기록한다"
+   - 실제: "BACKFILL도 지표를 업데이트한다" (Issue #5 수정 후)
+   - **실시간 지표 상태를 보호하지 않음**
+
+3. **End-to-End 검증 부족**
+   - BACKFILL 전후 `prev` 상태 변화 확인 안 함
+   - 실시간 봉에서 Golden Cross 감지 여부 검증 안 함
+
+#### 교훈
+
+1. **BACKFILL은 실시간 상태를 오염시켜선 안 된다**
+   - BACKFILL 목적: 감사 로그 무결성 (과거 데이터 재평가)
+   - 실시간 매매 로직과 완전히 분리되어야 함
+   - **상태 백업/복원 패턴 필수**
+
+2. **이전 상태(`prev`) 추적이 크로스 감지의 핵심**
+   ```python
+   # Golden Cross 조건
+   prev_ema_fast <= prev_ema_slow  # 이전 Dead
+   ema_fast > ema_slow             # 현재 Golden
+   ```
+   - `prev` 값이 오염되면 크로스 감지 불가능
+   - BACKFILL이 `prev`를 건드리면 안 됨
+
+3. **수정 시 모든 경로 검증 필수**
+   - Issue #5 수정: Reconcile 후 증분 업데이트 추가
+   - ✅ Reconcile 경로: 정상 동작
+   - ❌ BACKFILL 경로: 부작용 발생 (미검증)
+
+#### 수정
+
+**핵심 원리: BACKFILL 전후로 지표 상태 백업/복원**
+
+```python
+# engine/live_loop.py:750-859
+
+if backfill_ts_list:
+    # ✅ Issue #11: BACKFILL 전 지표 상태 백업
+    saved_indicators = {
+        'ema_fast': engine.indicators.ema_fast,
+        'ema_slow': engine.indicators.ema_slow,
+        'prev_ema_fast': engine.indicators.prev_ema_fast,
+        'prev_ema_slow': engine.indicators.prev_ema_slow,
+        'macd': engine.indicators.macd,
+        'signal': engine.indicators.signal,
+        'prev_macd': engine.indicators.prev_macd,
+        'prev_signal': engine.indicators.prev_signal,
+        # ... 매수/매도 별도 EMA 포함
+    }
+
+    # BACKFILL 처리 (감사 로그 기록)
+    for ts in sorted(backfill_ts_list):
+        # ... BACKFILL 로직 ...
+        engine.on_new_bar_confirmed(bar, local_series, backfill_diff_summary)
+
+    # ✅ Issue #11: BACKFILL 후 지표 상태 복원
+    engine.indicators.ema_fast = saved_indicators['ema_fast']
+    engine.indicators.ema_slow = saved_indicators['ema_slow']
+    engine.indicators.prev_ema_fast = saved_indicators['prev_ema_fast']
+    engine.indicators.prev_ema_slow = saved_indicators['prev_ema_slow']
+    # ... 복원
+```
+
+**수정 후 동작:**
+
+```python
+# Step 1: 16:50 봉 처리
+prev: Dead (3210.14, 3211.88)
+current: Dead (3210.14, 3211.88)
+
+# Step 2: BACKFILL (16:51 봉)
+지표 상태 백업 → BACKFILL 처리 → 지표 상태 복원
+결과: prev=Dead, current=Dead (그대로!)
+
+# Step 3: 16:52 봉 실시간 처리
+prev: Dead (백업에서 복원된 3210.14, 3211.88)
+current: Golden (새로 계산된 3215.70, 3213.55)
+→ Dead → Golden = Golden Cross 감지! ✅ 매수 발생!
+```
+
+#### 영향 범위
+
+- **파일**: `engine/live_loop.py`
+- **라인**: 750-859 (BACKFILL 루프)
+- **수정 내용**:
+  - BACKFILL 시작 전: 지표 상태 백업 (35줄)
+  - BACKFILL 종료 후: 지표 상태 복원 (30줄)
+
+#### 검증 방법
+
+```bash
+# 1. 봇 재시작 후 BACKFILL 발생 시 로그 확인
+tail -f mcmax33_engine_debug.log | grep -E "BACKFILL|지표 상태"
+
+# 출력 예시:
+# [BACKFILL] 지표 상태 백업 | prev_ema_fast=3210.14 prev_ema_slow=3211.88
+# [BACKFILL] 누락 봉 평가 | ts=16:51:00 | close=3268
+# [BACKFILL] 지표 상태 복원 완료 | prev_ema_fast=3210.14 prev_ema_slow=3211.88
+
+# 2. Dead → Golden 전환 시 매수 신호 확인
+sqlite3 services/data/tradebot_mcmax33.db \
+  "SELECT timestamp, bar_time, bar, overall_ok, notes
+   FROM audit_buy_eval
+   WHERE notes LIKE '%Golden%'
+   ORDER BY timestamp DESC LIMIT 10"
+
+# 3. 실제 거래 발생 확인
+sqlite3 services/data/tradebot_mcmax33.db \
+  "SELECT timestamp, bar_time, type, reason, price
+   FROM audit_trades
+   WHERE type='BUY'
+   ORDER BY timestamp DESC LIMIT 5"
+```
+
+#### 사용자 피드백
+
+> "Dead -> Golden 변환시 GC 발생시점인데... 실질적으로 매수 전략이 돌지 않았다. 원인을 찾아서 해결방안을 강구하라."
+
+**핵심 메시지**:
+- ✅ Golden Cross 정확히 감지됨 (16:52:30, BACKFILL)
+- ❌ BACKFILL이라 실제 매수 실행 안 됨 (설계 의도)
+- ❌ 실시간 처리(16:53:06)에서 Golden Cross 감지 실패
+- ✅ **근본 원인**: BACKFILL이 `prev` 상태를 오염시킴
+
+**해결:**
+- BACKFILL 전후 지표 상태 백업/복원으로 **실시간 Golden Cross 정확 감지 보장**
+
+**파일**: `engine/live_loop.py`
+**문서**: `CLAUDE.md` (Issue #11)
+
+---
+
 ### 🔴 Issue #1: pyupbit 컬럼명 대소문자 불일치
 
 **발생일**: 2026-03-03 20:08
@@ -1354,10 +1701,12 @@ def standardize_dataframe(df):
 | 2026-03-03 22:00 | EMA 증분 업데이트 누락 | 🔴 Critical | 1 file, 4 lines | 10분 |
 | 2026-03-04 20:30 | 정체 포지션 필터 봉 개수 기반 | 🔴 Critical | 2 files, 80 lines | 30분 |
 | 2026-03-05 | Trailing Stop 계산 방식 오류 | 🔴 Critical | 3 files, ~100 lines | 40분 |
+| 2026-03-24 09:09 | Enum 속성 접근 오류 | 🔴 Critical | 1 file, 2 lines | 10분 |
+| 2026-03-25 | BACKFILL 지표 오염으로 GC 미감지 | 🔴 Critical | 1 file, 65 lines | 60분 |
 
 ### 교훈
 
-- **총 놓친 버그**: 6개 (모두 Critical)
+- **총 놓친 버그**: 8개 (모두 Critical)
 - **근본 원인**:
   - 가정 기반 코딩
   - 외부 API 검증 부족
@@ -1369,6 +1718,11 @@ def standardize_dataframe(df):
   - **사용자 기대 무시**
   - **관례적 구현에 의존** (신규 - Issue #7)
   - **요구사항을 수식으로 변환하지 않음** (신규 - Issue #7)
+  - **Python 기본 타입 속성 이해 부족** (신규 - Issue #10)
+  - **디버그 코드 테스트 부족** (신규 - Issue #10)
+  - **수정 시 부작용(side effect) 검증 부족** (신규 - Issue #11)
+  - **상태(prev) 오염이 크로스 감지를 방해** (신규 - Issue #11)
+  - **BACKFILL과 실시간 로직 분리 부족** (신규 - Issue #11)
 - **재발 방지**:
   - 검증 프로세스 확립
   - Best Practices 문서화
@@ -1379,6 +1733,11 @@ def standardize_dataframe(df):
   - **사용자 피드백 즉시 반영**
   - **요구사항을 수식으로 명확히 변환** (신규 - Issue #7)
   - **예시 시나리오로 구현 검증** (신규 - Issue #7)
+  - **Python 표준 라이브러리 속성 명확히 숙지** (신규 - Issue #10)
+  - **디버그 코드도 프로덕션 코드처럼 테스트** (신규 - Issue #10)
+  - **BACKFILL 처리 시 상태 백업/복원 패턴 적용** (신규 - Issue #11)
+  - **수정 시 모든 코드 경로(BACKFILL 포함) 검증** (신규 - Issue #11)
+  - **이전 상태(prev) 추적이 크로스 감지의 핵심임을 인지** (신규 - Issue #11)
 
 ---
 
@@ -1433,6 +1792,6 @@ def test_bar_time_accuracy():
 
 ---
 
-**최종 업데이트**: 2026-03-05
+**최종 업데이트**: 2026-03-25
 **작성자**: CTO Assistant (Claude Code)
-**버전**: v1.3 (Issue #7 추가 - Trailing Stop 수익 기반 개선)
+**버전**: v1.4 (Issue #11 추가 - BACKFILL 지표 오염 방지)

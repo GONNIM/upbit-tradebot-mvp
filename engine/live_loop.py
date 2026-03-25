@@ -747,6 +747,41 @@ def run_live_loop(
                                 logger.info(msg)
                                 log_to_file(msg, user_id)
 
+                                # ✅ Issue #11: BACKFILL 전 지표 상태 백업
+                                # BACKFILL이 실시간 지표를 오염시켜 Golden Cross를 놓치는 문제 방지
+                                # prev 상태를 보존하여 다음 실시간 봉에서 정확한 크로스 감지 보장
+                                saved_indicators = {
+                                    'ema_fast': engine.indicators.ema_fast,
+                                    'ema_slow': engine.indicators.ema_slow,
+                                    'ema_base': engine.indicators.ema_base,
+                                    'prev_ema_fast': engine.indicators.prev_ema_fast,
+                                    'prev_ema_slow': engine.indicators.prev_ema_slow,
+                                    'macd': engine.indicators.macd,
+                                    'signal': engine.indicators.signal,
+                                    'hist': engine.indicators.hist,
+                                    'prev_macd': engine.indicators.prev_macd,
+                                    'prev_signal': engine.indicators.prev_signal,
+                                }
+
+                                # 매수/매도 별도 EMA 사용 시 추가 백업
+                                if engine.indicators.use_separate_ema:
+                                    saved_indicators.update({
+                                        'ema_fast_buy': engine.indicators.ema_fast_buy,
+                                        'ema_slow_buy': engine.indicators.ema_slow_buy,
+                                        'ema_fast_sell': engine.indicators.ema_fast_sell,
+                                        'ema_slow_sell': engine.indicators.ema_slow_sell,
+                                        'prev_ema_fast_buy': engine.indicators.prev_ema_fast_buy,
+                                        'prev_ema_slow_buy': engine.indicators.prev_ema_slow_buy,
+                                        'prev_ema_fast_sell': engine.indicators.prev_ema_fast_sell,
+                                        'prev_ema_slow_sell': engine.indicators.prev_ema_slow_sell,
+                                    })
+
+                                logger.debug(
+                                    f"[BACKFILL] 지표 상태 백업 | "
+                                    f"prev_ema_fast={saved_indicators['prev_ema_fast']:.2f} "
+                                    f"prev_ema_slow={saved_indicators['prev_ema_slow']:.2f}"
+                                )
+
                                 for ts in sorted(backfill_ts_list):
                                     try:
                                         row = local_series.loc[ts]
@@ -791,6 +826,37 @@ def run_live_loop(
                                 msg = f"✅ [BACKFILL] {len(backfill_ts_list)}개 누락 봉 평가 완료"
                                 logger.info(msg)
                                 log_to_file(msg, user_id)
+
+                                # ✅ Issue #11: BACKFILL 후 지표 상태 복원
+                                # BACKFILL 처리 중 변경된 지표를 원래 상태로 복원
+                                # 이를 통해 다음 실시간 봉에서 정확한 크로스 감지 보장
+                                engine.indicators.ema_fast = saved_indicators['ema_fast']
+                                engine.indicators.ema_slow = saved_indicators['ema_slow']
+                                engine.indicators.ema_base = saved_indicators['ema_base']
+                                engine.indicators.prev_ema_fast = saved_indicators['prev_ema_fast']
+                                engine.indicators.prev_ema_slow = saved_indicators['prev_ema_slow']
+                                engine.indicators.macd = saved_indicators['macd']
+                                engine.indicators.signal = saved_indicators['signal']
+                                engine.indicators.hist = saved_indicators['hist']
+                                engine.indicators.prev_macd = saved_indicators['prev_macd']
+                                engine.indicators.prev_signal = saved_indicators['prev_signal']
+
+                                # 매수/매도 별도 EMA 사용 시 복원
+                                if engine.indicators.use_separate_ema:
+                                    engine.indicators.ema_fast_buy = saved_indicators['ema_fast_buy']
+                                    engine.indicators.ema_slow_buy = saved_indicators['ema_slow_buy']
+                                    engine.indicators.ema_fast_sell = saved_indicators['ema_fast_sell']
+                                    engine.indicators.ema_slow_sell = saved_indicators['ema_slow_sell']
+                                    engine.indicators.prev_ema_fast_buy = saved_indicators['prev_ema_fast_buy']
+                                    engine.indicators.prev_ema_slow_buy = saved_indicators['prev_ema_slow_buy']
+                                    engine.indicators.prev_ema_fast_sell = saved_indicators['prev_ema_fast_sell']
+                                    engine.indicators.prev_ema_slow_sell = saved_indicators['prev_ema_slow_sell']
+
+                                logger.debug(
+                                    f"[BACKFILL] 지표 상태 복원 완료 | "
+                                    f"prev_ema_fast={engine.indicators.prev_ema_fast:.2f} "
+                                    f"prev_ema_slow={engine.indicators.prev_ema_slow:.2f}"
+                                )
                         else:
                             msg = f"✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트"
                             logger.info(msg)

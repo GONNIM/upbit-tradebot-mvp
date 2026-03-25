@@ -271,7 +271,7 @@ class StrategyEngine:
             logger.debug(
                 f"[ENGINE] 평가/실행 완료 | bar={self.bar_count} | "
                 f"final_has_position={self.position.has_position} | "
-                f"action={action.action if action else 'NONE'}"
+                f"action={action.value if action else 'NONE'}"
             )
 
     def on_new_bar_confirmed(
@@ -412,7 +412,7 @@ class StrategyEngine:
             logger.debug(
                 f"[ENGINE] 평가/실행 완료 | bar={self.bar_count} | "
                 f"final_has_position={self.position.has_position} | "
-                f"action={action.action if action else 'NONE'}"
+                f"action={action.value if action else 'NONE'}"
             )
 
     def execute(self, action: Action, bar: Bar, indicators: Dict[str, Any]):
