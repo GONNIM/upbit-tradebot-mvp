@@ -36,13 +36,28 @@ env/
 *.db-shm
 *.db-wal
 *.txt
-*.md
 *.sh
 
 # 민감 정보 YAML
 credentials.yaml
 data/*.db*
 
+# Claude AI 컨텍스트 (로컬 전용)
+.claude/
+
+# 문서 재구조화 - 선택적 추적
+# 루트 마크다운 (기존 파일들)
+# CLAUDE.md  ← Git 추적 활성화 (팀 공유를 위해)
+CTO_ANALYSIS_CLOSE_PRICE.md
+WO-2026-001_IMPLEMENTATION_REPORT.md
+
+# 역사적 아카이브 (로컬 전용)
 /claude-docs*
 /thoughts*
+
+# 테스트 (로컬 전용)
 /tests*
+
+# 새 문서 구조는 추적 (docs/, README.md, DOCS_REORGANIZATION_*.md 제외)
+# *.md를 전역 무시하지 않음 (위에서 제거)
+# 대신 개별 파일만 무시
