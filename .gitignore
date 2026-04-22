@@ -46,8 +46,10 @@ env/
 credentials.yaml
 data/*.db*
 
-# Claude AI 컨텍스트 (로컬 전용)
-.claude/
+# Claude AI 컨텍스트 (일부 추적)
+.claude/*
+!.claude/context/
+!.claude/lessons-learned.md
 
 # 문서 재구조화 - 선택적 추적
 # 루트 마크다운 (기존 파일들)
