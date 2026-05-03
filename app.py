@@ -240,6 +240,67 @@ elif authentication_status:
     st.session_state.setdefault("virtual_krw", 0)
     st.session_state.setdefault("virtual_over", False)
 
+    # ✅ WO-2026-002: LIVE 모드 자동 계좌검증 + 운용자산 설정
+    if _mode == "LIVE" and not st.session_state.get("_auto_checked_in_live"):
+        ak, sk = ACCESS, SECRET
+        if ak and sk:
+            with st.spinner("🔄 LIVE 모드 자동 계좌검증 중..."):
+                ok, data = validate_upbit_keys(ak, sk)
+
+            if ok:
+                # 1. 계좌검증 상태 저장
+                st.session_state.upbit_verified = True
+                st.session_state.upbit_accounts = data or []
+
+                # 2. KRW 잔고 추출
+                krw_balance = _extract_krw_balance(data)
+                st.session_state.live_krw_balance = krw_balance
+
+                # 3. ✅ 운용자산 자동 설정 (전체 잔고 사용)
+                st.session_state.virtual_krw = krw_balance
+                st.session_state.live_capital_set = True
+                st.session_state.virtual_over = True
+
+                # 4. DB 저장
+                save_user(username, name, krw_balance)
+
+                # 5. DB 잔고 동기화
+                try:
+                    from services.db import update_account_from_balances, update_position_from_balances
+                    update_account_from_balances(username, data)
+                    # 모든 코인 포지션도 동기화
+                    for bal in (data or []):
+                        currency = bal.get("currency", "").upper()
+                        if currency and currency != "KRW":
+                            ticker = f"KRW-{currency}"
+                            update_position_from_balances(username, ticker, data)
+                    logger.info(f"✅ [AUTO-VERIFY] DB 잔고 동기화 완료: user={username}")
+                except Exception as e:
+                    logger.error(f"⚠️ [AUTO-VERIFY] DB 잔고 동기화 실패: {e}")
+
+                # 6. 자동검증 플래그 설정
+                st.session_state["_auto_checked_in_live"] = True
+
+                # 7. 성공 메시지
+                st.success(
+                    f"✅ 자동 계좌검증 완료\n\n"
+                    f"- KRW 잔고: {krw_balance:,.0f} KRW\n"
+                    f"- 운용자산: {krw_balance:,.0f} KRW (자동 설정)\n"
+                    f"- DB 동기화: 완료",
+                    icon="✅"
+                )
+            else:
+                # 검증 실패
+                st.session_state.upbit_verified = False
+                st.session_state.upbit_accounts = []
+                st.session_state.live_krw_balance = 0.0
+                st.session_state.live_capital_set = False
+                st.error(
+                    f"❌ 자동 계좌검증 실패: {data}\n\n"
+                    "API 키를 확인하거나 수동으로 '계정 검증 실행' 버튼을 클릭하세요.",
+                    icon="❌"
+                )
+
     if _mode == "LIVE":
         with st.container(border=True):
             st.subheader("🔐 Upbit 계정 검증 (LIVE 전용)")
@@ -256,6 +317,10 @@ elif authentication_status:
                         server_ip = get_server_public_ip()
                         st.code(f"서버 공인 IP: {server_ip}")
                         st.caption("이 IP를 Upbit API 설정에 등록해야 합니다.")
+
+                    # ✅ WO-2026-002: 자동검증 상태 표시
+                    if st.session_state.get("_auto_checked_in_live"):
+                        st.info("✅ 자동 검증 완료됨 (재검증이 필요하면 아래 버튼 클릭)", icon="ℹ️")
 
                     if st.session_state.get("upbit_verified"):
                         krw = st.session_state.get("live_krw_balance", 0.0)
@@ -276,6 +341,11 @@ elif authentication_status:
                         krw_balance = _extract_krw_balance(st.session_state.upbit_accounts)
                         st.session_state.live_krw_balance = krw_balance
                         st.session_state.live_capital_set = True
+
+                        # ✅ WO-2026-002: 수동 검증 시에도 운용자산 자동 설정
+                        st.session_state.virtual_krw = krw_balance
+                        st.session_state.virtual_over = True
+                        save_user(username, name, krw_balance)
 
                         # ✅ 계정 검증 성공 시 즉시 DB 잔고 동기화
                         from services.db import update_account_from_balances, update_position_from_balances
@@ -331,71 +401,33 @@ elif authentication_status:
             )
             start_trading = None
         else:
-            user_info = get_user(username)
+            # ✅ WO-2026-002: LIVE 운용자산 자동 설정 (간단한 표시만)
+            st.subheader("💰 LIVE 운용자산 (자동 설정됨)")
 
-            if user_info:
-                _, virtual_krw, _ = user_info
-            else:
-                virtual_krw = 0
+            current_virtual_krw = st.session_state.get("virtual_krw", 0)
 
-            st.subheader("💰 LIVE 운용자산 설정 (Upbit KRW 기반)")
             if has_coin_pos and krw_balance < MIN_CASH:
-                # 코인 들고 있어서 입장은 허용된 케이스
-                st.caption(
-                    f"현재 Upbit 계정 KRW 잔고: **{krw_balance:,.0f} KRW**\n\n"
-                    "KRW 잔고는 최소 주문금액보다 적지만, 보유 중인 코인 포지션이 있어 LIVE 입장이 허용되었습니다.\n"
-                    "운용자산은 평가액 기준 관리용 수치로만 사용됩니다."
+                # 코인 보유 케이스
+                st.info(
+                    f"**현재 운용자산**: {current_virtual_krw:,.0f} KRW\n\n"
+                    f"KRW 잔고: {krw_balance:,.0f} KRW (코인 포지션 보유 중)\n\n"
+                    "계좌검증 시 자동으로 설정되었습니다.\n"
+                    "운용자산 변경을 원하시면 파라미터 설정 페이지를 이용하세요.",
+                    icon="💰"
                 )
             else:
-                st.caption(
-                    f"현재 Upbit 계정 KRW 잔고: **{krw_balance:,.0f} KRW**\n\n"
-                    "이 범위 내에서만 LIVE 운용자산을 설정할 수 있습니다."
-                )
-            
-            if has_coin_pos and krw_balance < MIN_CASH:
-                # 코인 포지션이 있고 KRW가 부족한 경우:
-                # - min_value: 10,000 (운용자산 기준선)
-                # - max_value: 10,000 (혹은 원하면 더 크게)
-                min_capital = int(MIN_CASH)
-                max_capital = int(MIN_CASH)
-            else:
-                # 일반 케이스: KRW 잔고 범위 내에서 설정
-                min_capital = int(MIN_CASH)
-                max_capital = int(krw_balance)
-
-            if virtual_krw > 0:
-                default_value = min(max_capital, max(min_capital, int(virtual_krw)))
-            else:
-                default_value = max_capital
-
-            live_capital = st.number_input(
-                "LIVE 운용자산(KRW)",
-                min_value=min_capital,
-                max_value=max_capital,
-                value=int(default_value),
-                step=10_000,
-            )
-
-            save_live_capital = st.button("LIVE 운용자산 저장하기", key="btn_save_capital", use_container_width=True)
-
-            if save_live_capital:
-                st.session_state.virtual_krw = live_capital
-                st.session_state.virtual_over = True
-                st.session_state.live_capital_set = True
-
-                save_user(
-                    st.session_state.user_id,
-                    st.session_state.name,
-                    live_capital,
+                # 일반 케이스
+                st.info(
+                    f"**현재 운용자산**: {current_virtual_krw:,.0f} KRW\n\n"
+                    f"KRW 잔고: {krw_balance:,.0f} KRW\n\n"
+                    "계좌검증 시 Upbit KRW 잔고로 자동 설정되었습니다.\n"
+                    "운용자산 변경을 원하시면 파라미터 설정 페이지를 이용하세요.",
+                    icon="💰"
                 )
 
-                st.success(f"LIVE 운용자산이 {live_capital:,.0f} KRW 로 설정되었습니다.")
-
+            # ✅ WO-2026-002: 입장하기 버튼 (중복 표시 제거)
             start_trading = None
             if st.session_state.get("live_capital_set"):
-                st.subheader("운용자산")
-                st.info(f"{st.session_state['virtual_krw']:.0f} KRW")
-
                 start_trading = st.button(
                     f"Upbit Trade Bot v1 ({mode_suffix}) 입장하기",
                     key="btn_start_trading_live",

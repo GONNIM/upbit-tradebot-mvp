@@ -109,17 +109,18 @@ if virtual_krw < MIN_CASH:
         st.switch_page("app.py")
     st.stop()
 
+# ✅ WO-2026-002: LIVE 모드 진입 조건 완화 (경고만 표시, 진입 허용)
 if mode == "LIVE":
     if not upbit_ok or not capital_ok:
-        st.error(
-            "LIVE 모드 진입 조건이 충족되지 않았습니다.\n\n"
+        st.warning(
+            "⚠️ LIVE 모드 진입 조건이 충족되지 않았습니다.\n\n"
             f"- upbit_verified: {upbit_ok}\n"
             f"- live_capital_set: {capital_ok}\n\n"
-            "app.py에서 LIVE 계정 검증 및 운용자산 설정을 먼저 완료해 주세요."
+            "파라미터 설정은 가능하지만, 실제 LIVE 운용을 위해서는\n"
+            "app.py에서 계좌검증을 먼저 완료해 주세요.",
+            icon="⚠️"
         )
-        if st.button("처음 화면으로 돌아가기"):
-            st.switch_page("app.py")
-        st.stop()
+        # ✅ st.stop() 제거 → 진행 허용
 
 # --- 계정 생성 또는 조회 ---
 if get_account(user_id) is None:
