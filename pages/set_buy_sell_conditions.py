@@ -161,6 +161,21 @@ def load_conditions():
             "sell": {condition_key: bool, ...}
         }
     """
+    # ✅ params 파일에서 기본값 로드 (sidebar와 연동)
+    params_file = f"{user_id}_{PARAMS_JSON_FILENAME}"
+    params_obj = load_params(params_file, strategy_type=strategy_tag)
+
+    # params에서 TP/SL 기본값 추출 (% 형태로 변환)
+    default_tp_pct = 3.0  # 기본값
+    default_sl_pct = 1.0  # 기본값
+    default_ts_threshold = 10.0  # 기본값
+    default_ts_activation = 5.0  # 기본값
+
+    if params_obj:
+        default_tp_pct = params_obj.take_profit * 100.0  # 0.05 -> 5.0%
+        default_sl_pct = params_obj.stop_loss * 100.0    # 0.01 -> 1.0%
+        # trailing_stop은 params에 없으므로 기본값 사용
+
     if SAVE_PATH.exists():
         with SAVE_PATH.open("r", encoding="utf-8") as f:
             saved = json.load(f)
@@ -178,6 +193,12 @@ def load_conditions():
             st.session_state["stale_hours"] = sell_saved.get("stale_hours", 1.0)
             st.session_state["stale_threshold_pct"] = sell_saved.get("stale_threshold_pct", 0.01)
 
+            # ✅ TP/SL 파라미터 로드 (conditions 우선, 없으면 params 기본값)
+            st.session_state["take_profit_pct"] = sell_saved.get("take_profit_pct", default_tp_pct)
+            st.session_state["stop_loss_pct"] = sell_saved.get("stop_loss_pct", default_sl_pct)
+            st.session_state["trailing_stop_threshold_pct"] = sell_saved.get("trailing_stop_threshold_pct", default_ts_threshold)
+            st.session_state["trailing_stop_activation_pct"] = sell_saved.get("trailing_stop_activation_pct", default_ts_activation)
+
         st.info(f"✅ [{strategy_tag}] 저장된 매수/매도 전략 Condition 설정을 불러왔습니다.")
     else:
         for key in BUY_CONDITIONS:
@@ -185,10 +206,14 @@ def load_conditions():
         for key in SELL_CONDITIONS:
             st.session_state.setdefault(key, False)
 
-        # ✅ 기본값 설정
+        # ✅ 기본값 설정 (params 연동)
         st.session_state.setdefault("surge_threshold_pct", 0.01)
         st.session_state.setdefault("stale_hours", 1.0)
         st.session_state.setdefault("stale_threshold_pct", 0.01)
+        st.session_state.setdefault("take_profit_pct", default_tp_pct)
+        st.session_state.setdefault("stop_loss_pct", default_sl_pct)
+        st.session_state.setdefault("trailing_stop_threshold_pct", default_ts_threshold)
+        st.session_state.setdefault("trailing_stop_activation_pct", default_ts_activation)
 
 
 # --- 상태 저장하기 ---
@@ -206,6 +231,17 @@ def save_conditions():
     if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
         conditions["sell"]["stale_hours"] = st.session_state.get("stale_hours", 1.0)
         conditions["sell"]["stale_threshold_pct"] = st.session_state.get("stale_threshold_pct", 0.01)
+
+    # ✅ TP/SL 파라미터 추가 저장 (활성화 시)
+    if st.session_state.get("stop_loss", False):
+        conditions["sell"]["stop_loss_pct"] = st.session_state.get("stop_loss_pct", 1.0)
+
+    if st.session_state.get("take_profit", False):
+        conditions["sell"]["take_profit_pct"] = st.session_state.get("take_profit_pct", 3.0)
+
+    if st.session_state.get("trailing_stop", False):
+        conditions["sell"]["trailing_stop_threshold_pct"] = st.session_state.get("trailing_stop_threshold_pct", 10.0)
+        conditions["sell"]["trailing_stop_activation_pct"] = st.session_state.get("trailing_stop_activation_pct", 5.0)
 
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
@@ -392,6 +428,76 @@ with st.expander("⭐ 핵심 전략 조건", expanded=True):
                 value=st.session_state.get(key, False),
                 key=f"toggle_{strategy_tag}_sell_strategy_{key}",
             )
+
+            # ✅ Stop Loss 파라미터
+            if key == "stop_loss" and st.session_state.get("stop_loss", False):
+                st.markdown("#### ⚙️ Stop Loss 파라미터")
+                st.caption("진입가 대비 손실 한도를 설정합니다")
+
+                sl_pct = st.number_input(
+                    "손실 한도 (%)",
+                    min_value=0.1,
+                    max_value=50.0,
+                    step=0.1,
+                    value=st.session_state.get("stop_loss_pct", 1.0),
+                    key=f"input_stop_loss_pct_{strategy_tag}",
+                    help="진입가 대비 이 비율 이상 하락 시 자동 매도"
+                )
+                st.session_state["stop_loss_pct"] = sl_pct
+                st.info(f"🔻 현재 설정: 진입가 대비 **-{sl_pct:.1f}%** 하락 시 자동 매도")
+
+            # ✅ Take Profit 파라미터
+            if key == "take_profit" and st.session_state.get("take_profit", False):
+                st.markdown("#### ⚙️ Take Profit 파라미터")
+                st.caption("진입가 대비 수익 목표를 설정합니다")
+
+                tp_pct = st.number_input(
+                    "수익 목표 (%)",
+                    min_value=0.1,
+                    max_value=50.0,
+                    step=0.1,
+                    value=st.session_state.get("take_profit_pct", 3.0),
+                    key=f"input_take_profit_pct_{strategy_tag}",
+                    help="진입가 대비 이 비율 이상 상승 시 자동 매도"
+                )
+                st.session_state["take_profit_pct"] = tp_pct
+                st.info(f"💰 현재 설정: 진입가 대비 **+{tp_pct:.1f}%** 상승 시 자동 매도")
+
+            # ✅ Trailing Stop 파라미터
+            if key == "trailing_stop" and st.session_state.get("trailing_stop", False):
+                st.markdown("#### ⚙️ Trailing Stop 파라미터")
+                st.caption("수익 보호를 위한 추적 매도 설정")
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    ts_threshold = st.number_input(
+                        "수익 하락 허용 (%)",
+                        min_value=1.0,
+                        max_value=50.0,
+                        step=1.0,
+                        value=st.session_state.get("trailing_stop_threshold_pct", 10.0),
+                        key=f"input_trailing_threshold_{strategy_tag}",
+                        help="최고 수익 대비 이 비율만큼 하락 시 매도"
+                    )
+                    st.session_state["trailing_stop_threshold_pct"] = ts_threshold
+
+                with col2:
+                    ts_activation = st.number_input(
+                        "활성화 수익률 (%)",
+                        min_value=0.1,
+                        max_value=50.0,
+                        step=0.1,
+                        value=st.session_state.get("trailing_stop_activation_pct", 5.0),
+                        key=f"input_trailing_activation_{strategy_tag}",
+                        help="이 수익률 달성 후 Trailing Stop 활성화"
+                    )
+                    st.session_state["trailing_stop_activation_pct"] = ts_activation
+
+                st.info(
+                    f"🧮 현재 설정: 수익 **+{ts_activation:.1f}%** 달성 후 "
+                    f"최고 수익 대비 **{ts_threshold:.0f}%** 하락 시 매도"
+                )
     else:
         st.info("이 전략에는 매도 조건이 없습니다.")
 

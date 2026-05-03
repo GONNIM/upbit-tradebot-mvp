@@ -59,11 +59,39 @@ class IncrementalMACDStrategy:
         self.user_id = user_id
         self.ticker = ticker
         self.macd_threshold = macd_threshold
-        self.take_profit = take_profit
-        self.stop_loss = stop_loss
         self.macd_crossover_threshold = macd_crossover_threshold
         self.min_holding_period = min_holding_period
-        self.trailing_stop_pct = trailing_stop_pct
+
+        # ✅ TP/SL 파라미터: sell_conditions 우선, 없으면 params fallback
+        # (sidebar와 매도/매수 설정 페이지 연동)
+        if sell_conditions and "take_profit_pct" in sell_conditions:
+            self.take_profit = sell_conditions.get("take_profit_pct", 3.0) / 100.0
+            logger.info(f"[MACD Strategy] take_profit from buy_sell_conditions.json: {self.take_profit:.2%}")
+        else:
+            self.take_profit = take_profit
+            logger.info(f"[MACD Strategy] take_profit from params.json: {self.take_profit:.2%}")
+
+        if sell_conditions and "stop_loss_pct" in sell_conditions:
+            self.stop_loss = sell_conditions.get("stop_loss_pct", 1.0) / 100.0
+            logger.info(f"[MACD Strategy] stop_loss from buy_sell_conditions.json: {self.stop_loss:.2%}")
+        else:
+            self.stop_loss = stop_loss
+            logger.info(f"[MACD Strategy] stop_loss from params.json: {self.stop_loss:.2%}")
+
+        if sell_conditions and "trailing_stop_threshold_pct" in sell_conditions:
+            self.trailing_stop_pct = sell_conditions.get("trailing_stop_threshold_pct", 10.0) / 100.0
+            self.trailing_stop_activation_pct = sell_conditions.get("trailing_stop_activation_pct", 5.0) / 100.0
+            logger.info(
+                f"[MACD Strategy] trailing_stop from buy_sell_conditions.json: "
+                f"threshold={self.trailing_stop_pct:.2%}, activation={self.trailing_stop_activation_pct:.2%}"
+            )
+        else:
+            self.trailing_stop_pct = trailing_stop_pct
+            self.trailing_stop_activation_pct = self.take_profit  # params에서는 take_profit 사용
+            logger.info(
+                f"[MACD Strategy] trailing_stop from params.json: "
+                f"threshold={self.trailing_stop_pct}, activation={self.trailing_stop_activation_pct:.2%}"
+            )
 
         # ✅ BUY 조건 파일 설정 (기본값: 모두 True)
         self.buy_conditions = buy_conditions or {}
@@ -415,13 +443,41 @@ class IncrementalEMAStrategy:
         """
         self.user_id = user_id
         self.ticker = ticker
-        self.take_profit = take_profit
-        self.stop_loss = stop_loss
         self.min_holding_period = min_holding_period
-        self.trailing_stop_pct = trailing_stop_pct
         self.use_base_ema = use_base_ema
         self.enable_base_ema_gap = base_ema_gap_enabled  # ✅ params에서 직접 받음
         self.base_ema_gap_diff = base_ema_gap_diff
+
+        # ✅ TP/SL 파라미터: sell_conditions 우선, 없으면 params fallback
+        # (sidebar와 매도/매수 설정 페이지 연동)
+        if sell_conditions and "take_profit_pct" in sell_conditions:
+            self.take_profit = sell_conditions.get("take_profit_pct", 3.0) / 100.0
+            logger.info(f"[EMA Strategy] take_profit from buy_sell_conditions.json: {self.take_profit:.2%}")
+        else:
+            self.take_profit = take_profit
+            logger.info(f"[EMA Strategy] take_profit from params.json: {self.take_profit:.2%}")
+
+        if sell_conditions and "stop_loss_pct" in sell_conditions:
+            self.stop_loss = sell_conditions.get("stop_loss_pct", 1.0) / 100.0
+            logger.info(f"[EMA Strategy] stop_loss from buy_sell_conditions.json: {self.stop_loss:.2%}")
+        else:
+            self.stop_loss = stop_loss
+            logger.info(f"[EMA Strategy] stop_loss from params.json: {self.stop_loss:.2%}")
+
+        if sell_conditions and "trailing_stop_threshold_pct" in sell_conditions:
+            self.trailing_stop_pct = sell_conditions.get("trailing_stop_threshold_pct", 10.0) / 100.0
+            self.trailing_stop_activation_pct = sell_conditions.get("trailing_stop_activation_pct", 5.0) / 100.0
+            logger.info(
+                f"[EMA Strategy] trailing_stop from buy_sell_conditions.json: "
+                f"threshold={self.trailing_stop_pct:.2%}, activation={self.trailing_stop_activation_pct:.2%}"
+            )
+        else:
+            self.trailing_stop_pct = trailing_stop_pct
+            self.trailing_stop_activation_pct = self.take_profit  # params에서는 take_profit 사용
+            logger.info(
+                f"[EMA Strategy] trailing_stop from params.json: "
+                f"threshold={self.trailing_stop_pct}, activation={self.trailing_stop_activation_pct:.2%}"
+            )
 
         # ✅ BUY 조건 파일 설정 (기본값: 모두 True)
         self.buy_conditions = buy_conditions or {}
@@ -511,7 +567,7 @@ class IncrementalEMAStrategy:
 
         trailing_stop_filter = TrailingStopFilter(
             trailing_stop_pct=self.trailing_stop_pct,
-            take_profit_pct=self.take_profit  # ✅ NEW: Take Profit 값 전달 (활성화 트리거)
+            take_profit_pct=self.trailing_stop_activation_pct  # ✅ 활성화 트리거 (conditions 연동)
         )
         trailing_stop_filter.set_enabled(self.enable_trailing_stop)
         self.sell_filter_manager.register(trailing_stop_filter)

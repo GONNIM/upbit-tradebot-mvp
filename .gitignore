@@ -63,6 +63,7 @@ WO-2026-001_IMPLEMENTATION_REPORT.md
 
 # 테스트 (로컬 전용)
 /tests*
+/test_*.py  # 루트의 test_*.py 파일도 무시 (tests/ 디렉토리 사용 강제)
 
 # 새 문서 구조는 추적 (docs/, README.md, DOCS_REORGANIZATION_*.md 제외)
 # *.md를 전역 무시하지 않음 (위에서 제거)

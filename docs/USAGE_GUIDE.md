@@ -471,6 +471,47 @@ Import는 Git 추적 파일만 참조 가능합니다.
 3. `CLAUDE.md` → "HOW (작업 방법)" → 실행 명령어 추가
 4. 필요 시 `docs/strategies/` 폴더에 상세 가이드 추가
 
+### Q9. 테스트 스크립트는 어디에 작성하나요?
+
+**A**: **반드시 `tests/` 디렉토리에 작성**해야 합니다.
+
+**규칙**:
+```bash
+✅ 올바른 위치:
+tests/test_tp_sl_integration.py
+tests/test_sell_filter_execution.py
+tests/test_candle_validator.py
+
+❌ 잘못된 위치:
+test_something.py              # 루트 디렉토리 금지
+scripts/test_something.py      # scripts는 운영용
+```
+
+**sys.path 설정 (필수)**:
+```python
+import sys
+from pathlib import Path
+
+# tests/ 디렉토리에서 프로젝트 루트 참조
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from core.strategy_incremental import IncrementalEMAStrategy
+```
+
+**실행 방법**:
+```bash
+# tests/ 디렉토리에서 실행
+python3 tests/test_tp_sl_integration.py
+
+# 또는 pytest 사용
+pytest tests/
+```
+
+**이유**:
+- `.gitignore`에 `/tests*` 규칙으로 로컬 전용 처리
+- 루트 디렉토리 정리 (운영 파일과 분리)
+- 기존 패턴 준수 (`test_candle_validator.py` 위치)
+
 ---
 
 ## 📚 추가 자료
