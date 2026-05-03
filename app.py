@@ -301,6 +301,19 @@ elif authentication_status:
                     icon="❌"
                 )
 
+    # ✅ FIX: LIVE 모드 기존 사용자 virtual_krw DB 로드 (TEST 모드와 동일)
+    #    - 자동검증 이후 세션 초기화 시 DB에서 복원
+    #    - 파라미터 설정하기 버튼 클릭 시 virtual_krw=0 오류 방지
+    if _mode == "LIVE" and st.session_state.get("_auto_checked_in_live"):
+        current_vkrw = st.session_state.get("virtual_krw", 0)
+        if current_vkrw == 0:
+            user_info = get_user(username)
+            if user_info:
+                _, db_virtual_krw, _ = user_info
+                if db_virtual_krw and db_virtual_krw > 0:
+                    st.session_state.virtual_krw = db_virtual_krw
+                    logger.info(f"[LIVE] virtual_krw DB 복원: {db_virtual_krw:,.0f} KRW")
+
     if _mode == "LIVE":
         with st.container(border=True):
             st.subheader("🔐 Upbit 계정 검증 (LIVE 전용)")
