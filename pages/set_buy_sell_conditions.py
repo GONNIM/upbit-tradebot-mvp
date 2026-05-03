@@ -28,6 +28,8 @@ def _get_param(qp, key, default=None):
 
 
 user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+# ✅ FIX: session_state에 user_id 저장 (다른 페이지에서 참조 가능하도록)
+st.session_state["user_id"] = user_id
 
 
 def _strategy_tag_from_qs() -> str:
@@ -61,6 +63,9 @@ try:
     virtual_krw = int(raw_v)
 except (TypeError, ValueError):
     virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+
+# ✅ FIX: session_state에 virtual_krw 저장 (다른 페이지에서 참조 가능하도록)
+st.session_state["virtual_krw"] = virtual_krw
 
 raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
 mode = str(raw_mode).upper()
