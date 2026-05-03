@@ -84,7 +84,7 @@ st.session_state["user_id"] = user_id
 raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
 
 try:
-    virtual_krw = int(raw_v)
+    virtual_krw = int(float(raw_v))  # ✅ FIX: float 문자열 처리 ("4596848.1973335" → 4596848)
 except (TypeError, ValueError):
     virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
 
