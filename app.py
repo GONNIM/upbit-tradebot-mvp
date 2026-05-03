@@ -240,6 +240,19 @@ elif authentication_status:
     st.session_state.setdefault("virtual_krw", 0)
     st.session_state.setdefault("virtual_over", False)
 
+    # ✅ FIX: 기존 사용자 DB 로드 (LIVE/TEST 공통)
+    #    - 세션 초기화 시 virtual_krw를 DB에서 복원
+    #    - TEST 모드(L437-443)와 동일한 로직을 LIVE 모드에도 적용
+    #    - 파라미터 설정하기 버튼 클릭 시 virtual_krw=0 오류 방지
+    if st.session_state.virtual_krw == 0:
+        user_info = get_user(username)
+        if user_info:
+            _, db_virtual_krw, _ = user_info
+            if db_virtual_krw and db_virtual_krw > 0:
+                st.session_state.virtual_krw = db_virtual_krw
+                st.session_state.virtual_over = True
+                logger.info(f"[DB-LOAD] virtual_krw 복원: {db_virtual_krw:,.0f} KRW (user={username}, mode={_mode})")
+
     # ✅ WO-2026-002: LIVE 모드 자동 계좌검증 + 운용자산 설정
     if _mode == "LIVE" and not st.session_state.get("_auto_checked_in_live"):
         ak, sk = ACCESS, SECRET
@@ -300,19 +313,6 @@ elif authentication_status:
                     "API 키를 확인하거나 수동으로 '계정 검증 실행' 버튼을 클릭하세요.",
                     icon="❌"
                 )
-
-    # ✅ FIX: LIVE 모드 기존 사용자 virtual_krw DB 로드 (TEST 모드와 동일)
-    #    - 자동검증 이후 세션 초기화 시 DB에서 복원
-    #    - 파라미터 설정하기 버튼 클릭 시 virtual_krw=0 오류 방지
-    if _mode == "LIVE" and st.session_state.get("_auto_checked_in_live"):
-        current_vkrw = st.session_state.get("virtual_krw", 0)
-        if current_vkrw == 0:
-            user_info = get_user(username)
-            if user_info:
-                _, db_virtual_krw, _ = user_info
-                if db_virtual_krw and db_virtual_krw > 0:
-                    st.session_state.virtual_krw = db_virtual_krw
-                    logger.info(f"[LIVE] virtual_krw DB 복원: {db_virtual_krw:,.0f} KRW")
 
     if _mode == "LIVE":
         with st.container(border=True):
