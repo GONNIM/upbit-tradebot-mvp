@@ -388,6 +388,24 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
                 )
                 st.rerun()
 
+        # ✅ 저장 안내 메시지 추가
+        saved_ratio = load_params_obj.order_ratio if load_params_obj else 1.0
+        current_ratio = st.session_state.order_ratio
+
+        if abs(saved_ratio - current_ratio) > 0.001:
+            st.warning(
+                f"⚠️ **주문 비율이 변경되었습니다!**\n\n"
+                f"- 💾 저장된 비율: **{saved_ratio * 100:.0f}%**\n"
+                f"- 🎯 현재 선택: **{current_ratio * 100:.0f}%**\n\n"
+                f"**반드시 '파라미터 저장하기' 버튼을 클릭하세요!**",
+                icon="⚠️"
+            )
+        else:
+            st.info(
+                f"💾 저장된 주문 비율: **{saved_ratio * 100:.0f}%**",
+                icon="✅"
+            )
+
         st.subheader("운용자산")
         st.info(f"{st.session_state.virtual_amount:,.0f} KRW")
 

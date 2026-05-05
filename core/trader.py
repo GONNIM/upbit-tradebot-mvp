@@ -182,8 +182,8 @@ class UpbitTrader:
             logger.warning(f"[BUY] 주문 불가: 잔고={avail:.4f}")
             return {}
 
-        # 🔧 위험비율 적용 + 2% 안전마진 + 원 단위 내림
-        krw_to_use = math.floor(avail * self.risk_pct * 0.98)
+        # 🔧 위험비율 적용 + 원 단위 내림
+        krw_to_use = math.floor(avail * self.risk_pct)
 
         if krw_to_use < 5000:
             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
