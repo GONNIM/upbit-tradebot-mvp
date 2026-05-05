@@ -192,16 +192,14 @@ bar_time = pd.Timestamp.now(tz='Asia/Seoul')  # KST 명시
 
 **Issue 참조**:
 - @.claude/context/project-rules.md - Issue #1~#11 요약 ⭐
-  - 10개 Issue 상세: @docs/issues/issue-01.md ~ issue-11.md
-- @.claude/lessons-learned.md - 교훈 상세 설명 (11개)
 
-**분석 및 작업 지시서**:
-- @docs/analysis/close-price-analysis.md - 미확정 종가 문제 분석
-- @docs/work-orders/2026-001-confirmed-candle.md - 확정 봉 검증 구현
-
-**설계 문서**:
-- @thoughts/20260325-01-BACKFILL-Golden-Cross-Fix.md - BACKFILL 지표 오염 해결
-- @thoughts/20260326-01-Post-Exit-Reentry-Strategy.md - 재진입 전략
+**기타 참조 문서** (필요 시 명시적으로 Read):
+- `.claude/lessons-learned.md` - 교훈 상세 (project-rules.md와 내용 중복)
+- `docs/issues/issue-01.md ~ issue-11.md` - Issue별 상세 분석
+- `docs/analysis/close-price-analysis.md` - 미확정 종가 분석 (WO-2026-001 완료)
+- `docs/work-orders/2026-001-confirmed-candle.md` - 확정 봉 검증 (완료)
+- `thoughts/20260325-01-BACKFILL-Golden-Cross-Fix.md` - BACKFILL 지표 오염 해결
+- `thoughts/20260326-01-Post-Exit-Reentry-Strategy.md` - 재진입 전략 (미구현)
 
 ---
 

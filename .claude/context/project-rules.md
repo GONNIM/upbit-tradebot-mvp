@@ -141,29 +141,29 @@ mv mcmax33.db archive/  # 백업 후 보관
 
 ## 📖 상세 문서
 
-### Issue 상세 (docs/issues/)
+### Issue 상세 (필요 시 명시적으로 Read)
 
 **10개 Issue 상세 문서** (문제, 근본 원인, 교훈, 수정):
-- @docs/issues/issue-01.md - pyupbit 컬럼명 대소문자
-- @docs/issues/issue-02.md - bar_time 9시간 오프셋
-- @docs/issues/issue-04.md - REST API 지연
-- @docs/issues/issue-05.md - EMA 증분 업데이트 누락
-- @docs/issues/issue-06.md - 정체 포지션 필터 오류
-- @docs/issues/issue-07.md - Trailing Stop 계산 오류
-- @docs/issues/issue-08.md - REST API 미확정 종가 ⭐
-- @docs/issues/issue-09.md - BACKFILL 중복 체크
-- @docs/issues/issue-10.md - Enum 속성 접근 오류
-- @docs/issues/issue-11.md - BACKFILL 지표 오염 ⭐
+- `docs/issues/issue-01.md` - pyupbit 컬럼명 대소문자
+- `docs/issues/issue-02.md` - bar_time 9시간 오프셋
+- `docs/issues/issue-04.md` - REST API 지연
+- `docs/issues/issue-05.md` - EMA 증분 업데이트 누락
+- `docs/issues/issue-06.md` - 정체 포지션 필터 오류
+- `docs/issues/issue-07.md` - Trailing Stop 계산 오류
+- `docs/issues/issue-08.md` - REST API 미확정 종가 ⭐
+- `docs/issues/issue-09.md` - BACKFILL 중복 체크
+- `docs/issues/issue-10.md` - Enum 속성 접근 오류
+- `docs/issues/issue-11.md` - BACKFILL 지표 오염 ⭐
 
-### 분석 보고서
+### 분석 보고서 (완료 문서, 필요 시 참조)
 
-- @docs/analysis/close-price-analysis.md - 미확정 종가 문제 분석
-- @docs/work-orders/2026-001-confirmed-candle.md - 확정 봉 검증 구현
+- `docs/analysis/close-price-analysis.md` - 미확정 종가 문제 분석
+- `docs/work-orders/2026-001-confirmed-candle.md` - 확정 봉 검증 구현
 
-### 설계 문서
+### 설계 문서 (필요 시 명시적으로 Read)
 
-- @thoughts/20260325-01-BACKFILL-Golden-Cross-Fix.md - BACKFILL 지표 오염 해결
-- @thoughts/20260326-01-Post-Exit-Reentry-Strategy.md - 재진입 전략
+- `thoughts/20260325-01-BACKFILL-Golden-Cross-Fix.md` - BACKFILL 지표 오염 해결
+- `thoughts/20260326-01-Post-Exit-Reentry-Strategy.md` - 재진입 전략
 
 ---
 
