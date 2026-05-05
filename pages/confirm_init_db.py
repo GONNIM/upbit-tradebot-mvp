@@ -75,7 +75,7 @@ def initialize_confirm():
 
 
 def initialize_cancel():
-    next_page = "dashboard"
+    next_page = "pages/dashboard.py"
     params = urlencode({
         "user_id": user_id,
         "virtual_krw": virtual_krw,

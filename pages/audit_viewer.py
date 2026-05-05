@@ -166,7 +166,7 @@ with col_go:
             virtual_krw = 0
 
     if st.button("⬅️ 대시보드로 가기", use_container_width=True):
-        next_page = "dashboard"
+        next_page = "pages/dashboard.py"
         qs = urlencode({
             "user_id": user_id,
             "virtual_krw": virtual_krw,

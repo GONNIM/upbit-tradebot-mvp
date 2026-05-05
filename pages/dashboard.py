@@ -402,7 +402,7 @@ with col20:
             time.sleep(0.3)
 
         # ✅ session_state에서 검증 정보 확실하게 읽기
-        next_page = "set_config"
+        next_page = "pages/set_config.py"
         params = urlencode({
             "virtual_krw": st.session_state.get("virtual_krw", 0),
             "user_id": st.session_state.get("user_id", ""),
@@ -1969,7 +1969,7 @@ with c4:
             "strategy": strategy_tag,
         })
 
-        next_page = "audit_viewer"  # 👈 pages/audit_viewer.py 파일명 기준 (아래 Step 2)
+        next_page = "pages/audit_viewer.py"  # 👈 pages/audit_viewer.py 파일명 기준 (아래 Step 2)
         # 메타 리프레시 + switch_page 병행 (현 코드 스타일과 통일)
         st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{audit_params}">', unsafe_allow_html=True)
         st.switch_page(next_page)
