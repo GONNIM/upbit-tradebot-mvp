@@ -587,14 +587,18 @@ with st.expander("⭐ 핵심 전략 조건", expanded=True):
                 col1, col2 = st.columns(2)
 
                 with col1:
+                    # ✅ 기존 값을 10의 배수로 자동 반올림 (범위: 10~90)
+                    current_ts = st.session_state.get("trailing_stop_threshold_pct", 10.0)
+                    adjusted_ts = max(10.0, min(90.0, round(current_ts / 10) * 10))
+
                     ts_threshold = st.number_input(
                         "수익 하락 허용 (%)",
-                        min_value=1.0,
-                        max_value=50.0,
-                        step=1.0,
-                        value=st.session_state.get("trailing_stop_threshold_pct", 10.0),
+                        min_value=10.0,
+                        max_value=90.0,
+                        step=10.0,
+                        value=adjusted_ts,
                         key=f"input_trailing_threshold_{strategy_tag}",
-                        help="최고 수익 대비 이 비율만큼 하락 시 매도"
+                        help="신고가 대비 이 비율만큼 하락 시 매도 (10%, 20%, 30%, ..., 90%)"
                     )
                     st.session_state["trailing_stop_threshold_pct"] = ts_threshold
 
