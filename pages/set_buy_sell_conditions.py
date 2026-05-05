@@ -175,7 +175,6 @@ def load_conditions():
     default_tp_pct = 3.0  # 기본값
     default_sl_pct = 1.0  # 기본값
     default_ts_threshold = 10.0  # 기본값
-    default_ts_activation = 5.0  # 기본값
 
     if params_obj:
         default_ticker = params_obj.ticker  # 종목
@@ -205,7 +204,6 @@ def load_conditions():
             st.session_state["take_profit_pct"] = sell_saved.get("take_profit_pct", default_tp_pct)
             st.session_state["stop_loss_pct"] = sell_saved.get("stop_loss_pct", default_sl_pct)
             st.session_state["trailing_stop_threshold_pct"] = sell_saved.get("trailing_stop_threshold_pct", default_ts_threshold)
-            st.session_state["trailing_stop_activation_pct"] = sell_saved.get("trailing_stop_activation_pct", default_ts_activation)
 
         st.info(f"✅ [{strategy_tag}] 저장된 매수/매도 전략 Condition 설정을 불러왔습니다.")
     else:
@@ -222,7 +220,6 @@ def load_conditions():
         st.session_state.setdefault("take_profit_pct", default_tp_pct)
         st.session_state.setdefault("stop_loss_pct", default_sl_pct)
         st.session_state.setdefault("trailing_stop_threshold_pct", default_ts_threshold)
-        st.session_state.setdefault("trailing_stop_activation_pct", default_ts_activation)
 
 
 # --- 상태 저장하기 ---
@@ -250,7 +247,6 @@ def save_conditions():
 
     if st.session_state.get("trailing_stop", False):
         conditions["sell"]["trailing_stop_threshold_pct"] = st.session_state.get("trailing_stop_threshold_pct", 10.0)
-        conditions["sell"]["trailing_stop_activation_pct"] = st.session_state.get("trailing_stop_activation_pct", 5.0)
 
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
@@ -584,39 +580,27 @@ with st.expander("⭐ 핵심 전략 조건", expanded=True):
                 st.markdown("#### ⚙️ Trailing Stop 파라미터")
                 st.caption("수익 보호를 위한 추적 매도 설정")
 
-                col1, col2 = st.columns(2)
+                # ✅ 기존 값을 10의 배수로 자동 반올림 (범위: 10~90)
+                current_ts = st.session_state.get("trailing_stop_threshold_pct", 10.0)
+                adjusted_ts = max(10.0, min(90.0, round(current_ts / 10) * 10))
 
-                with col1:
-                    # ✅ 기존 값을 10의 배수로 자동 반올림 (범위: 10~90)
-                    current_ts = st.session_state.get("trailing_stop_threshold_pct", 10.0)
-                    adjusted_ts = max(10.0, min(90.0, round(current_ts / 10) * 10))
+                ts_threshold = st.number_input(
+                    "수익 하락 허용 (%)",
+                    min_value=10.0,
+                    max_value=90.0,
+                    step=10.0,
+                    value=adjusted_ts,
+                    key=f"input_trailing_threshold_{strategy_tag}",
+                    help="신고가 대비 이 비율만큼 하락 시 매도 (10%, 20%, 30%, ..., 90%)"
+                )
+                st.session_state["trailing_stop_threshold_pct"] = ts_threshold
 
-                    ts_threshold = st.number_input(
-                        "수익 하락 허용 (%)",
-                        min_value=10.0,
-                        max_value=90.0,
-                        step=10.0,
-                        value=adjusted_ts,
-                        key=f"input_trailing_threshold_{strategy_tag}",
-                        help="신고가 대비 이 비율만큼 하락 시 매도 (10%, 20%, 30%, ..., 90%)"
-                    )
-                    st.session_state["trailing_stop_threshold_pct"] = ts_threshold
-
-                with col2:
-                    ts_activation = st.number_input(
-                        "활성화 수익률 (%)",
-                        min_value=0.1,
-                        max_value=50.0,
-                        step=0.1,
-                        value=st.session_state.get("trailing_stop_activation_pct", 5.0),
-                        key=f"input_trailing_activation_{strategy_tag}",
-                        help="이 수익률 달성 후 Trailing Stop 활성화"
-                    )
-                    st.session_state["trailing_stop_activation_pct"] = ts_activation
+                # ✅ Take Profit 값 참조 (활성화 조건)
+                tp_pct = st.session_state.get("take_profit_pct", 3.0)
 
                 st.info(
-                    f"🧮 현재 설정: 수익 **+{ts_activation:.1f}%** 달성 후 "
-                    f"최고 수익 대비 **{ts_threshold:.0f}%** 하락 시 매도"
+                    f"🧮 현재 설정: Take Profit **+{tp_pct:.1f}%** 초과 시 신고가 추적 "
+                    f"→ 신고가 대비 **{ts_threshold:.0f}%** 하락 시 매도"
                 )
     else:
         st.info("이 전략에는 매도 조건이 없습니다.")
