@@ -582,7 +582,7 @@ with st.expander("⭐ 핵심 전략 조건", expanded=True):
 
                 # ✅ 기존 값을 10의 배수로 자동 반올림 (범위: 10~90)
                 current_ts = st.session_state.get("trailing_stop_threshold_pct", 10.0)
-                adjusted_ts = max(10.0, min(90.0, round(current_ts / 10) * 10))
+                adjusted_ts = float(max(10.0, min(90.0, round(current_ts / 10) * 10)))
 
                 ts_threshold = st.number_input(
                     "수익 하락 허용 (%)",
