@@ -1,6 +1,6 @@
 # Upbit Tradebot MVP - 교훈 모음
 
-> **총 교훈 수**: 11개 (CLAUDE.md Issue #1-#11 기반)
+> **총 교훈 수**: 12개 (CLAUDE.md Issue #1-#11 + 배포 검증)
 
 **목적**: 과거 트러블슈팅 경험을 체계적으로 기록하여 동일한 실수 방지
 
@@ -19,6 +19,7 @@
 - [교훈 #9: BACKFILL 봉 중복 체크로 인한 audit UPDATE 미동작](#교훈-9-backfill-봉-중복-체크로-인한-audit-update-미동작)
 - [교훈 #10: Enum 속성 접근 오류 (action.action → AttributeError)](#교훈-10-enum-속성-접근-오류-actionaction--attributeerror)
 - [교훈 #11: BACKFILL이 실시간 지표를 오염시켜 Golden Cross 미감지](#교훈-11-backfill이-실시간-지표를-오염시켜-golden-cross-미감지)
+- [교훈 #12: 배포 후 검증 규칙 위반 (서비스 상태 미확인)](#교훈-12-배포-후-검증-규칙-위반-서비스-상태-미확인)
 
 ---
 
@@ -705,6 +706,154 @@ if backfill_ts_list:
 
 ---
 
+## 교훈 #12: 배포 후 검증 규칙 위반 (서비스 상태 미확인)
+
+**발생일**: 2026-05-05
+**카테고리**: 운영
+**심각도**: P0-Critical (사용자가 직접 에러 발견)
+
+### 문제 상황
+
+**배포 후 검증 없이 "배포 완료" 보고**:
+
+```
+Timeline:
+16:10 - order_ratio 수정 완료 (core/trader.py, ui/sidebar.py)
+16:15 - Git commit & push 성공
+16:16 - "✅ 배포 완료" 보고 ❌
+
+실제 서버 상태:
+- Streamlit 서비스: 재시작 안 함
+- 기존 버그: st.switch_page() 경로 오류로 페이지 네비게이션 실패
+- 에러 로그: StreamlitAPIException 지속 발생
+
+사용자 피드백:
+"지금 서버 에러나고 있다. 배포 후 검증하라는 규칙을 왜 지키지 않는가?"
+```
+
+**결과**: 사용자가 직접 에러를 발견하고 지적함
+
+### 근본 원인
+
+1. **체크리스트 미준수**
+   - 배포 절차 7단계 중 4, 5, 6단계 생략
+   - Git push만 하고 서버 검증 건너뜀
+
+2. **빠른 작업 완료에만 집중**
+   - "코드 수정 → Git push → 완료" 단순 사고
+   - 검증의 중요성 간과
+
+3. **검증 단계에 대한 인식 부족**
+   - "배포 = Git push" 로 잘못 이해
+   - 실제 서비스 동작 확인 필수성 미인지
+
+**생략한 단계**:
+```bash
+# ❌ 4단계: 서버 배포
+ssh ... && git pull && systemctl restart tradebot  # 실행 안 함
+
+# ❌ 5단계: 서비스 상태 확인
+systemctl status tradebot  # 확인 안 함
+
+# ❌ 6단계: 에러 로그 확인
+journalctl -u tradebot -n 30  # 확인 안 함
+
+# ❌ 7단계: UI 접속 검증
+# 브라우저로 실제 동작 확인 안 함
+```
+
+### 해결 방법
+
+**즉시 조치 (2026-05-05 17:00)**:
+
+```bash
+# 1. 실제 에러 확인
+tail -100 streamlit.log
+# → StreamlitAPIException: Could not find page: `dashboard`
+
+# 2. 근본 원인 파악
+# → st.switch_page("dashboard") 사용 (잘못된 경로)
+# → 올바른 경로: st.switch_page("pages/dashboard.py")
+
+# 3. 5개 파일 수정
+# pages/set_buy_sell_conditions.py
+# pages/dashboard.py (2곳)
+# pages/confirm_init_db.py
+# pages/audit_viewer.py
+
+# 4. 재배포 + 검증 완료
+git commit && git push
+ssh ... && git pull
+systemctl restart tradebot
+systemctl status tradebot  # ✅ active (running)
+journalctl -u tradebot -n 30  # ✅ 에러 없음
+```
+
+**7단계 배포 체크리스트 수립**:
+
+```
+✅ 1단계: 로컬 테스트 완료
+✅ 2단계: Git commit & push
+✅ 3단계: 서버 배포 (git pull + systemctl restart)
+✅ 4단계: 서비스 상태 확인 (systemctl status)
+✅ 5단계: 에러 로그 확인 (journalctl / tail log)
+✅ 6단계: UI 접속 검증 (브라우저 확인)
+✅ 7단계: 최종 보고 (검증 완료 후)
+```
+
+### 재발 방지 대책
+
+1. **체크리스트 엄격 준수**
+   - 모든 배포는 7단계 완료 후 보고
+   - 각 단계별 확인 로그 필수 기록
+
+2. **검증 로그 템플릿**
+   ```markdown
+   ## 배포 검증 보고
+
+   ✅ 1. 로컬 테스트: pytest 통과 (23/23)
+   ✅ 2. Git push: 커밋 해시 d8989ab
+   ✅ 3. 서버 pull: Fast-forward 성공
+   ✅ 4. 서비스 재시작: systemctl restart tradebot
+   ✅ 5. 서비스 상태: active (running)
+   ✅ 6. 에러 로그: 에러 없음 (최근 30줄 확인)
+   ✅ 7. UI 접속: 대시보드 정상 표시
+
+   **배포 완료 시각**: 2026-05-05 17:10 KST
+   ```
+
+3. **자동화 검토 (장기)**
+   - 배포 스크립트에 검증 단계 포함
+   - 서비스 상태 체크 자동화
+
+4. **사용자 기대치 관리**
+   - "배포 중"과 "배포 완료"를 명확히 구분
+   - 검증 완료 전까지는 "검증 중" 상태 유지
+
+### 체크리스트 (향후 작업 시)
+
+**배포 시**:
+- [ ] 로컬 테스트 완료 (unit test, integration test)
+- [ ] Git commit & push 성공
+- [ ] 서버 git pull 성공
+- [ ] systemctl restart 성공
+- [ ] systemctl status → active (running) 확인
+- [ ] journalctl / tail log → 에러 없음 확인
+- [ ] 브라우저 UI 접속 → 정상 동작 확인
+- [ ] 최종 보고 작성 (검증 로그 포함)
+
+**보고 시**:
+- [ ] "배포 완료"는 모든 검증 완료 후에만 사용
+- [ ] 검증 로그 템플릿 작성
+- [ ] 사용자 확인 필요한 부분 명시
+
+### 관련 문서
+
+- `.claude/context/project-rules.md` - 개발 방법론 (워크플로우 섹션)
+- 실제 발생한 버그: st.switch_page() 경로 오류 (Git 커밋 08639cc)
+
+---
+
 ## 🎯 핵심 원칙 (재발 방지)
 
 ### 1. "추정하지 말고, 검증하라" (Don't Assume, Verify)
@@ -731,9 +880,29 @@ REST Reconcile의 핵심 원칙을 코딩에도 적용
 
 상태 백업/복원 패턴 필수
 
+### 7. "배포는 검증 완료 후에만 완료된다" (Deployment = Verification)
+
+**7단계 배포 체크리스트 엄격 준수**:
+```
+1. 로컬 테스트 완료
+2. Git commit & push
+3. 서버 배포 (git pull + systemctl restart)
+4. 서비스 상태 확인 (systemctl status)
+5. 에러 로그 확인 (journalctl / tail log)
+6. UI 접속 검증 (브라우저 확인)
+7. 최종 보고 (검증 로그 포함)
+```
+
+**원칙**:
+- Git push ≠ 배포 완료
+- 서비스 재시작 확인 필수
+- 에러 로그 확인 필수
+- 실제 동작 검증 필수
+- 모든 단계 완료 전까지는 "검증 중" 상태
+
 ---
 
-**최종 업데이트**: 2026-04-05
+**최종 업데이트**: 2026-05-05
 **작성자**: Claude Code (AI Assistant)
-**기반 문서**: CLAUDE.md Issue #1-#11
+**기반 문서**: CLAUDE.md Issue #1-#11 + 배포 검증 (교훈 #12)
 **관련 문서**: `.claude/context/project-rules.md`
