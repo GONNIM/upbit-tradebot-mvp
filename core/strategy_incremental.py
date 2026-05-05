@@ -80,10 +80,10 @@ class IncrementalMACDStrategy:
 
         if sell_conditions and "trailing_stop_threshold_pct" in sell_conditions:
             self.trailing_stop_pct = sell_conditions.get("trailing_stop_threshold_pct", 10.0) / 100.0
-            self.trailing_stop_activation_pct = sell_conditions.get("trailing_stop_activation_pct", 5.0) / 100.0
+            self.trailing_stop_activation_pct = self.take_profit  # ✅ Take Profit 값 자동 참조
             logger.info(
                 f"[MACD Strategy] trailing_stop from buy_sell_conditions.json: "
-                f"threshold={self.trailing_stop_pct:.2%}, activation={self.trailing_stop_activation_pct:.2%}"
+                f"threshold={self.trailing_stop_pct:.2%}, activation={self.trailing_stop_activation_pct:.2%} (=Take Profit)"
             )
         else:
             self.trailing_stop_pct = trailing_stop_pct
@@ -466,10 +466,10 @@ class IncrementalEMAStrategy:
 
         if sell_conditions and "trailing_stop_threshold_pct" in sell_conditions:
             self.trailing_stop_pct = sell_conditions.get("trailing_stop_threshold_pct", 10.0) / 100.0
-            self.trailing_stop_activation_pct = sell_conditions.get("trailing_stop_activation_pct", 5.0) / 100.0
+            self.trailing_stop_activation_pct = self.take_profit  # ✅ Take Profit 값 자동 참조
             logger.info(
                 f"[EMA Strategy] trailing_stop from buy_sell_conditions.json: "
-                f"threshold={self.trailing_stop_pct:.2%}, activation={self.trailing_stop_activation_pct:.2%}"
+                f"threshold={self.trailing_stop_pct:.2%}, activation={self.trailing_stop_activation_pct:.2%} (=Take Profit)"
             )
         else:
             self.trailing_stop_pct = trailing_stop_pct
