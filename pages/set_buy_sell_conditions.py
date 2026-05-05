@@ -170,13 +170,15 @@ def load_conditions():
     params_file = f"{user_id}_{PARAMS_JSON_FILENAME}"
     params_obj = load_params(params_file, strategy_type=strategy_tag)
 
-    # params에서 TP/SL 기본값 추출 (% 형태로 변환)
+    # params에서 Ticker/TP/SL 기본값 추출
+    default_ticker = "ZRO"  # 기본값
     default_tp_pct = 3.0  # 기본값
     default_sl_pct = 1.0  # 기본값
     default_ts_threshold = 10.0  # 기본값
     default_ts_activation = 5.0  # 기본값
 
     if params_obj:
+        default_ticker = params_obj.ticker  # 종목
         default_tp_pct = params_obj.take_profit * 100.0  # 0.05 -> 5.0%
         default_sl_pct = params_obj.stop_loss * 100.0    # 0.01 -> 1.0%
         # trailing_stop은 params에 없으므로 기본값 사용
@@ -198,7 +200,8 @@ def load_conditions():
             st.session_state["stale_hours"] = sell_saved.get("stale_hours", 1.0)
             st.session_state["stale_threshold_pct"] = sell_saved.get("stale_threshold_pct", 0.01)
 
-            # ✅ TP/SL 파라미터 로드 (conditions 우선, 없으면 params 기본값)
+            # ✅ Ticker/TP/SL 파라미터 로드 (conditions 우선, 없으면 params 기본값)
+            st.session_state["ticker_input"] = default_ticker  # Ticker는 항상 params에서
             st.session_state["take_profit_pct"] = sell_saved.get("take_profit_pct", default_tp_pct)
             st.session_state["stop_loss_pct"] = sell_saved.get("stop_loss_pct", default_sl_pct)
             st.session_state["trailing_stop_threshold_pct"] = sell_saved.get("trailing_stop_threshold_pct", default_ts_threshold)
@@ -212,6 +215,7 @@ def load_conditions():
             st.session_state.setdefault(key, False)
 
         # ✅ 기본값 설정 (params 연동)
+        st.session_state.setdefault("ticker_input", default_ticker)
         st.session_state.setdefault("surge_threshold_pct", 0.01)
         st.session_state.setdefault("stale_hours", 1.0)
         st.session_state.setdefault("stale_threshold_pct", 0.01)
@@ -251,23 +255,32 @@ def save_conditions():
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
 
-    # ✅ FIX: TP/SL 값을 params 파일에도 반영 (대시보드 표시용)
-    #    - 대시보드는 params.take_profit, params.stop_loss에서 값을 읽음
-    #    - buy_sell_conditions에서 TP/SL 수정 시 params도 함께 업데이트 필요
+    # ✅ FIX: Ticker/TP/SL 값을 params 파일에도 반영 (대시보드 표시용)
+    #    - 대시보드는 params.ticker, params.take_profit, params.stop_loss에서 값을 읽음
+    #    - buy_sell_conditions에서 Ticker/TP/SL 수정 시 params도 함께 업데이트 필요
     params_file = f"{user_id}_{PARAMS_JSON_FILENAME}"
     params_obj = load_params(params_file, strategy_type=strategy_tag)
 
     if params_obj:
-        # TP/SL 값이 변경되었으면 params 업데이트
+        # Ticker/TP/SL 값이 변경되었으면 params 업데이트
+        ticker_changed = False
         tp_changed = False
         sl_changed = False
 
+        # Ticker 변경 감지
+        new_ticker = st.session_state.get("ticker_input", None)
+        if new_ticker and new_ticker != params_obj.ticker:
+            params_obj.ticker = new_ticker
+            ticker_changed = True
+
+        # Stop Loss 변경 감지
         if st.session_state.get("stop_loss", False):
             new_sl_pct = st.session_state.get("stop_loss_pct", 1.0) / 100.0
             if abs(params_obj.stop_loss - new_sl_pct) > 0.0001:
                 params_obj.stop_loss = new_sl_pct
                 sl_changed = True
 
+        # Take Profit 변경 감지
         if st.session_state.get("take_profit", False):
             new_tp_pct = st.session_state.get("take_profit_pct", 3.0) / 100.0
             if abs(params_obj.take_profit - new_tp_pct) > 0.0001:
@@ -275,9 +288,19 @@ def save_conditions():
                 tp_changed = True
 
         # 변경사항이 있으면 params 파일 저장
-        if tp_changed or sl_changed:
+        if ticker_changed or tp_changed or sl_changed:
             save_params(params_obj, params_file, strategy_type=strategy_tag)
-            st.info(f"📝 TP/SL 값이 파라미터 파일에도 반영되었습니다.")
+
+            # 변경된 항목 표시
+            changed_items = []
+            if ticker_changed:
+                changed_items.append("종목")
+            if tp_changed:
+                changed_items.append("TP")
+            if sl_changed:
+                changed_items.append("SL")
+
+            st.info(f"📝 {'/'.join(changed_items)} 값이 파라미터 파일에도 반영되었습니다.")
 
     st.success(f"✅ [{strategy_tag}] 매수/매도 전략 Condition 설정이 저장되었습니다.")
 
@@ -397,6 +420,65 @@ st.markdown(
 
 # --- 페이지 제목 ---
 st.markdown(f"# 📊 [{strategy_tag}] 매수/매도 전략 설정")
+
+# ============================================================
+# ⚙️ 전략 핵심 설정 (자주 변경하는 설정)
+# ============================================================
+st.markdown("## ⚙️ 전략 핵심 설정")
+
+with st.expander("🎯 자주 변경하는 설정", expanded=True):
+    st.caption("가장 많이 수정하는 설정을 한곳에 모았습니다")
+
+    # 종목 입력 (params에서 로드)
+    params_file = f"{user_id}_{PARAMS_JSON_FILENAME}"
+    params_obj = load_params(params_file, strategy_type=strategy_tag)
+
+    current_ticker = params_obj.ticker if params_obj else "ZRO"
+    ticker_input = st.text_input(
+        "🎯 거래 종목",
+        value=st.session_state.get("ticker_input", current_ticker),
+        key=f"quick_ticker_{strategy_tag}",
+        help="거래할 암호화폐 심볼 (예: ZRO, BTC, ETH, PEPE)"
+    )
+    st.session_state["ticker_input"] = ticker_input
+
+    # TP/SL 입력
+    col1, col2 = st.columns(2)
+
+    with col1:
+        tp_pct_quick = st.number_input(
+            "💰 Take Profit (%)",
+            min_value=0.1,
+            max_value=50.0,
+            step=0.1,
+            value=st.session_state.get("take_profit_pct", 3.0),
+            key=f"quick_tp_{strategy_tag}",
+            help="진입가 대비 이 비율 이상 상승 시 자동 매도"
+        )
+        st.session_state["take_profit_pct"] = tp_pct_quick
+        st.session_state["take_profit"] = True  # 자동 활성화
+
+    with col2:
+        sl_pct_quick = st.number_input(
+            "🔻 Stop Loss (%)",
+            min_value=0.1,
+            max_value=50.0,
+            step=0.1,
+            value=st.session_state.get("stop_loss_pct", 1.0),
+            key=f"quick_sl_{strategy_tag}",
+            help="진입가 대비 이 비율 이상 하락 시 자동 매도"
+        )
+        st.session_state["stop_loss_pct"] = sl_pct_quick
+        st.session_state["stop_loss"] = True  # 자동 활성화
+
+    # 현재 설정 안내
+    st.info(
+        f"🎯 **{ticker_input}** | "
+        f"💰 TP: **+{tp_pct_quick:.1f}%** | "
+        f"🔻 SL: **-{sl_pct_quick:.1f}%**"
+    )
+
+st.divider()
 
 # ============================================================
 # 📈 매수 설정
