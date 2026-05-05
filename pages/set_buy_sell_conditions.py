@@ -10,7 +10,7 @@ from config import (
     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
     PARAMS_JSON_FILENAME,   # ✅ 파라미터 파일명
 )
-from engine.params import load_params, load_active_strategy  # ✅ 파라미터 로드용
+from engine.params import load_params, save_params, load_active_strategy  # ✅ 파라미터 로드/저장용
 
 
 # --- 페이지 설정 ---
@@ -250,6 +250,35 @@ def save_conditions():
 
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
+
+    # ✅ FIX: TP/SL 값을 params 파일에도 반영 (대시보드 표시용)
+    #    - 대시보드는 params.take_profit, params.stop_loss에서 값을 읽음
+    #    - buy_sell_conditions에서 TP/SL 수정 시 params도 함께 업데이트 필요
+    params_file = f"{user_id}_{PARAMS_JSON_FILENAME}"
+    params_obj = load_params(params_file, strategy_type=strategy_tag)
+
+    if params_obj:
+        # TP/SL 값이 변경되었으면 params 업데이트
+        tp_changed = False
+        sl_changed = False
+
+        if st.session_state.get("stop_loss", False):
+            new_sl_pct = st.session_state.get("stop_loss_pct", 1.0) / 100.0
+            if abs(params_obj.stop_loss - new_sl_pct) > 0.0001:
+                params_obj.stop_loss = new_sl_pct
+                sl_changed = True
+
+        if st.session_state.get("take_profit", False):
+            new_tp_pct = st.session_state.get("take_profit_pct", 3.0) / 100.0
+            if abs(params_obj.take_profit - new_tp_pct) > 0.0001:
+                params_obj.take_profit = new_tp_pct
+                tp_changed = True
+
+        # 변경사항이 있으면 params 파일 저장
+        if tp_changed or sl_changed:
+            save_params(params_obj, params_file, strategy_type=strategy_tag)
+            st.info(f"📝 TP/SL 값이 파라미터 파일에도 반영되었습니다.")
+
     st.success(f"✅ [{strategy_tag}] 매수/매도 전략 Condition 설정이 저장되었습니다.")
 
 
