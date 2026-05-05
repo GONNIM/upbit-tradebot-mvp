@@ -223,7 +223,6 @@ selected_params = load_params(json_path, strategy_type=selected_strategy_type)
 #  여기서 선택한 전략 타입은 아래에서 params.strategy_type 에 주입한다.
 params = make_sidebar(user_id, selected_strategy_type)
 start_trading = None
-go_back = False
 
 if params:
     try:
@@ -297,19 +296,12 @@ else:
         st.json(exist_params.__dict__)
         st.caption(f"현재 전략 타입: **{exist_params.strategy_type}**")
 
-        if mode == "LIVE":
-            if (upbit_ok and capital_ok):
-                start_trading = st.button(
-                    f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
-                )
-            else:
-                go_back = st.button(
-                    f"Upbit Trade Bot v1 ({mode}) - Go Back", use_container_width=True
-                )
-        else:
-            start_trading = st.button(
-                f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
-            )
+        # ✅ FIX: LIVE 모드 진입 조건 미충족 시에도 Dashboard로 이동 허용
+        #    - 경고는 이미 표시되었으므로 (라인 118-129)
+        #    - 사용자가 Dashboard에서 확인할 수 있도록 허용
+        start_trading = st.button(
+            f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
+        )
     else:
         st.info("⚙️ 왼쪽 사이드바에서 전략 파라미터를 먼저 설정하세요.")
         st.info("🧪 파라미터 설정 완료하신 후 파라미터를 저장하세요.")
@@ -341,10 +333,6 @@ if start_trading:
     )
     st.stop()
 
-if go_back:
-    next_page = ""
-    st.markdown(
-        f'<meta http-equiv="refresh" content="0; url=./{next_page}">',
-        unsafe_allow_html=True,
-    )
-    st.stop()
+# ✅ FIX: go_back 버튼 제거 (LIVE 모드 진입 조건 미충족 시에도 Dashboard로 이동)
+#    - 기존: LIVE 모드에서 조건 미충족 시 "Go Back" 버튼 표시 → 로그아웃 발생
+#    - 수정: 모든 경우 "Go Dashboard" 버튼 표시 → 일관성 유지
