@@ -24,7 +24,7 @@
 
 ---
 
-## 📋 Issue 인덱스 (14개)
+## 📋 Issue 인덱스 (15개)
 
 | # | 제목 | 핵심 메시지 | 날짜 |
 |---|------|------------|------|
@@ -42,6 +42,7 @@
 | 14 | session_state 동기화 | URL 파라미터 읽으면 session_state에도 저장 | 2026-05-06 |
 | 15 | 페이지 경로 .py 확장자 | Streamlit 멀티페이지는 확장자 없이 파일명만 | 2026-05-06 |
 | 16 | 워크플로우 위반 (2차) | 사용자 승인 없이 서버 배포 절대 금지 | 2026-05-06 |
+| 17 | Dead Cross HTS 매수 자동매도 | Dead 상태에서 HTS 매수는 STOP_LOSS 스킵 (hts_buy 플래그) | 2026-05-06 |
 
 ---
 
@@ -147,7 +148,7 @@ mv mcmax33.db archive/  # 백업 후 보관
 
 ### Issue 상세 (필요 시 명시적으로 Read)
 
-**14개 Issue 상세 문서** (문제, 근본 원인, 교훈, 수정):
+**15개 Issue 상세 문서** (문제, 근본 원인, 교훈, 수정):
 - `docs/issues/issue-01.md` - pyupbit 컬럼명 대소문자
 - `docs/issues/issue-02.md` - bar_time 9시간 오프셋
 - `docs/issues/issue-04.md` - REST API 지연
@@ -158,7 +159,8 @@ mv mcmax33.db archive/  # 백업 후 보관
 - `docs/issues/issue-09.md` - BACKFILL 중복 체크
 - `docs/issues/issue-10.md` - Enum 속성 접근 오류
 - `docs/issues/issue-11.md` - BACKFILL 지표 오염 ⭐
-- `.claude/lessons-learned.md` - Issue #13~#16 (Streamlit UI) ⭐
+- `docs/issues/issue-17.md` - Dead Cross HTS 매수 자동매도 ⭐
+- `.claude/lessons-learned.md` - Issue #13~#17 (Streamlit UI + Filter Logic) ⭐
 
 ### 분석 보고서 (완료 문서, 필요 시 참조)
 
@@ -174,12 +176,12 @@ mv mcmax33.db archive/  # 백업 후 보관
 
 ## 📊 Issue 통계
 
-**총 Issue**: 14개 (Issue #3, #12 없음)
-**Critical (🔴)**: 14개 (100%)
-**평균 해결 시간**: 3.8시간
-**재발 빈도**: 7.1% (교훈 #12 → #16 재발 1건)
+**총 Issue**: 15개 (Issue #3, #12 없음)
+**Critical (🔴)**: 15개 (100%)
+**평균 해결 시간**: 3.9시간
+**재발 빈도**: 6.7% (교훈 #12 → #16 재발 1건)
 
 ---
 
 **마지막 업데이트**: 2026-05-06
-**버전**: 2.1 (Streamlit UI Issue #13-#16 추가)
+**버전**: 2.2 (Streamlit UI Issue #13-#16 + Filter Logic Issue #17 추가)

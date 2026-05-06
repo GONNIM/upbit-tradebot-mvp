@@ -47,6 +47,9 @@ class PositionState:
         # ✅ Stale Position Check용 (진입 이후 최고가)
         self.highest_since_entry: Optional[float] = None
 
+        # ✅ Issue #17: HTS 매수 감지용 메타데이터
+        self.metadata: dict = {}  # {"hts_buy": True, "src": "manual", ...}
+
     @property
     def has_position(self) -> bool:
         """
@@ -67,6 +70,7 @@ class PositionState:
     def sync_from_wallet(self) -> bool:
         """
         ✅ 실제 지갑/DB 잔고로부터 포지션 상태 동기화
+        ✅ Issue #17: metadata (hts_buy 플래그) 포함
 
         Returns:
             bool: 동기화된 has_position 값
@@ -84,6 +88,14 @@ class PositionState:
             old_state = self._has_position
             self._has_position = actual_has_position
             self.qty = actual_balance
+
+            # ✅ Issue #17: metadata 동기화 (hts_buy 플래그)
+            if hasattr(self.trader, 'user_id'):
+                from services.db import get_position_meta
+                self.metadata = get_position_meta(self.trader.user_id, self.ticker)
+                logger.debug(
+                    f"[POS-SYNC] metadata 로드 완료 | ticker={self.ticker} | meta={self.metadata}"
+                )
 
             if old_state != actual_has_position:
                 logger.warning(

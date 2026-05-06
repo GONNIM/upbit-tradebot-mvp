@@ -1728,3 +1728,123 @@ def clear_data_collection_status(user_id: str):
             conn.commit()
     except Exception as e:
         logger.warning(f"[DATA-COLLECTION] Failed to clear status: {e}")
+
+
+# ============================================================================
+# HTS 매수 감지 지원 함수 (Issue #17)
+# ============================================================================
+
+def get_position_qty(user_id: str, ticker: str) -> float:
+    """
+    특정 ticker의 현재 보유 수량 조회
+
+    Returns:
+        float: 보유 수량 (미보유 시 0.0)
+
+    Usage:
+        prev_qty = get_position_qty(user_id, "KRW-ZRO")
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT virtual_coin
+                FROM account_positions
+                WHERE user_id = ? AND ticker = ?
+                """,
+                (user_id, ticker)
+            )
+            row = cur.fetchone()
+            return float(row[0]) if row else 0.0
+    except Exception as e:
+        logger.warning(f"[HTS-DETECT] Failed to get position qty: {e}")
+        return 0.0
+
+
+def get_position_meta(user_id: str, ticker: str) -> Dict[str, Any]:
+    """
+    특정 ticker의 포지션 메타데이터 조회
+
+    Returns:
+        dict: 메타데이터 (없으면 빈 dict)
+
+    Usage:
+        meta = get_position_meta(user_id, "KRW-ZRO")
+        is_hts = meta.get('hts_buy', False)
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT meta
+                FROM account_positions
+                WHERE user_id = ? AND ticker = ?
+                """,
+                (user_id, ticker)
+            )
+            row = cur.fetchone()
+            if row and row[0]:
+                return json.loads(row[0])
+            return {}
+    except Exception as e:
+        logger.warning(f"[HTS-DETECT] Failed to get position meta: {e}")
+        return {}
+
+
+def update_position_meta(user_id: str, ticker: str, meta: Dict[str, Any]):
+    """
+    특정 ticker의 포지션 메타데이터 업데이트
+
+    Args:
+        meta: 메타데이터 dict (예: {"hts_buy": True})
+
+    Usage:
+        update_position_meta(user_id, "KRW-ZRO", {"hts_buy": True})
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            meta_json = json.dumps(meta, ensure_ascii=False)
+
+            # UPSERT: 레코드 없으면 INSERT, 있으면 UPDATE
+            cur.execute(
+                """
+                INSERT INTO account_positions (user_id, ticker, virtual_coin, meta, updated_at)
+                VALUES (?, ?, 0, ?, ?)
+                ON CONFLICT(user_id, ticker) DO UPDATE SET
+                    meta = excluded.meta,
+                    updated_at = excluded.updated_at
+                """,
+                (user_id, ticker, meta_json, now_kst())
+            )
+            conn.commit()
+    except Exception as e:
+        logger.error(f"[HTS-DETECT] Failed to update position meta: {e}")
+
+
+def mark_position_as_hts_buy(user_id: str, ticker: str):
+    """
+    포지션에 HTS 매수 플래그 설정
+
+    Usage:
+        mark_position_as_hts_buy(user_id, "KRW-ZRO")
+
+    Note:
+        - 기존 메타데이터에 hts_buy=True 추가
+        - force_buy(사이트 수동매수)와 구분됨
+    """
+    try:
+        # 기존 메타데이터 조회
+        meta = get_position_meta(user_id, ticker)
+
+        # hts_buy 플래그 추가
+        meta['hts_buy'] = True
+
+        # 업데이트
+        update_position_meta(user_id, ticker, meta)
+
+        logger.info(f"🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker={ticker}")
+    except Exception as e:
+        logger.error(f"[HTS-DETECT] Failed to mark position as HTS buy: {e}")

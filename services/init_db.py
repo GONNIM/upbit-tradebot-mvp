@@ -622,6 +622,18 @@ def ensure_audit_sell_eval_bar_time(user_id: str):
     conn.close()
 
 
+def ensure_account_positions_meta(user_id: str):
+    """
+    account_positions 테이블에 meta 컬럼 추가:
+      - meta: JSON 문자열 (hts_buy 플래그 등 메타데이터 저장)
+      - 예: {"hts_buy": true, "entry_source": "manual"}
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE account_positions ADD COLUMN meta TEXT")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -634,6 +646,7 @@ def ensure_all_schemas(user_id: str):
     ensure_audit_settings_unique(user_id)    # ✅ UNIQUE 인덱스 (bar_time 기준)
     ensure_audit_buy_eval_bar_time(user_id)  # ✅ audit_buy_eval bar_time 추가
     ensure_audit_sell_eval_bar_time(user_id) # ✅ audit_sell_eval bar_time 추가
+    ensure_account_positions_meta(user_id)   # ✅ account_positions meta 추가
 
 
 def init_db_if_needed(user_id):

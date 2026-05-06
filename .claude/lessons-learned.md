@@ -1,6 +1,6 @@
 # Upbit Tradebot MVP - 교훈 모음
 
-> **총 교훈 수**: 16개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16)
+> **총 교훈 수**: 17개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16 + Filter Logic #17)
 
 **목적**: 과거 트러블슈팅 경험을 체계적으로 기록하여 동일한 실수 방지
 
@@ -24,6 +24,7 @@
 - [교훈 #14: session_state 동기화 누락으로 인한 데이터 손실](#교훈-14-session_state-동기화-누락으로-인한-데이터-손실)
 - [교훈 #15: Streamlit 멀티페이지 경로 오류 (.py 확장자 포함)](#교훈-15-streamlit-멀티페이지-경로-오류-py-확장자-포함)
 - [교훈 #16: 워크플로우 위반 (사용자 승인 없이 서버 배포 2차)](#교훈-16-워크플로우-위반-사용자-승인-없이-서버-배포-2차)
+- [교훈 #17: Dead Cross 상태에서 HTS 매수 시 즉시 자동매도 (필터 순서 문제)](#교훈-17-dead-cross-상태에서-hts-매수-시-즉시-자동매도-필터-순서-문제)
 
 ---
 
@@ -1346,6 +1347,169 @@ ssh ... && git pull && systemctl restart tradebot
 
 ---
 
+## 교훈 #17: Dead Cross 상태에서 HTS 매수 시 즉시 자동매도 (필터 순서 문제)
+
+**발생일**: 2026-05-06
+**카테고리**: 트레이딩 로직
+**심각도**: P0-Critical (사용자 클레임 발생)
+
+### 문제 상황
+
+사용자가 Dead Cross 상태(ema_fast < ema_slow)에서 HTS(업비트 앱)로 수동 매수 후 2~3분 내 자동 매도됨:
+
+```
+실제 거래 (5월 4일):
+15:19 SELL @ 2024원 (-1.4% 손절)
+15:38 SELL @ 2019원 (-1.5% 손절)
+21:08 SELL @ 1992원 (-2.8% 손절)
+
+audit_sell_eval 로그:
+- cross_status: "Golden" (Dead Cross 아님!)
+- ema_dc_detected: 0
+- trigger_reason: "STOP_LOSS"
+- pnl_pct: -0.0131 (-1.31%)
+```
+
+**사용자 기대**: Dead Cross 상태에서는 손절 없이 Golden Cross까지 보유
+**실제 동작**: Dead Cross 무관하게 손실률 > 1.1% 시 즉시 매도
+
+### 근본 원인
+
+**Codex Review 결과**:
+
+1. **필터 실행 순서 문제**
+   ```python
+   # core/strategy_incremental.py:557-577
+   StopLossFilter       # 1순위 실행
+   TakeProfitFilter     # 2순위
+   TrailingStopFilter   # 3순위
+   DeadCrossFilter      # 4순위 ← 도달 못함
+   ```
+
+2. **조기 반환 메커니즘**
+   ```python
+   # core/filters/__init__.py:86-97
+   for filter_instance in self.filters:
+       result = filter_instance.evaluate(**kwargs)
+       if result.should_block:
+           return result  # 첫 번째 매도 신호에서 즉시 반환
+   ```
+
+3. **DeadCrossFilter의 한계** (Codex 발견)
+   - ❌ "현재 Dead 상태 (ema_fast < ema_slow)" 감지 불가
+   - ✅ "Dead Cross 발생 이벤트"만 감지 (이전 봉에서 전환)
+   - **결론**: 필터 순서를 바꿔도 해결 안 됨
+
+4. **HTS 매수 vs 봇 자동매수 구분 부재**
+   - 모든 포지션에 동일한 손절 정책 적용
+   - 수동 매수 사용자 의도 무시
+
+### 왜 놓쳤나?
+
+1. **필터 설계 시 순서 의존성 미고려**
+   - CORE_STRATEGY 카테고리 내 필터 간 상호작용 검토 부족
+   - "손절 vs Dead Cross" 우선순위 정책 부재
+
+2. **DeadCrossFilter 역할 오해**
+   - "이벤트" vs "상태" 구분 실패
+   - HTS 매수 시나리오 테스트 부족
+
+3. **Codex Review의 가치 입증**
+   - 초기 분석의 맹점 발견 (DeadCrossFilter 오해)
+   - 잠재적 부작용 사전 발견 (모든 포지션 손절 비활성화 위험)
+
+### 해결 방법
+
+**Phase 1: Dead Cross 상태에서 STOP_LOSS 스킵 (HTS 매수 전용)**
+
+```python
+# core/filters/sell_filters.py:StopLossFilter.evaluate()
+def evaluate(self, **kwargs) -> FilterResult:
+    # ✅ HTS 매수 여부 확인
+    is_hts_buy = position.metadata.get('hts_buy', False)
+
+    # ✅ Dead Cross 상태 체크
+    ema_fast = kwargs.get('ema_fast')
+    ema_slow = kwargs.get('ema_slow')
+
+    # Dead Cross + HTS 매수 → STOP_LOSS 스킵
+    if is_hts_buy and ema_fast <= ema_slow:
+        return FilterResult(
+            should_block=False,
+            reason="SL_SKIPPED_HTS_DEAD_CROSS"
+        )
+
+    # 기존 STOP_LOSS 로직...
+```
+
+**Phase 2: HTS 매수 감지 로직**
+
+```python
+# engine/order_reconciler.py:_periodic_balance_sync()
+def _periodic_balance_sync(self):
+    for bal in balances:
+        prev_qty = get_position_qty(user_id, ticker)
+        curr_qty = float(bal.get("balance", 0.0))
+
+        # ✅ HTS 매수 감지: 0 → 양수
+        if prev_qty == 0 and curr_qty > 0:
+            logger.warning(f"🔔 HTS 매수 감지 | ticker={ticker}")
+            mark_position_as_hts_buy(user_id, ticker)
+```
+
+**Phase 3: 안전장치**
+
+```python
+# 절대 최대 손실(5%) 강제 청산
+MAX_LOSS_OVERRIDE = 0.05
+if pnl_pct <= -MAX_LOSS_OVERRIDE:
+    return FilterResult(should_block=True, reason="MAX_LOSS_OVERRIDE")
+```
+
+### 재발 방지 대책
+
+1. **HTS 매수 구분 정책**
+   - force_buy (사이트): `src="manual"` 메타데이터
+   - HTS 매수 (외부): `hts_buy=True` 플래그
+   - 수량 0→양수 변화로 HTS 매수 자동 감지
+
+2. **필터 순서 의존성 문서화**
+   - CORE_STRATEGY 필터 간 우선순위 명시
+   - 조기 반환 메커니즘 영향 범위 문서화
+
+3. **Codex Review 프로세스 정착**
+   - 중요 로직 변경 시 Codex 검증 필수
+   - 잠재적 부작용 사전 분석
+
+4. **이벤트 vs 상태 명확히 구분**
+   - `ema_dead_cross`: 전환 이벤트 (1회성)
+   - `ema_fast < ema_slow`: 현재 상태 (지속)
+
+### 체크리스트 (향후 작업 시)
+
+**필터 시스템 변경 시**:
+- [ ] 필터 실행 순서 영향 검토
+- [ ] 조기 반환으로 인한 미도달 필터 확인
+- [ ] 이벤트 vs 상태 구분 확인
+
+**수동 매수 관련 작업 시**:
+- [ ] force_buy vs HTS 매수 구분 확인
+- [ ] 메타데이터 또는 플래그로 식별 가능한지 확인
+- [ ] 수동 매수 전용 정책 필요 여부 검토
+
+**Codex Review 필수 케이스**:
+- [ ] 트레이딩 핵심 로직 변경
+- [ ] 필터 시스템 변경
+- [ ] 사용자 클레임 발생 버그
+
+### 관련 문서
+
+- `docs/issues/issue-17.md` - 상세 분석 및 Codex Review 결과
+- `.claude/context/project-rules.md` - Issue #17 인덱스
+- `core/filters/README.md` - 필터 시스템 설계
+
+---
+
 ## 🎯 핵심 원칙 (재발 방지)
 
 ### 1. "추정하지 말고, 검증하라" (Don't Assume, Verify)
@@ -1417,5 +1581,5 @@ REST Reconcile의 핵심 원칙을 코딩에도 적용
 
 **최종 업데이트**: 2026-05-06
 **작성자**: Claude Code (AI Assistant)
-**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16
-**관련 문서**: `.claude/context/project-rules.md`
+**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16 + Filter Logic Issue #17
+**관련 문서**: `.claude/context/project-rules.md`, `docs/issues/issue-17.md`

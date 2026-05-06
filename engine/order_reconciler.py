@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class OrderReconciler:
-    def __init__(self, upbit: pyupbit.Upbit, *, poll_interval=2.0, balance_sync_interval=300.0):
+    def __init__(self, upbit: pyupbit.Upbit, *, poll_interval=2.0, balance_sync_interval=60.0):
         self.upbit = upbit
         self.poll_interval = poll_interval
-        self.balance_sync_interval = balance_sync_interval  # ✅ 주기적 잔고 동기화 간격 (초, 기본 5분)
+        self.balance_sync_interval = balance_sync_interval  # ✅ 주기적 잔고 동기화 간격 (초, 기본 1분) - Issue #17
         self._pending: Dict[str, Dict[str, Any]] = {}  # uuid -> meta
         self._user_ids: set = set()  # ✅ 추적 중인 사용자 ID들 (잔고 동기화용)
         self._lock = threading.Lock()
@@ -102,7 +102,7 @@ class OrderReconciler:
                     logger.warning(f"[OR] get_order failed uuid={uuid}: {e}")
                 time.sleep(self.poll_interval)
 
-            # ✅ 주기적 잔고 동기화 (5분마다)
+            # ✅ 주기적 잔고 동기화 (1분마다) - Issue #17: HTS 매수 감지
             self._periodic_balance_sync()
 
             if not uuids:
@@ -283,8 +283,9 @@ class OrderReconciler:
 
     def _periodic_balance_sync(self):
         """
-        주기적 잔고 동기화 (기본 5분마다)
+        주기적 잔고 동기화 (기본 1분마다) - Issue #17
         - 주문 없이 외부 입출금 발생 시에도 자동 반영
+        - HTS 매수 감지 (수량 0→양수 변화 시 hts_buy 플래그 설정 + audit_trades 기록)
         - LIVE 모드에서만 동작 (Upbit API 호출)
         """
         now = time.time()
@@ -320,6 +321,51 @@ class OrderReconciler:
                         currency = bal.get("currency", "").upper()
                         if currency and currency != "KRW":
                             ticker = f"KRW-{currency}"
+
+                            # ✅ Issue #17: HTS 매수 감지 (수량 0→양수 변화)
+                            from services.db import get_position_qty, mark_position_as_hts_buy
+                            prev_qty = get_position_qty(user_id, ticker)
+                            curr_qty = float(bal.get("balance", 0.0))
+
+                            if prev_qty == 0 and curr_qty > 0:
+                                # HTS 매수 감지
+                                avg_buy_price = float(bal.get("avg_buy_price", 0.0))
+                                logger.warning(
+                                    f"🔔 [HTS-DETECT] HTS 매수 감지 | "
+                                    f"ticker={ticker} | qty: {prev_qty} → {curr_qty:.6f} | "
+                                    f"avg_price={avg_buy_price}"
+                                )
+
+                                # ✅ Issue #17: HTS 매수 플래그 설정
+                                mark_position_as_hts_buy(user_id, ticker)
+
+                                # ✅ Issue #17: audit_trades 감사 로그 기록
+                                insert_trade_audit(
+                                    user_id=user_id,
+                                    ticker=ticker,
+                                    interval_sec=60,  # 1분 봉 기준 (HTS 감지 주기)
+                                    bar=0,  # HTS 매수는 bar index 없음
+                                    kind="BUY",
+                                    reason="HTS_BUY",
+                                    price=avg_buy_price if avg_buy_price > 0 else None,
+                                    macd=None,
+                                    signal=None,
+                                    entry_price=avg_buy_price if avg_buy_price > 0 else None,
+                                    entry_bar=None,
+                                    bars_held=None,
+                                    tp=None,
+                                    sl=None,
+                                    highest=None,
+                                    ts_pct=None,
+                                    ts_armed=None,
+                                    timestamp=None,  # 현재 시각 자동 설정
+                                    bar_time=None    # HTS 매수는 특정 봉 시각 없음
+                                )
+                                logger.info(
+                                    f"✅ [HTS-DETECT] audit_trades 기록 완료 | "
+                                    f"ticker={ticker} | reason=HTS_BUY | price={avg_buy_price}"
+                                )
+
                             update_position_from_balances(user_id, ticker, balances)
 
                     logger.info(f"[OR] periodic sync: user={user_id} updated")
@@ -328,7 +374,7 @@ class OrderReconciler:
 
             # ✅ 마지막 동기화 시각 갱신
             self._last_balance_sync = now
-            logger.info(f"[OR] periodic sync completed: {len(user_ids)} user(s), interval={self.balance_sync_interval}s")
+            logger.info(f"[OR] periodic sync completed: {len(user_ids)} user(s), interval={self.balance_sync_interval:.0f}s (HTS 매수 감지 포함)")
 
         except Exception as e:
             logger.error(f"[OR] periodic sync failed: {e}")

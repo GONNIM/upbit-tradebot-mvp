@@ -31,9 +31,13 @@ class StopLossFilter(BaseFilter):
 
     def evaluate(self, **kwargs) -> FilterResult:
         """
+        ✅ Issue #17: HTS 매수 + Dead Cross 상태에서 STOP_LOSS 스킵
+
         Args:
             position (PositionState): 현재 포지션
             current_price (float): 현재가
+            ema_fast (float): 빠른 EMA 값 (Dead Cross 상태 체크용)
+            ema_slow (float): 느린 EMA 값 (Dead Cross 상태 체크용)
 
         Returns:
             FilterResult: 손절 조건 충족 시 매도 신호
@@ -56,6 +60,51 @@ class StopLossFilter(BaseFilter):
                 details="PnL calculation failed"
             )
 
+        # ✅ Issue #17: 절대 최대 손실 안전장치 (5%) - Dead Cross보다 우선 실행
+        MAX_LOSS_OVERRIDE = 0.05
+        if pnl_pct <= -MAX_LOSS_OVERRIDE:
+            logger.warning(
+                f"🚨 [STOP_LOSS] 절대 최대 손실 도달 (Dead Cross 무시) | "
+                f"pnl={pnl_pct:.2%} > {MAX_LOSS_OVERRIDE:.2%}"
+            )
+            return FilterResult(
+                should_block=True,
+                reason="MAX_LOSS_OVERRIDE",
+                details=f"Absolute max loss reached: {pnl_pct:.2%} (threshold: -{MAX_LOSS_OVERRIDE:.2%})",
+                metadata={
+                    'pnl_pct': pnl_pct,
+                    'threshold': -MAX_LOSS_OVERRIDE,
+                    'current_price': current_price,
+                    'override': True
+                }
+            )
+
+        # ✅ Issue #17: HTS 매수 여부 확인
+        is_hts_buy = position.metadata.get('hts_buy', False)
+
+        # ✅ Issue #17: Dead Cross 상태 체크
+        ema_fast: Optional[float] = kwargs.get('ema_fast')
+        ema_slow: Optional[float] = kwargs.get('ema_slow')
+
+        # Dead Cross 상태 + HTS 매수인 경우 STOP_LOSS 스킵
+        if is_hts_buy and ema_fast is not None and ema_slow is not None and ema_fast <= ema_slow:
+            logger.info(
+                f"⏭️ [STOP_LOSS] HTS 매수 + Dead Cross 상태 → STOP_LOSS 스킵 | "
+                f"pnl={pnl_pct:.2%} | ema_fast={ema_fast:.2f} <= ema_slow={ema_slow:.2f}"
+            )
+            return FilterResult(
+                should_block=False,
+                reason="SL_SKIPPED_HTS_DEAD_CROSS",
+                details=f"HTS buy position held until Golden Cross (pnl={pnl_pct:.2%})",
+                metadata={
+                    'pnl_pct': pnl_pct,
+                    'ema_fast': ema_fast,
+                    'ema_slow': ema_slow,
+                    'hts_buy': True
+                }
+            )
+
+        # 기존 STOP_LOSS 로직
         stop_loss_triggered = pnl_pct <= -self.stop_loss_pct
 
         logger.info(
@@ -64,7 +113,8 @@ class StopLossFilter(BaseFilter):
             f"stop_loss_triggered={stop_loss_triggered}, "
             f"pnl_pct={pnl_pct:.2%}, "
             f"threshold=-{self.stop_loss_pct:.2%}, "
-            f"current_price={current_price}"
+            f"current_price={current_price}, "
+            f"hts_buy={is_hts_buy}"
         )
 
         if stop_loss_triggered:
