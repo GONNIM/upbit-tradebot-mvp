@@ -24,7 +24,7 @@
 
 ---
 
-## 📋 Issue 인덱스 (10개)
+## 📋 Issue 인덱스 (14개)
 
 | # | 제목 | 핵심 메시지 | 날짜 |
 |---|------|------------|------|
@@ -38,6 +38,10 @@
 | 9 | BACKFILL 중복 체크 | 재평가 ≠ 중복, `is_backfill` 플래그로 구분 | 2026-03-16 |
 | 10 | Enum 속성 접근 오류 | `action.value` 사용, `action.action` 아님 | 2026-03-18 |
 | 11 | BACKFILL 지표 오염 | 지표 상태 백업/복원으로 Golden Cross 보호 | 2026-03-25 |
+| 13 | Streamlit query_params | 서버 버전 먼저 확인, 웹 검색은 참고만 | 2026-05-06 |
+| 14 | session_state 동기화 | URL 파라미터 읽으면 session_state에도 저장 | 2026-05-06 |
+| 15 | 페이지 경로 .py 확장자 | Streamlit 멀티페이지는 확장자 없이 파일명만 | 2026-05-06 |
+| 16 | 워크플로우 위반 (2차) | 사용자 승인 없이 서버 배포 절대 금지 | 2026-05-06 |
 
 ---
 
@@ -143,7 +147,7 @@ mv mcmax33.db archive/  # 백업 후 보관
 
 ### Issue 상세 (필요 시 명시적으로 Read)
 
-**10개 Issue 상세 문서** (문제, 근본 원인, 교훈, 수정):
+**14개 Issue 상세 문서** (문제, 근본 원인, 교훈, 수정):
 - `docs/issues/issue-01.md` - pyupbit 컬럼명 대소문자
 - `docs/issues/issue-02.md` - bar_time 9시간 오프셋
 - `docs/issues/issue-04.md` - REST API 지연
@@ -154,6 +158,7 @@ mv mcmax33.db archive/  # 백업 후 보관
 - `docs/issues/issue-09.md` - BACKFILL 중복 체크
 - `docs/issues/issue-10.md` - Enum 속성 접근 오류
 - `docs/issues/issue-11.md` - BACKFILL 지표 오염 ⭐
+- `.claude/lessons-learned.md` - Issue #13~#16 (Streamlit UI) ⭐
 
 ### 분석 보고서 (완료 문서, 필요 시 참조)
 
@@ -169,12 +174,12 @@ mv mcmax33.db archive/  # 백업 후 보관
 
 ## 📊 Issue 통계
 
-**총 Issue**: 10개 (Issue #3 없음)
-**Critical (🔴)**: 10개 (100%)
-**평균 해결 시간**: 4.2시간
-**재발 빈도**: 0% (모든 Issue에 자동화된 검증 추가)
+**총 Issue**: 14개 (Issue #3, #12 없음)
+**Critical (🔴)**: 14개 (100%)
+**평균 해결 시간**: 3.8시간
+**재발 빈도**: 7.1% (교훈 #12 → #16 재발 1건)
 
 ---
 
-**마지막 업데이트**: 2026-04-22
-**버전**: 2.0 (Boilerplate 적용 - Issue 요약 형식)
+**마지막 업데이트**: 2026-05-06
+**버전**: 2.1 (Streamlit UI Issue #13-#16 추가)

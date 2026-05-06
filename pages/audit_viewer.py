@@ -166,15 +166,16 @@ with col_go:
             virtual_krw = 0
 
     if st.button("⬅️ 대시보드로 가기", use_container_width=True):
-        next_page = "pages/dashboard.py"
-        qs = urlencode({
+        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
+        from urllib.parse import urlencode
+        params = urlencode({
             "user_id": user_id,
             "virtual_krw": virtual_krw,
             "mode": mode,
-            "strategy_type": strategy_tag,  # ✅ 현재 전략 타입 전달
+            "strategy_type": strategy_tag,
         })
-        st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{qs}">', unsafe_allow_html=True)
-        st.switch_page(next_page)
+        st.markdown(f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">', unsafe_allow_html=True)
+        st.stop()
 
 # -------------------
 # 로컬 쿼리 헬퍼 (매도평가/설정스냅샷)

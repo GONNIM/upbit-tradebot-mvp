@@ -302,18 +302,16 @@ def save_conditions():
 
 
 def go_dashboard():
-    next_page = "pages/dashboard.py"
+    # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
+    from urllib.parse import urlencode
     params = urlencode({
         "user_id": user_id,
         "virtual_krw": virtual_krw,
         "mode": mode,
         "strategy": strategy_tag,
     })
-    st.markdown(
-        f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">',
-        unsafe_allow_html=True,
-    )
-    st.switch_page(next_page)
+    st.markdown(f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">', unsafe_allow_html=True)
+    st.stop()
 
 
 # --- 최초 로딩 시 상태 불러오기 ---

@@ -66,26 +66,19 @@ def initialize_confirm():
     st.session_state.pop("engine_started", None)
     st.success("DB 초기화 완료")
 
-    # 페이지 리프레시
+    # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
+    from urllib.parse import urlencode
     params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id})
-    st.markdown(
-        f'<meta http-equiv="refresh" content="0; url=./set_config?{params}">',
-        unsafe_allow_html=True,
-    )
+    st.markdown(f'<meta http-equiv="refresh" content="0; url=./set_config?{params}">', unsafe_allow_html=True)
+    st.stop()
 
 
 def initialize_cancel():
-    next_page = "pages/dashboard.py"
-    params = urlencode({
-        "user_id": user_id,
-        "virtual_krw": virtual_krw,
-        "mode": mode,
-    })
-    st.markdown(
-        f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">',
-        unsafe_allow_html=True,
-    )
-    st.switch_page(next_page)
+    # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
+    from urllib.parse import urlencode
+    params = urlencode({"user_id": user_id, "virtual_krw": virtual_krw, "mode": mode})
+    st.markdown(f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">', unsafe_allow_html=True)
+    st.stop()
 
 
 # --- UI 스타일 ---

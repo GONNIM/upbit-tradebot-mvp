@@ -74,12 +74,18 @@ def _get_param(qp, key, default=None):
     return v
 
 user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
+# ✅ FIX: session_state에 user_id 저장 (다른 페이지와 일관성 유지)
+st.session_state["user_id"] = user_id
+
 raw_vk = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
 
 try:
     virtual_krw = int(raw_vk)
 except (TypeError, ValueError):
     virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+
+# ✅ FIX: session_state에 virtual_krw 저장 (다른 페이지와 일관성 유지)
+st.session_state["virtual_krw"] = virtual_krw
 
 raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
 mode = str(raw_mode).upper()
@@ -401,8 +407,7 @@ with col20:
             st.session_state.engine_started = False
             time.sleep(0.3)
 
-        # ✅ session_state에서 검증 정보 확실하게 읽기
-        next_page = "pages/set_config.py"
+        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
         params = urlencode({
             "virtual_krw": st.session_state.get("virtual_krw", 0),
             "user_id": st.session_state.get("user_id", ""),
@@ -411,11 +416,8 @@ with col20:
             "capital_set": "1" if st.session_state.get("live_capital_set", False) else "0",
             "strategy_type": strategy_tag,
         })
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url=./{next_page}?{params}">',
-            unsafe_allow_html=True,
-        )
-        st.switch_page(next_page)
+        st.markdown(f'<meta http-equiv="refresh" content="0; url=./set_config?{params}">', unsafe_allow_html=True)
+        st.stop()
 with col30:
     logout = st.button("로그아웃하기", key="btn_logout", use_container_width=True)
     if logout:
@@ -1602,11 +1604,10 @@ with btn_col3:
 with btn_col4:
     reset_system_clicked = st.button("💥 시스템 초기화", key="btn_reset_system", use_container_width=True)
     if reset_system_clicked:
+        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
         params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id, "mode": mode})
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url=./confirm_init_db?{params}">',
-            unsafe_allow_html=True,
-        )
+        st.markdown(f'<meta http-equiv="refresh" content="0; url=./confirm_init_db?{params}">', unsafe_allow_html=True)
+        st.stop()
 
 st.divider()
 
@@ -1832,17 +1833,15 @@ with col1:
 with col2:
     settings_clicked = st.button("🛠️ 설정", key="btn_settings", use_container_width=True)
     if settings_clicked:
+        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
         params = urlencode({
             "virtual_krw": virtual_krw,
             "user_id": user_id,
             "mode": mode,
-            # ★ set_buy_sell_conditions 쪽에서 전략 분기할 수 있도록 넘겨줌
             "strategy": strategy_tag,
         })
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">',
-            unsafe_allow_html=True,
-        )
+        st.markdown(f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">', unsafe_allow_html=True)
+        st.stop()
 
 # 전략 표시
 if len(BUY_STRATEGY) > 0:
@@ -1969,10 +1968,10 @@ with c4:
             "strategy": strategy_tag,
         })
 
-        next_page = "pages/audit_viewer.py"  # 👈 pages/audit_viewer.py 파일명 기준 (아래 Step 2)
-        # 메타 리프레시 + switch_page 병행 (현 코드 스타일과 통일)
+        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
+        next_page = "audit_viewer"
         st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{audit_params}">', unsafe_allow_html=True)
-        st.switch_page(next_page)
+        st.stop()
 
 # 어디서든 임시 로그:
 with get_db(user_id) as conn:
