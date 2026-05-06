@@ -57,6 +57,16 @@ class OrderReconciler:
             self._user_ids.add(user_id)  # ✅ 잔고 동기화 대상 사용자 추가
         logger.info(f"[OR] enqueued: {uuid} side={side} {ticker}")
 
+    def register_user(self, user_id: str):
+        """
+        ✅ Issue #17 Hotfix: HTS 매수 감지용 사용자 등록
+        - 봇 거래 없이도 주기적 잔고 동기화 활성화
+        - 엔진 시작 시 즉시 호출되어 _user_ids 채움
+        """
+        with self._lock:
+            self._user_ids.add(user_id)
+        logger.info(f"[OR] User registered for balance monitoring: {user_id}")
+
     def load_inflight_from_db(self, fetch_func):
         rows = fetch_func() or []
         with self._lock:

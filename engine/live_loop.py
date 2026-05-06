@@ -349,6 +349,12 @@ def run_live_loop(
             if entry_bar is not None:
                 position.entry_bar = entry_bar
             logger.info(f"🔁 Position recovered | entry={entry_price} qty={actual_qty:.6f} entry_bar={entry_bar}")
+
+        # ✅ Issue #17 Hotfix: OrderReconciler에 사용자 등록 (HTS 매수 감지 활성화)
+        reconciler = get_reconciler()
+        reconciler.register_user(user_id)
+        logger.info(f"✅ [HTS-DETECT] User {user_id} registered for periodic balance sync (interval=60s)")
+
         else:
             # ⚠️ DB에서 진입가를 찾지 못했지만 지갑에 코인이 있는 경우
             logger.warning(
