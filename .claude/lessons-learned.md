@@ -1,6 +1,6 @@
 # Upbit Tradebot MVP - 교훈 모음
 
-> **총 교훈 수**: 18개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16 + Filter Logic #17 + State Management #19)
+> **총 교훈 수**: 19개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16 + Filter Logic #17 + DB Sync #18 + State Management #19)
 
 **목적**: 과거 트러블슈팅 경험을 체계적으로 기록하여 동일한 실수 방지
 
@@ -25,6 +25,7 @@
 - [교훈 #15: Streamlit 멀티페이지 경로 오류 (.py 확장자 포함)](#교훈-15-streamlit-멀티페이지-경로-오류-py-확장자-포함)
 - [교훈 #16: 워크플로우 위반 (사용자 승인 없이 서버 배포 2차)](#교훈-16-워크플로우-위반-사용자-승인-없이-서버-배포-2차)
 - [교훈 #17: Dead Cross 상태에서 HTS 매수 시 즉시 자동매도 (필터 순서 문제)](#교훈-17-dead-cross-상태에서-hts-매수-시-즉시-자동매도-필터-순서-문제)
+- [교훈 #18: DB 자산 현황 vs 실제 계정 불일치 (부분 동기화의 한계)](#교훈-18-db-자산-현황-vs-실제-계좌-불일치-부분-동기화의-한계)
 - [교훈 #19: 편협적 수정으로 인한 데이터 흐름 누락 (전체 영향 범위 미고려)](#교훈-19-편협적-수정으로-인한-데이터-흐름-누락-전체-영향-범위-미고려)
 
 ---
@@ -1511,6 +1512,187 @@ if pnl_pct <= -MAX_LOSS_OVERRIDE:
 
 ---
 
+## 교훈 #18: DB 자산 현황 vs 실제 계좌 불일치 (부분 동기화의 한계)
+
+**발생일**: 2026-05-14
+**카테고리**: 데이터베이스
+**심각도**: P0-Critical (사용자에게 잘못된 자산 정보 표시)
+
+### 문제 상황
+
+**사용자 보고**:
+```
+Dashboard에 KRW-PEPE 8억개가 표시되는데, 실제 계좌에는 없다.
+며칠 전에 매도했는데 DB에 그대로 남아있다.
+```
+
+**DB vs 실제 계좌**:
+```
+DB (account_positions):
+- KRW-PEPE: 800,000,000개 ❌ (매도 완료됨)
+- KRW-WIN: 실제 보유 ✅
+- KRW-APENFT: 실제 보유 ✅
+
+실제 Upbit 계좌:
+- KRW-PEPE: 0개 (없음)
+- KRW-WIN: 보유 중
+- KRW-APENFT: 보유 중
+- KRW-ORCA: 보유 중 (DB에 없음!)
+```
+
+### 근본 원인
+
+#### 1. 부분 동기화의 한계
+
+**기존 로직** (`engine/order_reconciler.py`):
+```python
+def _periodic_balance_sync(self):
+    for bal in balances:
+        ticker = f"KRW-{currency}"
+        # ✅ 실제 보유 중인 코인 → DB 업데이트
+        update_position_from_balances(user_id, ticker, balances)
+```
+
+**문제점**:
+- 실제 보유 중인 코인만 업데이트
+- **DB에만 있고 실제로는 없는 코인 → 방치됨**
+- HTS에서 매도 시 DB 클리어 안 됨
+
+#### 2. HTS 매도 미감지
+
+**시나리오**:
+```
+1. 봇이 KRW-PEPE 매수 (DB에 기록)
+2. 사용자가 HTS(업비트 앱)에서 KRW-PEPE 전량 매도
+3. order_reconciler가 실제 보유 중인 코인만 업데이트
+4. KRW-PEPE는 DB에 그대로 남음 ❌
+```
+
+#### 3. 단방향 동기화
+
+**기존 설계**:
+```python
+# ✅ 실제 보유 → DB 업데이트 (O)
+update_position_from_balances(...)
+
+# ❌ DB에만 있는 포지션 → 클리어 (X)
+```
+
+### 해결 방법
+
+#### Step 1: 전체 포트폴리오 동기화 함수 추가
+
+**services/db.py:1520-1580** (신규 함수):
+```python
+def sync_all_positions_from_balances(user_id: str, balances: list):
+    """
+    전체 포트폴리오를 Upbit 실제 잔고와 동기화.
+
+    로직:
+    1. 실제 보유 중인 코인 → DB 업데이트
+    2. DB에만 있는 코인 → balance=0, avg_price=0으로 클리어
+    """
+    # 1. 실제 보유 중인 코인 목록
+    actual_tickers = set()
+    for bal in balances:
+        currency = bal.get("currency", "").upper()
+        if currency and currency != "KRW":
+            ticker = f"KRW-{currency}"
+            actual_tickers.add(ticker)
+            update_position_from_balances(user_id, ticker, balances)
+
+    # 2. DB에 있는 모든 포지션 조회
+    with get_db(user_id) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT ticker FROM account_positions WHERE user_id = ?",
+            (user_id,)
+        )
+        db_tickers = {row[0] for row in cursor.fetchall()}
+
+    # 3. DB에만 있는 포지션 클리어
+    orphaned_tickers = db_tickers - actual_tickers
+    for ticker in orphaned_tickers:
+        clear_position(user_id, ticker)
+        logger.info(f"🧹 [SYNC-ALL] DB 오래된 포지션 클리어: {ticker}")
+```
+
+#### Step 2: 주기적 전체 동기화
+
+**engine/order_reconciler.py** (5분 주기):
+```python
+def _periodic_balance_sync(self):
+    # 기존: 실제 보유 코인만 업데이트 (1분마다)
+    for bal in balances:
+        update_position_from_balances(...)
+
+    # 신규: 전체 포트폴리오 동기화 (5분마다)
+    if time.time() - self._last_full_sync >= 300:
+        sync_all_positions_from_balances(user_id, balances)
+        self._last_full_sync = time.time()
+```
+
+**Enhancement** (커밋 8217c30):
+- 5분 주기 → 1분 주기로 개선
+- 더 빠른 DB 정합성 보장
+
+### 재발 방지 대책
+
+#### 1. **양방향 동기화 원칙** (CRITICAL!)
+
+**규칙**:
+```
+실제 계좌 → DB 업데이트 (O)
+DB에만 있는 포지션 → 클리어 (O) ← 추가!
+```
+
+**체크리스트**:
+- [ ] 실제 보유 코인 DB 업데이트
+- [ ] DB에만 있는 코인 클리어
+- [ ] 전체 포트폴리오 동기화 주기 설정
+
+#### 2. **HTS 매도 시나리오 테스트 필수**
+
+**테스트 시나리오**:
+```
+1. 봇으로 매수 → DB 확인
+2. HTS에서 전량 매도
+3. 1분 대기 → DB 확인 (클리어 여부)
+```
+
+#### 3. **고아 데이터(Orphaned Data) 감지**
+
+**정의**: DB에만 있고 실제 계좌에는 없는 데이터
+
+**감지 로직**:
+```python
+db_tickers = {DB에 있는 ticker}
+actual_tickers = {실제 보유 중인 ticker}
+orphaned_tickers = db_tickers - actual_tickers
+```
+
+### 체크리스트 (향후 작업 시)
+
+**DB 동기화 로직 작성 시**:
+- [ ] 실제 → DB 업데이트 (일반 케이스)
+- [ ] DB에만 있는 데이터 클리어 (고아 데이터)
+- [ ] 주기적 전체 동기화 구현
+- [ ] HTS 매도 시나리오 테스트
+
+**데이터 무결성 검증 시**:
+- [ ] DB vs 실제 계좌 비교
+- [ ] 차이나는 포지션 로그 출력
+- [ ] 자동 클리어 로직 동작 확인
+
+### 관련 문서
+
+- Git 커밋 `1510379` - Issue #18 해결
+- Git 커밋 `8217c30` - Issue #18 Enhancement (5분→1분)
+- `services/db.py:1520-1580` - sync_all_positions_from_balances()
+- `engine/order_reconciler.py` - 주기적 전체 동기화
+
+---
+
 ## 교훈 #19: 편협적 수정으로 인한 데이터 흐름 누락 (전체 영향 범위 미고려)
 
 **발생일**: 2026-05-14
@@ -1879,5 +2061,5 @@ grep -r "upbit_verified" --include="*.py" .
 
 **최종 업데이트**: 2026-05-14
 **작성자**: Claude Code (AI Assistant)
-**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16 + Filter Logic Issue #17 + State Management Issue #19
+**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16 + Filter Logic Issue #17 + DB Sync Issue #18 + State Management Issue #19
 **관련 문서**: `.claude/context/project-rules.md`, `docs/issues/issue-17.md`, `.claude/lessons-learned.md`
