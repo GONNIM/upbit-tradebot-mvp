@@ -1517,6 +1517,69 @@ def update_position_from_balances(user_id: str, ticker: str, balances: list[dict
     update_coin_position(user_id, market_code, total_coin)
 
 
+def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]]):
+    """
+    전체 포트폴리오를 Upbit API 응답과 동기화 (Issue #18 해결)
+    - 실제 보유 코인: 수량 업데이트
+    - DB에만 있는 코인: 0으로 설정
+    - 5분마다 실행 권장 (Reconciler _periodic_balance_sync에서 호출)
+
+    배경:
+    - update_position_from_balances()는 특정 ticker만 업데이트
+    - 매도 후 다른 코인 거래 시 이전 코인이 DB에 남아있는 문제 발생
+    - KRW-PEPE 8억개가 매도 후에도 DB에 남아있던 사례 (2026-05-14)
+    """
+    ensure_schema(user_id)
+
+    # 1. 실제 보유 코인 업데이트
+    real_currencies = set()
+    try:
+        for b in balances or []:
+            currency = str(b.get("currency", "")).strip().upper()
+            if currency == "KRW" or not currency:
+                continue
+
+            balance = float(b.get("balance", 0))
+            locked = float(b.get("locked", 0))
+            total = balance + locked
+
+            ticker = f"KRW-{currency}"
+            update_coin_position(user_id, ticker, total)
+            real_currencies.add(currency)
+
+    except Exception as e:
+        logger.warning(f"[DB] sync_all_positions real balances failed: {e}")
+
+    # 2. DB에는 있지만 실제로는 없는 코인 → 0으로 설정
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT DISTINCT ticker FROM account_positions WHERE user_id = ?",
+                (user_id,)
+            )
+            db_tickers = [row[0] for row in cur.fetchall()]
+
+        for ticker in db_tickers:
+            if not ticker or not ticker.startswith("KRW-"):
+                continue
+
+            # ticker에서 currency 추출 (KRW-PEPE → PEPE)
+            parts = ticker.split("-")
+            if len(parts) != 2:
+                continue
+
+            currency = parts[1].strip().upper()
+
+            # 실제 보유하지 않으면 0으로 설정
+            if currency not in real_currencies:
+                update_coin_position(user_id, ticker, 0.0)
+                logger.info(f"[DB] sync_all_positions cleared: {ticker} → 0.0")
+
+    except Exception as e:
+        logger.warning(f"[DB] sync_all_positions clear stale positions failed: {e}")
+
+
 # ============================================================
 # Phase 2: 캔들 데이터 영속성 (Candle Cache)
 # ============================================================

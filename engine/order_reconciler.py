@@ -6,6 +6,7 @@ from services.db import (
     update_order_completed,
     update_account_from_balances,
     update_position_from_balances,
+    sync_all_positions_from_balances,  # ✅ Issue #18: 전체 포트폴리오 동기화
     insert_trade_audit,  # ✅ LIVE 모드 체결 로그 추가
 )
 
@@ -24,6 +25,7 @@ class OrderReconciler:
         self._stop = threading.Event()
         self._thr: Optional[threading.Thread] = None
         self._last_balance_sync = 0.0  # ✅ 마지막 잔고 동기화 시각 (time.time())
+        self._last_full_sync = 0.0  # ✅ 마지막 전체 포트폴리오 동기화 시각 (Issue #18, 5분마다)
 
     def start(self):
         if self._thr and self._thr.is_alive():
@@ -381,6 +383,18 @@ class OrderReconciler:
                     logger.info(f"[OR] periodic sync: user={user_id} updated")
                 except Exception as e:
                     logger.error(f"[OR] periodic sync failed for user={user_id}: {e}")
+
+            # ✅ Issue #18: 5분마다 전체 포트폴리오 동기화 (0으로 클리어 포함)
+            full_sync_elapsed = now - self._last_full_sync
+            if full_sync_elapsed >= 300.0:  # 5분 = 300초
+                logger.info(f"[OR] full portfolio sync starting (last: {full_sync_elapsed:.0f}s ago)")
+                for user_id in user_ids:
+                    try:
+                        sync_all_positions_from_balances(user_id, balances)
+                        logger.info(f"[OR] full portfolio sync: user={user_id} completed")
+                    except Exception as e:
+                        logger.error(f"[OR] full portfolio sync failed for user={user_id}: {e}")
+                self._last_full_sync = now
 
             # ✅ 마지막 동기화 시각 갱신
             self._last_balance_sync = now

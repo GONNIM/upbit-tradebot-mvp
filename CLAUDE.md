@@ -104,6 +104,25 @@ python -m engine.live_loop --ticker KRW-ZRO --strategy EMA
 
 ### 서버 배포
 
+**⚠️ 배포 전 필수 체크리스트**:
+
+1. **Dashboard 버전 업데이트** (pages/dashboard.py:313)
+   ```python
+   st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.YYYY.MM.DD.HHMM")
+   ```
+   - 형식: `v1.YYYY.MM.DD.HHMM` (예: `v1.2026.05.14.1430`)
+   - **버전 미업데이트 시 GitHub 커밋 금지**
+
+2. **로컬 테스트 완료**
+   - 문법 검증: `python3 -m py_compile <파일명>`
+   - 백테스팅 (필요 시)
+
+3. **사용자 승인 획득**
+   - 변경 내용 보고 완료
+   - 배포 승인 확인
+
+**배포 실행**:
+
 ```bash
 # systemd deploy (권장)
 ./squad-tradebot.sh
