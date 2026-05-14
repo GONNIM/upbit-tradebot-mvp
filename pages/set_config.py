@@ -106,6 +106,10 @@ if "upbit_verified" in st.session_state:
 if "live_capital_set" in st.session_state:
     capital_ok = capital_ok or bool(st.session_state.get("live_capital_set"))
 
+# FIX: URL 파라미터를 session_state에 저장 (Issue #14 교훈 준수)
+st.session_state["upbit_verified"] = upbit_ok
+st.session_state["live_capital_set"] = capital_ok
+
 if virtual_krw < MIN_CASH:
     st.warning(
         f"현재 운용자산({virtual_krw} KRW)가 최소 주문 가능 금액({MIN_CASH} KRW)보다 작습니다.\n"

@@ -310,7 +310,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.14.1533")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.14.1540")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])
