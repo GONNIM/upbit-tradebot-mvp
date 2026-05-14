@@ -80,7 +80,7 @@ st.session_state["user_id"] = user_id
 raw_vk = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
 
 try:
-    virtual_krw = int(raw_vk)
+    virtual_krw = int(float(raw_vk))  # ✅ FIX: float 문자열 처리 (set_config.py와 동일)
 except (TypeError, ValueError):
     virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
 
@@ -315,7 +315,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.14.1756")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.14.1810")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])
