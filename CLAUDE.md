@@ -124,15 +124,23 @@ python -m engine.live_loop --ticker KRW-ZRO --strategy EMA
 **배포 실행**:
 
 ```bash
-# systemd deploy (권장)
-./squad-tradebot.sh
+# 1. 코드 업데이트
+cd /root/upbit-tradebot-mvp
+git pull
 
-# systemd 상태 확인
-systemctl status upbit-tradebot
+# 2. systemd 서비스 재시작
+systemctl restart tradebot
 
-# 로그 확인
-tail -f mcmax33_engine_debug.log
+# 3. 상태 확인
+systemctl status tradebot
+
+# 4. 로그 확인 (Streamlit)
+tail -f /root/upbit-tradebot-mvp/mcmax33_engine_debug.log
 ```
+
+**주의사항**:
+- 서버 서비스명: `tradebot.service` (NOT `upbit-tradebot`)
+- `./squad-tradebot.sh`는 로컬 개발용 tmux 스크립트 (서버에 없음)
 
 ### 백테스팅
 
@@ -154,8 +162,8 @@ python -m tests.backtest --ticker KRW-ZRO --strategy EMA --days 30
   "trailing_stop_threshold": 0.10  # 수익 10% 하락 시 매도
 }
 
-# 파라미터 변경 후 재시작
-./squad-tradebot.sh restart
+# 파라미터 변경 후 서버 재시작
+systemctl restart tradebot
 ```
 
 ---
