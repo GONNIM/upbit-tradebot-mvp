@@ -244,7 +244,9 @@ elif authentication_status:
     #    - 세션 초기화 시 virtual_krw를 DB에서 복원
     #    - TEST 모드(L437-443)와 동일한 로직을 LIVE 모드에도 적용
     #    - 파라미터 설정하기 버튼 클릭 시 virtual_krw=0 오류 방지
-    if st.session_state.virtual_krw == 0:
+    # ✅ Issue #20: None, "", 기타 falsy 값도 처리 (== 0 대신 <= 0)
+    virtual_krw_value = st.session_state.virtual_krw
+    if not virtual_krw_value or (isinstance(virtual_krw_value, (int, float)) and virtual_krw_value <= 0):
         user_info = get_user(username)
         if user_info:
             _, db_virtual_krw, _ = user_info
@@ -254,7 +256,14 @@ elif authentication_status:
                 logger.info(f"[DB-LOAD] virtual_krw 복원: {db_virtual_krw:,.0f} KRW (user={username}, mode={_mode})")
 
     # ✅ WO-2026-002: LIVE 모드 자동 계좌검증 + 운용자산 설정
-    if _mode == "LIVE" and not st.session_state.get("_auto_checked_in_live"):
+    # ✅ Issue #20: 재진입 시 virtual_krw가 0이면 자동 검증 재실행
+    virtual_krw_check = st.session_state.virtual_krw
+    need_auto_verify = (
+        not st.session_state.get("_auto_checked_in_live")
+        or not virtual_krw_check
+        or (isinstance(virtual_krw_check, (int, float)) and virtual_krw_check <= 0)
+    )
+    if _mode == "LIVE" and need_auto_verify:
         ak, sk = ACCESS, SECRET
         if ak and sk:
             with st.spinner("🔄 LIVE 모드 자동 계좌검증 중..."):
