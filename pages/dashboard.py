@@ -98,11 +98,16 @@ capital_param = _get_param(qp, "capital_set", "0")
 upbit_ok = str(verified_param) == "1"
 capital_ok = str(capital_param) == "1"
 
+# FIX: session_state와 병합 후 저장 (Issue #14, #19 교훈 준수)
 if is_live:
     if "upbit_verified" in st.session_state:
         upbit_ok = upbit_ok or bool(st.session_state["upbit_verified"])
     if "live_capital_set" in st.session_state:
         capital_ok = capital_ok or bool(st.session_state["live_capital_set"])
+
+# 최종 값을 session_state에 저장
+st.session_state["upbit_verified"] = upbit_ok
+st.session_state["live_capital_set"] = capital_ok
 
 
 def get_current_balances(user_id: str, params_obj, is_live: bool, force_refresh: bool = False):
@@ -310,7 +315,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.14.1540")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.14.1715")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])

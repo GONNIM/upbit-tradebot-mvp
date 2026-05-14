@@ -1,6 +1,6 @@
 # Upbit Tradebot MVP - 교훈 모음
 
-> **총 교훈 수**: 17개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16 + Filter Logic #17)
+> **총 교훈 수**: 18개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16 + Filter Logic #17 + State Management #19)
 
 **목적**: 과거 트러블슈팅 경험을 체계적으로 기록하여 동일한 실수 방지
 
@@ -25,6 +25,7 @@
 - [교훈 #15: Streamlit 멀티페이지 경로 오류 (.py 확장자 포함)](#교훈-15-streamlit-멀티페이지-경로-오류-py-확장자-포함)
 - [교훈 #16: 워크플로우 위반 (사용자 승인 없이 서버 배포 2차)](#교훈-16-워크플로우-위반-사용자-승인-없이-서버-배포-2차)
 - [교훈 #17: Dead Cross 상태에서 HTS 매수 시 즉시 자동매도 (필터 순서 문제)](#교훈-17-dead-cross-상태에서-hts-매수-시-즉시-자동매도-필터-순서-문제)
+- [교훈 #19: 편협적 수정으로 인한 데이터 흐름 누락 (전체 영향 범위 미고려)](#교훈-19-편협적-수정으로-인한-데이터-흐름-누락-전체-영향-범위-미고려)
 
 ---
 
@@ -1510,6 +1511,278 @@ if pnl_pct <= -MAX_LOSS_OVERRIDE:
 
 ---
 
+## 교훈 #19: 편협적 수정으로 인한 데이터 흐름 누락 (전체 영향 범위 미고려)
+
+**발생일**: 2026-05-14
+**카테고리**: 시스템
+**심각도**: P0-Critical (LIVE 모드 계좌검증 상태 지속 손실)
+
+### 문제 상황
+
+**사용자 보고**:
+```
+LIVE 모드 계좌검증 완료 → "파라미터 설정하기" 클릭 시 경고 지속 표시:
+"⚠️ LIVE 모드 진입 조건이 충족되지 않았습니다.
+- upbit_verified: False
+- live_capital_set: False"
+```
+
+**첫 번째 수정 시도** (2026-05-14 15:40):
+- `pages/set_config.py`만 수정
+- session_state 동기화 로직 추가
+- 문법 검증, GitHub 커밋, 서버 배포 완료
+
+**결과**: 문제 해결 안 됨 (동일한 경고 계속 표시)
+
+**사용자 피드백**:
+```
+"지금까지 작업 및 검증을 지시하면 편협적으로 해당 부분만 확인한다.
+그리고 제대로 검증도 하지 않는다. 무엇이 문제인가?"
+```
+
+### 근본 원인
+
+#### 1. 편협적 수정 (Narrow-Focus Fix)
+
+**지시받은 내용**: "set_config.py에서 session_state 동기화 누락"
+**실제 작업**: set_config.py만 수정 → 완료 보고
+
+**문제점**:
+- 데이터 흐름 전체를 추적하지 않음
+- 다른 페이지에서 동일한 문제가 있는지 확인 안 함
+- URL 파라미터 `verified=0`, `capital_set=0`이 어디서 오는지 추적 안 함
+
+#### 2. 검증 누락
+
+**했어야 할 것**:
+1. Grep으로 `upbit_verified`, `live_capital_set` 사용처 전체 검색
+2. 데이터 흐름 추적: app.py → dashboard.py → set_config.py
+3. 각 페이지에서 URL 파라미터 처리 방식 확인
+4. 실제 URL 테스트로 전체 흐름 검증
+
+**실제로 한 것**:
+1. set_config.py만 수정
+2. 문법 검증 (`py_compile`)만 수행
+3. 실제 동작 테스트 안 함
+
+#### 3. 실제 문제 위치
+
+**데이터 흐름 추적 결과**:
+```python
+# app.py:512, 539
+st.session_state.get("upbit_verified")  # → True 저장됨
+
+# pages/dashboard.py:95-99 ❌ 문제!
+verified_param = _get_param(qp, "verified", "0")  # → "1" 읽음
+upbit_ok = str(verified_param) == "1"  # → True
+
+# ❌ session_state에 저장 안 함!
+# 결과: st.session_state["upbit_verified"] 키 없음
+
+# pages/dashboard.py:415-416 ❌ 문제 전파!
+"verified": "1" if st.session_state.get("upbit_verified", False) else "0"
+# → False (키 없음) → "0" 전달
+
+# pages/set_config.py:98-111
+# URL에서 verified=0, capital_set=0 받음
+# → 경고 표시
+```
+
+**결론**: dashboard.py에서도 동일한 수정 필요
+
+### 해결 방법
+
+**Step 1: 전체 영향 범위 확인**
+```bash
+# upbit_verified 사용처 검색
+grep -r "upbit_verified" --include="*.py" .
+
+# 결과:
+# - app.py (6개 위치)
+# - pages/dashboard.py (2개 위치) ← 누락!
+# - pages/set_config.py (2개 위치)
+```
+
+**Step 2: dashboard.py 수정**
+```python
+# pages/dashboard.py:101-110
+verified_param = _get_param(qp, "verified", "0")
+capital_param = _get_param(qp, "capital_set", "0")
+
+upbit_ok = str(verified_param) == "1"
+capital_ok = str(capital_param) == "1"
+
+# FIX: session_state와 병합 후 저장 (Issue #14, #19 교훈 준수)
+if is_live:
+    if "upbit_verified" in st.session_state:
+        upbit_ok = upbit_ok or bool(st.session_state["upbit_verified"])
+    if "live_capital_set" in st.session_state:
+        capital_ok = capital_ok or bool(st.session_state["live_capital_set"])
+
+# 최종 값을 session_state에 저장
+st.session_state["upbit_verified"] = upbit_ok
+st.session_state["live_capital_set"] = capital_ok
+```
+
+**Step 3: 전체 흐름 검증**
+```bash
+# 실제 URL 테스트
+# app.py → dashboard.py → set_config.py
+# 각 단계에서 session_state 값 확인
+```
+
+### 재발 방지 대책
+
+#### 1. **상태 변수 수정 시 전체 검색 강제** (CRITICAL!)
+
+**규칙**:
+```bash
+# 상태 변수 수정 전 필수 실행
+grep -r "변수명" --include="*.py" .
+grep -r "upbit_verified" --include="*.py" .
+grep -r "live_capital_set" --include="*.py" .
+```
+
+**확인 사항**:
+- [ ] 모든 사용처 확인
+- [ ] 각 파일에서 처리 방식 동일한지 확인
+- [ ] 누락된 파일 없는지 확인
+
+#### 2. **데이터 흐름 전체 추적 강제** (CRITICAL!)
+
+**규칙**:
+```
+수정 대상이 "페이지 A"라고 지시받았을 때:
+1. Grep으로 관련 변수의 모든 사용처 검색
+2. 데이터 흐름 추적 (app.py → A → B → C)
+3. 각 페이지에서 동일한 문제 있는지 확인
+4. 모든 관련 파일을 함께 수정
+```
+
+**체크리스트**:
+- [ ] 데이터 출발점 확인 (app.py)
+- [ ] 중간 페이지들 확인 (dashboard.py, set_config.py)
+- [ ] 최종 도착점 확인
+- [ ] 전체 흐름 한 번에 수정
+
+#### 3. **수정 후 전체 흐름 검증 강제** (CRITICAL!)
+
+**규칙**:
+```
+문법 검증(py_compile)만으로는 부족!
+1. 실제 URL 테스트 (app.py → dashboard → set_config)
+2. 각 단계에서 데이터 확인
+3. 최종 결과 확인
+```
+
+**체크리스트**:
+- [ ] 구문 검증 (`py_compile`)
+- [ ] 실제 브라우저 테스트
+- [ ] 각 페이지 이동 시 데이터 유지 확인
+- [ ] 최종 동작 확인
+
+#### 4. **편협적 수정 금지 원칙** (CRITICAL!)
+
+**금지 사항**:
+- ❌ "파일 A만 수정하라" → A만 수정
+- ❌ "함수 B만 수정하라" → B만 수정
+- ❌ 지시받은 부분만 수정하고 완료 보고
+
+**올바른 방법**:
+- ✅ "파일 A 수정 필요" → Grep으로 관련 파일 전체 검색 → 모두 수정
+- ✅ "함수 B 수정 필요" → 호출하는 모든 위치 확인 → 영향 범위 전체 수정
+- ✅ 지시받은 부분 + 영향받는 모든 부분 함께 수정
+
+### 정제된 구문 (작업 시 강제 적용)
+
+#### 🚨 상태 변수 수정 시 (session_state, URL 파라미터 등)
+
+```
+⚠️ CRITICAL: 상태 변수 수정 전 필수 실행
+
+1. Grep으로 해당 변수를 사용하는 모든 파일 검색
+   $ grep -r "upbit_verified" --include="*.py" .
+
+2. 검색 결과의 모든 파일 열어서 처리 방식 확인
+   - app.py: 어떻게 설정하는가?
+   - dashboard.py: 어떻게 읽고 저장하는가?
+   - set_config.py: 어떻게 읽고 저장하는가?
+
+3. 모든 파일에서 동일한 패턴 사용하도록 수정
+   - 누락된 저장 로직 추가
+   - 일관성 없는 읽기 방식 통일
+
+4. 수정 후 전체 데이터 흐름 재검증
+   - 실제 URL 테스트
+   - 각 페이지 이동 시 데이터 유지 확인
+```
+
+#### 🚨 페이지 간 데이터 전달 수정 시
+
+```
+⚠️ CRITICAL: 한 페이지만 수정 금지
+
+1. 데이터 흐름 전체 추적
+   app.py (출발) → dashboard.py (중간) → set_config.py (도착)
+
+2. 각 단계에서 데이터 처리 방식 확인
+   - URL 파라미터로 전달하는가?
+   - session_state에 저장하는가?
+   - 다음 페이지로 전달하는가?
+
+3. 모든 단계에서 누락된 처리 찾아서 수정
+   - 읽기만 하고 저장 안 한 곳
+   - 저장만 하고 전달 안 한 곳
+   - 전달만 하고 읽기 안 한 곳
+
+4. 전체 흐름 한 번에 수정 후 검증
+```
+
+#### 🚨 수정 전후 체크리스트 (강제 적용)
+
+**수정 전 (Planning Phase)**:
+- [ ] Grep으로 관련 변수/함수 사용처 전체 검색
+- [ ] 검색 결과의 모든 파일 열어서 읽기
+- [ ] 데이터 흐름 전체 추적 (출발 → 중간 → 도착)
+- [ ] 영향 받는 모든 파일 목록 작성
+- [ ] 수정 계획 수립 (모든 파일 포함)
+
+**수정 후 (Verification Phase)**:
+- [ ] 구문 검증 (`py_compile`)
+- [ ] 실제 브라우저/URL 테스트
+- [ ] 데이터 흐름 전체 재검증
+- [ ] 모든 단계에서 데이터 유지 확인
+- [ ] 사이드 이펙트 확인
+
+### 체크리스트 (향후 작업 시)
+
+**상태 변수 수정 시**:
+- [ ] Grep으로 전체 사용처 검색
+- [ ] 모든 파일 처리 방식 확인
+- [ ] 일관성 없는 부분 모두 수정
+- [ ] 실제 테스트로 전체 흐름 검증
+
+**페이지 작성/수정 시**:
+- [ ] 다른 페이지와 동일한 패턴 사용
+- [ ] URL 파라미터 → session_state 동기화
+- [ ] 데이터 흐름 전체 추적
+- [ ] 영향 범위 전체 수정
+
+**검증 시**:
+- [ ] 구문 검증만으로 완료 금지
+- [ ] 실제 동작 테스트 필수
+- [ ] 데이터 흐름 전체 재검증
+- [ ] 사이드 이펙트 확인
+
+### 관련 문서
+
+- 교훈 #14 - session_state 동기화 누락
+- `.claude/context/project-rules.md`
+- `pages/dashboard.py:95-110`
+- `pages/set_config.py:98-111`
+
+---
+
 ## 🎯 핵심 원칙 (재발 방지)
 
 ### 1. "추정하지 말고, 검증하라" (Don't Assume, Verify)
@@ -1577,9 +1850,34 @@ REST Reconcile의 핵심 원칙을 코딩에도 적용
 - "완료했습니다. 다음 단계 진행해도 될까요?" 필수
 - 교훈을 기록하는 것만으로는 부족, 행동 변화 필수
 
+### 11. "편협적 수정 금지 - 전체 영향 범위 고려 강제" (No Narrow-Focus Fix)
+
+**교훈 #19에서 추가**:
+
+**상태 변수 수정 시**:
+- Grep으로 모든 사용처 검색 필수
+- 한 파일만 수정 금지 → 관련된 모든 파일 함께 수정
+- 데이터 흐름 전체 추적 (출발 → 중간 → 도착)
+
+**정제된 구문 (강제 적용)**:
+```bash
+# 상태 변수 수정 전 필수
+grep -r "upbit_verified" --include="*.py" .
+
+# 검색 결과의 모든 파일 처리 방식 확인
+# 누락된 로직 찾아서 모두 수정
+# 실제 URL 테스트로 전체 흐름 검증
+```
+
+**원칙**:
+- 지시받은 부분만 수정 금지
+- Grep으로 영향 범위 전체 파악
+- 데이터 흐름 전체를 한 번에 수정
+- 문법 검증만으로는 부족 → 실제 동작 테스트 필수
+
 ---
 
-**최종 업데이트**: 2026-05-06
+**최종 업데이트**: 2026-05-14
 **작성자**: Claude Code (AI Assistant)
-**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16 + Filter Logic Issue #17
-**관련 문서**: `.claude/context/project-rules.md`, `docs/issues/issue-17.md`
+**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16 + Filter Logic Issue #17 + State Management Issue #19
+**관련 문서**: `.claude/context/project-rules.md`, `docs/issues/issue-17.md`, `.claude/lessons-learned.md`
