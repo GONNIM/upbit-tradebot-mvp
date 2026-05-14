@@ -515,7 +515,7 @@ elif authentication_status:
         # ✅ 활성 전략 파일에서 strategy_type 로드
         strategy_type = load_active_strategy(username) or DEFAULT_STRATEGY_TYPE
         params = urlencode({
-            "user_id": st.session_state.user_id,
+            "user_id": username,  # ✅ FIX: username 직접 사용 (빈 문자열 방지)
             "virtual_krw": st.session_state.virtual_krw,
             "mode": st.session_state.get("mode", "TEST"),
             "verified": int(bool(st.session_state.get("upbit_verified"))),
@@ -543,7 +543,7 @@ elif authentication_status:
         strategy_type = load_active_strategy(username) or DEFAULT_STRATEGY_TYPE
         params = urlencode({
             "virtual_krw": st.session_state.virtual_krw,
-            "user_id": st.session_state.user_id,
+            "user_id": username,  # ✅ FIX: username 직접 사용 (빈 문자열 방지)
             "mode": st.session_state.get("mode", "TEST"),
             "verified": int(bool(st.session_state.get("upbit_verified"))),
             "capital_set": int(bool(st.session_state.get("live_capital_set"))),
