@@ -81,12 +81,22 @@ user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 # ✅ FIX: session_state에 user_id 저장 (다른 페이지에서 참조 가능하도록)
 st.session_state["user_id"] = user_id
 
-raw_v = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
+# ✅ FIX: virtual_krw 읽기 우선순위 - query parameter → session_state → DB
+raw_v = _get_param(qp, "virtual_krw", None)
+if raw_v is None or raw_v == "" or raw_v == "0":
+    # query parameter 없음 → session_state 확인
+    raw_v = st.session_state.get("virtual_krw", None)
+    if raw_v is None or raw_v == 0:
+        # session_state도 없음/0 → DB 확인 (페이지 이동 후 복원용)
+        from services.db import get_account
+        db_acc = get_account(user_id)
+        if db_acc is not None and db_acc > 0:
+            raw_v = db_acc
 
 try:
-    virtual_krw = int(float(raw_v))  # ✅ FIX: float 문자열 처리 ("4596848.1973335" → 4596848)
+    virtual_krw = int(float(raw_v)) if raw_v else 0
 except (TypeError, ValueError):
-    virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+    virtual_krw = 0
 
 # ✅ FIX: session_state에 virtual_krw 저장 (다른 페이지에서 참조 가능하도록)
 st.session_state["virtual_krw"] = virtual_krw
@@ -244,6 +254,7 @@ if params:
         if mode == "TEST":
             try:
                 # 1. KRW 잔고를 초기자본으로 리셋
+                print(f"[DEBUG set_config.py] Updating DB account to params.cash: {params.cash}")  # 디버그 로그
                 update_account(user_id, params.cash)
 
                 # 2. 모든 코인 포지션 삭제
@@ -319,11 +330,28 @@ if start_trading:
     # 🔁 페이지 이동 처리
     next_page = "dashboard"
 
+    # ✅ FIX: params.cash 값 사용 (사용자가 수정한 최신 값)
+    # 기존: virtual_krw (페이지 로드 시점의 값) ❌
+    # 수정: params가 있으면 params.cash, 없으면 DB에서 읽기 ✅
+    from services.db import get_account
+    final_virtual_krw = virtual_krw  # 기본값
+    if params and hasattr(params, 'cash'):
+        final_virtual_krw = params.cash
+        print(f"[DEBUG] Using params.cash: {params.cash}")  # 디버그 로그
+    else:
+        # params 없으면 DB에서 읽기
+        db_acc = get_account(user_id)
+        if db_acc and db_acc > 0:
+            final_virtual_krw = db_acc
+            print(f"[DEBUG] Using DB account: {db_acc}")  # 디버그 로그
+
+    print(f"[DEBUG] Final virtual_krw to pass: {final_virtual_krw}")  # 디버그 로그
+
     # ✅ URL 에도 strategy_type 을 태워서 넘겨두면
     #    dashboard 측에서 필요 시 바로 읽어 쓸 수 있음 (옵션)
     query_string = urlencode({
         "user_id": user_id,
-        "virtual_krw": virtual_krw,
+        "virtual_krw": final_virtual_krw,
         "mode": mode,
         "verified": int(upbit_ok),
         "capital_set": int(capital_ok),

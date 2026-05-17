@@ -25,7 +25,9 @@ from services.db import (
     fetch_latest_trade_audit,
     get_db,
     get_last_open_buy_order,
-    get_engine_status
+    get_engine_status,
+    create_or_init_account,
+    update_account
 )
 
 from config import (
@@ -77,12 +79,28 @@ user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 # ✅ FIX: session_state에 user_id 저장 (다른 페이지와 일관성 유지)
 st.session_state["user_id"] = user_id
 
-raw_vk = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
+# ✅ FIX: virtual_krw 읽기 우선순위 - query parameter → session_state → DB
+raw_vk = _get_param(qp, "virtual_krw", None)
+print(f"[DEBUG dashboard.py] Raw virtual_krw from query: {raw_vk}")  # 디버그 로그
+
+if raw_vk is None or raw_vk == "" or raw_vk == "0":
+    # query parameter 없음 → session_state 확인
+    raw_vk = st.session_state.get("virtual_krw", None)
+    print(f"[DEBUG dashboard.py] virtual_krw from session_state: {raw_vk}")  # 디버그 로그
+
+    if raw_vk is None or raw_vk == 0:
+        # session_state도 없음/0 → DB 확인 (페이지 이동 후 복원용)
+        db_acc = get_account(user_id)
+        print(f"[DEBUG dashboard.py] virtual_krw from DB: {db_acc}")  # 디버그 로그
+        if db_acc is not None and db_acc > 0:
+            raw_vk = db_acc
 
 try:
-    virtual_krw = int(float(raw_vk))  # ✅ FIX: float 문자열 처리 (set_config.py와 동일)
+    virtual_krw = int(float(raw_vk)) if raw_vk else 0
+    print(f"[DEBUG dashboard.py] Final virtual_krw: {virtual_krw}")  # 디버그 로그
 except (TypeError, ValueError):
-    virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
+    virtual_krw = 0
+    print(f"[DEBUG dashboard.py] Error parsing virtual_krw, set to 0")  # 디버그 로그
 
 # ✅ FIX: session_state에 virtual_krw 저장 (다른 페이지와 일관성 유지)
 st.session_state["virtual_krw"] = virtual_krw
@@ -91,6 +109,26 @@ raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
 mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 is_live = (mode == "LIVE")
+
+# ✅ FIX: TEST 모드일 때 virtual_krw를 DB에 동기화 (단, 0이면 DB 값 유지)
+if not is_live:
+    current_acc = get_account(user_id)
+    print(f"[DEBUG dashboard.py] Current DB account: {current_acc}")  # 디버그 로그
+
+    if virtual_krw > 0:
+        # virtual_krw가 명시적으로 설정됨 → DB 업데이트
+        if current_acc is None:
+            print(f"[DEBUG dashboard.py] Creating account with {virtual_krw}")  # 디버그 로그
+            create_or_init_account(user_id, virtual_krw)
+        elif current_acc != virtual_krw:
+            print(f"[DEBUG dashboard.py] Updating account from {current_acc} to {virtual_krw}")  # 디버그 로그
+            update_account(user_id, virtual_krw)
+        else:
+            print(f"[DEBUG dashboard.py] Account unchanged: {current_acc}")  # 디버그 로그
+    elif current_acc is None:
+        # DB에도 없고 virtual_krw도 0 → 기본값으로 초기화
+        print(f"[DEBUG dashboard.py] Creating default account 1000000")  # 디버그 로그
+        create_or_init_account(user_id, 1_000_000)
 
 verified_param = _get_param(qp, "verified", "0")
 capital_param = _get_param(qp, "capital_set", "0")
@@ -315,7 +353,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.14.1832")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.17.1748")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])
@@ -413,8 +451,15 @@ with col20:
             time.sleep(0.3)
 
         # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
+        # ✅ FIX: virtual_krw가 session_state에 없거나 0이면 DB에서 읽기
+        vk_to_pass = st.session_state.get("virtual_krw", 0)
+        if vk_to_pass == 0:
+            db_acc = get_account(user_id)
+            if db_acc and db_acc > 0:
+                vk_to_pass = db_acc
+
         params = urlencode({
-            "virtual_krw": st.session_state.get("virtual_krw", 0),
+            "virtual_krw": vk_to_pass,
             "user_id": st.session_state.get("user_id", ""),
             "mode": mode,
             "verified": "1" if st.session_state.get("upbit_verified", False) else "0",

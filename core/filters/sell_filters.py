@@ -234,15 +234,18 @@ class TrailingStopFilter(BaseFilter):
     """
 
     def __init__(self, trailing_stop_pct: Optional[float] = 0.10,
-                 take_profit_pct: Optional[float] = 0.03):
+                 take_profit_pct: Optional[float] = 0.03,
+                 use_fixed_mode: bool = False):
         """
         Args:
             trailing_stop_pct: 수익 손실률 임계값 (기본 10% = 0.10)
             take_profit_pct: 활성화 트리거 임계값 (기본 3% = 0.03)
+            use_fixed_mode: 고정폭 모드 활성화 (기본 False = 비율 기반)
         """
         super().__init__(FilterCategory.CORE_STRATEGY)
         self.trailing_stop_pct = trailing_stop_pct
         self.take_profit_pct = take_profit_pct
+        self.use_fixed_mode = use_fixed_mode
 
     def get_name(self) -> str:
         return "TrailingStopFilter"
@@ -285,63 +288,90 @@ class TrailingStopFilter(BaseFilter):
                 # Take Profit 도달 → Trailing Stop 활성화
                 position.activate_trailing_stop(current_price)
 
+                # ✅ 고정폭 모드: 활성화 시점 1회 계산
+                if self.use_fixed_mode:
+                    activation_profit = current_price - position.avg_price
+                    position.trailing_fixed_amount = activation_profit * self.trailing_stop_pct
+                    position.trailing_activation_price = current_price
+                    logger.info(
+                        f"🔒 고정 금액 폭 설정 | "
+                        f"활성화 수익=₩{activation_profit:,.0f} × {self.trailing_stop_pct:.0%} "
+                        f"= ₩{position.trailing_fixed_amount:,.0f}"
+                    )
+
+                mode_str = "고정폭" if self.use_fixed_mode else "비율"
                 logger.info(
                     f"🔄 AUTO-SWITCH: Take Profit 도달 ({pnl_pct:.2%}) "
-                    f"→ Trailing Stop 활성화 | "
+                    f"→ Trailing Stop 활성화 ({mode_str}) | "
                     f"진입가=₩{position.avg_price:,.0f} 현재가=₩{current_price:,.0f}"
                 )
             else:
                 # 아직 Take Profit 미도달 → Trailing Stop 미작동
                 return FilterResult(should_block=False, reason="TS_NOT_ARMED")
 
-        # ✅ STEP 2: 수익 기반 Trailing Stop 체크
-        trailing_stop_triggered = position.arm_trailing_stop(
-            self.trailing_stop_pct,
-            current_price
-        )
+        # ✅ STEP 2: 신고가 갱신
+        if current_price > position.highest_price:
+            position.highest_price = current_price
 
-        # 상세 로그
-        if position.trailing_armed:
-            max_profit = position.highest_price - position.avg_price if position.highest_price and position.avg_price else None
-            profit_drop = position.highest_price - current_price if position.highest_price else None
-            profit_drop_pct = (profit_drop / max_profit) if (max_profit and max_profit > 0) else None
+        # ✅ STEP 3: Trailing Stop 체크 (모드별 분기)
+        if self.use_fixed_mode:
+            # ✅ 고정 금액 폭 방식
+            stop_price = position.highest_price - position.trailing_fixed_amount
+            triggered = current_price <= stop_price
 
             logger.info(
-                f"🔍 DEBUG [TRAILING_STOP_PROFIT_BASED] "
-                f"armed={position.trailing_armed}, "
-                f"entry=₩{position.avg_price:,.0f}, "
+                f"🔍 DEBUG [TRAILING_STOP_FIXED] "
                 f"highest=₩{position.highest_price:,.0f}, "
+                f"fixed_amount=₩{position.trailing_fixed_amount:,.0f}, "
+                f"stop_price=₩{stop_price:,.0f}, "
                 f"current=₩{current_price:,.0f}, "
-                f"max_profit=₩{max_profit:,.0f} if max_profit else 'N/A', "
-                f"profit_drop=₩{profit_drop:,.0f} if profit_drop else 'N/A' ({profit_drop_pct:.2%} if profit_drop_pct else 'N/A'), "
-                f"threshold={self.trailing_stop_pct:.2%}, "
-                f"triggered={trailing_stop_triggered}"
+                f"triggered={triggered}"
             )
 
-        if trailing_stop_triggered:
+            if triggered:
+                return FilterResult(
+                    should_block=True,
+                    reason="TRAILING_STOP_FIXED",
+                    details=f"Fixed-amount trailing stop: ₩{current_price:,.0f} <= ₩{stop_price:,.0f}",
+                    metadata={
+                        'mode': 'fixed',
+                        'highest_price': position.highest_price,
+                        'fixed_amount': position.trailing_fixed_amount,
+                        'stop_price': stop_price,
+                        'current_price': current_price
+                    }
+                )
+        else:
+            # ✅ 기존 비율 방식 (변경 없음)
             max_profit = position.highest_price - position.avg_price
             profit_drop = position.highest_price - current_price
+            profit_drop_pct = profit_drop / max_profit if max_profit > 0 else 0
+            triggered = profit_drop_pct >= self.trailing_stop_pct
 
             logger.info(
-                f"📉 Trailing Stop 발동 (수익 기반) | "
-                f"최대수익=₩{max_profit:,.0f} 손실=₩{profit_drop:,.0f} "
-                f"({profit_drop/max_profit:.2%}) >= {self.trailing_stop_pct:.2%}"
+                f"🔍 DEBUG [TRAILING_STOP_RATIO] "
+                f"highest=₩{position.highest_price:,.0f}, "
+                f"current=₩{current_price:,.0f}, "
+                f"max_profit=₩{max_profit:,.0f}, "
+                f"profit_drop=₩{profit_drop:,.0f} ({profit_drop_pct:.2%}), "
+                f"threshold={self.trailing_stop_pct:.2%}, "
+                f"triggered={triggered}"
             )
 
-            return FilterResult(
-                should_block=True,
-                reason="TRAILING_STOP",
-                details=f"Profit-based trailing stop: {profit_drop/max_profit:.2%} loss from peak profit",
-                metadata={
-                    'trailing_stop_pct': self.trailing_stop_pct,
-                    'entry_price': position.avg_price,
-                    'highest_price': position.highest_price,
-                    'current_price': current_price,
-                    'max_profit': max_profit,
-                    'profit_drop': profit_drop,
-                    'profit_drop_pct': profit_drop / max_profit
-                }
-            )
+            if triggered:
+                return FilterResult(
+                    should_block=True,
+                    reason="TRAILING_STOP_RATIO",
+                    details=f"Ratio-based trailing stop: {profit_drop_pct:.2%} >= {self.trailing_stop_pct:.2%}",
+                    metadata={
+                        'mode': 'ratio',
+                        'highest_price': position.highest_price,
+                        'current_price': current_price,
+                        'max_profit': max_profit,
+                        'profit_drop': profit_drop,
+                        'profit_drop_pct': profit_drop_pct
+                    }
+                )
 
         return FilterResult(
             should_block=False,

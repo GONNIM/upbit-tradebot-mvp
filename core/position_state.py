@@ -44,6 +44,10 @@ class PositionState:
         self.highest_price: Optional[float] = None
         self.trailing_armed: bool = False
 
+        # ✅ 고정폭 Trailing Stop용 (활성화 시점 고정 금액)
+        self.trailing_fixed_amount: Optional[float] = None
+        self.trailing_activation_price: Optional[float] = None
+
         # ✅ Stale Position Check용 (진입 이후 최고가)
         self.highest_since_entry: Optional[float] = None
 
@@ -166,6 +170,8 @@ class PositionState:
         # Trailing Stop 초기화
         self.highest_price = None
         self.trailing_armed = False
+        self.trailing_fixed_amount = None
+        self.trailing_activation_price = None
 
         # ✅ Stale Position Check 초기화
         self.highest_since_entry = None

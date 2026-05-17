@@ -204,6 +204,7 @@ def load_conditions():
             st.session_state["take_profit_pct"] = sell_saved.get("take_profit_pct", default_tp_pct)
             st.session_state["stop_loss_pct"] = sell_saved.get("stop_loss_pct", default_sl_pct)
             st.session_state["trailing_stop_threshold_pct"] = sell_saved.get("trailing_stop_threshold_pct", default_ts_threshold)
+            st.session_state["use_fixed_trailing"] = sell_saved.get("use_fixed_trailing", False)  # ✅ 고정폭 모드
 
         st.info(f"✅ [{strategy_tag}] 저장된 매수/매도 전략 Condition 설정을 불러왔습니다.")
     else:
@@ -220,6 +221,7 @@ def load_conditions():
         st.session_state.setdefault("take_profit_pct", default_tp_pct)
         st.session_state.setdefault("stop_loss_pct", default_sl_pct)
         st.session_state.setdefault("trailing_stop_threshold_pct", default_ts_threshold)
+        st.session_state.setdefault("use_fixed_trailing", False)  # ✅ 고정폭 모드 기본값
 
 
 # --- 상태 저장하기 ---
@@ -247,6 +249,7 @@ def save_conditions():
 
     if st.session_state.get("trailing_stop", False):
         conditions["sell"]["trailing_stop_threshold_pct"] = st.session_state.get("trailing_stop_threshold_pct", 10.0)
+        conditions["sell"]["use_fixed_trailing"] = st.session_state.get("use_fixed_trailing", False)
 
     with SAVE_PATH.open("w", encoding="utf-8") as f:
         json.dump(conditions, f, indent=2, ensure_ascii=False)
@@ -593,13 +596,31 @@ with st.expander("⭐ 핵심 전략 조건", expanded=True):
                 )
                 st.session_state["trailing_stop_threshold_pct"] = ts_threshold
 
+                # ✅ 고정폭 모드 체크박스
+                use_fixed_trailing = st.checkbox(
+                    "☑️ 고정폭 모드",
+                    value=st.session_state.get("use_fixed_trailing", False),
+                    key=f"checkbox_use_fixed_trailing_{strategy_tag}",
+                    help="체크: 활성화 시점 수익의 N% 고정폭 하락 시 매도\n"
+                         "해제: 신고가 대비 수익의 N% 하락 시 매도 (기존 방식)"
+                )
+                st.session_state["use_fixed_trailing"] = use_fixed_trailing
+
                 # ✅ Take Profit 값 참조 (활성화 조건)
                 tp_pct = st.session_state.get("take_profit_pct", 3.0)
 
-                st.info(
-                    f"🧮 현재 설정: Take Profit **+{tp_pct:.1f}%** 초과 시 신고가 추적 "
-                    f"→ 신고가 대비 **{ts_threshold:.0f}%** 하락 시 매도"
-                )
+                # ✅ 동적 설명 문구 (모드별 분기)
+                if use_fixed_trailing:
+                    explanation = (
+                        f"🧮 현재 설정: Take Profit **+{tp_pct:.1f}%** 초과 시 신고가 추적 → "
+                        f"**활성화 시점 수익의 {ts_threshold:.0f}% 고정폭** 하락 시 매도"
+                    )
+                else:
+                    explanation = (
+                        f"🧮 현재 설정: Take Profit **+{tp_pct:.1f}%** 초과 시 신고가 추적 → "
+                        f"**신고가 대비 수익의 {ts_threshold:.0f}% 하락 시 매도**"
+                    )
+                st.info(explanation)
     else:
         st.info("이 전략에는 매도 조건이 없습니다.")
 
