@@ -244,6 +244,34 @@ if section == "buy":
         df_buy["failed_keys"] = df_buy["failed_keys"].apply(_j)
         df_buy["checks"] = df_buy["checks"].apply(_j)
 
+        # ✅ 필터 정보 추출 (감사로그 상세 정보)
+        def _extract_buy_filter_info(checks):
+            if isinstance(checks, dict) and 'filter_metadata' in checks:
+                meta = checks['filter_metadata']
+                surge_pct = meta.get('surge_pct', 0)
+                threshold_pct = meta.get('threshold_pct', 0)
+                price = meta.get('price', 0)
+                ema_slow = meta.get('ema_slow', 0)
+                return {
+                    'surge_actual': f"{surge_pct*100:.2f}%",
+                    'surge_threshold': f"{threshold_pct*100:.2f}%",
+                    'surge_diff': f"{(surge_pct - threshold_pct)*100:+.2f}%p",
+                    'surge_price': f"{price:.0f}",
+                    'surge_ema_slow': f"{ema_slow:.0f}",
+                    'filter_blocked': '✅' if checks.get('filter_blocked', False) else ''
+                }
+            return {
+                'surge_actual': '-',
+                'surge_threshold': '-',
+                'surge_diff': '-',
+                'surge_price': '-',
+                'surge_ema_slow': '-',
+                'filter_blocked': ''
+            }
+
+        filter_info = df_buy["checks"].apply(_extract_buy_filter_info)
+        df_buy = pd.concat([df_buy, filter_info.apply(pd.Series)], axis=1)
+
         # ✅ bar_time이 NULL인 경우에만 계산 (하위 호환성)
         if "bar_time" in df_buy.columns and df_buy["bar_time"].isna().any():
             def _calc_bar_time(row):
@@ -388,12 +416,15 @@ if section == "buy":
                 # 전략별 칼럼명 변경
                 df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
 
-                # ✅ 컬럼 순서 재배치
+                # ✅ 컬럼 순서 재배치 (필터 정보 포함)
                 column_order = [
                     "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
-                    "have_position", "overall_ok", "failed_keys", "checks", "notes", "interval_sec"
+                    "have_position", "overall_ok",
+                    # ✅ 필터 정보 컬럼 추가
+                    "surge_actual", "surge_threshold", "surge_diff", "surge_price", "surge_ema_slow", "filter_blocked",
+                    "failed_keys", "checks", "notes", "interval_sec"
                 ]
                 column_order = [col for col in column_order if col in df_buy_display.columns]
                 df_buy_display = df_buy_display[column_order]
@@ -436,6 +467,38 @@ elif section == "sell":
             except Exception:
                 return x
         df_sell["checks"] = df_sell["checks"].apply(_j)
+
+        # ✅ 필터 정보 추출 (감사로그 상세 정보)
+        def _extract_sell_filter_info(checks):
+            if isinstance(checks, dict):
+                filter_reason = checks.get('filter_reason', '-')
+                filter_details = checks.get('filter_details', '-')
+                filter_evaluated = checks.get('filter_evaluated', False)
+                filter_triggered = checks.get('filter_triggered', False)
+
+                # 필터 메타데이터 파싱 (필터별 상세 정보)
+                meta = checks.get('filter_metadata', {})
+                if isinstance(meta, dict):
+                    # Trailing Stop 정보
+                    ts_info = ''
+                    if 'profit_drop_pct' in meta:
+                        ts_info = f"하락: {meta.get('profit_drop_pct', 0)*100:.2f}%"
+
+                    return {
+                        'filter_reason': filter_reason if filter_evaluated else '-',
+                        'filter_details': filter_details[:50] + '...' if len(str(filter_details)) > 50 else filter_details,
+                        'filter_triggered': '🔴' if filter_triggered else ('✅' if filter_evaluated else ''),
+                        'filter_ts_info': ts_info
+                    }
+            return {
+                'filter_reason': '-',
+                'filter_details': '-',
+                'filter_triggered': '',
+                'filter_ts_info': ''
+            }
+
+        filter_info = df_sell["checks"].apply(_extract_sell_filter_info)
+        df_sell = pd.concat([df_sell, filter_info.apply(pd.Series)], axis=1)
 
         # ✅ bar_time이 NULL인 경우에만 계산 (하위 호환성)
         if "bar_time" in df_sell.columns and df_sell["bar_time"].isna().any():
@@ -564,12 +627,15 @@ elif section == "sell":
                 # 전략별 칼럼명 변경
                 df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
 
-                # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에, delta 다음에 cross_type 추가
+                # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에, delta 다음에 cross_type 추가 + 필터 정보
                 column_order = [
                     "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta", "cross_type",
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
-                    "ts_pct", "ts_armed", "bars_held", "checks", "triggered", "trigger_key", "notes", "interval_sec"
+                    "ts_pct", "ts_armed", "bars_held",
+                    # ✅ 필터 정보 컬럼 추가
+                    "filter_reason", "filter_details", "filter_triggered", "filter_ts_info",
+                    "checks", "triggered", "trigger_key", "notes", "interval_sec"
                 ]
                 # 존재하는 컬럼만 필터링
                 column_order = [col for col in column_order if col in df_sell_display.columns]

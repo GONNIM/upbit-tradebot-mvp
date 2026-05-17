@@ -137,6 +137,10 @@ class IncrementalMACDStrategy:
         self.last_buy_reason: Optional[str] = None
         self.last_sell_reason: Optional[str] = None
 
+        # ✅ 필터 결과 추적용 (감사로그에 상세 정보 제공)
+        self.last_buy_filter_result = None
+        self.last_sell_filter_result = None
+
     def on_bar(
         self,
         bar: Bar,
@@ -543,6 +547,10 @@ class IncrementalEMAStrategy:
         self.last_buy_reason: Optional[str] = None
         self.last_sell_reason: Optional[str] = None
 
+        # ✅ 필터 결과 추적용 (감사로그에 상세 정보 제공)
+        self.last_buy_filter_result = None
+        self.last_sell_filter_result = None
+
         # ✅ Base EMA GAP 전략 상세 정보 (감사로그용)
         self.gap_details: Optional[Dict[str, Any]] = None
 
@@ -648,6 +656,9 @@ class IncrementalEMAStrategy:
         # BUY 조건
         # ========================================
         if not position.has_position:
+            # ✅ 필터 결과 초기화 (감사로그용)
+            self.last_buy_filter_result = None
+
             # ✅ 매수 필터 체크 (Surge Filter 등)
             # ⚠️ 중요: Base EMA GAP 전략은 급락 매수 전략이므로 필터 미적용
             if not self.enable_base_ema_gap:
@@ -655,6 +666,9 @@ class IncrementalEMAStrategy:
                     bar=bar,
                     ema_slow=ema_slow
                 )
+                # ✅ 필터 결과 저장 (감사로그에서 사용)
+                self.last_buy_filter_result = filter_result
+
                 if filter_result is not None and filter_result.should_block:
                     # 필터가 매수 차단
                     return Action.HOLD
@@ -804,6 +818,9 @@ class IncrementalEMAStrategy:
             # Highest Price 갱신
             position.update_highest_price(current_price)
 
+            # ✅ 필터 결과 초기화 (감사로그용)
+            self.last_sell_filter_result = None
+
             # ✅ 매도 필터 시스템 (CORE_STRATEGY → SELL_AUXILIARY 순서로 실행)
             filter_result = self.sell_filter_manager.evaluate_all(
                 position=position,
@@ -817,6 +834,8 @@ class IncrementalEMAStrategy:
                 prev_ema_fast=prev_ema_fast,
                 prev_ema_slow=prev_ema_slow
             )
+            # ✅ 필터 결과 저장 (감사로그에서 사용)
+            self.last_sell_filter_result = filter_result
 
             if filter_result is not None and filter_result.should_block:
                 # 필터가 매도 신호 발생

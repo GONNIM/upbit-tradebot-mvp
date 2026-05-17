@@ -872,6 +872,19 @@ class StrategyEngine:
                         buy_checks["reason"] = "NO_BUY_SIGNAL"
                         buy_checks["cross_status"] = cross_status
 
+                        # ✅ 필터 결과 추가 (감사로그 상세 정보)
+                        failed_keys_list = ["NO_SIGNAL"]
+                        if hasattr(self.strategy, 'last_buy_filter_result') and self.strategy.last_buy_filter_result:
+                            filter_res = self.strategy.last_buy_filter_result
+                            buy_checks["filter_blocked"] = filter_res.should_block
+                            buy_checks["filter_reason"] = filter_res.reason
+                            buy_checks["filter_details"] = filter_res.details
+                            if filter_res.metadata:
+                                buy_checks["filter_metadata"] = filter_res.metadata
+                            # ✅ 필터가 차단한 경우 failed_keys 업데이트
+                            if filter_res.should_block:
+                                failed_keys_list = [filter_res.reason]
+
                         # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                         # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
                         bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
@@ -885,7 +898,7 @@ class StrategyEngine:
                             signal=signal,
                             have_position=False,
                             overall_ok=False,
-                            failed_keys=["NO_SIGNAL"],
+                            failed_keys=failed_keys_list,
                             checks=buy_checks,
                             notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}",
                             bar_time=bar_ts_kst.isoformat()
@@ -895,6 +908,15 @@ class StrategyEngine:
                         buy_checks = base_checks.copy()
                         buy_checks["reason"] = "BUY_SIGNAL"
                         buy_checks["cross_status"] = cross_status
+
+                        # ✅ 필터 결과 추가 (통과 정보)
+                        if hasattr(self.strategy, 'last_buy_filter_result') and self.strategy.last_buy_filter_result:
+                            filter_res = self.strategy.last_buy_filter_result
+                            buy_checks["filter_blocked"] = False  # 통과
+                            buy_checks["filter_reason"] = filter_res.reason
+                            buy_checks["filter_details"] = filter_res.details
+                            if filter_res.metadata:
+                                buy_checks["filter_metadata"] = filter_res.metadata
 
                         # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                         # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
@@ -997,6 +1019,15 @@ class StrategyEngine:
                             elapsed_hours >= required_hours and max_gain < self.strategy.stale_threshold_pct
                         )
 
+                    # ✅ 필터 결과 추가 (감사로그 상세 정보 - 매도 신호 없음)
+                    if hasattr(self.strategy, 'last_sell_filter_result') and self.strategy.last_sell_filter_result:
+                        filter_res = self.strategy.last_sell_filter_result
+                        sell_checks["filter_evaluated"] = True
+                        sell_checks["filter_reason"] = filter_res.reason
+                        sell_checks["filter_details"] = filter_res.details
+                        if filter_res.metadata:
+                            sell_checks["filter_metadata"] = filter_res.metadata
+
                     # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                     # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
                     bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
@@ -1061,6 +1092,16 @@ class StrategyEngine:
                         sell_checks["stale_max_gain_pct"] = float(max_gain)
                         sell_checks["stale_threshold_pct"] = float(self.strategy.stale_threshold_pct)
                         sell_checks["stale_triggered"] = int(trigger_reason == "STALE_POSITION")
+
+                    # ✅ 필터 결과 추가 (감사로그 상세 정보 - 매도 트리거)
+                    if hasattr(self.strategy, 'last_sell_filter_result') and self.strategy.last_sell_filter_result:
+                        filter_res = self.strategy.last_sell_filter_result
+                        sell_checks["filter_evaluated"] = True
+                        sell_checks["filter_triggered"] = filter_res.should_block
+                        sell_checks["filter_reason"] = filter_res.reason
+                        sell_checks["filter_details"] = filter_res.details
+                        if filter_res.metadata:
+                            sell_checks["filter_metadata"] = filter_res.metadata
 
                     # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                     # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
