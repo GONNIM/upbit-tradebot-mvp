@@ -68,6 +68,36 @@ mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 is_live = (mode == "LIVE")
 
+# ✅ FIX: virtual_krw 읽기 우선순위 (dashboard.py와 동일)
+# 1) URL 파라미터 (단, "0"은 무시)
+# 2) session_state
+# 3) DB
+raw_vk = _get_param(qp, "virtual_krw", None)
+
+if raw_vk is None or raw_vk == "":
+    raw_vk = st.session_state.get("virtual_krw", None)
+    if raw_vk is None or raw_vk == 0:
+        db_acc = get_account(user_id)
+        if db_acc is not None and db_acc > 0:
+            raw_vk = db_acc
+elif raw_vk == "0":
+    # ⚠️ URL에 "0"이 있으면 → session_state 우선 확인
+    session_vk = st.session_state.get("virtual_krw", None)
+    if session_vk and session_vk > 0:
+        raw_vk = session_vk
+    else:
+        db_acc = get_account(user_id)
+        if db_acc is not None and db_acc > 0:
+            raw_vk = db_acc
+
+try:
+    virtual_krw = int(float(raw_vk)) if raw_vk else 0
+except (TypeError, ValueError):
+    virtual_krw = 0
+
+# ✅ FIX: session_state에 virtual_krw 저장 (페이지 간 공유)
+st.session_state["virtual_krw"] = virtual_krw
+
 # ✅ strategy_type 읽기 (URL → 활성 전략 파일(conditions 고려) → 세션 → 디폴트)
 from config import DEFAULT_STRATEGY_TYPE
 strategy_from_url = _get_param(qp, "strategy", None) or _get_param(qp, "strategy_type", None)
@@ -151,26 +181,14 @@ st.markdown(f"""
 # 🔙 대시보드로 이동
 col_go, _ = st.columns([1, 5])
 with col_go:
-    # dashboard는 user_id와 virtual_krw를 쿼리로 받음 → virtual_krw 없으면 계정 KRW로 대체
-    raw_vk = _get_param(qp, "virtual_krw", st.session_state.get("virtual_krw", 0))
-
-    try:
-        virtual_krw = int(raw_vk)
-    except (TypeError, ValueError):
-        virtual_krw = int(st.session_state.get("virtual_krw", 0) or 0)
-
-    if virtual_krw == 0:
-        try:
-            virtual_krw = int(get_account(user_id) or 0)
-        except Exception:
-            virtual_krw = 0
+    # ✅ 간소화: session_state에서 직접 읽기 (페이지 로드 시 이미 저장됨)
+    vk_for_nav = st.session_state.get("virtual_krw", 0)
 
     if st.button("⬅️ 대시보드로 가기", use_container_width=True):
-        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
         from urllib.parse import urlencode
         params = urlencode({
             "user_id": user_id,
-            "virtual_krw": virtual_krw,
+            "virtual_krw": vk_for_nav,
             "mode": mode,
             "strategy_type": strategy_tag,
         })

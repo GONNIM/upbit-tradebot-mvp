@@ -81,13 +81,25 @@ user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 # ✅ FIX: session_state에 user_id 저장 (다른 페이지에서 참조 가능하도록)
 st.session_state["user_id"] = user_id
 
-# ✅ FIX: virtual_krw 읽기 우선순위 - query parameter → session_state → DB
+# ✅ FIX: virtual_krw 읽기 우선순위 (dashboard.py와 동일)
+# 1) URL 파라미터 (단, "0"은 무시)
+# 2) session_state
+# 3) DB
 raw_v = _get_param(qp, "virtual_krw", None)
-if raw_v is None or raw_v == "" or raw_v == "0":
-    # query parameter 없음 → session_state 확인
+
+if raw_v is None or raw_v == "":
     raw_v = st.session_state.get("virtual_krw", None)
     if raw_v is None or raw_v == 0:
-        # session_state도 없음/0 → DB 확인 (페이지 이동 후 복원용)
+        from services.db import get_account
+        db_acc = get_account(user_id)
+        if db_acc is not None and db_acc > 0:
+            raw_v = db_acc
+elif raw_v == "0":
+    # ⚠️ URL에 "0"이 있으면 → session_state 우선 확인
+    session_v = st.session_state.get("virtual_krw", None)
+    if session_v and session_v > 0:
+        raw_v = session_v
+    else:
         from services.db import get_account
         db_acc = get_account(user_id)
         if db_acc is not None and db_acc > 0:
@@ -98,7 +110,7 @@ try:
 except (TypeError, ValueError):
     virtual_krw = 0
 
-# ✅ FIX: session_state에 virtual_krw 저장 (다른 페이지에서 참조 가능하도록)
+# ✅ FIX: session_state에 virtual_krw 저장 (페이지 간 공유)
 st.session_state["virtual_krw"] = virtual_krw
 
 raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))

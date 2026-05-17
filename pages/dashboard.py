@@ -79,30 +79,45 @@ user_id = _get_param(qp, "user_id", st.session_state.get("user_id", ""))
 # ✅ FIX: session_state에 user_id 저장 (다른 페이지와 일관성 유지)
 st.session_state["user_id"] = user_id
 
-# ✅ FIX: virtual_krw 읽기 우선순위 - query parameter → session_state → DB
+# ✅ FIX: virtual_krw 읽기 우선순위
+# 1) URL 파라미터 (단, "0"은 무시)
+# 2) session_state
+# 3) DB
 raw_vk = _get_param(qp, "virtual_krw", None)
-print(f"[DEBUG dashboard.py] Raw virtual_krw from query: {raw_vk}")  # 디버그 로그
+print(f"[DEBUG dashboard.py] Raw virtual_krw from query: {raw_vk}")
 
-if raw_vk is None or raw_vk == "" or raw_vk == "0":
-    # query parameter 없음 → session_state 확인
+# URL 파라미터가 없거나 빈 문자열이면 → session_state 확인
+if raw_vk is None or raw_vk == "":
     raw_vk = st.session_state.get("virtual_krw", None)
-    print(f"[DEBUG dashboard.py] virtual_krw from session_state: {raw_vk}")  # 디버그 로그
+    print(f"[DEBUG dashboard.py] virtual_krw from session_state: {raw_vk}")
 
     if raw_vk is None or raw_vk == 0:
-        # session_state도 없음/0 → DB 확인 (페이지 이동 후 복원용)
+        # session_state도 없음/0 → DB 확인
         db_acc = get_account(user_id)
-        print(f"[DEBUG dashboard.py] virtual_krw from DB: {db_acc}")  # 디버그 로그
+        print(f"[DEBUG dashboard.py] virtual_krw from DB: {db_acc}")
+        if db_acc is not None and db_acc > 0:
+            raw_vk = db_acc
+elif raw_vk == "0":
+    # ⚠️ URL에 "0"이 있으면 → session_state 우선 확인 (값 손실 방지)
+    session_vk = st.session_state.get("virtual_krw", None)
+    if session_vk and session_vk > 0:
+        raw_vk = session_vk
+        print(f"[DEBUG dashboard.py] Ignored URL '0', using session_state: {raw_vk}")
+    else:
+        # session_state도 없음/0 → DB 확인
+        db_acc = get_account(user_id)
+        print(f"[DEBUG dashboard.py] Ignored URL '0', using DB: {db_acc}")
         if db_acc is not None and db_acc > 0:
             raw_vk = db_acc
 
 try:
     virtual_krw = int(float(raw_vk)) if raw_vk else 0
-    print(f"[DEBUG dashboard.py] Final virtual_krw: {virtual_krw}")  # 디버그 로그
+    print(f"[DEBUG dashboard.py] Final virtual_krw: {virtual_krw}")
 except (TypeError, ValueError):
     virtual_krw = 0
-    print(f"[DEBUG dashboard.py] Error parsing virtual_krw, set to 0")  # 디버그 로그
+    print(f"[DEBUG dashboard.py] Error parsing virtual_krw, set to 0")
 
-# ✅ FIX: session_state에 virtual_krw 저장 (다른 페이지와 일관성 유지)
+# ✅ FIX: session_state에 virtual_krw 저장 (페이지 간 공유)
 st.session_state["virtual_krw"] = virtual_krw
 
 raw_mode = _get_param(qp, "mode", st.session_state.get("mode", "TEST"))
@@ -353,7 +368,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.17.1832")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.17.1905")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])
@@ -2016,6 +2031,7 @@ with c4:
             "mode": mode,
             # ★ 감사로그에서도 전략별 필터링을 하고 싶다면 strategy도 전달 (지금은 써도 되고 안 써도 됨)
             "strategy": strategy_tag,
+            "virtual_krw": st.session_state.get("virtual_krw", virtual_krw),  # ✅ 페이지 간 virtual_krw 유지
         })
 
         # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
