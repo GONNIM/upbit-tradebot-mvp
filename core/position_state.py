@@ -75,12 +75,20 @@ class PositionState:
         """
         ✅ 실제 지갑/DB 잔고로부터 포지션 상태 동기화
         ✅ Issue #17: metadata (hts_buy 플래그) 포함
+        ✅ Policy P-1: TEST 모드는 지갑 조회 금지 (가상 거래만)
 
         Returns:
             bool: 동기화된 has_position 값
         """
         if self.trader is None or self.ticker is None:
             logger.warning("[POS-SYNC] trader 또는 ticker 미설정 → 동기화 스킵")
+            return self._has_position
+
+        # ✅ Policy P-1: TEST 모드는 지갑/실잔고를 보지 않는다 (가상 상태 유지)
+        if getattr(self.trader, "test_mode", False):
+            logger.debug(
+                f"[POS-SYNC] TEST 모드 → 지갑 동기화 스킵 (가상 상태 유지) | ticker={self.ticker}"
+            )
             return self._has_position
 
         try:

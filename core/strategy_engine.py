@@ -132,49 +132,57 @@ class StrategyEngine:
                     )
 
                 # Case 2: 지갑에 코인 있지만 메모리는 포지션 없다고 판단
-                # → 외부 매수(force_buy 또는 수동 매수) 또는 엔진 재시작 후 복구 실패
+                # → 외부 매수(force_buy, HTS 매수) 또는 엔진 재시작 후 복구 실패
                 elif has_coins_in_wallet and not memory_has_position:
                     logger.warning(
                         f"⚠️ [POSITION-SYNC] 외부 매수 감지: "
                         f"지갑 잔고={actual_balance:.6f} "
                         f"but memory shows has_position=False. "
-                        f"DB에서 진입가/진입봉 자동 복구 시도..."
+                        f"진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)..."
                     )
 
-                    # ✅ DB에서 최근 BUY 주문 정보 조회하여 자동 복구
+                    # ✅ B1 해결: Upbit avg_buy_price 캐시(account_positions.entry_price)를 1순위로 사용.
+                    #            DB의 옛 BUY 차용은 청산 검증 후만 폴백.
                     try:
-                        from services.db import get_last_open_buy_order
-                        db_result = get_last_open_buy_order(self.ticker, self.user_id)
+                        from services.db import get_position_entry_price, get_last_open_buy_order
 
-                        if db_result:
-                            entry_price = db_result.get("avg_price") or db_result.get("price")
-                            entry_bar = db_result.get("entry_bar")
+                        entry_price = None
+                        entry_bar = None
+                        source = None
 
-                            if entry_price is not None:
-                                self.position.has_position = True
-                                self.position.qty = actual_balance
-                                self.position.avg_price = float(entry_price)
+                        # 1순위: Reconciler가 캐시한 Upbit avg_buy_price
+                        cached_avg = get_position_entry_price(self.user_id, self.ticker)
+                        if cached_avg is not None and cached_avg > 0:
+                            entry_price = float(cached_avg)
+                            source = "upbit_avg_buy_price"
 
-                                if entry_bar is not None:
-                                    self.position.entry_bar = int(entry_bar)
-                                else:
-                                    # entry_bar 없으면 현재 봉 사용 (최선)
-                                    self.position.entry_bar = self.bar_count
+                        # 2순위(폴백): 봇의 마지막 미청산 BUY (청산 검증 포함된 get_last_open_buy_order)
+                        if entry_price is None:
+                            db_result = get_last_open_buy_order(self.ticker, self.user_id)
+                            if db_result:
+                                ep = db_result.get("avg_price") or db_result.get("price")
+                                if ep is not None:
+                                    entry_price = float(ep)
+                                    entry_bar = db_result.get("entry_bar")
+                                    source = "last_open_buy"
 
-                                logger.info(
-                                    f"✅ [POSITION-SYNC] 자동 복구 성공: "
-                                    f"qty={actual_balance:.6f}, entry_price={entry_price:.2f}, "
-                                    f"entry_bar={self.position.entry_bar}"
-                                )
-                            else:
-                                logger.error(
-                                    f"❌ [POSITION-SYNC] DB에서 진입가를 찾을 수 없음. "
-                                    f"수동 정리 또는 엔진 재시작 필요."
-                                )
+                        if entry_price is not None and entry_price > 0:
+                            self.position.has_position = True
+                            self.position.qty = actual_balance
+                            self.position.avg_price = entry_price
+                            self.position.entry_bar = int(entry_bar) if entry_bar is not None else self.bar_count
+                            logger.info(
+                                f"✅ [POSITION-SYNC] 자동 복구 성공 (source={source}): "
+                                f"qty={actual_balance:.6f}, entry_price={entry_price:.2f}, "
+                                f"entry_bar={self.position.entry_bar}"
+                            )
                         else:
+                            # 신뢰 가능한 진입가 없음 → SELL 발동 금지 (HOLD 유지). 봇 의사결정 차단.
                             logger.error(
-                                f"❌ [POSITION-SYNC] DB에서 최근 BUY 주문을 찾을 수 없음. "
-                                f"수동 정리 또는 엔진 재시작 필요."
+                                f"❌ [POSITION-SYNC] 신뢰 가능한 진입가 없음 "
+                                f"(avg_buy_price 캐시 부재 + 미청산 BUY 부재). "
+                                f"자동 매도 방지를 위해 has_position=False 유지. "
+                                f"수동 정리 또는 LIVE 모드 재진입(검증) 필요."
                             )
                     except Exception as e:
                         logger.error(f"❌ [POSITION-SYNC] 자동 복구 실패: {e}")

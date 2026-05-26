@@ -659,6 +659,18 @@ def ensure_account_positions_locked(user_id: str):
     conn.close()
 
 
+def ensure_account_positions_entry_price(user_id: str):
+    """
+    account_positions 테이블에 entry_price 컬럼 추가:
+      - entry_price: Upbit avg_buy_price 캐시 (LIVE)
+      - HTS 인수 시 봇이 진입가로 사용 (옛 BUY 차용 결함 B1 해결)
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE account_positions ADD COLUMN entry_price REAL DEFAULT 0")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -674,6 +686,7 @@ def ensure_all_schemas(user_id: str):
     ensure_account_positions_meta(user_id)   # ✅ account_positions meta 추가
     ensure_accounts_locked(user_id)          # ✅ accounts virtual_krw_locked 추가
     ensure_account_positions_locked(user_id) # ✅ account_positions virtual_coin_locked 추가
+    ensure_account_positions_entry_price(user_id)  # ✅ account_positions entry_price 추가
 
 
 def init_db_if_needed(user_id):

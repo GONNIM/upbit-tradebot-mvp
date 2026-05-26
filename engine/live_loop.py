@@ -4,6 +4,7 @@
 import threading
 import queue
 import logging
+import os
 import sys
 import time
 import json
@@ -236,6 +237,106 @@ def _strategy_tag(strategy_type: str) -> str:
     return strategy_type.upper().strip()
 
 
+def _get_trade_conditions_path(user_id: str, strategy_type: str):
+    """조건 파일의 실제 경로 반환 (없으면 None). _load_trade_conditions와 동일 우선순위."""
+    strategy_tag = _strategy_tag(strategy_type)
+    main_path = Path(f"{user_id}_{strategy_tag}_{CONDITIONS_JSON_FILENAME}")
+    legacy_path = Path(f"{user_id}_{CONDITIONS_JSON_FILENAME}")
+    if main_path.exists():
+        return str(main_path)
+    if legacy_path.exists():
+        return str(legacy_path)
+    return None
+
+
+def _maybe_reload_params(*, user_id, params_ref, strategy, json_path, cond_path, mtime_state):
+    """
+    ✅ B7: 파라미터/조건 파일 mtime 감지 후 strategy 인스턴스에 무중단 반영.
+
+    - 안전 영역만 갱신: take_profit, stop_loss, trailing_stop_pct, buy/sell_conditions, 필터 임계값
+    - 위험 영역(EMA 기간, base_ema 등 지표 구조 변경)은 갱신하지 않음 → 변경 감지만 알람
+    - 갱신 실패 시 ERROR 로그 + audit log (사용자에게 재시작 안내)
+
+    Returns:
+        갱신된 mtime_state dict
+    """
+    new_state = dict(mtime_state)
+
+    # 1) sell/buy 조건 파일 mtime 체크 (실시간 반영 우선순위)
+    try:
+        if cond_path and os.path.exists(cond_path):
+            cur = os.path.getmtime(cond_path)
+            if cur > new_state.get("conditions", 0.0):
+                conditions = _load_trade_conditions(user_id, params_ref.strategy_type) or {}
+                buy_c = conditions.get("buy", {}) or {}
+                sell_c = conditions.get("sell", {}) or {}
+                # strategy의 안전 영역 갱신
+                if "take_profit_pct" in sell_c:
+                    strategy.take_profit = float(sell_c["take_profit_pct"]) / 100.0
+                if "stop_loss_pct" in sell_c:
+                    strategy.stop_loss = float(sell_c["stop_loss_pct"]) / 100.0
+                if "trailing_stop_threshold_pct" in sell_c:
+                    strategy.trailing_stop_pct = float(sell_c["trailing_stop_threshold_pct"]) / 100.0
+                    strategy.trailing_stop_activation_pct = strategy.take_profit
+                if "use_fixed_trailing" in sell_c:
+                    strategy.use_fixed_trailing = bool(sell_c.get("use_fixed_trailing", False))
+                strategy.buy_conditions = buy_c
+                strategy.sell_conditions = sell_c
+
+                # 필터 인스턴스 임계값 갱신 (sell_filter_manager.filters 순회)
+                try:
+                    mgr = getattr(strategy, "sell_filter_manager", None)
+                    if mgr is not None:
+                        for f in getattr(mgr, "filters", []) or []:
+                            name = type(f).__name__
+                            if name == "StopLossFilter":
+                                f.stop_loss_pct = strategy.stop_loss
+                            elif name == "TakeProfitFilter":
+                                f.take_profit_pct = strategy.take_profit
+                            elif name == "TrailingStopFilter":
+                                f.trailing_stop_pct = strategy.trailing_stop_pct
+                                f.take_profit_pct = strategy.take_profit
+                                f.use_fixed_mode = getattr(strategy, "use_fixed_trailing", False)
+                except Exception as e:
+                    logger.warning(f"[PARAMS-RELOAD] filter update failed: {e}")
+
+                logger.info(
+                    f"🔄 [PARAMS-RELOAD] 조건 파일 변경 반영 완료 | "
+                    f"tp={strategy.take_profit:.2%} sl={strategy.stop_loss:.2%} "
+                    f"ts={strategy.trailing_stop_pct} use_fixed={getattr(strategy, 'use_fixed_trailing', False)}"
+                )
+                try:
+                    from services.db import insert_log
+                    insert_log(user_id, "INFO", f"[PARAMS-RELOAD] 조건 파일 변경 반영")
+                except Exception:
+                    pass
+                new_state["conditions"] = cur
+    except Exception as e:
+        logger.warning(f"[PARAMS-RELOAD] conditions reload failed: {e}")
+
+    # 2) params 파일 mtime 체크 — 지표 구조 변경 위험 → 알람만
+    try:
+        if json_path and os.path.exists(json_path):
+            cur = os.path.getmtime(json_path)
+            if cur > new_state.get("params", 0.0):
+                logger.warning(
+                    f"⚠️ [PARAMS-RELOAD] params 파일 변경 감지 ({json_path}). "
+                    f"안전상 EMA 기간/base_ema 등 지표 구조는 무중단 reload 대상 외. "
+                    f"즉시 반영 필요 시 엔진 재시작."
+                )
+                try:
+                    from services.db import insert_log
+                    insert_log(user_id, "WARNING",
+                               f"[PARAMS-RELOAD] params 파일 변경 감지. 지표 구조 변경 시 엔진 재시작 필요")
+                except Exception:
+                    pass
+                new_state["params"] = cur
+    except Exception as e:
+        logger.warning(f"[PARAMS-RELOAD] params mtime check failed: {e}")
+
+    return new_state
+
+
 def _load_trade_conditions(user_id: str, strategy_type: str) -> Dict[str, Any]:
     """
     매수/매도 조건 JSON 로드
@@ -361,10 +462,13 @@ def run_live_loop(
             position.avg_price = None  # 진입가 불명
             logger.warning(f"⚠️ 비상 모드: qty={actual_qty:.6f} 설정 완료, 진입가 없음")
 
-    # ✅ Issue #17 Hotfix: OrderReconciler에 사용자 등록 (HTS 매수 감지 활성화)
+    # ✅ Issue #17 Hotfix + Policy P-1: TEST 사용자는 등록 스킵 (지갑 조회 금지)
     reconciler = get_reconciler()
-    reconciler.register_user(user_id)
-    logger.info(f"✅ [HTS-DETECT] User {user_id} registered for periodic balance sync (interval=60s)")
+    reconciler.register_user(user_id, test_mode=test_mode)
+    if not test_mode:
+        logger.info(f"✅ [HTS-DETECT] LIVE user {user_id} registered for periodic balance sync (interval=60s)")
+    else:
+        logger.info(f"[BOOT] TEST 모드 — Reconciler 잔고 동기화 비활성")
 
     # ✅ 조건 파일 로드 (매수/매도 조건)
     conditions = _load_trade_conditions(user_id, params.strategy_type)
@@ -656,11 +760,38 @@ def run_live_loop(
             # ============================================================
             logger.info("🚀 [CLOCK-LOOP] 시작 - 1초마다 폴링, 봉 확정 시 REST Reconcile")
 
+            # ✅ B7: 파라미터 파일 mtime 추적 (set_config 변경 무중단 반영)
+            _params_mtime = {"params": 0.0, "conditions": 0.0}
+            try:
+                if json_path and os.path.exists(json_path):
+                    _params_mtime["params"] = os.path.getmtime(json_path)
+            except Exception:
+                pass
+            try:
+                _cond_path = _get_trade_conditions_path(user_id, params.strategy_type)
+                if _cond_path and os.path.exists(_cond_path):
+                    _params_mtime["conditions"] = os.path.getmtime(_cond_path)
+            except Exception:
+                _cond_path = None
+
             while not stop_event.is_set():
                 now = now_utc()
 
                 if clock.should_close(now):
                     closed_ts = clock.get_closed_ts(now)
+
+                    # ✅ B7: 봉 확정 시점에 파일 mtime 확인 → 변경 시 무중단 reload 시도
+                    try:
+                        _params_mtime = _maybe_reload_params(
+                            user_id=user_id,
+                            params_ref=params,
+                            strategy=strategy,
+                            json_path=json_path,
+                            cond_path=_cond_path,
+                            mtime_state=_params_mtime,
+                        )
+                    except Exception as _e:
+                        logger.warning(f"[PARAMS-RELOAD] mtime check failed: {_e}")
 
                     # 이미 처리한 봉인지 확인 (중복 방지)
                     if closed_ts <= engine.last_bar_ts:

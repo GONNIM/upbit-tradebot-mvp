@@ -20,7 +20,8 @@ class OrderReconciler:
         self.poll_interval = poll_interval
         self.balance_sync_interval = balance_sync_interval  # ✅ 주기적 잔고 동기화 간격 (초, 기본 1분) - Issue #17
         self._pending: Dict[str, Dict[str, Any]] = {}  # uuid -> meta
-        self._user_ids: set = set()  # ✅ 추적 중인 사용자 ID들 (잔고 동기화용)
+        # ✅ Policy P-1: LIVE 모드 사용자만 잔고 동기화. TEST 사용자는 등록 안 함.
+        self._live_user_ids: set = set()
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thr: Optional[threading.Thread] = None
@@ -43,7 +44,7 @@ class OrderReconciler:
     def enqueue(self, uuid: str, *, user_id: str, ticker: str, side: str, meta: Optional[Dict[str, Any]] = None):
         """
         주문 추적 큐에 추가 (체결 완료 시 audit_trades 기록용 meta 포함)
-        - meta: interval, bar, reason, macd, signal, entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed
+        실거래 주문은 LIVE에서만 발생하므로 _live_user_ids에 등록.
         """
         if not uuid:
             return
@@ -53,20 +54,28 @@ class OrderReconciler:
                 "ticker": ticker,
                 "side": side,
                 "last": None,
-                "meta": meta or {}  # ✅ 전략 컨텍스트 저장
+                "meta": meta or {}
             }
-            self._user_ids.add(user_id)  # ✅ 잔고 동기화 대상 사용자 추가
+            self._live_user_ids.add(user_id)  # 실거래 발생 = LIVE 사용자
         logger.info(f"[OR] enqueued: {uuid} side={side} {ticker}")
 
-    def register_user(self, user_id: str):
+    def register_user(self, user_id: str, test_mode: bool = False):
         """
         ✅ Issue #17 Hotfix: HTS 매수 감지용 사용자 등록
-        - 봇 거래 없이도 주기적 잔고 동기화 활성화
-        - 엔진 시작 시 즉시 호출되어 _user_ids 채움
+        ✅ Policy P-1: TEST 모드 사용자는 등록 스킵 (지갑 조회 금지)
         """
+        if test_mode:
+            logger.info(f"[OR] TEST 모드 사용자 등록 스킵 (Policy P-1): {user_id}")
+            return
         with self._lock:
-            self._user_ids.add(user_id)
-        logger.info(f"[OR] User registered for balance monitoring: {user_id}")
+            self._live_user_ids.add(user_id)
+        logger.info(f"[OR] LIVE user registered for balance monitoring: {user_id}")
+
+    def unregister_user(self, user_id: str):
+        """엔진 정지 시 사용자 제거 (모드 변경 후 재시작에도 안전)."""
+        with self._lock:
+            self._live_user_ids.discard(user_id)
+        logger.info(f"[OR] user unregistered: {user_id}")
 
     def load_inflight_from_db(self, fetch_func):
         rows = fetch_func() or []
@@ -92,7 +101,8 @@ class OrderReconciler:
                         "last": None,
                         "meta": meta_dict  # ✅ 전략 컨텍스트 복구
                     }
-                    self._user_ids.add(user_id)  # ✅ 잔고 동기화 대상 사용자 추가
+                    # 미체결 주문이 있다는 것은 LIVE 거래 = LIVE 사용자
+                    self._live_user_ids.add(user_id)
         logger.info(f"[OR] recovered pending: {len(rows)}")
 
     def _run(self):
@@ -308,7 +318,7 @@ class OrderReconciler:
 
         # ✅ 추적 중인 사용자 ID 복사 (thread-safe)
         with self._lock:
-            user_ids = list(self._user_ids)
+            user_ids = list(self._live_user_ids)
 
         if not user_ids:
             # 추적 중인 사용자가 없으면 동기화 불필요

@@ -796,14 +796,22 @@ class IncrementalEMAStrategy:
             # 최소 보유 기간 체크
             bars_held = position.get_bars_held(current_bar_idx)
 
-            # ✅ bars_held 음수 보정: 봇 재시작으로 인한 entry_bar 불일치 해결
+            # ✅ B2: bars_held 음수/0 = 데이터 무결성 결손 신호.
+            #   기존의 estimate_bars_held_from_audit 보정은 자가 진단을 무시하고
+            #   잘못된 SELL을 진행시키는 위험이 있어 제거. SELL 차단 + 알람.
             if bars_held <= 0:
-                from services.db import estimate_bars_held_from_audit
-                bars_held_from_audit = estimate_bars_held_from_audit(self.user_id, self.ticker)
-                logger.warning(
-                    f"⚠️ [EMA] bars_held={bars_held} (음수/0) 감지 → DB 감사로그 기준으로 보정: {bars_held_from_audit}"
+                err_msg = (
+                    f"⚠️ [EMA] bars_held={bars_held} (음수/0) — 데이터 무결성 결손 감지. "
+                    f"SELL 차단 (HOLD 유지). entry_bar={position.entry_bar}, "
+                    f"current_bar={current_bar_idx}"
                 )
-                bars_held = bars_held_from_audit
+                logger.error(err_msg)
+                try:
+                    from services.db import insert_log
+                    insert_log(self.user_id, "ERROR", err_msg)
+                except Exception:
+                    pass
+                return Action.HOLD
 
             logger.info(
                 f"🔍 [MIN_HOLDING_CHECK] bars_held={bars_held}, min_required={self.min_holding_period}, "

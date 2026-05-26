@@ -10,6 +10,7 @@ from services.init_db import (
     ensure_orders_extended_schema,
     ensure_accounts_locked,
     ensure_account_positions_locked,
+    ensure_account_positions_entry_price,
 )
 
 from config import DEFAULT_USER_ID
@@ -19,6 +20,7 @@ def ensure_schema(user_id: str):
     ensure_orders_extended_schema(user_id)
     ensure_accounts_locked(user_id)
     ensure_account_positions_locked(user_id)
+    ensure_account_positions_entry_price(user_id)
 
 
 DB_PREFIX = "tradebot"
@@ -665,28 +667,72 @@ def get_coin_balance_locked(user_id, ticker):
         return 0.0
 
 
-def update_coin_position(user_id, ticker, virtual_coin, virtual_coin_locked=0.0):
+def update_coin_position(user_id, ticker, virtual_coin, virtual_coin_locked=0.0, entry_price=None):
     """
     포지션 업데이트.
     - virtual_coin: 활성(가용) 코인 — 봇 의사결정 기준
     - virtual_coin_locked: 잠긴 코인 (미체결 매도 주문 등, 참고용)
+    - entry_price: Upbit avg_buy_price 캐시 (LIVE 전용). None이면 기존 값 유지.
     TEST 모드는 locked 개념이 없으므로 기본값 0으로 호출하면 됨.
     """
     with get_db(user_id) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO account_positions (user_id, ticker, virtual_coin, virtual_coin_locked, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, ticker) DO UPDATE SET
-                virtual_coin = excluded.virtual_coin,
-                virtual_coin_locked = excluded.virtual_coin_locked,
-                updated_at = excluded.updated_at
-        """,
-            (user_id, ticker, virtual_coin, virtual_coin_locked, now_kst()),
-        )
+        if entry_price is None:
+            # 기존 entry_price 유지 (잔량만 업데이트)
+            cursor.execute(
+                """
+                INSERT INTO account_positions (user_id, ticker, virtual_coin, virtual_coin_locked, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, ticker) DO UPDATE SET
+                    virtual_coin = excluded.virtual_coin,
+                    virtual_coin_locked = excluded.virtual_coin_locked,
+                    updated_at = excluded.updated_at
+            """,
+                (user_id, ticker, virtual_coin, virtual_coin_locked, now_kst()),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO account_positions (user_id, ticker, virtual_coin, virtual_coin_locked, entry_price, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(user_id, ticker) DO UPDATE SET
+                    virtual_coin = excluded.virtual_coin,
+                    virtual_coin_locked = excluded.virtual_coin_locked,
+                    entry_price = excluded.entry_price,
+                    updated_at = excluded.updated_at
+            """,
+                (user_id, ticker, virtual_coin, virtual_coin_locked, float(entry_price), now_kst()),
+            )
         conn.commit()
     insert_position_history(user_id, ticker, virtual_coin)
+
+
+def get_position_entry_price(user_id, ticker):
+    """
+    account_positions.entry_price (Upbit avg_buy_price 캐시) 조회.
+    LIVE Reconciler가 채운 값 → POSITION-SYNC 자동 복구 시 1순위 사용.
+    스키마/행 부재 또는 0이면 None 반환.
+    """
+    try:
+        ensure_schema(user_id)
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
+            mkt = f"KRW-{sym}"
+            cursor.execute(
+                """
+                SELECT entry_price FROM account_positions
+                WHERE user_id = ? AND UPPER(ticker) IN (?, ?)
+                LIMIT 1
+            """,
+                (user_id, sym, mkt),
+            )
+            row = cursor.fetchone()
+            if row and row[0] is not None and float(row[0]) > 0:
+                return float(row[0])
+            return None
+    except Exception:
+        return None
 
 
 # ✅ 히스토리 누적
@@ -1266,11 +1312,45 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         if "entry_bar" in cols:
             select_cols += ", entry_bar"
 
+        # ✅ B1 해결: 청산 검증 헬퍼 — 마지막 BUY 이후 SELL이 있으면 청산된 것으로 간주
+        def _last_buy_closed_by_later_sell() -> bool:
+            try:
+                cur = conn.cursor()
+                if status_col:
+                    state_filter = f"{status_col} IN ('completed','filled','FILLED')"
+                    cur.execute(
+                        f"SELECT MAX(ROWID) FROM orders WHERE user_id=? AND ticker=? AND side='BUY' AND {state_filter}",
+                        (user_id, ticker),
+                    )
+                    buy_rowid = (cur.fetchone() or (None,))[0]
+                    cur.execute(
+                        f"SELECT MAX(ROWID) FROM orders WHERE user_id=? AND ticker=? AND side='SELL' AND {state_filter}",
+                        (user_id, ticker),
+                    )
+                    sell_rowid = (cur.fetchone() or (None,))[0]
+                else:
+                    cur.execute("SELECT MAX(ROWID) FROM orders WHERE user_id=? AND ticker=? AND side='BUY'", (user_id, ticker))
+                    buy_rowid = (cur.fetchone() or (None,))[0]
+                    cur.execute("SELECT MAX(ROWID) FROM orders WHERE user_id=? AND ticker=? AND side='SELL'", (user_id, ticker))
+                    sell_rowid = (cur.fetchone() or (None,))[0]
+                return (buy_rowid is not None and sell_rowid is not None and sell_rowid > buy_rowid)
+            except Exception as e:
+                logger.warning(f"[DB] _last_buy_closed_by_later_sell check failed: {e}")
+                # 검증 실패 시 보수적으로 청산되었다고 간주 → 가짜 진입가 차용 차단
+                return True
+
         # 1) 상태 컬럼이 있으면 우선 해당 필터로 시도
         sql1 = f"SELECT {select_cols} FROM orders WHERE {where_sql} ORDER BY {order_sql} LIMIT 1"
         result = _fetch_one(conn, sql1, tuple(params), cols)
         logger.info(f"[DB] last BUY (with status filter={bool(status_col)}) => {result}")
         if result is not None:
+            if _last_buy_closed_by_later_sell():
+                logger.warning(
+                    "[DB] last BUY already closed by later SELL → returning None "
+                    "(B1: 가짜 진입가 차용 방지)"
+                )
+                conn.close()
+                return None
             conn.close()
             return result
 
@@ -1279,6 +1359,13 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         sql2 = f"SELECT {select_cols} FROM orders WHERE {' AND '.join(base_where)} ORDER BY {order_sql} LIMIT 1"
         result = _fetch_one(conn, sql2, (user_id, ticker), cols)
         logger.info(f"[DB] last BUY (any state) => {result}")
+
+        if result is not None and _last_buy_closed_by_later_sell():
+            logger.warning(
+                "[DB] last BUY already closed by later SELL → returning None (B1)"
+            )
+            conn.close()
+            return None
         conn.close()
 
         if result is not None:
@@ -1556,29 +1643,32 @@ def update_account_from_balances(user_id: str, balances: list[dict[str, Any]]):
 
 def update_position_from_balances(user_id: str, ticker: str, balances: list[dict[str, Any]]):
     """
-    Upbit.get_balances() 응답으로 특정 ticker(KRW-WLFI 등)의 보유 수량을
-    account_positions / position_history 에 반영.
+    Upbit.get_balances() 응답으로 특정 ticker의 보유 수량 + 평균매수가를
+    account_positions에 반영.
 
-    봇 철학: 활성/잠금 분리 저장 — virtual_coin은 활성(balance)만, virtual_coin_locked는 locked.
+    봇 철학: 활성/잠금 분리 + Upbit avg_buy_price를 진입가 캐시로 저장 (B1 해결).
     """
     ensure_schema(user_id)
 
     sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
     coin_active = 0.0
     coin_locked = 0.0
+    avg_buy_price = 0.0
 
     try:
         for b in balances or []:
             if str(b.get("currency", "")).upper() == sym:
                 coin_active = float(b.get("balance") or 0.0)
                 coin_locked = float(b.get("locked") or 0.0)
+                avg_buy_price = float(b.get("avg_buy_price") or 0.0)
                 break
     except Exception as e:
         logger.warning(f"[DB] update_position_from_balances parse failed: {e}")
 
-    # 우리 쪽 DB에는 일관되게 'KRW-심볼' 형태로 저장
     market_code = f"KRW-{sym}"
-    update_coin_position(user_id, market_code, coin_active, coin_locked)
+    # 보유량이 0이면 진입가 무의미 → 0 저장. 양수면 avg_buy_price 캐시.
+    ep = avg_buy_price if (coin_active + coin_locked) > 0 and avg_buy_price > 0 else 0.0
+    update_coin_position(user_id, market_code, coin_active, coin_locked, entry_price=ep)
 
 
 def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]]):
@@ -1605,9 +1695,11 @@ def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]
 
             coin_active = float(b.get("balance", 0))
             coin_locked = float(b.get("locked", 0))
+            avg_buy_price = float(b.get("avg_buy_price") or 0.0)
 
             ticker = f"KRW-{currency}"
-            update_coin_position(user_id, ticker, coin_active, coin_locked)
+            ep = avg_buy_price if (coin_active + coin_locked) > 0 and avg_buy_price > 0 else 0.0
+            update_coin_position(user_id, ticker, coin_active, coin_locked, entry_price=ep)
             real_currencies.add(currency)
 
     except Exception as e:
@@ -1634,10 +1726,10 @@ def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]
 
             currency = parts[1].strip().upper()
 
-            # 실제 보유하지 않으면 활성/잠금 모두 0으로 설정
+            # 실제 보유하지 않으면 활성/잠금/진입가 모두 0으로 설정
             if currency not in real_currencies:
-                update_coin_position(user_id, ticker, 0.0, 0.0)
-                logger.info(f"[DB] sync_all_positions cleared: {ticker} → active=0, locked=0")
+                update_coin_position(user_id, ticker, 0.0, 0.0, entry_price=0.0)
+                logger.info(f"[DB] sync_all_positions cleared: {ticker} → active=0, locked=0, entry_price=0")
 
     except Exception as e:
         logger.warning(f"[DB] sync_all_positions clear stale positions failed: {e}")
