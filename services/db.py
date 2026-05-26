@@ -1507,8 +1507,8 @@ def update_account_from_balances(user_id: str, balances: list[dict[str, Any]]):
         )
         conn.commit()
 
-    # 히스토리도 동일하게 누적
-    insert_account_history(user_id, int(krw_total))
+    # 히스토리는 총 KRW(active + locked) 기준으로 누적
+    insert_account_history(user_id, int(krw_active + krw_locked))
 
 
 def update_position_from_balances(user_id: str, ticker: str, balances: list[dict[str, Any]]):
