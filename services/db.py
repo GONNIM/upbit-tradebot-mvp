@@ -5,13 +5,14 @@ from contextlib import contextmanager
 
 import json
 from typing import Optional, Dict, Any
-from services.init_db import get_db_path, ensure_orders_extended_schema
+from services.init_db import get_db_path, ensure_orders_extended_schema, ensure_accounts_locked
 
 from config import DEFAULT_USER_ID
 
 
 def ensure_schema(user_id: str):
     ensure_orders_extended_schema(user_id)
+    ensure_accounts_locked(user_id)
 
 
 DB_PREFIX = "tradebot"
@@ -559,6 +560,25 @@ def get_account(user_id):
         cursor.execute("SELECT virtual_krw FROM accounts WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
         return row[0] if row else None
+
+
+def get_account_locked(user_id):
+    """
+    accounts.virtual_krw_locked 조회 (Upbit KRW 잠긴 금액).
+    스키마가 없거나 행이 없으면 0 반환.
+    """
+    try:
+        ensure_schema(user_id)
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT virtual_krw_locked FROM accounts WHERE user_id = ?",
+                (user_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row and row[0] is not None else 0
+    except Exception:
+        return 0
 
 
 def create_or_init_account(user_id, init_krw=1_000_000):
@@ -1458,33 +1478,32 @@ def update_account_from_balances(user_id: str, balances: list[dict[str, Any]]):
     """
     ensure_schema(user_id)
 
-    krw_total = 0.0
+    krw_active = 0.0
+    krw_locked = 0.0
     try:
         for b in balances or []:
             if str(b.get("currency", "")).upper() == "KRW":
-                bal = float(b.get("balance") or 0.0)
-                locked = float(b.get("locked") or 0.0)
-                # 필요에 따라 locked 포함/제외 가능. 여기선 "전체 잔고" 기준으로.
-                krw_total = bal + locked
+                krw_active = float(b.get("balance") or 0.0)
+                krw_locked = float(b.get("locked") or 0.0)
                 break
     except Exception as e:
         logger.warning(f"[DB] update_account_from_balances parse failed: {e}")
 
     with get_db(user_id) as conn:
         cur = conn.cursor()
-        # 없으면 생성
+        # 없으면 생성 (활성 KRW만 저장; locked는 별도 컬럼)
         cur.execute(
-            "INSERT OR IGNORE INTO accounts (user_id, virtual_krw) VALUES (?, ?)",
-            (user_id, int(krw_total)),
+            "INSERT OR IGNORE INTO accounts (user_id, virtual_krw, virtual_krw_locked) VALUES (?, ?, ?)",
+            (user_id, int(krw_active), int(krw_locked)),
         )
-        # 항상 최신 값으로 덮어쓰기
+        # 항상 최신 값으로 덮어쓰기 (활성/Lock 분리)
         cur.execute(
             """
             UPDATE accounts
-            SET virtual_krw = ?, updated_at = ?
+            SET virtual_krw = ?, virtual_krw_locked = ?, updated_at = ?
             WHERE user_id = ?
             """,
-            (int(krw_total), now_kst(), user_id),
+            (int(krw_active), int(krw_locked), now_kst(), user_id),
         )
         conn.commit()
 

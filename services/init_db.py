@@ -634,6 +634,18 @@ def ensure_account_positions_meta(user_id: str):
     conn.close()
 
 
+def ensure_accounts_locked(user_id: str):
+    """
+    accounts 테이블에 virtual_krw_locked 컬럼 추가:
+      - virtual_krw_locked: Upbit KRW 잠긴 금액(미체결 주문 자금)
+      - 활성/Lock 분리 표시를 위해 사용 (대시보드 자산 현황)
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE accounts ADD COLUMN virtual_krw_locked INTEGER DEFAULT 0")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -647,6 +659,7 @@ def ensure_all_schemas(user_id: str):
     ensure_audit_buy_eval_bar_time(user_id)  # ✅ audit_buy_eval bar_time 추가
     ensure_audit_sell_eval_bar_time(user_id) # ✅ audit_sell_eval bar_time 추가
     ensure_account_positions_meta(user_id)   # ✅ account_positions meta 추가
+    ensure_accounts_locked(user_id)          # ✅ accounts virtual_krw_locked 추가
 
 
 def init_db_if_needed(user_id):
