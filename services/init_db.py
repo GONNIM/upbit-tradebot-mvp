@@ -646,6 +646,19 @@ def ensure_accounts_locked(user_id: str):
     conn.close()
 
 
+def ensure_account_positions_locked(user_id: str):
+    """
+    account_positions 테이블에 virtual_coin_locked 컬럼 추가:
+      - virtual_coin: 활성(가용) 코인 수량 — 봇 의사결정 기준
+      - virtual_coin_locked: 잠긴 코인 수량(미체결 매도 주문 등) — 참고용
+    봇 철학: 의사결정 기준은 항상 활성 수량.
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE account_positions ADD COLUMN virtual_coin_locked REAL DEFAULT 0")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -660,6 +673,7 @@ def ensure_all_schemas(user_id: str):
     ensure_audit_sell_eval_bar_time(user_id) # ✅ audit_sell_eval bar_time 추가
     ensure_account_positions_meta(user_id)   # ✅ account_positions meta 추가
     ensure_accounts_locked(user_id)          # ✅ accounts virtual_krw_locked 추가
+    ensure_account_positions_locked(user_id) # ✅ account_positions virtual_coin_locked 추가
 
 
 def init_db_if_needed(user_id):

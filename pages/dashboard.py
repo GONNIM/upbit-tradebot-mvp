@@ -13,6 +13,7 @@ from services.db import (
     get_account,
     get_account_locked,
     get_coin_balance,
+    get_coin_balance_locked,
     get_initial_krw,
     fetch_recent_orders,
     fetch_latest_order_by_ticker,
@@ -167,17 +168,19 @@ st.session_state["live_capital_set"] = capital_ok
 def get_current_balances(user_id: str, params_obj, is_live: bool, force_refresh: bool = False):
     """
     자산 현황용 현재 잔고 조회.
-    반환: (active_krw, locked_krw, coin)
-      - active_krw : 사용 가능한 KRW (Upbit balance)
-      - locked_krw : 미체결 주문 등으로 잠긴 KRW (Upbit locked)
-      - coin       : 보유 코인 수량
+    반환: (active_krw, locked_krw, active_coin, locked_coin)
+      - active_krw  : 사용 가능한 KRW (Upbit balance) — 봇 의사결정 기준
+      - locked_krw  : 잠긴 KRW (Upbit locked) — 참고 표시용
+      - active_coin : 활성 코인 수량 — 봇 의사결정 기준
+      - locked_coin : 잠긴 코인 수량 (미체결 매도 등) — 참고 표시용
 
-    - TEST 모드: DB(virtual_krw, account_positions) 기준, locked=0
+    - TEST 모드: DB 기준, locked=0
     - LIVE 모드:
-      * force_refresh=False (기본): DB 캐시 사용 (Reconciler가 2초마다 업데이트, 빠름!)
-      * force_refresh=True: Upbit API 실시간 조회 (강제매도/매수 직후만 사용)
+      * force_refresh=False (기본): DB 캐시 사용 (Reconciler가 1분마다 업데이트)
+      * force_refresh=True: Upbit API 실시간 조회 (강제매도/매수 직후)
     """
     ticker = getattr(params_obj, "upbit_ticker", None) or params_obj.ticker
+    sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
 
     if is_live and force_refresh:
         # ✅ 실시간 API 조회 (강제매도/매수 직후에만)
@@ -188,30 +191,34 @@ def get_current_balances(user_id: str, params_obj, is_live: bool, force_refresh:
         )
         try:
             krw_active = float(trader_view._krw_balance())
-            # locked는 직접 get_balances()에서 추출
             krw_locked = 0.0
+            coin_active = 0.0
+            coin_locked = 0.0
             try:
                 for b in trader_view.upbit.get_balances() or []:
-                    if str(b.get("currency", "")).upper() == "KRW":
+                    cur_str = str(b.get("currency", "")).upper()
+                    if cur_str == "KRW":
                         krw_locked = float(b.get("locked") or 0.0)
-                        break
+                    elif cur_str == sym:
+                        coin_active = float(b.get("balance") or 0.0)
+                        coin_locked = float(b.get("locked") or 0.0)
             except Exception as e:
-                logger.warning(f"[DASH] KRW locked 조회 실패: {e}")
-            coin_live = float(trader_view._coin_balance(ticker))
+                logger.warning(f"[DASH] balances 분리 추출 실패: {e}")
             logger.info(
-                f"[DASH] 실시간 API 조회: KRW(active)={krw_active:,.0f}, "
-                f"KRW(locked)={krw_locked:,.0f}, COIN={coin_live:.6f}"
+                f"[DASH] 실시간 API 조회: "
+                f"KRW(active)={krw_active:,.0f}, KRW(locked)={krw_locked:,.0f}, "
+                f"COIN(active)={coin_active:.6f}, COIN(locked)={coin_locked:.6f}"
             )
-            return krw_active, krw_locked, coin_live
+            return krw_active, krw_locked, coin_active, coin_locked
         except Exception as e:
             logger.warning(f"[DASH] API 조회 실패, DB 폴백: {e}")
 
     # ✅ DB 캐시 사용 (TEST 모드 + LIVE 일반 모니터링)
-    # Reconciler가 주문 체결 시 실시간 업데이트하므로 충분히 정확함
     acc = get_account(user_id) or 0.0
     locked = get_account_locked(user_id) or 0.0
     coin = get_coin_balance(user_id, ticker) or 0.0
-    return float(acc), float(locked), float(coin)
+    coin_locked = get_coin_balance_locked(user_id, ticker) or 0.0
+    return float(acc), float(locked), float(coin), float(coin_locked)
 
 
 # ✅ 페이지 설정
@@ -387,7 +394,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.26.1034")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.26.1052")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])
@@ -540,7 +547,7 @@ force_api_refresh = st.session_state.pop("needs_balance_refresh", False)
 # account_krw = get_account(user_id) or 0
 # st.write(account_krw)
 # coin_balance = get_coin_balance(user_id, params_obj.upbit_ticker) or 0.0
-account_krw, locked_krw, coin_balance = get_current_balances(
+account_krw, locked_krw, coin_balance, coin_locked = get_current_balances(
     user_id, params_obj, is_live, force_refresh=force_api_refresh
 )
 
@@ -553,9 +560,10 @@ is_ema = (params_strategy == "EMA")
 st.subheader("💰 자산 현황")
 
 # ── 0) 안전한 값 정리
-cash = float(account_krw or 0.0)                # 활성 KRW (사용 가능, NAV/ROI 계산 기준)
-locked_cash = float(locked_krw or 0.0)          # Lock KRW (미체결 주문 자금)
-qty  = float(coin_balance or 0.0)               # 보유 코인 수량
+cash = float(account_krw or 0.0)                # 활성 KRW (의사결정/NAV/ROI 기준)
+locked_cash = float(locked_krw or 0.0)          # Lock KRW (참고 표시용)
+qty  = float(coin_balance or 0.0)               # 활성 코인 (의사결정/NAV/ROI 기준)
+locked_qty = float(coin_locked or 0.0)          # Lock 코인 (참고 표시용)
 init_krw = float(get_initial_krw(user_id) or 0) # 기존 초기 KRW (DB)
 
 # ── 1) 현재가 확보: get_ohlcv_once를 "짧게" 호출해 마지막 종가를 사용
@@ -626,8 +634,12 @@ with col_krw:
     lock_delta = f"🔒 Lock: {locked_cash:,.0f} KRW" if locked_cash > 0 else _nbsp
     st.metric("보유 KRW", f"{cash:,.0f} KRW", delta=lock_delta, delta_color="off")
 with col_coin:
-    # delta에 코인 평가액을 유지 (정보성 OK)
-    st.metric(f"{_ticker} 보유량", f"{qty:,.6f}", delta=f"평가 {coin_val:,.0f} KRW", delta_color="off")
+    # 메인=활성 코인, delta=잠긴 코인(있을 때)/평가액
+    if locked_qty > 0:
+        coin_delta = f"🔒 Lock: {locked_qty:,.6f} · 평가 {coin_val:,.0f} KRW"
+    else:
+        coin_delta = f"평가 {coin_val:,.0f} KRW"
+    st.metric(f"{_ticker} 보유량", f"{qty:,.6f}", delta=coin_delta, delta_color="off")
 with col_pnl:
     # ✅ 포지션 보유 여부에 따라 분기
     if qty > 0:

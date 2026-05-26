@@ -5,7 +5,12 @@ from contextlib import contextmanager
 
 import json
 from typing import Optional, Dict, Any
-from services.init_db import get_db_path, ensure_orders_extended_schema, ensure_accounts_locked
+from services.init_db import (
+    get_db_path,
+    ensure_orders_extended_schema,
+    ensure_accounts_locked,
+    ensure_account_positions_locked,
+)
 
 from config import DEFAULT_USER_ID
 
@@ -13,6 +18,7 @@ from config import DEFAULT_USER_ID
 def ensure_schema(user_id: str):
     ensure_orders_extended_schema(user_id)
     ensure_accounts_locked(user_id)
+    ensure_account_positions_locked(user_id)
 
 
 DB_PREFIX = "tradebot"
@@ -610,6 +616,10 @@ def update_account(user_id, virtual_krw):
 
 # ✅ 포지션 정보
 def get_coin_balance(user_id, ticker):
+    """
+    활성(가용) 코인 수량 조회 — 봇 의사결정 기준.
+    locked 수량은 get_coin_balance_locked()로 별도 조회.
+    """
     with get_db(user_id) as conn:
         cursor = conn.cursor()
         # 'WLFI'로 오더가 와도 'KRW-WLFI' 행을 집계할 수 있게 심볼/마켓코드 모두 조회
@@ -629,18 +639,51 @@ def get_coin_balance(user_id, ticker):
         return row[0] if row else 0.0
 
 
-def update_coin_position(user_id, ticker, virtual_coin):
+def get_coin_balance_locked(user_id, ticker):
+    """
+    잠긴 코인 수량 조회 (미체결 매도 주문 등 참고용 표시).
+    스키마/행 부재 시 0 반환.
+    """
+    try:
+        ensure_schema(user_id)
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
+            mkt = f"KRW-{sym}"
+            cursor.execute(
+                """
+                SELECT COALESCE(SUM(virtual_coin_locked), 0.0)
+                FROM account_positions
+                WHERE user_id = ?
+                AND UPPER(ticker) IN (?, ?)
+            """,
+                (user_id, sym, mkt),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0.0
+    except Exception:
+        return 0.0
+
+
+def update_coin_position(user_id, ticker, virtual_coin, virtual_coin_locked=0.0):
+    """
+    포지션 업데이트.
+    - virtual_coin: 활성(가용) 코인 — 봇 의사결정 기준
+    - virtual_coin_locked: 잠긴 코인 (미체결 매도 주문 등, 참고용)
+    TEST 모드는 locked 개념이 없으므로 기본값 0으로 호출하면 됨.
+    """
     with get_db(user_id) as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
-            INSERT INTO account_positions (user_id, ticker, virtual_coin, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO account_positions (user_id, ticker, virtual_coin, virtual_coin_locked, updated_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id, ticker) DO UPDATE SET
                 virtual_coin = excluded.virtual_coin,
+                virtual_coin_locked = excluded.virtual_coin_locked,
                 updated_at = excluded.updated_at
         """,
-            (user_id, ticker, virtual_coin, now_kst()),
+            (user_id, ticker, virtual_coin, virtual_coin_locked, now_kst()),
         )
         conn.commit()
     insert_position_history(user_id, ticker, virtual_coin)
@@ -1515,25 +1558,27 @@ def update_position_from_balances(user_id: str, ticker: str, balances: list[dict
     """
     Upbit.get_balances() 응답으로 특정 ticker(KRW-WLFI 등)의 보유 수량을
     account_positions / position_history 에 반영.
+
+    봇 철학: 활성/잠금 분리 저장 — virtual_coin은 활성(balance)만, virtual_coin_locked는 locked.
     """
     ensure_schema(user_id)
 
     sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
-    total_coin = 0.0
+    coin_active = 0.0
+    coin_locked = 0.0
 
     try:
         for b in balances or []:
             if str(b.get("currency", "")).upper() == sym:
-                bal = float(b.get("balance") or 0.0)
-                locked = float(b.get("locked") or 0.0)
-                total_coin = bal + locked
+                coin_active = float(b.get("balance") or 0.0)
+                coin_locked = float(b.get("locked") or 0.0)
                 break
     except Exception as e:
         logger.warning(f"[DB] update_position_from_balances parse failed: {e}")
 
     # 우리 쪽 DB에는 일관되게 'KRW-심볼' 형태로 저장
     market_code = f"KRW-{sym}"
-    update_coin_position(user_id, market_code, total_coin)
+    update_coin_position(user_id, market_code, coin_active, coin_locked)
 
 
 def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]]):
@@ -1550,7 +1595,7 @@ def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]
     """
     ensure_schema(user_id)
 
-    # 1. 실제 보유 코인 업데이트
+    # 1. 실제 보유 코인 업데이트 — 활성/잠금 분리 저장
     real_currencies = set()
     try:
         for b in balances or []:
@@ -1558,18 +1603,17 @@ def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]
             if currency == "KRW" or not currency:
                 continue
 
-            balance = float(b.get("balance", 0))
-            locked = float(b.get("locked", 0))
-            total = balance + locked
+            coin_active = float(b.get("balance", 0))
+            coin_locked = float(b.get("locked", 0))
 
             ticker = f"KRW-{currency}"
-            update_coin_position(user_id, ticker, total)
+            update_coin_position(user_id, ticker, coin_active, coin_locked)
             real_currencies.add(currency)
 
     except Exception as e:
         logger.warning(f"[DB] sync_all_positions real balances failed: {e}")
 
-    # 2. DB에는 있지만 실제로는 없는 코인 → 0으로 설정
+    # 2. DB에는 있지만 실제로는 없는 코인 → 활성/잠금 모두 0으로 설정
     try:
         with get_db(user_id) as conn:
             cur = conn.cursor()
@@ -1590,10 +1634,10 @@ def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]
 
             currency = parts[1].strip().upper()
 
-            # 실제 보유하지 않으면 0으로 설정
+            # 실제 보유하지 않으면 활성/잠금 모두 0으로 설정
             if currency not in real_currencies:
-                update_coin_position(user_id, ticker, 0.0)
-                logger.info(f"[DB] sync_all_positions cleared: {ticker} → 0.0")
+                update_coin_position(user_id, ticker, 0.0, 0.0)
+                logger.info(f"[DB] sync_all_positions cleared: {ticker} → active=0, locked=0")
 
     except Exception as e:
         logger.warning(f"[DB] sync_all_positions clear stale positions failed: {e}")
