@@ -1103,7 +1103,10 @@ def fetch_buy_eval(user_id: str, ticker: str | None = None, only_failed=False, l
             q += " AND ticker = ?"
             params.append(ticker)
         if only_failed:
-            q += " AND overall_ok = 0"
+            # B13 보강: BUY_SIGNAL(overall_ok=1)은 진단의 핵심 데이터이므로 항상 포함.
+            #   only_failed=True는 "차단 사유 + 신호 발동 모두 표시"로 의미 통합.
+            #   (이전엔 overall_ok=0만 반환하여 BUY_SIGNAL 14건이 사용자 화면에서 사라짐)
+            q += " AND overall_ok IN (0, 1)"
         # B13: bar_time 기준 정렬 (UPDATE 시각 흔들림 방지, bar 번호 누락 가시화)
         q += " ORDER BY COALESCE(bar_time, timestamp) DESC, id DESC LIMIT ?"
         params.append(limit)

@@ -617,11 +617,17 @@ elif section == "sell":
                 sell_gap_info = df_sell.apply(_extract_sell_gap_info, axis=1)
                 df_sell = pd.concat([df_sell, sell_gap_info], axis=1)
 
+                # ✅ B13 보강: SELL 신호(triggered=1) 시각 식별용 '신호' 컬럼 (벡터 연산)
+                df_sell["signal_icon"] = df_sell["triggered"].map(
+                    lambda x: "🔴" if (x == 1 or x == "1") else ""
+                )
+
                 # 전략별 칼럼명 변경
                 df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
 
-                # ✅ Base EMA GAP 전략 SELL 전용 컬럼 순서
+                # ✅ Base EMA GAP 전략 SELL 전용 컬럼 순서 — '신호' 컬럼을 가장 왼쪽에 배치
                 column_order = [
+                    "signal_icon",
                     "timestamp", "bar_time", "ticker", "bar", "price",
                     "pnl_display", "tp_price", "sl_price", "highest", "base_ema",
                     "bars_held", "triggered", "trigger_reason", "notes"
@@ -631,6 +637,7 @@ elif section == "sell":
 
                 # 컬럼명 한글화
                 df_sell_display = df_sell_display.rename(columns={
+                    "signal_icon": "신호",
                     "timestamp": "기록시각",
                     "bar_time": "봉시각",
                     "ticker": "티커",
@@ -663,11 +670,17 @@ elif section == "sell":
                         return "⚪ Neutral"
                 df_sell["cross_type"] = df_sell["delta"].apply(_cross_type)
 
+                # ✅ B13 보강: SELL 신호(triggered=1) 시각 식별용 '신호' 컬럼 (벡터 연산)
+                df_sell["signal_icon"] = df_sell["triggered"].map(
+                    lambda x: "🔴" if (x == 1 or x == "1") else ""
+                )
+
                 # 전략별 칼럼명 변경
                 df_sell_display = df_sell.rename(columns=INDICATOR_COL_RENAME)
 
-                # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에, delta 다음에 cross_type 추가 + 필터 정보
+                # ✅ 컬럼 순서 재배치 — '신호' 컬럼을 가장 왼쪽에 배치
                 column_order = [
+                    "signal_icon",
                     "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta", "cross_type",
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
@@ -680,12 +693,18 @@ elif section == "sell":
                 column_order = [col for col in column_order if col in df_sell_display.columns]
                 df_sell_display = df_sell_display[column_order]
 
+                # signal_icon 한글 컬럼명 (일반 EMA/MACD 분기)
+                if "signal_icon" in df_sell_display.columns:
+                    df_sell_display = df_sell_display.rename(columns={"signal_icon": "신호"})
+
             # ✅ Arrow 직렬화를 위해 dict/list 타입 컬럼을 문자열로 변환
             if "checks" in df_sell_display.columns:
                 df_sell_display["checks"] = df_sell_display["checks"].apply(
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else str(x) if x is not None else ""
                 )
 
+            # ✅ B13 보강: SELL 신호(triggered=1) 안내
+            st.caption("🔴 = SELL 신호 발동 행 (triggered=1)")
             st.dataframe(df_sell_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
