@@ -394,7 +394,16 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1043")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1059")
+
+# ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
+if str(mode).upper() == "TEST":
+    st.warning(
+        "🧪 **TEST 모드** — 모든 매매는 시뮬레이션입니다. **실제 거래소 주문은 발생하지 않습니다.** "
+        "audit_trades/orders에 기록되는 BUY/SELL은 가상 거래 결과입니다."
+    )
+elif str(mode).upper() == "LIVE":
+    st.info("🔴 **LIVE 모드** — 실제 Upbit 거래소에 주문이 전송됩니다.")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])

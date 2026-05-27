@@ -343,49 +343,67 @@ class OrderReconciler:
                         if currency and currency != "KRW":
                             ticker = f"KRW-{currency}"
 
-                            # ✅ Issue #17: HTS 매수 감지 (수량 0→양수 변화)
-                            from services.db import get_position_qty, mark_position_as_hts_buy
+                            # ✅ Issue #17 + B3-잔여: HTS 매수 감지 (잔고 증가 일반화)
+                            #   - prev_qty == 0  → 신규 HTS 매수 (HTS_BUY)
+                            #   - prev_qty >  0  → 추가 HTS 매수 (HTS_BUY_ADD)
+                            #   - 봇 BUY 직후 자연스러운 잔고 증가는 audit_trades 최근 30초 BUY 기록으로 식별 → 스킵
+                            from services.db import (
+                                get_position_qty, mark_position_as_hts_buy,
+                                has_recent_bot_buy_for_ticker,
+                            )
                             prev_qty = get_position_qty(user_id, ticker)
                             curr_qty = float(bal.get("balance", 0.0))
+                            qty_delta = curr_qty - prev_qty
 
-                            if prev_qty == 0 and curr_qty > 0:
-                                # HTS 매수 감지
+                            # 잔고 증가 감지 (1e-8 임계 — float 노이즈 회피)
+                            if qty_delta > 1e-8:
                                 avg_buy_price = float(bal.get("avg_buy_price", 0.0))
-                                logger.warning(
-                                    f"🔔 [HTS-DETECT] HTS 매수 감지 | "
-                                    f"ticker={ticker} | qty: {prev_qty} → {curr_qty:.6f} | "
-                                    f"avg_price={avg_buy_price}"
-                                )
 
-                                # ✅ Issue #17: HTS 매수 플래그 설정
-                                mark_position_as_hts_buy(user_id, ticker)
+                                # 봇 BUY 직후 자연 증가인지 식별
+                                if has_recent_bot_buy_for_ticker(user_id, ticker, within_seconds=30):
+                                    logger.debug(
+                                        f"[HTS-DETECT] 잔고 증가 감지되었으나 최근 봇 BUY 기록 존재 → "
+                                        f"봇 BUY로 간주, HTS 마킹 스킵 | ticker={ticker} "
+                                        f"prev={prev_qty:.6f} curr={curr_qty:.6f}"
+                                    )
+                                else:
+                                    is_add = prev_qty > 0
+                                    reason_str = "HTS_BUY_ADD" if is_add else "HTS_BUY"
+                                    logger.warning(
+                                        f"🔔 [HTS-DETECT] {reason_str} 감지 | "
+                                        f"ticker={ticker} | qty: {prev_qty:.6f} → {curr_qty:.6f} "
+                                        f"(Δ={qty_delta:.6f}) | avg_price={avg_buy_price}"
+                                    )
 
-                                # ✅ Issue #17: audit_trades 감사 로그 기록
-                                insert_trade_audit(
-                                    user_id=user_id,
-                                    ticker=ticker,
-                                    interval_sec=60,  # 1분 봉 기준 (HTS 감지 주기)
-                                    bar=0,  # HTS 매수는 bar index 없음
-                                    kind="BUY",
-                                    reason="HTS_BUY",
-                                    price=avg_buy_price if avg_buy_price > 0 else None,
-                                    macd=None,
-                                    signal=None,
-                                    entry_price=avg_buy_price if avg_buy_price > 0 else None,
-                                    entry_bar=None,
-                                    bars_held=None,
-                                    tp=None,
-                                    sl=None,
-                                    highest=None,
-                                    ts_pct=None,
-                                    ts_armed=None,
-                                    timestamp=None,  # 현재 시각 자동 설정
-                                    bar_time=None    # HTS 매수는 특정 봉 시각 없음
-                                )
-                                logger.info(
-                                    f"✅ [HTS-DETECT] audit_trades 기록 완료 | "
-                                    f"ticker={ticker} | reason=HTS_BUY | price={avg_buy_price}"
-                                )
+                                    # HTS 매수 플래그 설정 (신규/추가 공통)
+                                    mark_position_as_hts_buy(user_id, ticker)
+
+                                    # audit_trades 감사 로그 기록
+                                    insert_trade_audit(
+                                        user_id=user_id,
+                                        ticker=ticker,
+                                        interval_sec=60,
+                                        bar=0,
+                                        kind="BUY",
+                                        reason=reason_str,
+                                        price=avg_buy_price if avg_buy_price > 0 else None,
+                                        macd=None,
+                                        signal=None,
+                                        entry_price=avg_buy_price if avg_buy_price > 0 else None,
+                                        entry_bar=None,
+                                        bars_held=None,
+                                        tp=None,
+                                        sl=None,
+                                        highest=None,
+                                        ts_pct=None,
+                                        ts_armed=None,
+                                        timestamp=None,
+                                        bar_time=None,
+                                    )
+                                    logger.info(
+                                        f"✅ [HTS-DETECT] audit_trades 기록 완료 | "
+                                        f"ticker={ticker} | reason={reason_str} | price={avg_buy_price}"
+                                    )
 
                             update_position_from_balances(user_id, ticker, balances)
 

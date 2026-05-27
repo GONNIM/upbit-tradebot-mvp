@@ -167,9 +167,23 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+_mode_upper = str(mode).upper() if mode else "-"
+_mode_badge_color = (
+    "#FF9800" if _mode_upper == "TEST" else      # 주황 (시뮬레이션 경고)
+    "#E53935" if _mode_upper == "LIVE" else      # 빨강 (실거래)
+    "#888"
+)
+_mode_label = (
+    "🧪 TEST (시뮬레이션)" if _mode_upper == "TEST" else
+    "🔴 LIVE (실거래)" if _mode_upper == "LIVE" else
+    _mode_upper
+)
 st.markdown(f"""
 <div class="ctx">
   <div class="card">
+    <span class="badge" style="background:{_mode_badge_color}33; border-color:{_mode_badge_color}88; color:{_mode_badge_color};">
+      <b>{_mode_label}</b>
+    </span>
     <span class="badge">👤 user: <b>{user_id or '-'}</b></span>
     <span class="badge">🎯 ticker: <b>{ticker or '-'}</b></span>
     <span class="badge">📊 전략: <b>{strategy_tag}</b></span>

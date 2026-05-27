@@ -707,6 +707,34 @@ def update_coin_position(user_id, ticker, virtual_coin, virtual_coin_locked=0.0,
     insert_position_history(user_id, ticker, virtual_coin)
 
 
+def has_recent_bot_buy_for_ticker(user_id, ticker, within_seconds=30):
+    """
+    B3-잔여: audit_trades에 최근 within_seconds 내 BUY 기록이 있는지 검사.
+    HTS 매수 감지 시 봇 BUY와 충돌 방지용.
+
+    Returns:
+        bool: True면 최근 봇 BUY 존재 → HTS_BUY 마킹 스킵
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT timestamp FROM audit_trades WHERE ticker=? AND type='BUY' ORDER BY id DESC LIMIT 1",
+                (ticker,),
+            )
+            row = cur.fetchone()
+            if not row or not row[0]:
+                return False
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            ts = datetime.fromisoformat(str(row[0]))
+            now = datetime.now(ZoneInfo("Asia/Seoul"))
+            return 0 <= (now - ts).total_seconds() <= within_seconds
+    except Exception as e:
+        logger.warning(f"[DB] has_recent_bot_buy_for_ticker failed: {e}")
+        return False
+
+
 def get_position_entry_price(user_id, ticker):
     """
     account_positions.entry_price (Upbit avg_buy_price 캐시) 조회.
