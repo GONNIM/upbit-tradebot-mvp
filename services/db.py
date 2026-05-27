@@ -1083,6 +1083,13 @@ def insert_settings_snapshot(
 
 # 조회 유틸(뷰/디버깅용)
 def fetch_buy_eval(user_id: str, ticker: str | None = None, only_failed=False, limit=500):
+    """
+    B13: audit_buy_eval 조회.
+    - 정렬 키를 timestamp → COALESCE(bar_time, timestamp)로 변경.
+      timestamp는 INSERT/UPDATE 시각이라 BACKFILL 재평가로 흔들릴 수 있음.
+      bar_time은 봉의 실제 시각으로 안정적 + UNIQUE(ticker, bar_time) 제약과 일관됨.
+    - 동순위 tie-breaker는 id DESC (최신 UPDATE 우선).
+    """
     with get_db(user_id) as conn:
         cur = conn.cursor()
         q = """
@@ -1097,7 +1104,8 @@ def fetch_buy_eval(user_id: str, ticker: str | None = None, only_failed=False, l
             params.append(ticker)
         if only_failed:
             q += " AND overall_ok = 0"
-        q += " ORDER BY timestamp DESC LIMIT ?"
+        # B13: bar_time 기준 정렬 (UPDATE 시각 흔들림 방지, bar 번호 누락 가시화)
+        q += " ORDER BY COALESCE(bar_time, timestamp) DESC, id DESC LIMIT ?"
         params.append(limit)
         cur.execute(q, params)
         return cur.fetchall()

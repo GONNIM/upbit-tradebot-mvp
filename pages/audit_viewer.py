@@ -457,7 +457,30 @@ if section == "buy":
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else str(x) if x is not None else ""
                 )
 
-            st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
+            # ✅ B13: BUY_SIGNAL (overall_ok=1) 행 시각적 강조 — bar 누락 검출 + 신뢰 회복
+            st.caption("🟢 = BUY 신호 발동 행 (overall_ok=1)")
+
+            def _highlight_buy_signal_row(row):
+                # 한글/영어 컬럼명 모두 지원
+                ok = None
+                for k in ("조건충족", "overall_ok"):
+                    if k in row.index:
+                        ok = row[k]
+                        break
+                try:
+                    is_ok = int(ok) == 1
+                except Exception:
+                    is_ok = False
+                if is_ok:
+                    return ["background-color: rgba(76, 175, 80, 0.25); font-weight: 600"] * len(row)
+                return [""] * len(row)
+
+            try:
+                styled = df_buy_display.style.apply(_highlight_buy_signal_row, axis=1)
+                st.dataframe(styled, use_container_width=True, hide_index=True)
+            except Exception as _e:
+                # 스타일 적용 실패 시 폴백 — 데이터 표시는 보장
+                st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
 
@@ -476,7 +499,8 @@ elif section == "sell":
     ps = []
     if ticker:
         q += " AND ticker = ?"; ps.append(ticker)
-    q += " ORDER BY timestamp DESC LIMIT ?"; ps.append(rows)
+    # B13: bar_time 기준 정렬 (UPDATE 시각 흔들림 방지)
+    q += " ORDER BY COALESCE(bar_time, timestamp) DESC, id DESC LIMIT ?"; ps.append(rows)
     df_sell = query(q, tuple(ps))
     if not df_sell.empty:
         def _j(x):

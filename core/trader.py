@@ -1,3 +1,4 @@
+import os
 import pyupbit
 import logging
 import time as _time
@@ -23,8 +24,19 @@ import math
 # ✅ B11: LIVE BUY 재시도 정책 — 지수 백오프 1s/2s/4s
 LIVE_BUY_MAX_RETRIES = 3
 LIVE_BUY_BACKOFF_SECONDS = [1.0, 2.0, 4.0]
-# ✅ B14: pyupbit HTTP 로거 INFO 레벨 (Upbit 응답 진단용)
-logging.getLogger("pyupbit.http").setLevel(logging.INFO)
+
+# ✅ B14: pyupbit HTTP 로거 — env 변수로 DEBUG 토글
+#   기본: INFO (응답 형식/타입 기록)
+#   디버깅 운영: PYUPBIT_HTTP_DEBUG=1 → DEBUG (요청/응답 본문 전체)
+#   24~48시간 한정 운영용. 디스크/로그 부담 고려.
+_pyupbit_http_logger = logging.getLogger("pyupbit.http")
+if os.environ.get("PYUPBIT_HTTP_DEBUG", "").strip() in ("1", "true", "True", "yes"):
+    _pyupbit_http_logger.setLevel(logging.DEBUG)
+    logging.getLogger("urllib3.connectionpool").setLevel(logging.DEBUG)
+    logging.info("[BOOT] pyupbit.http logger=DEBUG (PYUPBIT_HTTP_DEBUG=1) — 디버깅 운영 모드")
+else:
+    _pyupbit_http_logger.setLevel(logging.INFO)
+    logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
 
 
 logging.basicConfig(
