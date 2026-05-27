@@ -438,7 +438,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1403")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1415")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -449,24 +449,10 @@ if str(mode).upper() == "TEST":
 elif str(mode).upper() == "LIVE":
     st.info("🔴 **LIVE 모드** — 실제 Upbit 거래소에 주문이 전송됩니다.")
 
-# 🕒 현재 시각 + 자동갱신 토글 + 수동 리프레시 버튼
-time_col, auto_col, refresh_col = st.columns([6, 2, 1])
+# 🕒 현재 시각 및 수동 리프레시 버튼
+time_col, refresh_col = st.columns([8, 1])
 with time_col:
     st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-
-# ─ 자동갱신 토글 (기본 10s — 모니터링 목적에 맞춤) ─
-_dash_auto_options = {"10초": 10, "30초": 30, "60초": 60, "OFF (수동)": 0}
-with auto_col:
-    _dash_auto_label = st.selectbox(
-        "자동갱신",
-        list(_dash_auto_options.keys()),
-        index=0,
-        key="dashboard_auto_refresh_label",
-        label_visibility="collapsed",
-        help="최종 시그널 카드의 자체 갱신 주기. OFF 선택 시 수동 새로고침만 동작.",
-    )
-DASHBOARD_AUTO_REFRESH_SEC = _dash_auto_options.get(_dash_auto_label, 10)
-
 with refresh_col:
     if st.button("🔄 새로고침", key="manual_refresh_dashboard", use_container_width=True):
         st.rerun()
@@ -1197,8 +1183,9 @@ def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD")
             "ema_slow": signal,  # EMA 전략용
         }
 
+@st.fragment(run_every="10s")
 def _render_latest_signal_section():
-    """최종 시그널 정보 카드 — 자동갱신 주기는 호출부에서 fragment 데코레이터로 동적 결정."""
+    """최종 시그널 정보 카드 — 10초마다 자체 부분 갱신 (페이지 전체 rerun 없음)."""
     latest = get_latest_any_signal(
         user_id, getattr(params_obj, "upbit_ticker", None) or params_obj.ticker, strategy_tag
     )
@@ -1738,11 +1725,7 @@ def _render_latest_signal_section():
         st.info("📭 아직 표시할 최신 시그널/체결 정보가 없습니다.")
 
 
-# 토글 값에 따라 fragment 동적 적용 (OFF=한 번만, N>0=N초마다 자동 부분 갱신)
-if DASHBOARD_AUTO_REFRESH_SEC > 0:
-    st.fragment(run_every=f"{DASHBOARD_AUTO_REFRESH_SEC}s")(_render_latest_signal_section)()
-else:
-    _render_latest_signal_section()
+_render_latest_signal_section()
 st.divider()
 
 # ✅ 로그 기록
