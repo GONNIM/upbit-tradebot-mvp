@@ -249,13 +249,14 @@ def _get_trade_conditions_path(user_id: str, strategy_type: str):
     return None
 
 
-def _maybe_reload_params(*, user_id, params_ref, strategy, json_path, cond_path, mtime_state):
+def _maybe_reload_params(*, user_id, params_ref, strategy, cond_path, mtime_state):
     """
-    ✅ B7: 파라미터/조건 파일 mtime 감지 후 strategy 인스턴스에 무중단 반영.
+    ✅ B7: 조건 파일(buy_sell_conditions.json) mtime 감지 후 strategy 인스턴스에 무중단 반영.
 
     - 안전 영역만 갱신: take_profit, stop_loss, trailing_stop_pct, buy/sell_conditions, 필터 임계값
-    - 위험 영역(EMA 기간, base_ema 등 지표 구조 변경)은 갱신하지 않음 → 변경 감지만 알람
-    - 갱신 실패 시 ERROR 로그 + audit log (사용자에게 재시작 안내)
+    - params.json(지표 구조 = EMA 기간/base_ema 등)은 본 경로에서 추적하지 않음.
+      해당 항목 변경은 엔진 재시작 필요 정책이며, live_loop 내부 스코프에
+      json_path 변수가 정의되어 있지 않아 회귀 버그(NameError) 유발했음.
 
     Returns:
         갱신된 mtime_state dict
@@ -313,26 +314,6 @@ def _maybe_reload_params(*, user_id, params_ref, strategy, json_path, cond_path,
                 new_state["conditions"] = cur
     except Exception as e:
         logger.warning(f"[PARAMS-RELOAD] conditions reload failed: {e}")
-
-    # 2) params 파일 mtime 체크 — 지표 구조 변경 위험 → 알람만
-    try:
-        if json_path and os.path.exists(json_path):
-            cur = os.path.getmtime(json_path)
-            if cur > new_state.get("params", 0.0):
-                logger.warning(
-                    f"⚠️ [PARAMS-RELOAD] params 파일 변경 감지 ({json_path}). "
-                    f"안전상 EMA 기간/base_ema 등 지표 구조는 무중단 reload 대상 외. "
-                    f"즉시 반영 필요 시 엔진 재시작."
-                )
-                try:
-                    from services.db import insert_log
-                    insert_log(user_id, "WARNING",
-                               f"[PARAMS-RELOAD] params 파일 변경 감지. 지표 구조 변경 시 엔진 재시작 필요")
-                except Exception:
-                    pass
-                new_state["params"] = cur
-    except Exception as e:
-        logger.warning(f"[PARAMS-RELOAD] params mtime check failed: {e}")
 
     return new_state
 
@@ -760,13 +741,10 @@ def run_live_loop(
             # ============================================================
             logger.info("🚀 [CLOCK-LOOP] 시작 - 1초마다 폴링, 봉 확정 시 REST Reconcile")
 
-            # ✅ B7: 파라미터 파일 mtime 추적 (set_config 변경 무중단 반영)
-            _params_mtime = {"params": 0.0, "conditions": 0.0}
-            try:
-                if json_path and os.path.exists(json_path):
-                    _params_mtime["params"] = os.path.getmtime(json_path)
-            except Exception:
-                pass
+            # ✅ B7: 조건 파일 mtime 추적 (set_config 변경 무중단 반영)
+            # NOTE: params.json은 live_loop 스코프에 경로 변수가 없어 본 경로에서 추적 안 함.
+            #       지표 구조 변경은 엔진 재시작 정책.
+            _params_mtime = {"conditions": 0.0}
             try:
                 _cond_path = _get_trade_conditions_path(user_id, params.strategy_type)
                 if _cond_path and os.path.exists(_cond_path):
@@ -780,13 +758,12 @@ def run_live_loop(
                 if clock.should_close(now):
                     closed_ts = clock.get_closed_ts(now)
 
-                    # ✅ B7: 봉 확정 시점에 파일 mtime 확인 → 변경 시 무중단 reload 시도
+                    # ✅ B7: 봉 확정 시점에 조건 파일 mtime 확인 → 변경 시 무중단 reload 시도
                     try:
                         _params_mtime = _maybe_reload_params(
                             user_id=user_id,
                             params_ref=params,
                             strategy=strategy,
-                            json_path=json_path,
                             cond_path=_cond_path,
                             mtime_state=_params_mtime,
                         )

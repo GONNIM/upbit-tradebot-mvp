@@ -1,5 +1,6 @@
 import pyupbit
 import logging
+import time as _time
 from typing import Optional, Dict, Any, Tuple
 
 from config import ACCESS, SECRET, MIN_FEE_RATIO
@@ -18,6 +19,12 @@ from services.db import (
 )
 
 import math
+
+# ✅ B11: LIVE BUY 재시도 정책 — 지수 백오프 1s/2s/4s
+LIVE_BUY_MAX_RETRIES = 3
+LIVE_BUY_BACKOFF_SECONDS = [1.0, 2.0, 4.0]
+# ✅ B14: pyupbit HTTP 로거 INFO 레벨 (Upbit 응답 진단용)
+logging.getLogger("pyupbit.http").setLevel(logging.INFO)
 
 
 logging.basicConfig(
@@ -240,38 +247,148 @@ class UpbitTrader:
                 "used_krw": krw_to_use,
             }
 
+        # 🟢 LIVE: KRW 금액 기준 시장가 매수, 수량/평단은 Reconciler가 나중에 확정.
+        # ✅ B11/B14/B15: 재시도 + 지수 백오프 + 매 시도 직전 활성 KRW 재확인 + 응답 상세 로깅.
+        res = None
+        last_err: Optional[str] = None
+        non_retriable = False
+
+        for attempt in range(1, LIVE_BUY_MAX_RETRIES + 1):
+            # ✅ B15: 매 시도 직전 활성 KRW 재확인 (사용자 동시 거래 대응)
+            try:
+                current_krw = self._krw_balance()
+            except Exception as e:
+                current_krw = krw_to_use  # 조회 실패 시 기존 값 유지
+                logger.warning(f"[BUY-LIVE] attempt #{attempt} 활성 KRW 재조회 실패: {e}")
+
+            if current_krw < krw_to_use:
+                adjusted = math.floor(current_krw * self.risk_pct)
+                if adjusted < 5000:
+                    last_err = (
+                        f"활성 KRW 부족: 현재={current_krw:.0f} 요청={krw_to_use:.0f} "
+                        f"→ 조정={adjusted} (최소 5,000원 미만)"
+                    )
+                    logger.warning(
+                        f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} 잔고 부족 중단 → {last_err}"
+                    )
+                    non_retriable = True
+                    break
+                logger.warning(
+                    f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} 잔고 변동 감지 "
+                    f"— krw_to_use {krw_to_use:.0f} → {adjusted:.0f}"
+                )
+                krw_to_use = adjusted
+
+            try:
+                res = self.upbit.buy_market_order(ticker, krw_to_use)
+                # ✅ B14: type/repr 포함 상세 로깅
+                logger.info(
+                    f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} "
+                    f"raw response type={type(res).__name__} repr={res!r}"
+                )
+
+                # 성공 케이스
+                if isinstance(res, dict) and "uuid" in res and "error" not in res:
+                    last_err = None
+                    break
+
+                # error 분기 — 비재시도 케이스 식별
+                if isinstance(res, dict) and "error" in res:
+                    err = res["error"]
+                    err_msg = err.get("message") if isinstance(err, dict) else str(err)
+                    last_err = f"Upbit error: {err_msg}"
+                    err_low = str(err_msg or "").lower()
+                    if (
+                        "insufficient" in err_low
+                        or "잔액" in str(err_msg)
+                        or "잔고" in str(err_msg)
+                        or "under_min_total" in err_low
+                        or "invalid" in err_low
+                    ):
+                        logger.error(f"[BUY-LIVE] non-retriable error: {err_msg}")
+                        non_retriable = True
+                        break
+                else:
+                    last_err = f"invalid response (type={type(res).__name__} repr={res!r})"
+
+                logger.warning(
+                    f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} failed → {last_err}"
+                )
+            except Exception as e:
+                last_err = f"exception: {e}"
+                logger.warning(
+                    f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} exception: {e}"
+                )
+
+            # 마지막 시도가 아니면 백오프 후 재시도
+            if attempt < LIVE_BUY_MAX_RETRIES:
+                _time.sleep(LIVE_BUY_BACKOFF_SECONDS[attempt - 1])
+
+        # ✅ B12: 최종 실패 처리 — audit/orders/log 모두 기록
+        success = (
+            isinstance(res, dict)
+            and "uuid" in res
+            and "error" not in res
+            and res.get("uuid")
+        )
+        if not success:
+            err_summary = last_err or f"unknown (type={type(res).__name__} repr={res!r})"
+            attempts_used = 1 if non_retriable else LIVE_BUY_MAX_RETRIES
+            logger.error(
+                f"[BUY-LIVE] FINAL FAILURE after attempts={attempts_used} | last_err={err_summary}"
+            )
+            insert_log(
+                self.user_id,
+                "ERROR",
+                (
+                    f"❌ Upbit 시장가 매수 실패 (attempts={attempts_used}, "
+                    f"non_retriable={non_retriable}): {err_summary}"
+                ),
+            )
+            # audit_trades에 실패도 명시 기록 (사용자 추적용)
+            try:
+                bal_after_krw = self._krw_balance()
+            except Exception:
+                bal_after_krw = None
+            try:
+                bal_after_coin = self._coin_balance(ticker)
+            except Exception:
+                bal_after_coin = None
+            try:
+                self._audit_trade(
+                    side="BUY",
+                    ticker=ticker,
+                    price=price,
+                    qty=None,
+                    status_note=f"market buy(FAILED: {err_summary})",
+                    ts=ts,
+                    meta={**(meta or {}), "reason": "BUY_FAILED_API",
+                          "last_err": err_summary, "attempts": attempts_used,
+                          "non_retriable": non_retriable},
+                    balances_before=(bal_after_krw, bal_after_coin),
+                    balances_after=(bal_after_krw, bal_after_coin),
+                    fee_ratio=MIN_FEE_RATIO,
+                    risk_pct=self.risk_pct,
+                )
+            except Exception as e:
+                logger.warning(f"[BUY-LIVE] _audit_trade(FAILED) 실패: {e}")
+            # orders 테이블에 FAILED 상태로 기록
+            try:
+                _entry_bar = (meta or {}).get("bar") if meta else None
+                insert_order(
+                    self.user_id, ticker, "BUY",
+                    price, 0.0, "FAILED",
+                    state="FAILED",
+                    requested_at=now_kst(),
+                    entry_bar=_entry_bar,
+                )
+            except Exception as e:
+                logger.warning(f"[BUY-LIVE] insert_order(FAILED) 실패: {e}")
+            return {}
+
+        # ✅ 성공 — 기존 흐름 진입
         try:
-            # 🟢 LIVE: KRW 금액 기준 시장가 매수, 수량/평단은 Reconciler가 나중에 확정
-            res = self.upbit.buy_market_order(ticker, krw_to_use)
-            logger.info(f"[BUY-LIVE] raw response: {res}")
-
-            if not res or not isinstance(res, dict):
-                msg = f"[BUY-LIVE] invalid response from Upbit (res={res})"
-                logger.error(msg)
-                insert_log(self.user_id, "ERROR", f"❌ 업비트 시장가 매수 응답 비정상: {res}")
-                return {}
-
-            if "error" in res:
-                err = res["error"]
-                err_msg = err.get("message") if isinstance(err, dict) else str(err)
-                logger.error(f"[BUY-LIVE] Upbit error response: {err}")
-                insert_log(
-                    self.user_id,
-                    "ERROR",
-                    f"❌ 업비트 시장가 매수 실패: {err_msg}",
-                )
-                return {}
-        
-            uuid = (res or {}).get("uuid")
-            if not uuid:
-                msg = f"[BUY-LIVE] no uuid in response: {res}"
-                logger.error(msg)
-                insert_log(
-                    self.user_id,
-                    "ERROR",
-                    "❌ 업비트 시장가 매수 응답에 uuid 없음 → 주문 추적 불가",
-                )
-                return {}
+            uuid = res.get("uuid")
             
             # ✅ meta에서 entry_bar 추출
             entry_bar = (meta or {}).get("bar") if meta else None
