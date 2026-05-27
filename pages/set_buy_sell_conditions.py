@@ -453,7 +453,6 @@ with st.expander("🎯 자주 변경하는 설정", expanded=True):
             help="진입가 대비 이 비율 이상 상승 시 자동 매도"
         )
         st.session_state["take_profit_pct"] = tp_pct_quick
-        st.session_state["take_profit"] = True  # 자동 활성화
 
     with col2:
         sl_pct_quick = st.number_input(
@@ -466,7 +465,6 @@ with st.expander("🎯 자주 변경하는 설정", expanded=True):
             help="진입가 대비 이 비율 이상 하락 시 자동 매도"
         )
         st.session_state["stop_loss_pct"] = sl_pct_quick
-        st.session_state["stop_loss"] = True  # 자동 활성화
 
     # 현재 설정 안내
     st.info(
