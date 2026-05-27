@@ -388,6 +388,20 @@ st.markdown(
         font-weight: 600 !important;
     }
 
+    /* 설정 취소 버튼(secondary): Gray 계열 */
+    div.stButton > button[kind="secondary"],
+    div.stButton > button[data-testid="stBaseButton-secondary"] {
+        background-color: #6c757d !important;
+        color: #ffffff !important;
+        border-color: #6c757d !important;
+    }
+    div.stButton > button[kind="secondary"]:hover,
+    div.stButton > button[data-testid="stBaseButton-secondary"]:hover {
+        background-color: #5a6268 !important;
+        color: #ffffff !important;
+        border-color: #5a6268 !important;
+    }
+
     /* Number input 라벨 */
     [data-testid="stNumberInput"] label {
         font-size: 1rem !important;
@@ -673,10 +687,10 @@ st.divider()
 # --- 저장 / 취소 버튼 ---
 cancel_col, save_col = st.columns(2)
 with cancel_col:
-    if st.button("↩️ 설정 취소", key="btn_cancel_settings", use_container_width=True):
+    if st.button("↩️ 설정 취소", key="btn_cancel_settings", use_container_width=True, type="secondary"):
         go_dashboard()
 with save_col:
-    if st.button("💾 설정 저장", key="btn_save_settings", use_container_width=True):
+    if st.button("💾 설정 저장", key="btn_save_settings", use_container_width=True, type="primary"):
         save_conditions()
         go_dashboard()
 
