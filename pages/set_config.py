@@ -128,6 +128,26 @@ if "upbit_verified" in st.session_state:
 if "live_capital_set" in st.session_state:
     capital_ok = capital_ok or bool(st.session_state.get("live_capital_set"))
 
+# ✅ B-AutoVerify: LIVE 모드인데 URL/session_state 모두 미검증이면 자동 재시도
+#   (새 세션/URL 직접 진입 시 app.py 자동 검증 우회되는 케이스 해결)
+if mode == "LIVE" and (not upbit_ok or not capital_ok):
+    try:
+        from services.auto_verify import run_live_auto_verify, apply_verify_to_session
+        with st.spinner("🔄 LIVE 자동 계좌검증 (set_config 진입)..."):
+            _verify_result = run_live_auto_verify(user_id, user_id)
+        apply_verify_to_session(st, _verify_result)
+        if _verify_result.get("ok"):
+            upbit_ok = True
+            capital_ok = True
+            st.info(
+                f"🔄 LIVE 자동 계좌검증 통과 (KRW {float(_verify_result.get('krw_balance') or 0):,.0f}원)",
+                icon="✅",
+            )
+    except Exception as _e:
+        # 자동 검증 자체가 실패해도 페이지 진입은 차단하지 않음 (경고만 표시)
+        import logging
+        logging.getLogger(__name__).warning(f"[set_config AUTO-VERIFY] 실패: {_e}")
+
 # FIX: URL 파라미터를 session_state에 저장 (Issue #14 교훈 준수)
 st.session_state["upbit_verified"] = upbit_ok
 st.session_state["live_capital_set"] = capital_ok

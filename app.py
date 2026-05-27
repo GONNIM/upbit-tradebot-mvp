@@ -264,64 +264,29 @@ elif authentication_status:
         or (isinstance(virtual_krw_check, (int, float)) and virtual_krw_check <= 0)
     )
     if _mode == "LIVE" and need_auto_verify:
-        ak, sk = ACCESS, SECRET
-        if ak and sk:
-            with st.spinner("🔄 LIVE 모드 자동 계좌검증 중..."):
-                ok, data = validate_upbit_keys(ak, sk)
+        # ✅ 공통 헬퍼로 통합 (services/auto_verify.py)
+        from services.auto_verify import run_live_auto_verify, apply_verify_to_session
 
-            if ok:
-                # 1. 계좌검증 상태 저장
-                st.session_state.upbit_verified = True
-                st.session_state.upbit_accounts = data or []
+        with st.spinner("🔄 LIVE 모드 자동 계좌검증 중..."):
+            _verify_result = run_live_auto_verify(username, name)
 
-                # 2. KRW 잔고 추출
-                krw_balance = _extract_krw_balance(data)
-                st.session_state.live_krw_balance = krw_balance
+        apply_verify_to_session(st, _verify_result)
 
-                # 3. ✅ 운용자산 자동 설정 (전체 잔고 사용)
-                st.session_state.virtual_krw = krw_balance
-                st.session_state.live_capital_set = True
-                st.session_state.virtual_over = True
-
-                # 4. DB 저장
-                save_user(username, name, krw_balance)
-
-                # 5. DB 잔고 동기화
-                try:
-                    from services.db import update_account_from_balances, update_position_from_balances
-                    update_account_from_balances(username, data)
-                    # 모든 코인 포지션도 동기화
-                    for bal in (data or []):
-                        currency = bal.get("currency", "").upper()
-                        if currency and currency != "KRW":
-                            ticker = f"KRW-{currency}"
-                            update_position_from_balances(username, ticker, data)
-                    logger.info(f"✅ [AUTO-VERIFY] DB 잔고 동기화 완료: user={username}")
-                except Exception as e:
-                    logger.error(f"⚠️ [AUTO-VERIFY] DB 잔고 동기화 실패: {e}")
-
-                # 6. 자동검증 플래그 설정
-                st.session_state["_auto_checked_in_live"] = True
-
-                # 7. 성공 메시지
-                st.success(
-                    f"✅ 자동 계좌검증 완료\n\n"
-                    f"- KRW 잔고: {krw_balance:,.0f} KRW\n"
-                    f"- 운용자산: {krw_balance:,.0f} KRW (자동 설정)\n"
-                    f"- DB 동기화: 완료",
-                    icon="✅"
-                )
-            else:
-                # 검증 실패
-                st.session_state.upbit_verified = False
-                st.session_state.upbit_accounts = []
-                st.session_state.live_krw_balance = 0.0
-                st.session_state.live_capital_set = False
-                st.error(
-                    f"❌ 자동 계좌검증 실패: {data}\n\n"
-                    "API 키를 확인하거나 수동으로 '계정 검증 실행' 버튼을 클릭하세요.",
-                    icon="❌"
-                )
+        if _verify_result.get("ok"):
+            krw_balance = float(_verify_result.get("krw_balance") or 0.0)
+            st.success(
+                f"✅ 자동 계좌검증 완료\n\n"
+                f"- KRW 잔고: {krw_balance:,.0f} KRW\n"
+                f"- 운용자산: {krw_balance:,.0f} KRW (자동 설정)\n"
+                f"- DB 동기화: 완료",
+                icon="✅",
+            )
+        else:
+            st.error(
+                f"❌ 자동 계좌검증 실패: {_verify_result.get('error')}\n\n"
+                "API 키를 확인하거나 수동으로 '계정 검증 실행' 버튼을 클릭하세요.",
+                icon="❌",
+            )
 
     if _mode == "LIVE":
         with st.container(border=True):
