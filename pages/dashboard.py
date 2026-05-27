@@ -438,7 +438,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1131")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1403")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -449,10 +449,24 @@ if str(mode).upper() == "TEST":
 elif str(mode).upper() == "LIVE":
     st.info("🔴 **LIVE 모드** — 실제 Upbit 거래소에 주문이 전송됩니다.")
 
-# 🕒 현재 시각 및 수동 리프레시 버튼
-time_col, refresh_col = st.columns([8, 1])
+# 🕒 현재 시각 + 자동갱신 토글 + 수동 리프레시 버튼
+time_col, auto_col, refresh_col = st.columns([6, 2, 1])
 with time_col:
     st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+# ─ 자동갱신 토글 (기본 10s — 모니터링 목적에 맞춤) ─
+_dash_auto_options = {"10초": 10, "30초": 30, "60초": 60, "OFF (수동)": 0}
+with auto_col:
+    _dash_auto_label = st.selectbox(
+        "자동갱신",
+        list(_dash_auto_options.keys()),
+        index=0,
+        key="dashboard_auto_refresh_label",
+        label_visibility="collapsed",
+        help="최종 시그널 카드의 자체 갱신 주기. OFF 선택 시 수동 새로고침만 동작.",
+    )
+DASHBOARD_AUTO_REFRESH_SEC = _dash_auto_options.get(_dash_auto_label, 10)
+
 with refresh_col:
     if st.button("🔄 새로고침", key="manual_refresh_dashboard", use_container_width=True):
         st.rerun()
@@ -973,6 +987,113 @@ def _fmt_dt(ts: pd.Timestamp | None, tz: str = LOCAL_TZ) -> str:
             return ""
         return ts2.tz_convert(tz).strftime("%Y-%m-%d %H:%M:%S")
 
+def _render_latest_signal_row3(
+    timestamp_raw,
+    cross_status: str,
+    checks: dict,
+    fast_value,
+    slow_value,
+    mode: str = "buy",
+) -> None:
+    """
+    최종 시그널 카드의 행3 (신선도 / 필터 / Cross 거리) + 필터 경고 박스.
+
+    Args:
+        timestamp_raw: signal timestamp (str ISO 또는 datetime)
+        cross_status: "Golden" / "Dead" / "Neutral"
+        checks: audit_buy_eval / audit_sell_eval의 checks JSON (dict)
+        fast_value: 빠른 지표 값 (EMA Fast 또는 MACD)
+        slow_value: 느린 지표 값 (EMA Slow 또는 Signal)
+        mode: "buy" (filter_blocked 의미) | "sell" (filter_evaluated/triggered 의미)
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # 1) 데이터 신선도
+    freshness_str = "-"
+    try:
+        if timestamp_raw:
+            dt_signal = (
+                datetime.fromisoformat(timestamp_raw) if isinstance(timestamp_raw, str)
+                else timestamp_raw
+            )
+            if dt_signal.tzinfo is None:
+                dt_signal = dt_signal.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+            now_kst = datetime.now(ZoneInfo("Asia/Seoul"))
+            elapsed = (now_kst - dt_signal).total_seconds()
+            if elapsed < 0:
+                freshness_str = "🟢 방금"
+            elif elapsed < 60:
+                freshness_str = f"🟢 {int(elapsed)}초 전"
+            elif elapsed < 3600:
+                freshness_str = f"🟡 {int(elapsed/60)}분 전"
+            else:
+                freshness_str = f"🔴 {int(elapsed/3600)}시간 전"
+    except Exception:
+        freshness_str = "-"
+
+    # 2) 필터 상태 (BUY=filter_blocked, SELL=filter_evaluated/triggered)
+    if mode == "buy":
+        fb = checks.get('filter_blocked')
+        if fb is True:
+            filter_status_str = "🚫 차단"
+        elif fb is False:
+            filter_status_str = "✅ 통과"
+        else:
+            filter_status_str = "-"
+    else:  # sell
+        fe = checks.get('filter_evaluated')
+        ft = checks.get('filter_triggered')
+        if ft is True:
+            filter_status_str = "🔔 트리거"
+        elif fe is True:
+            filter_status_str = "✅ 평가됨"
+        else:
+            filter_status_str = "-"
+
+    # 3) Cross 거리
+    cross_distance_str = "-"
+    try:
+        fast_f = float(fast_value or 0)
+        slow_f = float(slow_value or 0)
+        gap = slow_f - fast_f
+        if cross_status == "Dead":
+            cross_distance_str = f"+{gap:.2f} → Golden"
+        elif cross_status == "Golden":
+            cross_distance_str = f"+{-gap:.2f} → Dead"
+        else:
+            cross_distance_str = "0.00"
+    except Exception:
+        cross_distance_str = "-"
+
+    cols3 = st.columns(5)
+    cols3[0].markdown(f"**신선도**<br>{freshness_str}", unsafe_allow_html=True)
+    cols3[1].markdown(f"**필터**<br>{filter_status_str}", unsafe_allow_html=True)
+    cols3[2].markdown(f"**Cross 거리**<br>{cross_distance_str}", unsafe_allow_html=True)
+    cols3[3].markdown("**　**<br>　", unsafe_allow_html=True)
+    cols3[4].markdown("**　**<br>　", unsafe_allow_html=True)
+
+    # 필터 차단/트리거 시 상세 사유 안내
+    filter_reason_val = checks.get('filter_reason') or ''
+    filter_details_val = checks.get('filter_details') or ''
+    filter_metadata_val = checks.get('filter_metadata') or {}
+    detail_parts = []
+    if filter_reason_val:
+        detail_parts.append(str(filter_reason_val))
+    if filter_details_val:
+        detail_parts.append(str(filter_details_val))
+    if filter_metadata_val and isinstance(filter_metadata_val, dict):
+        meta_str = ", ".join(f"{k}={v}" for k, v in filter_metadata_val.items())
+        if meta_str:
+            detail_parts.append(meta_str)
+    detail_msg = " — ".join(detail_parts) if detail_parts else "사유 미상"
+
+    if mode == "buy" and checks.get('filter_blocked') is True:
+        st.warning(f"🚫 **매수 차단**: {detail_msg}")
+    elif mode == "sell" and checks.get('filter_triggered') is True:
+        st.warning(f"🔔 **매도 필터 트리거**: {detail_msg}")
+
+
 def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD") -> dict | None:
     """
     BUY 평가(audit_buy_eval), SELL 평가(audit_sell_eval), 체결(audit_trades) 중
@@ -1031,6 +1152,7 @@ def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD")
             "delta": delta,
             "overall_ok": latest_row["overall_ok"],
             "failed_keys": latest_row["failed_keys"],
+            "checks": latest_row.get("checks"),
             "notes": latest_row["notes"],
         }
     elif source == "SELL":
@@ -1075,513 +1197,552 @@ def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD")
             "ema_slow": signal,  # EMA 전략용
         }
 
-latest = get_latest_any_signal(
-    user_id, getattr(params_obj, "upbit_ticker", None) or params_obj.ticker, strategy_tag
-)
+def _render_latest_signal_section():
+    """최종 시그널 정보 카드 — 자동갱신 주기는 호출부에서 fragment 데코레이터로 동적 결정."""
+    latest = get_latest_any_signal(
+        user_id, getattr(params_obj, "upbit_ticker", None) or params_obj.ticker, strategy_tag
+    )
 
-st.subheader("📌 최종 시그널 정보 (가장 최신)")
+    st.subheader("📌 최종 시그널 정보 (가장 최신)")
 
-# ✅ Base EMA GAP 모드 확인 (audit_viewer와 동일)
-is_gap_mode = False
-if params_strategy == "EMA":
-    is_gap_mode = getattr(params_obj, "base_ema_gap_enabled", False)
+    # ✅ Base EMA GAP 모드 확인 (audit_viewer와 동일)
+    is_gap_mode = False
+    if params_strategy == "EMA":
+        is_gap_mode = getattr(params_obj, "base_ema_gap_enabled", False)
 
-if latest:
-    # ✅ 시간 포맷팅
-    timestamp_raw = latest.get('timestamp')
-    if timestamp_raw:
-        try:
-            from datetime import datetime
-            if isinstance(timestamp_raw, str):
-                dt = datetime.fromisoformat(timestamp_raw)
-                timestamp_str = dt.strftime("%Y-%m-%d %H:%M:%S")
-            else:
-                timestamp_str = str(timestamp_raw)
-        except Exception:
-            timestamp_str = str(timestamp_raw)
-    else:
-        timestamp_str = '-'
-
-    # 공통 필드
-    ticker = latest.get('ticker', '-')
-    bar = latest.get('bar', '-')
-    price = latest.get('price', '-')
-    if price != '-':
-        try:
-            price = f"{float(price):.2f}"
-        except (ValueError, TypeError):
-            pass
-
-    # 전략별 지표명 (BASE_EMA_GAP는 EMA 기반)
-    indicator_fast = "EMA Fast" if params_strategy == "EMA" else "MACD"
-    indicator_slow = "EMA Slow" if params_strategy == "EMA" else "Signal"
-
-    macd_val = latest.get('macd', '-')
-    signal_val = latest.get('signal', '-')
-    delta_val = latest.get('delta', '-')
-
-    # 값 포맷팅
-    if macd_val != '-':
-        try:
-            macd_val = f"{float(macd_val):.2f}"
-        except (ValueError, TypeError):
-            pass
-    if signal_val != '-':
-        try:
-            signal_val = f"{float(signal_val):.2f}"
-        except (ValueError, TypeError):
-            pass
-    if delta_val != '-':
-        try:
-            delta_val = f"{float(delta_val):.2f}"
-        except (ValueError, TypeError):
-            pass
-
-    source = latest["source"]
-
-    # SELL 평가 정보
-    # ✅ checks JSON에서 cross_status 추출
-    checks_raw = latest.get('checks', '{}')
-    try:
-        import json
-        checks = json.loads(checks_raw) if isinstance(checks_raw, str) else checks_raw
-        cross_status = checks.get('cross_status', 'Neutral')
-    except Exception:
-        cross_status = 'Neutral'
-
-    # ✅ 상태 표시: triggered > cross_status 순으로 우선순위
-    if latest.get('triggered'):
-        triggered = "🔴 TRIGGERED"
-    elif cross_status == "Dead":
-        triggered = "🔴 Dead (대기)"
-    elif cross_status == "Golden":
-        triggered = "🟢 Golden"
-    else:
-        triggered = "⚪ Neutral"
-
-    if source == "BUY":
-        # BUY 평가 정보
-        # ✅ Base EMA GAP 전략 특별 처리
-        is_gap_strategy = checks.get('strategy_mode') == 'BASE_EMA_GAP'
-
-        if is_gap_strategy:
-            # Base EMA GAP 전략 전용 표시
-            gap_pct = checks.get('gap_pct', 0)
-            gap_threshold = checks.get('gap_threshold', 0)
-            gap_to_target = checks.get('gap_to_target', 0)
-            price_needed = checks.get('price_needed', 0)
-            condition_met = checks.get('condition_met', False)
-            base_ema = checks.get('base_ema', 0)
-
-            # 상태 아이콘
-            if cross_status == "🔥 GAP_EXCEEDED":
-                status_icon = "🔥 급락"
-            elif cross_status == "✅ GAP_MET":
-                status_icon = "✅ 조건 충족"
-            else:
-                status_icon = "📉 GAP 감시"
-
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**가격**<br>₩{float(price):,.0f}", unsafe_allow_html=True)
-            cols1[4].markdown(f"**상태**<br>{status_icon}", unsafe_allow_html=True)
-
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**현재 GAP**<br>{gap_pct:.2%}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**목표 GAP**<br>{gap_threshold:.2%}", unsafe_allow_html=True)
-
-            if condition_met:
-                gap_diff_label = f"초과 {abs(gap_to_target):.2%}p"
-            else:
-                gap_diff_label = f"부족 {abs(gap_to_target):.2%}p"
-            cols2[2].markdown(f"**차이**<br>{gap_diff_label}", unsafe_allow_html=True)
-
-            cols2[3].markdown(f"**매수가**<br>₩{price_needed:,.0f}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**Base EMA**<br>₩{base_ema:,.0f}", unsafe_allow_html=True)
-
-            st.caption(f"Source: **BUY** (Base EMA GAP 전략)")
-
-            # 추가 정보 박스
-            if not condition_met:
-                st.info(f"💡 매수 조건: 가격이 ₩{price_needed:,.0f} 이하로 하락하면 매수 ({abs(gap_to_target):.2%}p 더 하락 필요)")
-            else:
-                if cross_status == "🔥 GAP_EXCEEDED":
-                    st.success(f"🔥 급락 감지! 목표 대비 {abs(gap_to_target):.2%}p 초과 하락")
+    if latest:
+        # ✅ 시간 포맷팅
+        timestamp_raw = latest.get('timestamp')
+        if timestamp_raw:
+            try:
+                from datetime import datetime
+                if isinstance(timestamp_raw, str):
+                    dt = datetime.fromisoformat(timestamp_raw)
+                    timestamp_str = dt.strftime("%Y-%m-%d %H:%M:%S")
                 else:
-                    st.success(f"✅ 매수 조건 충족! 목표 달성 ({abs(gap_to_target):.2%}p 초과)")
+                    timestamp_str = str(timestamp_raw)
+            except Exception:
+                timestamp_str = str(timestamp_raw)
         else:
-            # 일반 EMA/MACD 전략 표시 (기존 로직)
-            overall_ok = "✅ PASS" if latest.get('overall_ok') else "❌ FAIL"
-            failed_keys = latest.get('failed_keys', '')
-            if failed_keys and failed_keys != '-':
-                try:
-                    import json
-                    failed_list = json.loads(failed_keys) if isinstance(failed_keys, str) else failed_keys
-                    failed_str = ", ".join(failed_list) if failed_list else "-"
-                except Exception:
-                    failed_str = str(failed_keys)
-            else:
-                failed_str = "-"
+            timestamp_str = '-'
 
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
-            cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
+        # 공통 필드
+        ticker = latest.get('ticker', '-')
+        bar = latest.get('bar', '-')
+        price = latest.get('price', '-')
+        if price != '-':
+            try:
+                price = f"{float(price):.2f}"
+            except (ValueError, TypeError):
+                pass
 
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**{indicator_fast}**<br>{macd_val}", unsafe_allow_html=True)
-            cols2[2].markdown(f"**{indicator_slow}**<br>{signal_val}", unsafe_allow_html=True)
-            cols2[3].markdown(f"**실패 조건**<br>{failed_str}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**평가**<br>{overall_ok}", unsafe_allow_html=True)
+        # 전략별 지표명 (BASE_EMA_GAP는 EMA 기반)
+        indicator_fast = "EMA Fast" if params_strategy == "EMA" else "MACD"
+        indicator_slow = "EMA Slow" if params_strategy == "EMA" else "Signal"
 
-            st.caption(f"Source: **BUY** (매수 평가 감사로그)")
+        macd_val = latest.get('macd', '-')
+        signal_val = latest.get('signal', '-')
+        delta_val = latest.get('delta', '-')
 
-    elif source == "SELL":
-        trigger_key = latest.get('trigger_key', '-')
-        tp_price = latest.get('tp_price', '-')
-        sl_price = latest.get('sl_price', '-')
-        bars_held = latest.get('bars_held', '-')
+        # 값 포맷팅
+        if macd_val != '-':
+            try:
+                macd_val = f"{float(macd_val):.2f}"
+            except (ValueError, TypeError):
+                pass
+        if signal_val != '-':
+            try:
+                signal_val = f"{float(signal_val):.2f}"
+            except (ValueError, TypeError):
+                pass
+        if delta_val != '-':
+            try:
+                delta_val = f"{float(delta_val):.2f}"
+            except (ValueError, TypeError):
+                pass
 
-        # ✅ checks JSON 파싱
+        source = latest["source"]
+
+        # SELL 평가 정보
+        # ✅ checks JSON에서 cross_status 추출
         checks_raw = latest.get('checks', '{}')
-        if isinstance(checks_raw, str):
-            try:
-                checks = json.loads(checks_raw)
-            except (json.JSONDecodeError, TypeError):
-                checks = {}
+        try:
+            import json
+            checks = json.loads(checks_raw) if isinstance(checks_raw, str) else checks_raw
+            cross_status = checks.get('cross_status', 'Neutral')
+        except Exception:
+            cross_status = 'Neutral'
+
+        # ✅ 상태 표시: triggered > cross_status 순으로 우선순위
+        if latest.get('triggered'):
+            triggered = "🔴 TRIGGERED"
+        elif cross_status == "Dead":
+            triggered = "🔴 Dead (대기)"
+        elif cross_status == "Golden":
+            triggered = "🟢 Golden"
         else:
-            checks = checks_raw if checks_raw else {}
+            triggered = "⚪ Neutral"
 
-        if tp_price != '-':
-            try:
-                tp_price = f"{float(tp_price):.2f}"
-            except (ValueError, TypeError):
-                pass
-        if sl_price != '-':
-            try:
-                sl_price = f"{float(sl_price):.2f}"
-            except (ValueError, TypeError):
-                pass
+        if source == "BUY":
+            # BUY 평가 정보
+            # ✅ Base EMA GAP 전략 특별 처리
+            is_gap_strategy = checks.get('strategy_mode') == 'BASE_EMA_GAP'
 
-        # ✅ Base EMA GAP 전략: 전용 레이아웃
-        if is_gap_mode:
-            # PNL 계산
-            entry_price = checks.get('entry_price', 0)
-            pnl_pct = checks.get('pnl_pct', 0)
-            base_ema = checks.get('ema_base', '-')
-            highest = latest.get('highest', '-')
+            if is_gap_strategy:
+                # Base EMA GAP 전략 전용 표시
+                gap_pct = checks.get('gap_pct', 0)
+                gap_threshold = checks.get('gap_threshold', 0)
+                gap_to_target = checks.get('gap_to_target', 0)
+                price_needed = checks.get('price_needed', 0)
+                condition_met = checks.get('condition_met', False)
+                base_ema = checks.get('base_ema', 0)
 
-            if entry_price != 0:
+                # 상태 아이콘
+                if cross_status == "🔥 GAP_EXCEEDED":
+                    status_icon = "🔥 급락"
+                elif cross_status == "✅ GAP_MET":
+                    status_icon = "✅ 조건 충족"
+                else:
+                    status_icon = "📉 GAP 감시"
+
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**가격**<br>₩{float(price):,.0f}", unsafe_allow_html=True)
+                cols1[4].markdown(f"**상태**<br>{status_icon}", unsafe_allow_html=True)
+
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**현재 GAP**<br>{gap_pct:.2%}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**목표 GAP**<br>{gap_threshold:.2%}", unsafe_allow_html=True)
+
+                if condition_met:
+                    gap_diff_label = f"초과 {abs(gap_to_target):.2%}p"
+                else:
+                    gap_diff_label = f"부족 {abs(gap_to_target):.2%}p"
+                cols2[2].markdown(f"**차이**<br>{gap_diff_label}", unsafe_allow_html=True)
+
+                cols2[3].markdown(f"**매수가**<br>₩{price_needed:,.0f}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**Base EMA**<br>₩{base_ema:,.0f}", unsafe_allow_html=True)
+
+                st.caption(f"Source: **BUY** (Base EMA GAP 전략)")
+
+                # 추가 정보 박스
+                if not condition_met:
+                    st.info(f"💡 매수 조건: 가격이 ₩{price_needed:,.0f} 이하로 하락하면 매수 ({abs(gap_to_target):.2%}p 더 하락 필요)")
+                else:
+                    if cross_status == "🔥 GAP_EXCEEDED":
+                        st.success(f"🔥 급락 감지! 목표 대비 {abs(gap_to_target):.2%}p 초과 하락")
+                    else:
+                        st.success(f"✅ 매수 조건 충족! 목표 달성 ({abs(gap_to_target):.2%}p 초과)")
+            else:
+                # 일반 EMA/MACD 전략 표시 (기존 로직)
+                overall_ok = "✅ PASS" if latest.get('overall_ok') else "❌ FAIL"
+                failed_keys = latest.get('failed_keys', '')
+                if failed_keys and failed_keys != '-':
+                    try:
+                        import json
+                        failed_list = json.loads(failed_keys) if isinstance(failed_keys, str) else failed_keys
+                        failed_str = ", ".join(failed_list) if failed_list else "-"
+                    except Exception:
+                        failed_str = str(failed_keys)
+                else:
+                    failed_str = "-"
+
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
+                cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
+
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**{indicator_fast}**<br>{macd_val}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**{indicator_slow}**<br>{signal_val}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**실패 조건**<br>{failed_str}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**평가**<br>{overall_ok}", unsafe_allow_html=True)
+
+                # 행3: 신선도 / 필터 / Cross 거리 + 필터 경고
+                _render_latest_signal_row3(
+                    timestamp_raw=timestamp_raw,
+                    cross_status=cross_status,
+                    checks=checks,
+                    fast_value=latest.get('macd'),
+                    slow_value=latest.get('signal'),
+                    mode="buy",
+                )
+
+                st.caption(f"Source: **BUY** (매수 평가 감사로그)")
+
+        elif source == "SELL":
+            trigger_key = latest.get('trigger_key', '-')
+            tp_price = latest.get('tp_price', '-')
+            sl_price = latest.get('sl_price', '-')
+            bars_held = latest.get('bars_held', '-')
+
+            # ✅ checks JSON 파싱
+            checks_raw = latest.get('checks', '{}')
+            if isinstance(checks_raw, str):
+                try:
+                    checks = json.loads(checks_raw)
+                except (json.JSONDecodeError, TypeError):
+                    checks = {}
+            else:
+                checks = checks_raw if checks_raw else {}
+
+            if tp_price != '-':
+                try:
+                    tp_price = f"{float(tp_price):.2f}"
+                except (ValueError, TypeError):
+                    pass
+            if sl_price != '-':
+                try:
+                    sl_price = f"{float(sl_price):.2f}"
+                except (ValueError, TypeError):
+                    pass
+
+            # ✅ Base EMA GAP 전략: 전용 레이아웃
+            if is_gap_mode:
+                # PNL 계산
+                entry_price = checks.get('entry_price', 0)
+                pnl_pct = checks.get('pnl_pct', 0)
+                base_ema = checks.get('ema_base', '-')
+                highest = latest.get('highest', '-')
+
+                if entry_price != 0:
+                    try:
+                        entry_price = f"{float(entry_price):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+                if base_ema != '-':
+                    try:
+                        base_ema = f"{float(base_ema):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+                if highest != '-':
+                    try:
+                        highest = f"{float(highest):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+
+                pnl_display = f"{pnl_pct:.2%}" if pnl_pct != 0 else "-"
+
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**가격**<br>{price} KRW", unsafe_allow_html=True)
+                cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
+
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**PNL**<br>{pnl_display}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**Base EMA**<br>{base_ema}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**최고가**<br>{highest}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**TP/SL**<br>{tp_price}/{sl_price}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**보유봉**<br>{bars_held}", unsafe_allow_html=True)
+
+                # 트리거 정보
+                if trigger_key and trigger_key != '-' and trigger_key != 'None':
+                    st.info(f"🔔 **트리거**: {trigger_key}")
+
+                # Stale Position 상세 정보 (시간 기반)
+                if checks.get('stale_enabled'):
+                    stale_triggered = checks.get('stale_triggered', 0)
+                    stale_elapsed_hours = checks.get('stale_elapsed_hours', 0.0)
+                    stale_required_hours = checks.get('stale_required_hours', 2.0)
+                    stale_max_gain_pct = checks.get('stale_max_gain_pct', 0)
+                    stale_threshold_pct = checks.get('stale_threshold_pct', 0.01)
+
+                    if stale_triggered:
+                        st.warning(
+                            f"💤 **정체 포지션 트리거**: {stale_elapsed_hours:.2f}시간 보유 (목표={stale_required_hours:.2f}시간), "
+                            f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
+                        )
+                    elif stale_elapsed_hours >= stale_required_hours * 0.8:
+                        st.info(
+                            f"⏳ **정체 포지션 감시 중**: {stale_elapsed_hours:.2f}시간 / {stale_required_hours:.2f}시간, "
+                            f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
+                        )
+
+                st.caption(f"Source: **SELL** (Base EMA GAP 전략)")
+
+            # ✅ 일반 EMA 전략
+            elif params_strategy == "EMA":
+                # checks에서 EMA 값 추출
+                ema_fast_val = checks.get('ema_fast', '-')
+                ema_slow_val = checks.get('ema_slow', '-')
+                ema_base_val = checks.get('ema_base', '-')
+
+                if ema_fast_val != '-':
+                    try:
+                        ema_fast_val = f"{float(ema_fast_val):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+                if ema_slow_val != '-':
+                    try:
+                        ema_slow_val = f"{float(ema_slow_val):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+                if ema_base_val != '-':
+                    try:
+                        ema_base_val = f"{float(ema_base_val):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+
+                # Delta 계산 (Fast - Slow)
+                try:
+                    delta_ema = float(checks.get('ema_fast', 0)) - float(checks.get('ema_slow', 0))
+                    delta_val = f"{delta_ema:.2f}"
+                except (ValueError, TypeError):
+                    delta_val = '-'
+
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
+                cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
+
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**EMA Fast**<br>{ema_fast_val}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**EMA Slow**<br>{ema_slow_val}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**Base EMA**<br>{ema_base_val}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**TP/SL**<br>{tp_price}/{sl_price}", unsafe_allow_html=True)
+
+                # 행3: 신선도 / 필터 / Cross 거리 + 필터 경고
+                _render_latest_signal_row3(
+                    timestamp_raw=timestamp_raw,
+                    cross_status=cross_status,
+                    checks=checks,
+                    fast_value=checks.get('ema_fast'),
+                    slow_value=checks.get('ema_slow'),
+                    mode="sell",
+                )
+
+                # 트리거 정보 표시
+                if trigger_key and trigger_key != '-' and trigger_key != 'None':
+                    st.info(f"🔔 **트리거**: {trigger_key}")
+
+                # Stale Position 상세 정보 (시간 기반)
+                if checks.get('stale_enabled'):
+                    stale_triggered = checks.get('stale_triggered', 0)
+                    stale_elapsed_hours = checks.get('stale_elapsed_hours', 0.0)
+                    stale_required_hours = checks.get('stale_required_hours', 2.0)
+                    stale_max_gain_pct = checks.get('stale_max_gain_pct', 0)
+                    stale_threshold_pct = checks.get('stale_threshold_pct', 0.01)
+
+                    if stale_triggered:
+                        st.warning(
+                            f"💤 **정체 포지션 트리거**: {stale_elapsed_hours:.2f}시간 보유 (목표={stale_required_hours:.2f}시간), "
+                            f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
+                        )
+                    elif stale_elapsed_hours >= stale_required_hours * 0.8:
+                        st.info(
+                            f"⏳ **정체 포지션 감시 중**: {stale_elapsed_hours:.2f}시간 / {stale_required_hours:.2f}시간, "
+                            f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
+                        )
+
+                st.caption(f"Source: **SELL** (EMA 전략)")
+
+            # ✅ MACD 전략
+            else:
+                # checks에서 MACD 값 추출
+                macd_sell = checks.get('macd', '-')
+                signal_sell = checks.get('signal', '-')
+
+                if macd_sell != '-':
+                    try:
+                        macd_sell = f"{float(macd_sell):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+                if signal_sell != '-':
+                    try:
+                        signal_sell = f"{float(signal_sell):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+
+                # Delta 계산 (MACD - Signal)
+                try:
+                    delta_macd = float(checks.get('macd', 0)) - float(checks.get('signal', 0))
+                    delta_val = f"{delta_macd:.2f}"
+                except (ValueError, TypeError):
+                    delta_val = '-'
+
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
+                cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
+
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**MACD**<br>{macd_sell}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**Signal**<br>{signal_sell}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**Bars Held**<br>{bars_held}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**TP/SL**<br>{tp_price}/{sl_price}", unsafe_allow_html=True)
+
+                # 행3: 신선도 / 필터 / Cross 거리 + 필터 경고
+                _render_latest_signal_row3(
+                    timestamp_raw=timestamp_raw,
+                    cross_status=cross_status,
+                    checks=checks,
+                    fast_value=checks.get('macd'),
+                    slow_value=checks.get('signal'),
+                    mode="sell",
+                )
+
+                # 트리거 정보 표시
+                if trigger_key and trigger_key != '-' and trigger_key != 'None':
+                    st.info(f"🔔 **트리거**: {trigger_key}")
+
+                st.caption(f"Source: **SELL** (MACD 전략)")
+
+        else:  # TRADE
+            # 체결 정보
+            trade_type = latest.get('type', '-')
+            reason = latest.get('reason', '-')
+            entry_price = latest.get('entry_price', '-')
+            bars_held = latest.get('bars_held', '-')
+            tp_val = latest.get('tp', '-')
+            sl_val = latest.get('sl', '-')
+            highest_val = latest.get('highest', '-')
+
+            # 가격 포맷팅
+            if entry_price != '-' and entry_price is not None:
                 try:
                     entry_price = f"{float(entry_price):.2f}"
                 except (ValueError, TypeError):
                     pass
-            if base_ema != '-':
+
+            if tp_val != '-' and tp_val is not None:
                 try:
-                    base_ema = f"{float(base_ema):.2f}"
-                except (ValueError, TypeError):
-                    pass
-            if highest != '-':
-                try:
-                    highest = f"{float(highest):.2f}"
+                    tp_val = f"{float(tp_val):.2f}"
                 except (ValueError, TypeError):
                     pass
 
-            pnl_display = f"{pnl_pct:.2%}" if pnl_pct != 0 else "-"
-
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**가격**<br>{price} KRW", unsafe_allow_html=True)
-            cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
-
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**PNL**<br>{pnl_display}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**Base EMA**<br>{base_ema}", unsafe_allow_html=True)
-            cols2[2].markdown(f"**최고가**<br>{highest}", unsafe_allow_html=True)
-            cols2[3].markdown(f"**TP/SL**<br>{tp_price}/{sl_price}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**보유봉**<br>{bars_held}", unsafe_allow_html=True)
-
-            # 트리거 정보
-            if trigger_key and trigger_key != '-' and trigger_key != 'None':
-                st.info(f"🔔 **트리거**: {trigger_key}")
-
-            # Stale Position 상세 정보 (시간 기반)
-            if checks.get('stale_enabled'):
-                stale_triggered = checks.get('stale_triggered', 0)
-                stale_elapsed_hours = checks.get('stale_elapsed_hours', 0.0)
-                stale_required_hours = checks.get('stale_required_hours', 2.0)
-                stale_max_gain_pct = checks.get('stale_max_gain_pct', 0)
-                stale_threshold_pct = checks.get('stale_threshold_pct', 0.01)
-
-                if stale_triggered:
-                    st.warning(
-                        f"💤 **정체 포지션 트리거**: {stale_elapsed_hours:.2f}시간 보유 (목표={stale_required_hours:.2f}시간), "
-                        f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
-                    )
-                elif stale_elapsed_hours >= stale_required_hours * 0.8:
-                    st.info(
-                        f"⏳ **정체 포지션 감시 중**: {stale_elapsed_hours:.2f}시간 / {stale_required_hours:.2f}시간, "
-                        f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
-                    )
-
-            st.caption(f"Source: **SELL** (Base EMA GAP 전략)")
-
-        # ✅ 일반 EMA 전략
-        elif params_strategy == "EMA":
-            # checks에서 EMA 값 추출
-            ema_fast_val = checks.get('ema_fast', '-')
-            ema_slow_val = checks.get('ema_slow', '-')
-            ema_base_val = checks.get('ema_base', '-')
-
-            if ema_fast_val != '-':
+            if sl_val != '-' and sl_val is not None:
                 try:
-                    ema_fast_val = f"{float(ema_fast_val):.2f}"
-                except (ValueError, TypeError):
-                    pass
-            if ema_slow_val != '-':
-                try:
-                    ema_slow_val = f"{float(ema_slow_val):.2f}"
-                except (ValueError, TypeError):
-                    pass
-            if ema_base_val != '-':
-                try:
-                    ema_base_val = f"{float(ema_base_val):.2f}"
+                    sl_val = f"{float(sl_val):.2f}"
                 except (ValueError, TypeError):
                     pass
 
-            # Delta 계산 (Fast - Slow)
-            try:
-                delta_ema = float(checks.get('ema_fast', 0)) - float(checks.get('ema_slow', 0))
-                delta_val = f"{delta_ema:.2f}"
-            except (ValueError, TypeError):
-                delta_val = '-'
-
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
-            cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
-
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**EMA Fast**<br>{ema_fast_val}", unsafe_allow_html=True)
-            cols2[2].markdown(f"**EMA Slow**<br>{ema_slow_val}", unsafe_allow_html=True)
-            cols2[3].markdown(f"**Base EMA**<br>{ema_base_val}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**TP/SL**<br>{tp_price}/{sl_price}", unsafe_allow_html=True)
-
-            # 트리거 정보 표시
-            if trigger_key and trigger_key != '-' and trigger_key != 'None':
-                st.info(f"🔔 **트리거**: {trigger_key}")
-
-            # Stale Position 상세 정보 (시간 기반)
-            if checks.get('stale_enabled'):
-                stale_triggered = checks.get('stale_triggered', 0)
-                stale_elapsed_hours = checks.get('stale_elapsed_hours', 0.0)
-                stale_required_hours = checks.get('stale_required_hours', 2.0)
-                stale_max_gain_pct = checks.get('stale_max_gain_pct', 0)
-                stale_threshold_pct = checks.get('stale_threshold_pct', 0.01)
-
-                if stale_triggered:
-                    st.warning(
-                        f"💤 **정체 포지션 트리거**: {stale_elapsed_hours:.2f}시간 보유 (목표={stale_required_hours:.2f}시간), "
-                        f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
-                    )
-                elif stale_elapsed_hours >= stale_required_hours * 0.8:
-                    st.info(
-                        f"⏳ **정체 포지션 감시 중**: {stale_elapsed_hours:.2f}시간 / {stale_required_hours:.2f}시간, "
-                        f"최고수익률 {stale_max_gain_pct:.2%} (목표={stale_threshold_pct:.2%})"
-                    )
-
-            st.caption(f"Source: **SELL** (EMA 전략)")
-
-        # ✅ MACD 전략
-        else:
-            # checks에서 MACD 값 추출
-            macd_sell = checks.get('macd', '-')
-            signal_sell = checks.get('signal', '-')
-
-            if macd_sell != '-':
+            if highest_val != '-' and highest_val is not None:
                 try:
-                    macd_sell = f"{float(macd_sell):.2f}"
-                except (ValueError, TypeError):
-                    pass
-            if signal_sell != '-':
-                try:
-                    signal_sell = f"{float(signal_sell):.2f}"
+                    highest_val = f"{float(highest_val):.2f}"
                 except (ValueError, TypeError):
                     pass
 
-            # Delta 계산 (MACD - Signal)
-            try:
-                delta_macd = float(checks.get('macd', 0)) - float(checks.get('signal', 0))
-                delta_val = f"{delta_macd:.2f}"
-            except (ValueError, TypeError):
-                delta_val = '-'
+            # ✅ Base EMA GAP 전략: 간소화된 레이아웃 (Delta 없음)
+            if is_gap_mode:
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**Type**<br>{trade_type}", unsafe_allow_html=True)
+                cols1[4].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
 
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
-            cols1[4].markdown(f"**상태**<br>{triggered}", unsafe_allow_html=True)
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**Reason**<br>{reason}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**Entry Price**<br>{entry_price}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**Bars Held**<br>{bars_held}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**TP/SL**<br>{tp_val}/{sl_val}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**Highest**<br>{highest_val}", unsafe_allow_html=True)
 
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**Delta**<br>{delta_val}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**MACD**<br>{macd_sell}", unsafe_allow_html=True)
-            cols2[2].markdown(f"**Signal**<br>{signal_sell}", unsafe_allow_html=True)
-            cols2[3].markdown(f"**Bars Held**<br>{bars_held}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**TP/SL**<br>{tp_price}/{sl_price}", unsafe_allow_html=True)
+                st.caption(f"Source: **TRADE** (Base EMA GAP 전략)")
 
-            # 트리거 정보 표시
-            if trigger_key and trigger_key != '-' and trigger_key != 'None':
-                st.info(f"🔔 **트리거**: {trigger_key}")
+            # ✅ 일반 EMA 전략: EMA 지표 표시
+            elif params_strategy == "EMA":
+                # latest에서 EMA 값 추출 (체결 시점의 EMA)
+                ema_fast_tr = latest.get('ema_fast', '-')
+                ema_slow_tr = latest.get('ema_slow', '-')
 
-            st.caption(f"Source: **SELL** (MACD 전략)")
+                if ema_fast_tr != '-' and ema_fast_tr is not None:
+                    try:
+                        ema_fast_tr = f"{float(ema_fast_tr):.2f}"
+                    except (ValueError, TypeError):
+                        pass
 
-    else:  # TRADE
-        # 체결 정보
-        trade_type = latest.get('type', '-')
-        reason = latest.get('reason', '-')
-        entry_price = latest.get('entry_price', '-')
-        bars_held = latest.get('bars_held', '-')
-        tp_val = latest.get('tp', '-')
-        sl_val = latest.get('sl', '-')
-        highest_val = latest.get('highest', '-')
+                if ema_slow_tr != '-' and ema_slow_tr is not None:
+                    try:
+                        ema_slow_tr = f"{float(ema_slow_tr):.2f}"
+                    except (ValueError, TypeError):
+                        pass
 
-        # 가격 포맷팅
-        if entry_price != '-' and entry_price is not None:
-            try:
-                entry_price = f"{float(entry_price):.2f}"
-            except (ValueError, TypeError):
-                pass
-
-        if tp_val != '-' and tp_val is not None:
-            try:
-                tp_val = f"{float(tp_val):.2f}"
-            except (ValueError, TypeError):
-                pass
-
-        if sl_val != '-' and sl_val is not None:
-            try:
-                sl_val = f"{float(sl_val):.2f}"
-            except (ValueError, TypeError):
-                pass
-
-        if highest_val != '-' and highest_val is not None:
-            try:
-                highest_val = f"{float(highest_val):.2f}"
-            except (ValueError, TypeError):
-                pass
-
-        # ✅ Base EMA GAP 전략: 간소화된 레이아웃 (Delta 없음)
-        if is_gap_mode:
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**Type**<br>{trade_type}", unsafe_allow_html=True)
-            cols1[4].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
-
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**Reason**<br>{reason}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**Entry Price**<br>{entry_price}", unsafe_allow_html=True)
-            cols2[2].markdown(f"**Bars Held**<br>{bars_held}", unsafe_allow_html=True)
-            cols2[3].markdown(f"**TP/SL**<br>{tp_val}/{sl_val}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**Highest**<br>{highest_val}", unsafe_allow_html=True)
-
-            st.caption(f"Source: **TRADE** (Base EMA GAP 전략)")
-
-        # ✅ 일반 EMA 전략: EMA 지표 표시
-        elif params_strategy == "EMA":
-            # latest에서 EMA 값 추출 (체결 시점의 EMA)
-            ema_fast_tr = latest.get('ema_fast', '-')
-            ema_slow_tr = latest.get('ema_slow', '-')
-
-            if ema_fast_tr != '-' and ema_fast_tr is not None:
+                # Delta 계산 (Fast - Slow)
                 try:
-                    ema_fast_tr = f"{float(ema_fast_tr):.2f}"
+                    delta_tr = float(latest.get('ema_fast', 0)) - float(latest.get('ema_slow', 0))
+                    delta_tr_val = f"{delta_tr:.2f}"
                 except (ValueError, TypeError):
-                    pass
+                    delta_tr_val = '-'
 
-            if ema_slow_tr != '-' and ema_slow_tr is not None:
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**Type**<br>{trade_type}", unsafe_allow_html=True)
+                cols1[4].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
+
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**Delta**<br>{delta_tr_val}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**EMA Fast**<br>{ema_fast_tr}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**EMA Slow**<br>{ema_slow_tr}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**Reason**<br>{reason}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**Entry@Bars**<br>{entry_price}@{bars_held}", unsafe_allow_html=True)
+
+                st.caption(f"Source: **TRADE** (EMA 전략)")
+
+            # ✅ MACD 전략: MACD/Signal 지표 표시
+            else:
+                # latest에서 MACD 값 추출 (체결 시점의 MACD)
+                macd_tr = latest.get('macd', '-')
+                signal_tr = latest.get('signal', '-')
+
+                if macd_tr != '-' and macd_tr is not None:
+                    try:
+                        macd_tr = f"{float(macd_tr):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+
+                if signal_tr != '-' and signal_tr is not None:
+                    try:
+                        signal_tr = f"{float(signal_tr):.2f}"
+                    except (ValueError, TypeError):
+                        pass
+
+                # Delta 계산 (MACD - Signal)
                 try:
-                    ema_slow_tr = f"{float(ema_slow_tr):.2f}"
+                    delta_tr = float(latest.get('macd', 0)) - float(latest.get('signal', 0))
+                    delta_tr_val = f"{delta_tr:.2f}"
                 except (ValueError, TypeError):
-                    pass
+                    delta_tr_val = '-'
 
-            # Delta 계산 (Fast - Slow)
-            try:
-                delta_tr = float(latest.get('ema_fast', 0)) - float(latest.get('ema_slow', 0))
-                delta_tr_val = f"{delta_tr:.2f}"
-            except (ValueError, TypeError):
-                delta_tr_val = '-'
+                cols1 = st.columns(5)
+                cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
+                cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
+                cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
+                cols1[3].markdown(f"**Type**<br>{trade_type}", unsafe_allow_html=True)
+                cols1[4].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
 
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**Type**<br>{trade_type}", unsafe_allow_html=True)
-            cols1[4].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
+                cols2 = st.columns(5)
+                cols2[0].markdown(f"**Delta**<br>{delta_tr_val}", unsafe_allow_html=True)
+                cols2[1].markdown(f"**MACD**<br>{macd_tr}", unsafe_allow_html=True)
+                cols2[2].markdown(f"**Signal**<br>{signal_tr}", unsafe_allow_html=True)
+                cols2[3].markdown(f"**Reason**<br>{reason}", unsafe_allow_html=True)
+                cols2[4].markdown(f"**Entry@Bars**<br>{entry_price}@{bars_held}", unsafe_allow_html=True)
 
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**Delta**<br>{delta_tr_val}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**EMA Fast**<br>{ema_fast_tr}", unsafe_allow_html=True)
-            cols2[2].markdown(f"**EMA Slow**<br>{ema_slow_tr}", unsafe_allow_html=True)
-            cols2[3].markdown(f"**Reason**<br>{reason}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**Entry@Bars**<br>{entry_price}@{bars_held}", unsafe_allow_html=True)
+                st.caption(f"Source: **TRADE** (MACD 전략)")
+    else:
+        st.info("📭 아직 표시할 최신 시그널/체결 정보가 없습니다.")
 
-            st.caption(f"Source: **TRADE** (EMA 전략)")
 
-        # ✅ MACD 전략: MACD/Signal 지표 표시
-        else:
-            # latest에서 MACD 값 추출 (체결 시점의 MACD)
-            macd_tr = latest.get('macd', '-')
-            signal_tr = latest.get('signal', '-')
-
-            if macd_tr != '-' and macd_tr is not None:
-                try:
-                    macd_tr = f"{float(macd_tr):.2f}"
-                except (ValueError, TypeError):
-                    pass
-
-            if signal_tr != '-' and signal_tr is not None:
-                try:
-                    signal_tr = f"{float(signal_tr):.2f}"
-                except (ValueError, TypeError):
-                    pass
-
-            # Delta 계산 (MACD - Signal)
-            try:
-                delta_tr = float(latest.get('macd', 0)) - float(latest.get('signal', 0))
-                delta_tr_val = f"{delta_tr:.2f}"
-            except (ValueError, TypeError):
-                delta_tr_val = '-'
-
-            cols1 = st.columns(5)
-            cols1[0].markdown(f"**시간**<br>{timestamp_str}", unsafe_allow_html=True)
-            cols1[1].markdown(f"**Ticker**<br>{ticker}", unsafe_allow_html=True)
-            cols1[2].markdown(f"**Bar**<br>{bar}", unsafe_allow_html=True)
-            cols1[3].markdown(f"**Type**<br>{trade_type}", unsafe_allow_html=True)
-            cols1[4].markdown(f"**Price**<br>{price} KRW", unsafe_allow_html=True)
-
-            cols2 = st.columns(5)
-            cols2[0].markdown(f"**Delta**<br>{delta_tr_val}", unsafe_allow_html=True)
-            cols2[1].markdown(f"**MACD**<br>{macd_tr}", unsafe_allow_html=True)
-            cols2[2].markdown(f"**Signal**<br>{signal_tr}", unsafe_allow_html=True)
-            cols2[3].markdown(f"**Reason**<br>{reason}", unsafe_allow_html=True)
-            cols2[4].markdown(f"**Entry@Bars**<br>{entry_price}@{bars_held}", unsafe_allow_html=True)
-
-            st.caption(f"Source: **TRADE** (MACD 전략)")
+# 토글 값에 따라 fragment 동적 적용 (OFF=한 번만, N>0=N초마다 자동 부분 갱신)
+if DASHBOARD_AUTO_REFRESH_SEC > 0:
+    st.fragment(run_every=f"{DASHBOARD_AUTO_REFRESH_SEC}s")(_render_latest_signal_section)()
 else:
-    st.info("📭 아직 표시할 최신 시그널/체결 정보가 없습니다.")
+    _render_latest_signal_section()
 st.divider()
 
 # ✅ 로그 기록

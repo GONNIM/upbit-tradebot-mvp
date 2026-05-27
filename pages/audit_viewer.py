@@ -129,10 +129,27 @@ db_path = get_db_path(user_id)
 
 st.markdown(f"### 📑 감사 로그 뷰어")
 
-# 🕒 현재 시각 및 수동 리프레시 버튼
-time_col, refresh_col = st.columns([8, 1])
+# 🕒 현재 시각 + 자동갱신 토글 + 수동 리프레시 버튼
+time_col, auto_col, refresh_col = st.columns([6, 2, 1])
 with time_col:
     st.markdown(f"🕒 현재 시각: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+# ─ 자동갱신 토글 (기본 OFF — 분석 흐름 보호) ─
+_auto_options = {"OFF (수동)": 0, "30초": 30, "60초": 60}
+with auto_col:
+    _auto_label = st.selectbox(
+        "자동갱신",
+        list(_auto_options.keys()),
+        index=0,
+        key="audit_auto_refresh_label",
+        label_visibility="collapsed",
+        help="ON 선택 시 현재 섹션 표가 주기적으로 자동 갱신됩니다. 스크롤·정렬 중에는 OFF 권장.",
+    )
+_auto_refresh_sec = _auto_options.get(_auto_label, 0)
+if _auto_refresh_sec > 0:
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=_auto_refresh_sec * 1000, key="audit_autorefresh_tick")
+
 with refresh_col:
     if st.button("🔄 새로고침", key="manual_refresh_audit", use_container_width=True):
         st.rerun()
