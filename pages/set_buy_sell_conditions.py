@@ -670,10 +670,15 @@ if len(SELL_FILTERS) > 0:
 
 st.divider()
 
-# --- 저장 버튼 ---
-if st.button("💾 설정 저장", use_container_width=True):
-    save_conditions()
-    go_dashboard()
+# --- 저장 / 취소 버튼 ---
+cancel_col, save_col = st.columns(2)
+with cancel_col:
+    if st.button("↩️ 설정 취소", key="btn_cancel_settings", use_container_width=True):
+        go_dashboard()
+with save_col:
+    if st.button("💾 설정 저장", key="btn_save_settings", use_container_width=True):
+        save_conditions()
+        go_dashboard()
 
 # --- 현재 상태 출력 ---
 st.subheader("⚙️ 현재 설정 요약")
