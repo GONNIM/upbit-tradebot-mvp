@@ -11,6 +11,7 @@ from services.init_db import (
     ensure_accounts_locked,
     ensure_account_positions_locked,
     ensure_account_positions_entry_price,
+    ensure_engine_status_last_mode,
 )
 
 from config import DEFAULT_USER_ID
@@ -21,6 +22,7 @@ def ensure_schema(user_id: str):
     ensure_accounts_locked(user_id)
     ensure_account_positions_locked(user_id)
     ensure_account_positions_entry_price(user_id)
+    ensure_engine_status_last_mode(user_id)
 
 
 DB_PREFIX = "tradebot"
@@ -791,20 +793,39 @@ def insert_position_history(user_id: str, ticker: str, virtual_coin: float):
 
 
 # ✅ 엔진 상태
-def set_engine_status(user_id, is_running: bool):
+def set_engine_status(user_id, is_running: bool, last_mode: str | None = None):
+    """
+    엔진 상태 저장.
+    - is_running: 현재 실행 여부
+    - last_mode: 마지막 start_engine 시 captured_mode (TEST/LIVE). None이면 기존 값 유지.
+    """
     now = now_kst()
+    ensure_schema(user_id)
     with get_db(user_id) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO engine_status (user_id, is_running, last_heartbeat)
-            VALUES (?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                is_running = excluded.is_running,
-                last_heartbeat = excluded.last_heartbeat
-        """,
-            (user_id, int(is_running), now),
-        )
+        if last_mode is None:
+            cursor.execute(
+                """
+                INSERT INTO engine_status (user_id, is_running, last_heartbeat)
+                VALUES (?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    is_running = excluded.is_running,
+                    last_heartbeat = excluded.last_heartbeat
+            """,
+                (user_id, int(is_running), now),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO engine_status (user_id, is_running, last_heartbeat, last_mode)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET
+                    is_running = excluded.is_running,
+                    last_heartbeat = excluded.last_heartbeat,
+                    last_mode = excluded.last_mode
+            """,
+                (user_id, int(is_running), now, str(last_mode).upper()),
+            )
         conn.commit()
 
 
@@ -816,6 +837,26 @@ def get_engine_status(user_id) -> bool:
         )
         row = cursor.fetchone()
         return bool(row and row[0])
+
+
+def get_last_engine_mode(user_id) -> str | None:
+    """
+    마지막 start_engine 시 captured_mode 조회 (TEST/LIVE).
+    스키마/행 부재 시 None 반환.
+    """
+    try:
+        ensure_schema(user_id)
+        with get_db(user_id) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT last_mode FROM engine_status WHERE user_id = ?", (user_id,)
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                return str(row[0]).upper()
+            return None
+    except Exception:
+        return None
 
 
 # ✅ Thread 상태

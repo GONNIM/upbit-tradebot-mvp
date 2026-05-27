@@ -122,6 +122,13 @@ class EngineManager:
                 rec.load_inflight_from_db(fetch_inflight_orders)
             self._live_engine_count += 1  # ✅ FIX: SET → INCREMENT
 
+        # ✅ 재시작 자동 재개를 위해 last_mode를 DB에 저장
+        try:
+            from services.db import set_engine_status
+            set_engine_status(user_id, True, last_mode=captured_mode)
+        except Exception as e:
+            logger.warning(f"[ENGINE-MANAGER] last_mode 저장 실패: {e}")
+
         return self._start_engine_internal(user_id, tm, restart_count, captured_mode)
     
     def _start_engine_internal(

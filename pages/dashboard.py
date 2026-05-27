@@ -377,12 +377,56 @@ engine_status_thread = engine_manager.is_running(user_id)
 # 2) DB의 엔진 상태 확인 (이전 프로세스 잔재일 수 있음)
 engine_status_db = get_engine_status(user_id)
 
-# 3) 🔥 중요: 실제 스레드가 없는데 DB만 True면 잘못된 상태 → DB 정정
+# 3) ✅ AUTO-RESUME: 재시작으로 thread 사라졌으나 DB는 실행 중이었던 경우 자동 재개 시도
+#    (cleanup_tradebot_db.sh 또는 monitor_tradebot_memory.sh가 systemctl restart 후
+#     봇 엔진은 streamlit 세션 thread라 사라짐. last_mode 기준 자동 재개.)
 if not engine_status_thread and engine_status_db:
-    from services.db import set_engine_status
-    set_engine_status(user_id, False)
-    engine_status_db = False
-    logger.warning(f"[ENGINE-STATE-RECOVERY] DB 상태 정정: {user_id} → False (실제 스레드 없음)")
+    try:
+        from services.db import get_last_engine_mode
+        _last_mode = get_last_engine_mode(user_id)
+        _resumed = False
+        if _last_mode == "LIVE":
+            # LIVE는 검증/capital 통과 시만 자동 재개 (안전망)
+            _upbit_ok = bool(st.session_state.get("upbit_verified"))
+            _capital_ok = bool(st.session_state.get("live_capital_set"))
+            if _upbit_ok and _capital_ok:
+                logger.warning(f"[AUTO-RESUME] LIVE 자동 재개 시도: {user_id}")
+                if engine_manager.start_engine(user_id, test_mode=False):
+                    engine_status_thread = True
+                    _resumed = True
+                    logger.info(f"✅ [AUTO-RESUME] LIVE 엔진 자동 재개 성공: {user_id}")
+                    st.success(
+                        "🔄 **자동 재개됨** — 시스템 재시작 후 LIVE 엔진이 자동으로 재개되었습니다 "
+                        f"(마지막 활성 모드: {_last_mode})"
+                    )
+            else:
+                logger.warning(
+                    f"[AUTO-RESUME] LIVE 자동 재개 불가 (verified={_upbit_ok}, capital_set={_capital_ok}) "
+                    f"→ DB 정정"
+                )
+        elif _last_mode == "TEST":
+            logger.warning(f"[AUTO-RESUME] TEST 자동 재개 시도: {user_id}")
+            if engine_manager.start_engine(user_id, test_mode=True):
+                engine_status_thread = True
+                _resumed = True
+                logger.info(f"✅ [AUTO-RESUME] TEST 엔진 자동 재개 성공: {user_id}")
+                st.success(
+                    "🔄 **자동 재개됨** — 시스템 재시작 후 TEST 엔진이 자동으로 재개되었습니다"
+                )
+        if not _resumed:
+            # 재개 실패/불가 → DB 정정
+            from services.db import set_engine_status
+            set_engine_status(user_id, False)
+            engine_status_db = False
+            logger.warning(
+                f"[ENGINE-STATE-RECOVERY] DB 상태 정정: {user_id} → False "
+                f"(자동 재개 실패 또는 last_mode 부재; last_mode={_last_mode})"
+            )
+    except Exception as _e:
+        logger.error(f"[AUTO-RESUME] 자동 재개 처리 실패: {_e}")
+        from services.db import set_engine_status
+        set_engine_status(user_id, False)
+        engine_status_db = False
 
 # 4) 최종 상태: 실제 스레드 상태만 신뢰
 engine_status = engine_status_thread
@@ -394,7 +438,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1059")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.27.1116")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":

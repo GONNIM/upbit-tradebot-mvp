@@ -671,6 +671,18 @@ def ensure_account_positions_entry_price(user_id: str):
     conn.close()
 
 
+def ensure_engine_status_last_mode(user_id: str):
+    """
+    engine_status 테이블에 last_mode 컬럼 추가:
+      - last_mode: 마지막 start_engine 시 captured_mode (TEST/LIVE)
+      - 재시작 후 dashboard 진입 시 자동 재개에 사용
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE engine_status ADD COLUMN last_mode TEXT")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -687,6 +699,7 @@ def ensure_all_schemas(user_id: str):
     ensure_accounts_locked(user_id)          # ✅ accounts virtual_krw_locked 추가
     ensure_account_positions_locked(user_id) # ✅ account_positions virtual_coin_locked 추가
     ensure_account_positions_entry_price(user_id)  # ✅ account_positions entry_price 추가
+    ensure_engine_status_last_mode(user_id)        # ✅ engine_status last_mode 추가 (재시작 자동 재개)
 
 
 def init_db_if_needed(user_id):
