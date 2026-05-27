@@ -387,11 +387,17 @@ if section == "buy":
                     ), axis=1
                 )
 
+                # ✅ B13 최적화: BUY_SIGNAL 시각 식별용 '신호' 컬럼 (벡터 연산, Styler 미사용)
+                df_buy["signal_icon"] = df_buy["overall_ok"].map(
+                    lambda x: "🟢" if (x == 1 or x == "1") else ""
+                )
+
                 # 전략별 칼럼명 변경
                 df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
 
-                # ✅ Base EMA GAP 전략 전용 컬럼 순서
+                # ✅ Base EMA GAP 전략 전용 컬럼 순서 — '신호' 컬럼을 가장 왼쪽에 배치
                 column_order = [
+                    "signal_icon",
                     "timestamp", "bar_time", "ticker", "bar", "price",
                     "gap_status", "gap_display", "gap_threshold_display", "gap_diff_display",
                     "price_needed", "base_ema",
@@ -402,6 +408,7 @@ if section == "buy":
 
                 # 컬럼명 한글화
                 df_buy_display = df_buy_display.rename(columns={
+                    "signal_icon": "신호",
                     "timestamp": "기록시각",
                     "bar_time": "봉시각",
                     "ticker": "티커",
@@ -431,11 +438,17 @@ if section == "buy":
                         return "⚪ Neutral"
                 df_buy["cross_type"] = df_buy["delta"].apply(_cross_type)
 
+                # ✅ B13 최적화: BUY_SIGNAL 시각 식별용 '신호' 컬럼 (벡터 연산, Styler 미사용)
+                df_buy["signal_icon"] = df_buy["overall_ok"].map(
+                    lambda x: "🟢" if (x == 1 or x == "1") else ""
+                )
+
                 # 전략별 칼럼명 변경
                 df_buy_display = df_buy.rename(columns=INDICATOR_COL_RENAME)
 
-                # ✅ 컬럼 순서 재배치 (필터 정보 포함)
+                # ✅ 컬럼 순서 재배치 — '신호' 컬럼을 가장 왼쪽에 배치
                 column_order = [
+                    "signal_icon",
                     "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
@@ -447,6 +460,10 @@ if section == "buy":
                 column_order = [col for col in column_order if col in df_buy_display.columns]
                 df_buy_display = df_buy_display[column_order]
 
+                # signal_icon 한글 컬럼명 (일반 EMA/MACD 분기)
+                if "signal_icon" in df_buy_display.columns:
+                    df_buy_display = df_buy_display.rename(columns={"signal_icon": "신호"})
+
             # ✅ Arrow 직렬화를 위해 dict/list 타입 컬럼을 문자열로 변환
             if "checks" in df_buy_display.columns:
                 df_buy_display["checks"] = df_buy_display["checks"].apply(
@@ -457,30 +474,10 @@ if section == "buy":
                     lambda x: json.dumps(x, ensure_ascii=False) if isinstance(x, (dict, list)) else str(x) if x is not None else ""
                 )
 
-            # ✅ B13: BUY_SIGNAL (overall_ok=1) 행 시각적 강조 — bar 누락 검출 + 신뢰 회복
+            # ✅ B13 최적화: Styler.apply(axis=1) 제거 → '신호' 컬럼(🟢)으로 BUY_SIGNAL 식별
+            #   (Styler는 2000행 × 18컬럼 = 36,000회 함수 호출 + Streamlit 직렬화 부담으로 로딩 지연 발생)
             st.caption("🟢 = BUY 신호 발동 행 (overall_ok=1)")
-
-            def _highlight_buy_signal_row(row):
-                # 한글/영어 컬럼명 모두 지원
-                ok = None
-                for k in ("조건충족", "overall_ok"):
-                    if k in row.index:
-                        ok = row[k]
-                        break
-                try:
-                    is_ok = int(ok) == 1
-                except Exception:
-                    is_ok = False
-                if is_ok:
-                    return ["background-color: rgba(76, 175, 80, 0.25); font-weight: 600"] * len(row)
-                return [""] * len(row)
-
-            try:
-                styled = df_buy_display.style.apply(_highlight_buy_signal_row, axis=1)
-                st.dataframe(styled, use_container_width=True, hide_index=True)
-            except Exception as _e:
-                # 스타일 적용 실패 시 폴백 — 데이터 표시는 보장
-                st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
+            st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
 
