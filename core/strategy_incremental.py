@@ -571,16 +571,21 @@ class IncrementalEMAStrategy:
         self.buy_filter_manager.register(surge_filter)
 
     def _register_sell_filters(self):
-        """매도 필터 등록 (카테고리 순서대로 실행됨)"""
+        """매도 필터 등록 (카테고리 순서대로 실행됨).
+
+        ⚠️ TS는 TP보다 먼저 등록되어야 함.
+        TP+TS 동시 ON 시 TP가 먼저 평가되면 should_block=True로 즉시 매도되어
+        TS가 evaluate조차 못 받음 → trailing_armed 활성화 기회 상실.
+        TS 먼저 → 같은 임계값 도달 시 activate_trailing_stop()만 호출(should_block=False)
+        → TP가 다음 평가에서 trailing_armed=True 감지하여 TP_SKIPPED_TS_ARMED로 스킵
+        → 다음 봉부터 TS가 추적·발동.
+        """
         # 핵심 전략 필터 (CORE_STRATEGY)
         stop_loss_filter = StopLossFilter(stop_loss_pct=self.stop_loss)
         stop_loss_filter.set_enabled(self.enable_stop_loss)
         self.sell_filter_manager.register(stop_loss_filter)
 
-        take_profit_filter = TakeProfitFilter(take_profit_pct=self.take_profit)
-        take_profit_filter.set_enabled(self.enable_take_profit)
-        self.sell_filter_manager.register(take_profit_filter)
-
+        # ✅ TS를 TP보다 먼저 등록 (TP+TS 동시 ON 시 의도된 흐름 확보)
         trailing_stop_filter = TrailingStopFilter(
             trailing_stop_pct=self.trailing_stop_pct,
             take_profit_pct=self.trailing_stop_activation_pct,  # ✅ 활성화 트리거 (conditions 연동)
@@ -588,6 +593,10 @@ class IncrementalEMAStrategy:
         )
         trailing_stop_filter.set_enabled(self.enable_trailing_stop)
         self.sell_filter_manager.register(trailing_stop_filter)
+
+        take_profit_filter = TakeProfitFilter(take_profit_pct=self.take_profit)
+        take_profit_filter.set_enabled(self.enable_take_profit)
+        self.sell_filter_manager.register(take_profit_filter)
 
         dead_cross_filter = DeadCrossFilter()
         dead_cross_filter.set_enabled(self.enable_dead_cross)
