@@ -105,7 +105,11 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str, interval_sec
 
     result = trader.sell_market(qty, ticker, price, ts=ts, meta=meta)
     if not result:
-        msg = "❌ 강제청산 실패: 거래 처리 중 오류 발생"
+        reason = getattr(trader, "last_sell_error", None)
+        if reason:
+            msg = f"❌ 강제청산 실패: {reason}"
+        else:
+            msg = "❌ 강제청산 실패: 거래 처리 중 오류 발생 (사유 불명 — 로그 확인 필요)"
         insert_log(user_id, "ERROR", msg)
         return msg
 
@@ -237,7 +241,11 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: i
 
     result = trader.buy_market(price, ticker, ts=ts, meta=meta)
     if not result:
-        msg = "❌ 강제매수 실패: 주문 생성 실패 (잔고 부족 또는 최소 주문금액 미만일 수 있음)"
+        reason = getattr(trader, "last_buy_error", None)
+        if reason:
+            msg = f"❌ 강제매수 실패: {reason}"
+        else:
+            msg = "❌ 강제매수 실패: 주문 생성 실패 (사유 불명 — 로그 확인 필요)"
         insert_log(user_id, "ERROR", msg)
         return msg
 

@@ -1,5 +1,12 @@
 import os
+import json as _json
+import hashlib as _hashlib
+import uuid as _uuid
+from urllib.parse import urlencode as _urlencode, unquote as _unquote
+
+import jwt as _jwt
 import pyupbit
+import requests as _requests
 import logging
 import time as _time
 from typing import Optional, Dict, Any, Tuple
@@ -47,6 +54,143 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Upbit 주문 직접 호출 helper
+#   pyupbit `buy_market_order`/`sell_market_order`는 모든 예외를 try/except로
+#   삼키고 stdout으로 클래스명만 print한 뒤 None을 반환한다(swallow). 그 결과
+#   `insufficient_funds_bid` 같은 명확한 400 에러조차 호출자가 받아볼 수 없다.
+#   본 helper는 동일한 REST 엔드포인트를 직접 호출하여 HTTP status·body·에러
+#   name/message·네트워크 예외까지 모두 로깅·반환한다. API 키/JWT는 절대 로깅
+#   하지 않는다.
+# ---------------------------------------------------------------------------
+
+_UPBIT_ORDERS_URL = "https://api.upbit.com/v1/orders"
+_UPBIT_HTTP_TIMEOUT = 10  # seconds
+
+# Upbit 400 에러 중 재시도해도 의미 없는 사유들 (pyupbit/errors.py 기준)
+_NON_RETRIABLE_BUY_ERRORS = frozenset({
+    "insufficient_funds_bid",      # 잔고 부족
+    "under_min_total_bid",         # 최소 주문금액 미만
+    "over_max_total_price_bid",    # 최대 주문금액(10억) 초과
+    "create_bid_error",            # 주문 요청 정보 오류
+    "validation_error",            # 잘못된 API 요청
+    "invalid_query_payload",       # JWT 페이로드 오류
+    "jwt_verification",            # JWT 검증 실패
+    "expired_access_key",          # API 키 만료
+    "no_authorization_i_p",        # 허용 안 된 IP
+    "out_of_scope",                # 허용 안 된 기능
+    "invalid_access_key",          # 잘못된 액세스 키
+    "thirdparty_agreement_required",  # 신규 코인 별도 동의 필요
+})
+_NON_RETRIABLE_SELL_ERRORS = frozenset({
+    "insufficient_funds_ask",
+    "under_min_total_ask",
+    "create_ask_error",
+    "validation_error",
+    "invalid_query_payload",
+    "jwt_verification",
+    "expired_access_key",
+    "no_authorization_i_p",
+    "out_of_scope",
+    "invalid_access_key",
+    "thirdparty_agreement_required",
+})
+
+
+def _build_auth_headers(payload: Dict[str, Any]) -> Dict[str, str]:
+    query = _unquote(_urlencode(payload, doseq=True))
+    query_hash = _hashlib.sha512(query.encode("utf-8")).hexdigest()
+    token = _jwt.encode(
+        {
+            "access_key": ACCESS,
+            "nonce": str(_uuid.uuid4()),
+            "query_hash": query_hash,
+            "query_hash_alg": "SHA512",
+        },
+        SECRET,
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _call_upbit_order(side: str, market: str, **payload: Any) -> Dict[str, Any]:
+    """
+    Upbit POST /v1/orders 직접 호출.
+    Returns dict:
+      ok: bool                — 2xx + uuid 포함이면 True
+      status: int | None      — HTTP status, 네트워크 예외 시 None
+      body: dict | str | None — 응답 본문(가능하면 dict, 아니면 raw text)
+      error_name: str | None  — Upbit 에러 name (예: insufficient_funds_bid)
+      error_message: str|None — Upbit 에러 message
+      exception: str | None   — 네트워크/파싱 예외 발생 시 클래스명+메시지
+      data: dict | None       — 성공 시 주문 정보 (uuid 포함)
+    """
+    data = {"market": market, "side": side, **payload}
+    headers = _build_auth_headers(data)
+
+    # 요청 로그(JWT 제외)
+    logger.info(f"[UPBIT-ORDER] → POST /v1/orders payload={data}")
+
+    try:
+        resp = _requests.post(
+            _UPBIT_ORDERS_URL, json=data, headers=headers, timeout=_UPBIT_HTTP_TIMEOUT
+        )
+    except Exception as e:
+        msg = f"{type(e).__name__}: {e}"
+        logger.error(f"[UPBIT-ORDER] ← network/raise exception: {msg}")
+        return {
+            "ok": False,
+            "status": None,
+            "body": None,
+            "error_name": "network_exception",
+            "error_message": msg,
+            "exception": msg,
+            "data": None,
+        }
+
+    status = resp.status_code
+    try:
+        body: Any = resp.json()
+    except Exception:
+        body = resp.text
+
+    logger.info(f"[UPBIT-ORDER] ← status={status} body={body!r}")
+
+    error_name = None
+    error_message = None
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict):
+            error_name = err.get("name")
+            error_message = err.get("message")
+
+    success = (
+        200 <= status < 300
+        and isinstance(body, dict)
+        and "error" not in body
+        and bool(body.get("uuid"))
+    )
+
+    return {
+        "ok": success,
+        "status": status,
+        "body": body,
+        "error_name": error_name,
+        "error_message": error_message,
+        "exception": None,
+        "data": body if success else None,
+    }
+
+
+def _upbit_buy_market(market: str, krw: int) -> Dict[str, Any]:
+    """시장가 매수(KRW 금액 기준). ord_type=price."""
+    return _call_upbit_order("bid", market, price=str(krw), ord_type="price")
+
+
+def _upbit_sell_market(market: str, volume: float) -> Dict[str, Any]:
+    """시장가 매도(수량 기준). ord_type=market."""
+    return _call_upbit_order("ask", market, volume=str(volume), ord_type="market")
+
+
 class UpbitTrader:
     """
     실거래 또는 테스트모드에서 가상거래를 수행하는 트레이더 클래스.
@@ -60,6 +204,9 @@ class UpbitTrader:
         self.risk_pct = risk_pct
         self.test_mode = test_mode
         self.upbit = None if test_mode else pyupbit.Upbit(ACCESS, SECRET)
+        # 마지막 LIVE 주문 실패의 정확한 사유(B안) — UI 노출용
+        self.last_buy_error: Optional[str] = None
+        self.last_sell_error: Optional[str] = None
 
         if test_mode and get_account(user_id) is None:
             create_or_init_account(user_id)
@@ -201,8 +348,10 @@ class UpbitTrader:
             logger.warning(f"[BUY] 주문 불가: 잔고={avail:.4f}")
             return {}
 
-        # 🔧 위험비율 적용 + 원 단위 내림
-        krw_to_use = math.floor(avail * self.risk_pct)
+        # 🔧 위험비율 적용 + 원 단위 내림 (수수료 차감 후에도 잔고 부족이 안 되도록
+        #    매수 수수료(MIN_FEE_RATIO)만큼 미리 깎는다 — risk_pct=1.0 전액 매수에서
+        #    Upbit `insufficient_funds_bid` 거부 방지)
+        krw_to_use = math.floor(avail * self.risk_pct / (1 + MIN_FEE_RATIO))
 
         if krw_to_use < 5000:
             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
@@ -274,7 +423,8 @@ class UpbitTrader:
                 logger.warning(f"[BUY-LIVE] attempt #{attempt} 활성 KRW 재조회 실패: {e}")
 
             if current_krw < krw_to_use:
-                adjusted = math.floor(current_krw * self.risk_pct)
+                # 수수료 차감 후에도 안전한 금액으로 재조정 (A안과 동일 공식)
+                adjusted = math.floor(current_krw * self.risk_pct / (1 + MIN_FEE_RATIO))
                 if adjusted < 5000:
                     last_err = (
                         f"활성 KRW 부족: 현재={current_krw:.0f} 요청={krw_to_use:.0f} "
@@ -291,61 +441,52 @@ class UpbitTrader:
                 )
                 krw_to_use = adjusted
 
-            try:
-                res = self.upbit.buy_market_order(ticker, krw_to_use)
-                # ✅ B14: type/repr 포함 상세 로깅
-                logger.info(
-                    f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} "
-                    f"raw response type={type(res).__name__} repr={res!r}"
-                )
+            # B안: pyupbit swallow 우회 — 직접 호출 helper 사용
+            call = _upbit_buy_market(ticker, krw_to_use)
+            logger.info(
+                f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} "
+                f"ok={call['ok']} status={call['status']} "
+                f"error_name={call['error_name']} error_message={call['error_message']}"
+            )
 
-                # 성공 케이스
-                if isinstance(res, dict) and "uuid" in res and "error" not in res:
-                    last_err = None
+            if call["ok"]:
+                res = call["data"]
+                last_err = None
+                break
+
+            # 명시적 사유로 last_err 채우기
+            if call["error_name"]:
+                last_err = (
+                    f"Upbit error [{call['error_name']}]: {call['error_message']}"
+                )
+                if call["error_name"] in _NON_RETRIABLE_BUY_ERRORS:
+                    logger.error(
+                        f"[BUY-LIVE] non-retriable error: {call['error_name']}"
+                    )
+                    non_retriable = True
                     break
-
-                # error 분기 — 비재시도 케이스 식별
-                if isinstance(res, dict) and "error" in res:
-                    err = res["error"]
-                    err_msg = err.get("message") if isinstance(err, dict) else str(err)
-                    last_err = f"Upbit error: {err_msg}"
-                    err_low = str(err_msg or "").lower()
-                    if (
-                        "insufficient" in err_low
-                        or "잔액" in str(err_msg)
-                        or "잔고" in str(err_msg)
-                        or "under_min_total" in err_low
-                        or "invalid" in err_low
-                    ):
-                        logger.error(f"[BUY-LIVE] non-retriable error: {err_msg}")
-                        non_retriable = True
-                        break
-                else:
-                    last_err = f"invalid response (type={type(res).__name__} repr={res!r})"
-
-                logger.warning(
-                    f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} failed → {last_err}"
+            elif call["exception"]:
+                last_err = f"exception: {call['exception']}"
+            else:
+                last_err = (
+                    f"invalid response (status={call['status']} "
+                    f"body={call['body']!r})"
                 )
-            except Exception as e:
-                last_err = f"exception: {e}"
-                logger.warning(
-                    f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} exception: {e}"
-                )
+
+            logger.warning(
+                f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} failed → {last_err}"
+            )
 
             # 마지막 시도가 아니면 백오프 후 재시도
             if attempt < LIVE_BUY_MAX_RETRIES:
                 _time.sleep(LIVE_BUY_BACKOFF_SECONDS[attempt - 1])
 
         # ✅ B12: 최종 실패 처리 — audit/orders/log 모두 기록
-        success = (
-            isinstance(res, dict)
-            and "uuid" in res
-            and "error" not in res
-            and res.get("uuid")
-        )
+        success = isinstance(res, dict) and bool(res.get("uuid"))
         if not success:
             err_summary = last_err or f"unknown (type={type(res).__name__} repr={res!r})"
             attempts_used = 1 if non_retriable else LIVE_BUY_MAX_RETRIES
+            self.last_buy_error = err_summary  # UI 노출용 (trading_control이 읽음)
             logger.error(
                 f"[BUY-LIVE] FINAL FAILURE after attempts={attempts_used} | last_err={err_summary}"
             )
@@ -399,6 +540,7 @@ class UpbitTrader:
             return {}
 
         # ✅ 성공 — 기존 흐름 진입
+        self.last_buy_error = None
         try:
             uuid = res.get("uuid")
             
@@ -539,27 +681,37 @@ class UpbitTrader:
 
         try:
             # 🟢 LIVE: 수량 기준 시장가 매도, 실제 avg_price/fee는 Reconciler에서
-            res = self.upbit.sell_market_order(ticker, qty)
-            logger.info(f"[SELL-LIVE] raw response: {res}") 
+            # B안: pyupbit swallow 우회 — 직접 호출 helper 사용
+            call = _upbit_sell_market(ticker, qty)
+            logger.info(
+                f"[SELL-LIVE] ok={call['ok']} status={call['status']} "
+                f"error_name={call['error_name']} error_message={call['error_message']}"
+            )
 
-            if not res or not isinstance(res, dict):
-                msg = f"[SELL-LIVE] invalid response from Upbit (res={res})"
-                logger.error(msg)
-                insert_log(self.user_id, "ERROR", f"❌ 업비트 시장가 매도 응답 비정상: {res}")
-                return {}
-            
-            if "error" in res:
-                err = res["error"]
-                err_msg = err.get("message") if isinstance(err, dict) else str(err)
-                logger.error(f"[SELL-LIVE] Upbit error response: {err}")
+            if not call["ok"]:
+                if call["error_name"]:
+                    err_summary = (
+                        f"Upbit error [{call['error_name']}]: {call['error_message']}"
+                    )
+                elif call["exception"]:
+                    err_summary = f"exception: {call['exception']}"
+                else:
+                    err_summary = (
+                        f"invalid response (status={call['status']} "
+                        f"body={call['body']!r})"
+                    )
+                self.last_sell_error = err_summary
+                logger.error(f"[SELL-LIVE] FAILURE → {err_summary}")
                 insert_log(
                     self.user_id,
                     "ERROR",
-                    f"❌ 업비트 시장가 매도 실패: {err_msg}",
+                    f"❌ 업비트 시장가 매도 실패: {err_summary}",
                 )
                 return {}
-            
-            uuid = (res or {}).get("uuid")
+
+            res = call["data"]
+            self.last_sell_error = None
+            uuid = res.get("uuid")
             if not uuid:
                 msg = f"[SELL-LIVE] no uuid in response: {res}"
                 logger.error(msg)
