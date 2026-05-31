@@ -45,6 +45,18 @@ def initialize_confirm():
     if engine_manager.is_running(user_id):
         engine_manager.stop_engine(user_id)
         insert_log(user_id, "INFO", "🛑 시스템 초기화로 엔진 종료됨")
+        # Critical 신규: 시스템 초기화로 인한 엔진 종료 알림
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            _notify(
+                LEVEL_CRITICAL,
+                f"💥 [엔진 종료 — 시스템 초기화] {user_id}",
+                "사용자가 '시스템 초기화' 실행 → 엔진 강제 종료",
+                dedupe_key=f"engine_reset:{user_id}",
+                dedupe_ttl=30,
+            )
+        except Exception:
+            pass
 
         # ✅ 엔진이 실제로 종료될 때까지 폴링 (최대 5초)
         max_wait = 5.0
