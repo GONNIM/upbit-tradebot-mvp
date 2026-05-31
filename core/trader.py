@@ -490,6 +490,31 @@ class UpbitTrader:
             logger.error(
                 f"[BUY-LIVE] FINAL FAILURE after attempts={attempts_used} | last_err={err_summary}"
             )
+            # Critical #3 + #6 알림: 매수 실패 + API 인증 실패 분리
+            try:
+                from services.notifier import send as _notify, LEVEL_CRITICAL
+                _notify(
+                    LEVEL_CRITICAL,
+                    f"❌ [LIVE BUY 실패] {ticker}",
+                    f"attempts={attempts_used} non_retriable={non_retriable}\n{err_summary}",
+                    dedupe_key=f"buy_fail:{ticker}:{err_summary}",
+                    dedupe_ttl=60,
+                )
+                _low = (err_summary or "").lower()
+                if any(k in _low for k in (
+                    "jwt_verification", "expired_access_key",
+                    "no_authorization_i_p", "invalid_access_key",
+                    "invalid_query_payload",
+                )):
+                    _notify(
+                        LEVEL_CRITICAL,
+                        "🔑 Upbit API 인증 실패",
+                        err_summary,
+                        dedupe_key=f"api_auth:{err_summary}",
+                        dedupe_ttl=600,
+                    )
+            except Exception:
+                pass
             insert_log(
                 self.user_id,
                 "ERROR",
@@ -589,6 +614,19 @@ class UpbitTrader:
                     f"(예상가≈{price:,.2f} KRW, 사용 KRW ≈ {krw_to_use:,.0f}, uuid={uuid})"
                 ),
             )
+
+            # Critical #1 알림: LIVE BUY 요청 전송 성공 (체결은 reconciler가 확정)
+            try:
+                from services.notifier import send as _notify, LEVEL_CRITICAL
+                _notify(
+                    LEVEL_CRITICAL,
+                    f"🟢 [LIVE BUY 요청] {ticker}",
+                    f"예상가≈{price:,.2f} KRW\n사용 KRW≈{krw_to_use:,.0f}\nuuid={uuid}",
+                    dedupe_key=f"buy_req:{uuid}",
+                    dedupe_ttl=60,
+                )
+            except Exception:
+                pass
 
             # ✅ OrderReconciler에 추적 등록
             try:
@@ -707,6 +745,31 @@ class UpbitTrader:
                     "ERROR",
                     f"❌ 업비트 시장가 매도 실패: {err_summary}",
                 )
+                # Critical #3 + #6 알림: 매도 실패 + API 인증 실패 분리
+                try:
+                    from services.notifier import send as _notify, LEVEL_CRITICAL
+                    _notify(
+                        LEVEL_CRITICAL,
+                        f"❌ [LIVE SELL 실패] {ticker}",
+                        f"qty≈{qty:.6f}\n{err_summary}",
+                        dedupe_key=f"sell_fail:{ticker}:{err_summary}",
+                        dedupe_ttl=60,
+                    )
+                    _low = (err_summary or "").lower()
+                    if any(k in _low for k in (
+                        "jwt_verification", "expired_access_key",
+                        "no_authorization_i_p", "invalid_access_key",
+                        "invalid_query_payload",
+                    )):
+                        _notify(
+                            LEVEL_CRITICAL,
+                            "🔑 Upbit API 인증 실패",
+                            err_summary,
+                            dedupe_key=f"api_auth:{err_summary}",
+                            dedupe_ttl=600,
+                        )
+                except Exception:
+                    pass
                 return {}
 
             res = call["data"]
@@ -764,6 +827,19 @@ class UpbitTrader:
                     f"(예상가≈{price:,.2f} KRW, 수량≈{qty:.6f}, uuid={uuid})"
                 ),
             )
+
+            # Critical #2 알림: LIVE SELL 요청 전송 성공 (체결은 reconciler가 확정)
+            try:
+                from services.notifier import send as _notify, LEVEL_CRITICAL
+                _notify(
+                    LEVEL_CRITICAL,
+                    f"🔴 [LIVE SELL 요청] {ticker}",
+                    f"예상가≈{price:,.2f} KRW\n수량≈{qty:.6f}\nuuid={uuid}",
+                    dedupe_key=f"sell_req:{uuid}",
+                    dedupe_ttl=60,
+                )
+            except Exception:
+                pass
 
             # ✅ OrderReconciler에 추적 등록
             try:

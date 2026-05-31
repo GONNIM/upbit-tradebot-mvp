@@ -404,6 +404,19 @@ if not engine_status_thread and engine_status_db:
                     f"[AUTO-RESUME] LIVE 자동 재개 불가 (verified={_upbit_ok}, capital_set={_capital_ok}) "
                     f"→ DB 정정"
                 )
+                # Critical #5 알림: AUTO-RESUME 실패 (수동 재시작 필요)
+                try:
+                    from services.notifier import send as _notify, LEVEL_CRITICAL
+                    _notify(
+                        LEVEL_CRITICAL,
+                        f"⚠️ [AUTO-RESUME 실패] {user_id}",
+                        f"verified={_upbit_ok} capital_set={_capital_ok}\n"
+                        f"dashboard에서 수동 재시작 필요",
+                        dedupe_key=f"auto_resume_fail:{user_id}",
+                        dedupe_ttl=600,
+                    )
+                except Exception:
+                    pass
         elif _last_mode == "TEST":
             logger.warning(f"[AUTO-RESUME] TEST 자동 재개 시도: {user_id}")
             if engine_manager.start_engine(user_id, test_mode=True):
@@ -438,7 +451,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.28.1455")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.05.31.1426")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":

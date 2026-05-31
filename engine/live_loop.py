@@ -1120,6 +1120,19 @@ def run_live_loop(
                         if not retry_success:
                             logger.error(f"❌ [RETRY] 모든 재조회 실패 ({len(retry_waits)}회) → 봉 스킵 | closed_ts={format_kst(closed_ts)}")
                             logger.error(f"💡 [FALLBACK] Upbit REST API 지연 ({sum(retry_waits)}초 대기했으나 데이터 미수신) → 다음 봉 대기")
+                            # 중요 #10 알림: REST 연속 실패 (dedupe로 봉마다 스팸 방지 — 5분 1회)
+                            try:
+                                from services.notifier import send as _notify, LEVEL_WARNING
+                                _notify(
+                                    LEVEL_WARNING,
+                                    "⚠️ [REST API 연속 실패]",
+                                    f"closed_ts={format_kst(closed_ts)}\n"
+                                    f"{len(retry_waits)}회 시도, 총 {sum(retry_waits)}초 대기 — 봉 스킵",
+                                    dedupe_key="rest_retry_exhausted",
+                                    dedupe_ttl=300,
+                                )
+                            except Exception:
+                                pass
 
                 time.sleep(1)  # 1초마다 폴링
 

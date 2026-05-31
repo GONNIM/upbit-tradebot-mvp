@@ -257,6 +257,18 @@ class IncrementalMACDStrategy:
                 f"🔔 MACD Buy Signal | macd={macd:.6f} signal={signal:.6f} "
                 f"threshold={self.macd_threshold:.6f}"
             )
+            # 중요 #9 알림: Golden Cross 신호 (매수 시도 여부와 별개로 신호 발생만 통지)
+            try:
+                from services.notifier import send as _notify, LEVEL_WARNING
+                _notify(
+                    LEVEL_WARNING,
+                    f"🔔 [MACD Golden Cross] {self.ticker}",
+                    f"macd={macd:.6f} signal={signal:.6f} threshold={self.macd_threshold:.6f}",
+                    dedupe_key=f"macd_gc:{self.ticker}",
+                    dedupe_ttl=180,
+                )
+            except Exception:
+                pass
             # ✅ 활성화된 조건들을 조합하여 reason 생성
             active_conditions = []
             if self.enable_golden_cross:
@@ -403,6 +415,18 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🔻 MACD Dead Cross | macd={macd:.6f} signal={signal:.6f}"
                     )
+                    # 중요 #9 알림: Dead Cross 신호
+                    try:
+                        from services.notifier import send as _notify, LEVEL_WARNING
+                        _notify(
+                            LEVEL_WARNING,
+                            f"🔻 [MACD Dead Cross] {self.ticker}",
+                            f"macd={macd:.6f} signal={signal:.6f}",
+                            dedupe_key=f"macd_dc:{self.ticker}",
+                            dedupe_ttl=180,
+                        )
+                    except Exception:
+                        pass
                     self.last_sell_reason = "dead_cross".upper()  # ✅ 조건 키를 대문자로
                     return Action.SELL
             else:
@@ -781,6 +805,18 @@ class IncrementalEMAStrategy:
             logger.info(
                 f"🔔 EMA Buy Signal | fast={ema_fast:.2f} slow={ema_slow:.2f}"
             )
+            # 중요 #9 알림: EMA Golden Cross 신호
+            try:
+                from services.notifier import send as _notify, LEVEL_WARNING
+                _notify(
+                    LEVEL_WARNING,
+                    f"🔔 [EMA Golden Cross] {self.ticker}",
+                    f"ema_fast={ema_fast:.2f} ema_slow={ema_slow:.2f}",
+                    dedupe_key=f"ema_gc:{self.ticker}",
+                    dedupe_ttl=180,
+                )
+            except Exception:
+                pass
             # ✅ 활성화된 조건들을 조합하여 reason 생성
             active_conditions = []
             if self.enable_ema_gc:
