@@ -240,12 +240,11 @@ def save_conditions():
         conditions["sell"]["stale_hours"] = st.session_state.get("stale_hours", 1.0)
         conditions["sell"]["stale_threshold_pct"] = st.session_state.get("stale_threshold_pct", 0.01)
 
-    # ✅ TP/SL 파라미터 추가 저장 (활성화 시)
-    if st.session_state.get("stop_loss", False):
-        conditions["sell"]["stop_loss_pct"] = st.session_state.get("stop_loss_pct", 1.0)
-
-    if st.session_state.get("take_profit", False):
-        conditions["sell"]["take_profit_pct"] = st.session_state.get("take_profit_pct", 3.0)
+    # ✅ TP/SL 파라미터 추가 저장 (토글 무관 항상 저장)
+    # Why: 입력 필드가 "자주 변경하는 설정"에서 항상 노출되며, TS Only 설정에서도
+    #      Trailing Stop 활성화 임계값으로 TP 값을 참조하므로 토글 OFF에도 값 보존 필요
+    conditions["sell"]["stop_loss_pct"] = st.session_state.get("stop_loss_pct", 1.0)
+    conditions["sell"]["take_profit_pct"] = st.session_state.get("take_profit_pct", 3.0)
 
     if st.session_state.get("trailing_stop", False):
         conditions["sell"]["trailing_stop_threshold_pct"] = st.session_state.get("trailing_stop_threshold_pct", 10.0)
@@ -272,19 +271,17 @@ def save_conditions():
             params_obj.ticker = new_ticker
             ticker_changed = True
 
-        # Stop Loss 변경 감지
-        if st.session_state.get("stop_loss", False):
-            new_sl_pct = st.session_state.get("stop_loss_pct", 1.0) / 100.0
-            if abs(params_obj.stop_loss - new_sl_pct) > 0.0001:
-                params_obj.stop_loss = new_sl_pct
-                sl_changed = True
+        # Stop Loss 변경 감지 (토글 무관)
+        new_sl_pct = st.session_state.get("stop_loss_pct", 1.0) / 100.0
+        if abs(params_obj.stop_loss - new_sl_pct) > 0.0001:
+            params_obj.stop_loss = new_sl_pct
+            sl_changed = True
 
-        # Take Profit 변경 감지
-        if st.session_state.get("take_profit", False):
-            new_tp_pct = st.session_state.get("take_profit_pct", 3.0) / 100.0
-            if abs(params_obj.take_profit - new_tp_pct) > 0.0001:
-                params_obj.take_profit = new_tp_pct
-                tp_changed = True
+        # Take Profit 변경 감지 (토글 무관)
+        new_tp_pct = st.session_state.get("take_profit_pct", 3.0) / 100.0
+        if abs(params_obj.take_profit - new_tp_pct) > 0.0001:
+            params_obj.take_profit = new_tp_pct
+            tp_changed = True
 
         # 변경사항이 있으면 params 파일 저장
         if ticker_changed or tp_changed or sl_changed:
