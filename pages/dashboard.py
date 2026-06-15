@@ -451,7 +451,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.15.2007")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.15.2020")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -945,9 +945,9 @@ if sell_logs:
 
 info_logs = fetch_logs(user_id, level="INFO", limit=200)
 if info_logs:
-    st.subheader("🚨 상태 로그")
+    st.subheader("🚨 상태/경고/에러 로그")
 
-    show_logs = st.toggle("🚨 상태 로그 보기", value=False)
+    show_logs = st.toggle("🚨 상태/경고/에러 로그 보기", value=False)
     if show_logs:
         df_info = pd.DataFrame(info_logs, columns=["시간", "레벨", "메시지"])
         df_info["시간"] = pd.to_datetime(df_info["시간"]).dt.strftime(

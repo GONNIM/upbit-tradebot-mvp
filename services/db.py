@@ -265,9 +265,7 @@ def fetch_logs(user_id, level="LOG", limit=20):
                 SELECT timestamp, level, message
                 FROM logs
                 WHERE user_id = ?
-                  AND (
-                      (level = 'INFO' OR level = 'BUY' OR level = 'SELL')
-                  )
+                  AND level IN ('INFO', 'BUY', 'SELL', 'WARNING', 'ERROR')
                 ORDER BY id DESC
                 LIMIT ?
                 """,

@@ -710,12 +710,35 @@ class UpbitTrader:
                 )
             except Exception:
                 pass
+            insert_log(
+                self.user_id,
+                "ERROR",
+                f"❌ 고정가 매수 거부 ({ticker}): {err}",
+            )
             return {}
 
         # KRW 잔고 + 금액 계산 (buy_market 과 동일 공식)
         avail = self._krw_balance()
         if avail <= 0:
-            logger.warning("[BUY-LIMIT] 잔고 0 — 주문 불가")
+            err = "활성 KRW 잔고 0 — 고정가 매수 불가"
+            logger.warning(f"[BUY-LIMIT] {err}")
+            self.last_buy_error = err
+            try:
+                from services.notifier import send as _notify, LEVEL_WARNING
+                _notify(
+                    LEVEL_WARNING,
+                    f"❌ [LIVE 고정가 매수 잔고 부족] {ticker}",
+                    "가용 KRW=0\n주문 불가",
+                    dedupe_key=f"fixed_buy_balance_zero:{ticker}",
+                    dedupe_ttl=60,
+                )
+            except Exception:
+                pass
+            insert_log(
+                self.user_id,
+                "WARNING",
+                f"❌ 고정가 매수 잔고 부족 ({ticker}): 가용 KRW=0",
+            )
             return {}
 
         krw_to_use = math.floor(avail * self.risk_pct / (1 + MIN_FEE_RATIO))
@@ -734,6 +757,11 @@ class UpbitTrader:
                 )
             except Exception:
                 pass
+            insert_log(
+                self.user_id,
+                "WARNING",
+                f"❌ 고정가 매수 잔고 부족 ({ticker}): {err}",
+            )
             return {}
 
         qty = round(krw_to_use / (rounded_price * (1 + MIN_FEE_RATIO)), 8)
