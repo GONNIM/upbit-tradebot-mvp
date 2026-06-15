@@ -45,6 +45,8 @@ class OrderReconciler:
         """
         주문 추적 큐에 추가 (체결 완료 시 audit_trades 기록용 meta 포함)
         실거래 주문은 LIVE에서만 발생하므로 _live_user_ids에 등록.
+
+        ✅ enqueued_at 저장: 고정가 매수(LIMIT) 미체결 timeout 계산용.
         """
         if not uuid:
             return
@@ -54,7 +56,8 @@ class OrderReconciler:
                 "ticker": ticker,
                 "side": side,
                 "last": None,
-                "meta": meta or {}
+                "meta": meta or {},
+                "enqueued_at": time.time(),  # ✅ LIMIT timeout 기준 시각
             }
             self._live_user_ids.add(user_id)  # 실거래 발생 = LIVE 사용자
         logger.info(f"[OR] enqueued: {uuid} side={side} {ticker}")
@@ -99,7 +102,8 @@ class OrderReconciler:
                         "ticker": r["ticker"],
                         "side": r["side"],
                         "last": None,
-                        "meta": meta_dict  # ✅ 전략 컨텍스트 복구
+                        "meta": meta_dict,  # ✅ 전략 컨텍스트 복구
+                        "enqueued_at": time.time(),  # ✅ 복구 시점부터 timeout 시작(보수적 fallback)
                     }
                     # 미체결 주문이 있다는 것은 LIVE 거래 = LIVE 사용자
                     self._live_user_ids.add(user_id)
@@ -181,6 +185,8 @@ class OrderReconciler:
                 fee=paid_fee,
                 state=db_state
             )
+            # ✅ 고정가 매수 timeout 체크 — 봉 간격 초과 미체결 자동 cancel
+            self._maybe_cancel_fixed_price_buy(uuid)
             return
 
         # 🔹 최종 상태
@@ -301,6 +307,76 @@ class OrderReconciler:
             update_position_from_balances(user_id, ticker, balances)
         except Exception as e:
             logger.error(f"[OR] finalize failed uuid={uuid}: {e}")
+
+    def _maybe_cancel_fixed_price_buy(self, uuid: str):
+        """
+        고정가 매수(LIMIT) 미체결 자동 취소.
+
+        - meta.is_fixed_price_buy=True 인 주문만 대상.
+        - meta.interval_sec(기본 60s) 의 (interval_sec - 5)초 경과 시 cancel.
+          → 다음 봉 시작 직전 타이밍에 미체결 정리.
+        - cancel 후 polling 이 'cancel' 상태를 받아 _finalize_order 로 정상 처리.
+        """
+        with self._lock:
+            info = self._pending.get(uuid)
+        if not info:
+            return
+
+        meta = info.get("meta") or {}
+        if not meta.get("is_fixed_price_buy"):
+            return
+
+        interval_sec = int(meta.get("interval_sec", 60) or 60)
+        # 다음 봉 시작 직전 (최소 5초 보장)
+        timeout_sec = max(5, interval_sec - 5)
+        enqueued_at = float(info.get("enqueued_at") or time.time())
+        elapsed = time.time() - enqueued_at
+
+        if elapsed < timeout_sec:
+            return
+
+        ticker = info.get("ticker")
+        user_id = info.get("user_id")
+        logger.warning(
+            f"⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid={uuid} "
+            f"elapsed={elapsed:.1f}s timeout={timeout_sec}s ticker={ticker}"
+        )
+
+        try:
+            cancel_resp = self.upbit.cancel_order(uuid)
+            logger.info(f"[OR] cancel_order resp uuid={uuid}: {cancel_resp}")
+        except Exception as e:
+            logger.error(f"[OR] cancel_order 실패 uuid={uuid}: {e}")
+            return
+
+        # 중요 알림: 미체결 취소
+        try:
+            from services.notifier import send as _notify, LEVEL_WARNING
+            _notify(
+                LEVEL_WARNING,
+                f"⏱ [LIVE 고정가 매수 미체결 취소] {ticker}",
+                (
+                    f"지정가={meta.get('limit_price', 'n/a')}\n"
+                    f"elapsed={elapsed:.1f}s\n"
+                    f"uuid={uuid}\n"
+                    f"→ 다음 봉 시그널 재평가 예정"
+                ),
+                dedupe_key=f"fixed_buy_timeout:{uuid}",
+                dedupe_ttl=60,
+            )
+        except Exception:
+            pass
+
+        # 사용자 로그
+        try:
+            from services.db import insert_log
+            insert_log(
+                user_id,
+                "INFO",
+                f"⏱ 고정가 매수 미체결 취소 ({ticker}): elapsed={elapsed:.1f}s uuid={uuid}",
+            )
+        except Exception:
+            pass
 
     def _periodic_balance_sync(self):
         """

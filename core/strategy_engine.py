@@ -81,6 +81,11 @@ class StrategyEngine:
         # ✅ Issue #10: 스레드 락 (audit 로깅 ~ execution 원자적 보장)
         self._execution_lock = threading.Lock()
 
+        # ✅ 고정가 매수(Limit) 미체결 추적 — 봉 경계 통과 시 pending 자동 해제용.
+        # Reconciler가 봉 간격 초과 미체결을 cancel 처리하므로 다음 봉에서 풀어준다.
+        self._pending_buy_uuid: Optional[str] = None
+        self._pending_buy_bar: Optional[int] = None
+
     def is_new_bar(self, bar: Bar) -> bool:
         """
         중복 봉 방지
@@ -92,6 +97,31 @@ class StrategyEngine:
             bool: 새 봉이면 True
         """
         return bar.ts != self.last_bar_ts
+
+    def _maybe_release_limit_pending(self):
+        """
+        고정가 매수(Limit) 미체결 timeout 자동 해제.
+
+        - buy_limit 성공 시 _pending_buy_uuid/_pending_buy_bar 저장.
+        - 새 봉 진입(bar_count 증가)에서 시작 봉을 넘긴 경우, Reconciler가
+          봉 마감 시점에 cancel 처리했을 것이므로 pending_order=False 로 풀고
+          다음 봉 시그널 재평가를 허용한다.
+        - 봉 같은 사이클 안에서는 풀지 않는다(체결/취소 polling 진행 중).
+        """
+        if self._pending_buy_uuid is None or self._pending_buy_bar is None:
+            return
+        if self.bar_count > self._pending_buy_bar:
+            logger.info(
+                f"🎯 LIMIT BUY pending 자동 해제 | uuid={self._pending_buy_uuid} "
+                f"start_bar={self._pending_buy_bar} now_bar={self.bar_count} "
+                f"(Reconciler가 봉 마감 시점 cancel 처리한 것으로 간주)"
+            )
+            try:
+                self.position.set_pending(False)
+            except Exception as e:
+                logger.warning(f"[ENGINE] LIMIT pending 해제 실패: {e}")
+            self._pending_buy_uuid = None
+            self._pending_buy_bar = None
 
     def _reconcile_position_with_wallet(self) -> None:
         """
@@ -222,6 +252,9 @@ class StrategyEngine:
         self.last_bar_ts = bar.ts
         self.bar_count += 1
 
+        # ✅ 봉 경계 통과 시 고정가 매수 미체결 pending 자동 해제 (Reconciler가 cancel 처리)
+        self._maybe_release_limit_pending()
+
         # 2. 지표 증분 갱신 ★ 핵심: 전체 재계산 없음
         self.indicators.update_incremental(bar.close)
 
@@ -323,6 +356,8 @@ class StrategyEngine:
             self.buffer.append(bar)
             self.last_bar_ts = bar.ts
             self.bar_count += 1
+            # ✅ 봉 경계 통과 시 고정가 매수 미체결 pending 자동 해제 (Reconciler가 cancel 처리)
+            self._maybe_release_limit_pending()
         else:
             logger.info(f"[BACKFILL] 버퍼 추가 스킵 (재평가 모드) | ts={bar.ts} | close={bar.close:.0f}")
 
@@ -480,14 +515,47 @@ class StrategyEngine:
             "ema_slow": indicators.get("ema_slow"),
         }
 
-        result = self.trader.buy_market(
-            bar.close,
-            self.ticker,
-            ts=bar.ts,
-            meta=meta
+        # ✅ 고정가 매수 분기: LIVE 모드 + buy_conditions.fixed_price_buy_enabled
+        _buy_cond = getattr(self.strategy, "buy_conditions", None) or {}
+        fixed_price_mode = (
+            (not self.trader.test_mode)
+            and bool(_buy_cond.get("fixed_price_buy_enabled", False))
         )
 
+        if fixed_price_mode:
+            meta["fixed_price_buy"] = True
+            logger.info(
+                f"🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | "
+                f"close={bar.close} ticker={self.ticker}"
+            )
+            result = self.trader.buy_limit(
+                bar.close,
+                self.ticker,
+                ts=bar.ts,
+                meta=meta,
+                interval_sec=self.interval_sec,
+            )
+        else:
+            result = self.trader.buy_market(
+                bar.close,
+                self.ticker,
+                ts=bar.ts,
+                meta=meta
+            )
+
         if result:
+            # ✅ LIMIT 미체결 — position.open_position 보류, pending_order=True 유지.
+            # 봉 마감 시 Reconciler가 cancel → 다음 봉 진입 시 _maybe_release_limit_pending 에서 해제.
+            if result.get("limit_pending"):
+                self._pending_buy_uuid = result.get("uuid")
+                self._pending_buy_bar = self.bar_count
+                logger.info(
+                    f"🎯 LIMIT BUY 등록(체결 대기) | price={result['price']:.4f} "
+                    f"uuid={result.get('uuid')} bar={self.bar_count}"
+                )
+                # 이벤트 큐 BUY 전송은 reconciler 가 체결 확정 시점에 별도 처리.
+                return
+
             self.position.open_position(
                 result["qty"],
                 result["price"],

@@ -191,6 +191,22 @@ def _upbit_sell_market(market: str, volume: float) -> Dict[str, Any]:
     return _call_upbit_order("ask", market, volume=str(volume), ord_type="market")
 
 
+def _upbit_buy_limit(market: str, price: float, volume: float) -> Dict[str, Any]:
+    """지정가 매수. ord_type=limit, price + volume 모두 필요."""
+    return _call_upbit_order(
+        "bid", market, price=str(price), volume=str(volume), ord_type="limit"
+    )
+
+
+def _round_price_to_tick(price: float) -> float:
+    """
+    Upbit KRW 마켓 호가 단위에 맞춰 가장 가까운 tick으로 라운딩.
+    pyupbit.get_tick_size(method="round") 사용. 봉 종가가 부동소수점 잔여
+    오차로 invalid_price 거부되는 경우를 사전 차단한다.
+    """
+    return pyupbit.get_tick_size(price, method="round")
+
+
 class UpbitTrader:
     """
     실거래 또는 테스트모드에서 가상거래를 수행하는 트레이더 클래스.
@@ -647,6 +663,217 @@ class UpbitTrader:
         except Exception as e:
             logger.error(f"[실거래] 매수 주문 실패: {e}")
             insert_log(self.user_id, "ERROR", f"❌ 업비트 시장가 매수 예외: {e}")
+            return {}
+
+    def buy_limit(
+        self,
+        price: float,
+        ticker: str,
+        ts=None,
+        meta: Optional[Dict[str, Any]] = None,
+        interval_sec: int = 60,
+    ) -> dict:
+        """
+        고정가 매수 — 봉 종가를 가격으로 지정한 Upbit 지정가(Limit Order) 매수.
+
+        - LIVE 모드 전용. test_mode=True 면 buy_market으로 폴백.
+        - 재시도 없음(단일 시도). 미체결 시 OrderReconciler가 봉 간격 초과분을
+          취소하고, 다음 봉에서 시그널 재평가가 자연스러운 재시도 역할을 한다.
+        - 반환 dict에 `limit_pending=True` 포함 → 호출자(strategy_engine)는
+          체결 확정 전이므로 position.open_position 을 호출하지 않고
+          pending_order=True 만 유지한다.
+        """
+        # ✅ 사용자 결정사항: 고정가 매수는 LIVE 모드 한정. TEST 모드는 시장가로 폴백.
+        if self.test_mode:
+            logger.info("[BUY-LIMIT] TEST 모드 — buy_market으로 폴백")
+            return self.buy_market(price, ticker, ts=ts, meta=meta)
+
+        # 호가 라운딩 + sanity check
+        try:
+            rounded_price = float(_round_price_to_tick(float(price)))
+        except Exception as e:
+            logger.error(f"[BUY-LIMIT] 호가 라운딩 실패: {e}")
+            return {}
+
+        if rounded_price <= 0 or abs(rounded_price - float(price)) / max(float(price), 1e-9) > 0.005:
+            err = f"호가 라운딩 비정상: 원가={price} 조정가={rounded_price}"
+            logger.error(f"[BUY-LIMIT] {err}")
+            self.last_buy_error = err
+            try:
+                from services.notifier import send as _notify, LEVEL_CRITICAL
+                _notify(
+                    LEVEL_CRITICAL,
+                    f"❌ [LIVE 고정가 매수 거부] {ticker}",
+                    f"호가 라운딩 비정상\n원가={price}\n조정가={rounded_price}",
+                    dedupe_key=f"fixed_buy_tick:{ticker}",
+                    dedupe_ttl=60,
+                )
+            except Exception:
+                pass
+            return {}
+
+        # KRW 잔고 + 금액 계산 (buy_market 과 동일 공식)
+        avail = self._krw_balance()
+        if avail <= 0:
+            logger.warning("[BUY-LIMIT] 잔고 0 — 주문 불가")
+            return {}
+
+        krw_to_use = math.floor(avail * self.risk_pct / (1 + MIN_FEE_RATIO))
+        if krw_to_use < 5000:
+            err = f"활성 KRW 부족: 가용={avail:.0f} 계산={krw_to_use:.0f} (최소 5,000 미만)"
+            logger.warning(f"[BUY-LIMIT] {err}")
+            self.last_buy_error = err
+            try:
+                from services.notifier import send as _notify, LEVEL_WARNING
+                _notify(
+                    LEVEL_WARNING,
+                    f"❌ [LIVE 고정가 매수 잔고 부족] {ticker}",
+                    f"가용 KRW={avail:.0f}\n필요≥5,000",
+                    dedupe_key=f"fixed_buy_balance:{ticker}",
+                    dedupe_ttl=60,
+                )
+            except Exception:
+                pass
+            return {}
+
+        qty = round(krw_to_use / (rounded_price * (1 + MIN_FEE_RATIO)), 8)
+        if qty <= 0:
+            logger.warning(f"[BUY-LIMIT] 계산된 수량 0 — price={rounded_price} krw={krw_to_use}")
+            return {}
+
+        logger.info(
+            f"[BUY-LIMIT] plan close={price} rounded={rounded_price} "
+            f"krw_to_use={krw_to_use} qty={qty}"
+        )
+
+        # 지정가 주문 호출 (재시도 없음)
+        call = _upbit_buy_limit(ticker, rounded_price, qty)
+        logger.info(
+            f"[BUY-LIMIT] ok={call['ok']} status={call['status']} "
+            f"error_name={call['error_name']} error_message={call['error_message']}"
+        )
+
+        if not call["ok"]:
+            if call["error_name"]:
+                err_summary = (
+                    f"Upbit error [{call['error_name']}]: {call['error_message']}"
+                )
+            elif call["exception"]:
+                err_summary = f"exception: {call['exception']}"
+            else:
+                err_summary = (
+                    f"invalid response (status={call['status']} body={call['body']!r})"
+                )
+            self.last_buy_error = err_summary
+            logger.error(f"[BUY-LIMIT] FAILURE → {err_summary}")
+            try:
+                from services.notifier import send as _notify, LEVEL_CRITICAL
+                _notify(
+                    LEVEL_CRITICAL,
+                    f"❌ [LIVE 고정가 매수 거부] {ticker}",
+                    f"price={rounded_price}\nqty={qty}\n{err_summary}",
+                    dedupe_key=f"fixed_buy_fail:{ticker}:{err_summary[:80]}",
+                    dedupe_ttl=60,
+                )
+            except Exception:
+                pass
+            insert_log(
+                self.user_id,
+                "ERROR",
+                f"❌ 고정가 매수 실패 ({ticker}): {err_summary}",
+            )
+            try:
+                insert_order(
+                    self.user_id, ticker, "BUY",
+                    rounded_price, 0.0, "FAILED",
+                    state="FAILED",
+                    requested_at=now_kst(),
+                    entry_bar=(meta or {}).get("bar"),
+                )
+            except Exception as e:
+                logger.warning(f"[BUY-LIMIT] insert_order(FAILED) 실패: {e}")
+            return {}
+
+        # ✅ 성공 — 주문 등록 + Reconciler enqueue + 알림
+        self.last_buy_error = None
+        res = call["data"]
+        try:
+            uuid = res.get("uuid")
+
+            # ✅ meta에 고정가 매수 표식 + 봉 간격 추가 (Reconciler timeout 계산용)
+            enriched_meta = {
+                **(meta or {}),
+                "is_fixed_price_buy": True,
+                "interval_sec": int(interval_sec or 60),
+                "limit_price": rounded_price,
+            }
+            import json as _local_json
+            meta_json = _local_json.dumps(enriched_meta)
+
+            insert_order(
+                self.user_id, ticker, "BUY",
+                rounded_price, 0, "requested",
+                provider_uuid=uuid,
+                state="REQUESTED",
+                requested_at=now_kst(),
+                entry_bar=enriched_meta.get("bar"),
+                meta=meta_json,
+            )
+
+            insert_log(
+                self.user_id,
+                "INFO",
+                (
+                    f"🎯 [LIVE 고정가] 지정가 매수 요청: {ticker} "
+                    f"price={rounded_price} qty={qty} uuid={uuid}"
+                ),
+            )
+
+            # 중요 알림: 고정가 매수 주문 등록
+            try:
+                from services.notifier import send as _notify, LEVEL_CRITICAL
+                _notify(
+                    LEVEL_CRITICAL,
+                    f"🎯 [LIVE 고정가 매수 요청] {ticker}",
+                    (
+                        f"지정가={rounded_price:,.4f} KRW\n"
+                        f"수량≈{qty}\n"
+                        f"timeout=다음 봉(~{interval_sec}s)\n"
+                        f"uuid={uuid}"
+                    ),
+                    dedupe_key=f"fixed_buy_req:{uuid}",
+                    dedupe_ttl=60,
+                )
+            except Exception:
+                pass
+
+            # OrderReconciler 추적 큐에 등록 (체결 polling + timeout cancel)
+            try:
+                from engine.reconciler_singleton import get_reconciler
+                get_reconciler().enqueue(
+                    uuid,
+                    user_id=self.user_id,
+                    ticker=ticker,
+                    side="BUY",
+                    meta=enriched_meta,
+                )
+            except Exception as e:
+                logger.error(f"[BUY-LIMIT] reconciler enqueue 실패: {e}")
+
+            return {
+                "time": ts,
+                "side": "BUY",
+                "qty": 0.0,
+                "price": float(rounded_price),
+                "uuid": uuid,
+                "raw": res,
+                "used_krw": float(krw_to_use),
+                "ord_type": "limit",
+                "limit_pending": True,  # ✅ 체결 확정 전 표식 — strategy_engine 이 open_position 호출 보류
+            }
+        except Exception as e:
+            logger.error(f"[BUY-LIMIT] 주문 후처리 실패: {e}")
+            insert_log(self.user_id, "ERROR", f"❌ 고정가 매수 후처리 예외: {e}")
             return {}
 
     def sell_market(self, qty: float, ticker: str, price: float, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:

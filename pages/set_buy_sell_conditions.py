@@ -103,7 +103,9 @@ MACD_BUY_STRATEGY = {
     "above_ma60": "🧮  Above MA60",
 }
 
-MACD_BUY_FILTERS = {}  # MACD는 매수 필터 없음
+MACD_BUY_FILTERS = {
+    "fixed_price_buy_enabled": "🎯 고정가 매수 (LIVE 전용 · 봉 종가 지정가 주문)",
+}
 
 MACD_SELL_STRATEGY = {
     "stop_loss": "🔻  Stop Loss",
@@ -125,6 +127,7 @@ EMA_BUY_STRATEGY = {
 
 EMA_BUY_FILTERS = {
     "surge_filter_enabled": "🚫 급등 차단 필터 (Slow EMA 대비 급등 시 매수 차단)",
+    "fixed_price_buy_enabled": "🎯 고정가 매수 (LIVE 전용 · 봉 종가 지정가 주문)",
 }
 
 EMA_SELL_STRATEGY = {
@@ -533,6 +536,22 @@ if len(BUY_FILTERS) > 0:
             st.info(
                 f"🚫 현재 설정: Slow EMA 대비 **{surge_threshold_pct:.1f}%** 이상 상승 시 매수 차단"
             )
+
+        # ✅ Fixed Price Buy 안내 UI (전략 공통 · 활성화 시)
+        if st.session_state.get("fixed_price_buy_enabled", False):
+            st.markdown("#### ⚙️ 고정가 매수 동작 안내")
+            if mode != "LIVE":
+                st.warning(
+                    f"⚠️ 현재 모드: **{mode}** — 고정가 매수는 **LIVE 모드 한정** 기능입니다. "
+                    "TEST 모드에서는 자동으로 시장가 매수로 폴백됩니다."
+                )
+            else:
+                st.info(
+                    "🎯 매수 시그널 발생 봉의 **종가**로 Upbit **지정가(Limit) 주문**을 등록합니다.\n"
+                    "- 가격 자동: 봉 종가를 Upbit 호가 단위에 맞춰 라운딩 후 사용\n"
+                    "- Timeout: 다음 봉 시작 직전 미체결 시 **자동 취소** → 다음 봉 시그널 재평가\n"
+                    "- 알림: 주문 등록 / 미체결 취소 / API 거부 / 잔고 부족 시 Telegram 전송"
+                )
 
 st.divider()
 
