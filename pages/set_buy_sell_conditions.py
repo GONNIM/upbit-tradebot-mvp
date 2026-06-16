@@ -708,6 +708,16 @@ with cancel_col:
 with save_col:
     if st.button("💾 설정 저장", key="btn_save_settings", use_container_width=True, type="primary"):
         save_conditions()
+        # ✅ P1 — 설정 정보 History 스냅샷 (파일 저장 성공 시 적재).
+        # 적재 실패해도 사용자 저장 자체는 영향 없음 (DM2 결정).
+        try:
+            from services.settings_history import record_snapshot
+            record_snapshot(user_id, "set_buy_sell_conditions", strategy_tag)
+        except Exception as _sh_e:
+            import logging as _lg
+            _lg.getLogger(__name__).error(
+                f"[settings_history] record_snapshot 실패 (set_buy_sell_conditions): {_sh_e}"
+            )
         go_dashboard()
 
 # --- 현재 상태 출력 ---

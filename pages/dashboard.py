@@ -456,7 +456,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.16.1614")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.16.1949")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -1899,6 +1899,15 @@ st.divider()
 
 st.subheader("⚙️ Option 기능")
 # ✅ 실행된 경우: 제어 및 모니터링 UI 출력
+
+# ✅ P2 — 설정 정보 History 뷰어 진입 버튼
+if st.button("📜 설정 History 보기", key="btn_settings_history",
+             use_container_width=True):
+    st.session_state["user_id"] = user_id
+    st.session_state["mode"] = mode
+    st.session_state["strategy_type"] = strategy_tag
+    st.switch_page("pages/settings_history.py")
+
 # ✅ 제어 버튼
 btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1, 1, 1, 1])
 

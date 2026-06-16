@@ -215,10 +215,18 @@ class UpbitTrader:
                          (실제 체결 세부정보는 OrderReconciler가 채움)
     """
 
-    def __init__(self, user_id: str, risk_pct: float = 0.1, test_mode: bool = True):
+    def __init__(
+        self,
+        user_id: str,
+        risk_pct: float = 0.1,
+        test_mode: bool = True,
+        *,
+        strategy_type: Optional[str] = None,  # ✅ P1 — 거래 → settings_history 라벨링용
+    ):
         self.user_id = user_id
         self.risk_pct = risk_pct
         self.test_mode = test_mode
+        self.strategy_type = strategy_type
         self.upbit = None if test_mode else pyupbit.Upbit(ACCESS, SECRET)
         # 마지막 LIVE 주문 실패의 정확한 사유(B안) — UI 노출용
         self.last_buy_error: Optional[str] = None
@@ -226,6 +234,19 @@ class UpbitTrader:
 
         if test_mode and get_account(user_id) is None:
             create_or_init_account(user_id)
+
+    def _get_settings_history_id(self) -> Optional[int]:
+        """
+        현 사용자/전략의 가장 최신 settings_history.id (active_settings_id).
+        strategy_type 미지정 또는 조회 실패 시 None — Pre-history 라벨로 안전 fallback.
+        """
+        if not self.strategy_type:
+            return None
+        try:
+            from services.settings_history import get_active_settings_id
+            return get_active_settings_id(self.user_id, self.strategy_type)
+        except Exception:
+            return None
 
     def _krw_balance(self) -> float:
         if self.test_mode:
@@ -337,7 +358,8 @@ class UpbitTrader:
                 ts_pct,
                 ts_armed,
                 timestamp=None,  # ✅ 실시간 체결 시각 (now_kst() 자동)
-                bar_time=meta.get("bar_time")  # ✅ 해당 봉의 시각
+                bar_time=meta.get("bar_time"),  # ✅ 해당 봉의 시각
+                settings_history_id=self._get_settings_history_id(),  # ✅ P1
             )
 
             # 운영 로그
@@ -400,6 +422,7 @@ class UpbitTrader:
                 current_coin=new_coin,
                 profit_krw=0,
                 entry_bar=entry_bar,  # ✅ bars_held 추적용
+                settings_history_id=self._get_settings_history_id(),  # ✅ P1
             )
 
             self._audit_trade(
@@ -591,6 +614,7 @@ class UpbitTrader:
                     state="FAILED",
                     requested_at=now_kst(),
                     entry_bar=_entry_bar,
+                    settings_history_id=self._get_settings_history_id(),  # ✅ P1
                 )
             except Exception as e:
                 logger.warning(f"[BUY-LIVE] insert_order(FAILED) 실패: {e}")
@@ -600,7 +624,7 @@ class UpbitTrader:
         self.last_buy_error = None
         try:
             uuid = res.get("uuid")
-            
+
             # ✅ meta에서 entry_bar 추출
             entry_bar = (meta or {}).get("bar") if meta else None
 
@@ -620,6 +644,7 @@ class UpbitTrader:
                 requested_at=now_kst(),
                 entry_bar=entry_bar,  # ✅ bars_held 추적용
                 meta=meta_json,  # ✅ 전략 컨텍스트 저장
+                settings_history_id=self._get_settings_history_id(),  # ✅ P1
             )
 
             # ❌ LIVE 모드에서는 reconciler가 체결 후 audit 기록 담당
@@ -858,6 +883,7 @@ class UpbitTrader:
                     state="FAILED",
                     requested_at=now_kst(),
                     entry_bar=(meta or {}).get("bar"),
+                    settings_history_id=self._get_settings_history_id(),  # ✅ P1
                 )
             except Exception as e:
                 logger.warning(f"[BUY-LIMIT] insert_order(FAILED) 실패: {e}")
@@ -887,6 +913,7 @@ class UpbitTrader:
                 requested_at=now_kst(),
                 entry_bar=enriched_meta.get("bar"),
                 meta=meta_json,
+                settings_history_id=self._get_settings_history_id(),  # ✅ P1
             )
 
             insert_log(
@@ -991,6 +1018,7 @@ class UpbitTrader:
                 current_krw=new_krw,
                 current_coin=new_coin,
                 profit_krw=total_gain,
+                settings_history_id=self._get_settings_history_id(),  # ✅ P1
             )
 
             self._audit_trade(
@@ -1114,6 +1142,7 @@ class UpbitTrader:
                 state="REQUESTED",
                 requested_at=now_kst(),
                 meta=meta_json,  # ✅ 전략 컨텍스트 저장
+                settings_history_id=self._get_settings_history_id(),  # ✅ P1
             )
 
             # ❌ LIVE 모드에서는 reconciler가 체결 후 audit 기록 담당

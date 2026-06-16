@@ -1,11 +1,14 @@
 import sqlite3
 import os
+import logging
 
 
 # 모듈 파일 기준으로 고정 (CWD 변동 영향 제거)
 from pathlib import Path
 APP_ROOT = Path(__file__).resolve().parent  # services.init_db.py 파일이 있는 폴더
 DB_DIR = (APP_ROOT / "data").as_posix()
+
+logger = logging.getLogger(__name__)
 
 
 os.makedirs(DB_DIR, exist_ok=True)
@@ -388,6 +391,37 @@ def _safe_alter(conn, sql: str):
         pass
 
 
+def _table_exists(conn, table: str) -> bool:
+    cur = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    )
+    return cur.fetchone() is not None
+
+
+def _column_exists(conn, table: str, column: str) -> bool:
+    cur = conn.execute(f"PRAGMA table_info({table})")
+    return any(row[1] == column for row in cur.fetchall())
+
+
+def _ensure_column(conn, table: str, column: str, ddl_type: str):
+    """
+    명시적 점검 + 로그 — settings_history 마이그레이션용 (DS3 결정).
+    추적성을 위해 _safe_alter 의 silent 패턴 대신 사용.
+    - 대상 테이블이 아직 존재하지 않으면 skip (예: 신규 DB 에 audit_trades 가
+      아직 add_audit_tables 로 생성되지 않은 케이스). 다음 ensure_schema
+      호출 시 적용된다 — idempotent 보장.
+    """
+    if not _table_exists(conn, table):
+        logger.info(f"[migrate] skip {table}.{column} (table missing — will retry next ensure_schema)")
+        return
+    if not _column_exists(conn, table, column):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl_type}")
+        logger.info(f"[migrate] added {table}.{column} ({ddl_type})")
+    else:
+        logger.debug(f"[migrate] skip {table}.{column} (already exists)")
+
+
 def ensure_orders_extended_schema(user_id: str | None):
     """
     orders 테이블에 확장 칼럼/인덱스 보강:
@@ -443,6 +477,75 @@ def ensure_orders_extended_schema(user_id: str | None):
 
     # ✅ 자동 마이그레이션: audit 테이블의 bool → int 변환
     _migrate_audit_checks_bool_to_int(uid)
+
+
+def ensure_settings_history_schema(user_id: str | None):
+    """
+    P1 — 설정 정보 History 마이그레이션.
+
+    1) settings_history 테이블 + 인덱스 3종
+    2) orders.settings_history_id ALTER + 인덱스
+    3) audit_trades.settings_history_id ALTER + 인덱스
+
+    idempotent: 재실행 시 무동작.
+    상세: docs/plans/settings-history/schema-spec.md
+    """
+    uid = user_id or "default"
+    conn = _connect(uid)
+    cur = conn.cursor()
+
+    # 1) settings_history 본 테이블
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS settings_history (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id         TEXT    NOT NULL,
+        saved_at        TEXT    NOT NULL,
+        source_page     TEXT    NOT NULL,
+        strategy_type   TEXT    NOT NULL,
+        params_json     TEXT,
+        conditions_json TEXT,
+        app_version     TEXT,
+        note            TEXT,
+        CHECK (source_page IN (
+            'set_config', 'set_buy_sell_conditions',
+            'initial_seed', 'restore', 'auto_pre_restore'
+        )),
+        CHECK (strategy_type IN ('MACD', 'EMA'))
+    );
+    """)
+
+    # 1-b) settings_history 인덱스
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_settings_history_user_saved
+        ON settings_history(user_id, saved_at DESC);
+    """)
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_settings_history_user_strategy_saved
+        ON settings_history(user_id, strategy_type, saved_at DESC);
+    """)
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_settings_history_source_page
+        ON settings_history(source_page);
+    """)
+
+    # 2) orders.settings_history_id (Pre-history 거래는 NULL 허용)
+    _ensure_column(conn, "orders", "settings_history_id", "INTEGER")
+    cur.execute("""
+    CREATE INDEX IF NOT EXISTS idx_orders_settings_history_id
+        ON orders(settings_history_id);
+    """)
+
+    # 3) audit_trades.settings_history_id (테이블 부재 시 skip — idempotent 재호출에 의존)
+    _ensure_column(conn, "audit_trades", "settings_history_id", "INTEGER")
+    if _table_exists(conn, "audit_trades"):
+        cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_audit_trades_settings_history_id
+            ON audit_trades(settings_history_id);
+        """)
+
+    conn.commit()
+    conn.close()
+    logger.info(f"[migrate] ensure_settings_history_schema OK (user_id={uid})")
 
 
 def ensure_core_tables(user_id: str):

@@ -282,6 +282,17 @@ if params:
         exist_params = load_params(json_path, strategy_type=selected_strategy_type)
         save_params(params, json_path, strategy_type=selected_strategy_type)
 
+        # ✅ P1 — 설정 정보 History 스냅샷 (파일 저장 성공 시 적재).
+        # 적재 실패해도 사용자 저장 자체는 영향 없음 (DM2 결정).
+        try:
+            from services.settings_history import record_snapshot
+            record_snapshot(user_id, "set_config", selected_strategy_type)
+        except Exception as _sh_e:
+            import logging as _lg
+            _lg.getLogger(__name__).error(
+                f"[settings_history] record_snapshot 실패 (set_config): {_sh_e}"
+            )
+
         # ✅ TEST 모드일 때: 파라미터 저장 시 DB 잔고 및 포지션을 초기화
         if mode == "TEST":
             try:

@@ -86,7 +86,10 @@ def engine_runner_main(
     try:
         # ✅ 파라미터 및 트레이더 설정
         params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}")
-        trader = UpbitTrader(user_id, risk_pct=params.order_ratio, test_mode=test_mode)
+        trader = UpbitTrader(
+            user_id, risk_pct=params.order_ratio, test_mode=test_mode,
+            strategy_type=getattr(params, "strategy_type", None),  # ✅ P1
+        )
 
         # ✅ 엔진 상태 등록
         update_engine_status(user_id, "running")

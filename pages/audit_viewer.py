@@ -127,7 +127,17 @@ if params_obj and params_strategy == "EMA":
 
 db_path = get_db_path(user_id)
 
-st.markdown(f"### 📑 감사 로그 뷰어")
+_hdr_l, _hdr_r = st.columns([5, 1])
+with _hdr_l:
+    st.markdown(f"### 📑 감사 로그 뷰어")
+with _hdr_r:
+    # ✅ P5 — settings_history 상호 링크
+    if st.button("📜 설정 History", key="btn_to_settings_history",
+                 use_container_width=True):
+        st.session_state["user_id"] = user_id
+        st.session_state["mode"] = mode
+        st.session_state["strategy_type"] = strategy_tag if 'strategy_tag' in dir() else "EMA"
+        st.switch_page("pages/settings_history.py")
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])

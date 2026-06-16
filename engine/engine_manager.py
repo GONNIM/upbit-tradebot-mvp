@@ -339,7 +339,8 @@ class EngineManager:
             logger.info(f"[ENGINE] Loaded params: strategy_type={params.strategy_type}")
 
             trader = UpbitTrader(
-                user_id, risk_pct=params.order_ratio, test_mode=test_mode
+                user_id, risk_pct=params.order_ratio, test_mode=test_mode,
+                strategy_type=getattr(params, "strategy_type", None),  # ✅ P1
             )
 
             update_engine_status(user_id, "running")

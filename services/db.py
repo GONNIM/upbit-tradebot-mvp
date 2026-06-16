@@ -12,6 +12,7 @@ from services.init_db import (
     ensure_account_positions_locked,
     ensure_account_positions_entry_price,
     ensure_engine_status_last_mode,
+    ensure_settings_history_schema,  # ✅ P1
 )
 
 from config import DEFAULT_USER_ID
@@ -23,6 +24,8 @@ def ensure_schema(user_id: str):
     ensure_account_positions_locked(user_id)
     ensure_account_positions_entry_price(user_id)
     ensure_engine_status_last_mode(user_id)
+    # ✅ P1 — 설정 정보 History (docs/plans/settings-history)
+    ensure_settings_history_schema(user_id)
 
 
 DB_PREFIX = "tradebot"
@@ -124,6 +127,7 @@ def insert_order(
     paid_fee: float | None = None,
     entry_bar: int | None = None,  # ✅ bars_held 추적용
     meta: str | None = None,  # ✅ 전략 컨텍스트 (JSON)
+    settings_history_id: int | None = None,  # ✅ P1 — 거래 → 설정 라벨링
 ):
     ensure_schema(user_id)
     with get_db(user_id) as conn:
@@ -134,9 +138,10 @@ def insert_order(
                 user_id, timestamp, ticker, side, price, volume, status,
                 current_krw, current_coin, profit_krw,
                 provider_uuid, state, requested_at, executed_at, canceled_at,
-                executed_volume, avg_price, paid_fee, updated_at, entry_bar, meta
+                executed_volume, avg_price, paid_fee, updated_at, entry_bar, meta,
+                settings_history_id
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -160,6 +165,7 @@ def insert_order(
                 now_kst(),
                 entry_bar,  # ✅ entry_bar 저장
                 meta,  # ✅ 전략 컨텍스트 저장 (JSON)
+                settings_history_id,  # ✅ P1 — 거래 → 설정 라벨링
             ),
         )
         conn.commit()
@@ -1097,7 +1103,8 @@ def insert_trade_audit(
     ts_pct: float | None,
     ts_armed: bool | None,
     timestamp: str | None = None,  # ✅ 체결 발생 시각 (실시간 현재 시각)
-    bar_time: str | None = None    # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
+    bar_time: str | None = None,   # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
+    settings_history_id: int | None = None,  # ✅ P1 — 거래 → 설정 라벨링
 ):
     with get_db(user_id) as conn:
         cur = conn.cursor()
@@ -1105,15 +1112,17 @@ def insert_trade_audit(
             """
             INSERT INTO audit_trades
             (timestamp, bar_time, ticker, interval_sec, bar, type, reason, price, macd, signal,
-             entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed,
+             settings_history_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 timestamp if timestamp is not None else now_kst(),  # ✅ 실시간 체결 시각
                 bar_time,  # ✅ 봉 시각 (None 가능)
                 ticker, interval_sec, bar, kind, reason, price, macd, signal,
                 entry_price, entry_bar, bars_held, tp, sl, highest,
-                ts_pct, (int(ts_armed) if ts_armed is not None else None)
+                ts_pct, (int(ts_armed) if ts_armed is not None else None),
+                settings_history_id,  # ✅ P1
             )
         )
         conn.commit()

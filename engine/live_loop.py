@@ -385,6 +385,14 @@ def run_live_loop(
     logger.info(f"[BOOT] run_live_loop start | mode={mode_tag} | strategy={strategy_tag}")
     logger.info("🚀 ★ 증분 처리 기반 엔진 (Backtest 없음) ★")
 
+    # ✅ P1 — 설정 History 시드 (idempotent). 사용자가 한 번도 명시 저장한 적 없는
+    # 새 (user_id, strategy_tag) 조합에 첫 active_settings_id 를 확보.
+    try:
+        from services.settings_history import seed_initial_snapshot
+        seed_initial_snapshot(user_id, strategy_tag)
+    except Exception as _seed_e:
+        logger.warning(f"[settings_history] seed_initial_snapshot 실패: {_seed_e}")
+
     # ============================================================
     # 1단계: 핵심 데이터 구조 초기화 (프로세스 시작 시 1회만)
     # ============================================================
