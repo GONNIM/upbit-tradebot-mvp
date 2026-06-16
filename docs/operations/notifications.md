@@ -143,8 +143,8 @@
 
 | # | 트리거 | 제목 | 본문 |
 |---|---|---|---|
-| 22 | 최근 30분간 `Bar#` 로그 0건 | ⚠️ `[STALE] tradebot 엔진` | `최근 30분간 Bar# 평가 로그 없음 (엔진 정체 가능성)` |
-| 23 | 마지막 `Bar#` > 600초 경과 | ⚠️ `[STALE] tradebot 엔진 정체` | `last Bar# was {gap}s ago (threshold 600s)`<br>`last_line: {원본}` |
+| 22 | 최근 30분간 `Bar#` 로그 0건 | 🚨 `[STALE] tradebot 엔진` | `최근 30분간 Bar# 평가 로그 없음 (엔진 정체 가능성)` |
+| 23 | 마지막 `Bar#` > 600초 경과 | 🚨 `[STALE] tradebot 엔진 정체` | `last Bar# was {gap}s ago (threshold 600s)`<br>`last_line: {원본}` |
 | 24 | stale 상태 → 정상 전환 | ✅ `[RECOVERED] tradebot 엔진` | `Bar# 평가 정상화 (gap={N}s)`<br>`last_line: {원본}` |
 
 → 로그: `/var/log/tradebot_engine_stale.log`
@@ -210,8 +210,8 @@
 
 | 신호 | 즉시 확인 | 권장 조치 |
 |---|---|---|
-| ⚠️ STALE tradebot 엔진 (#22) | `systemctl status tradebot` 확인 | active=running 이면 journalctl로 Python 예외 추적. dead면 systemctl restart |
-| ⚠️ STALE tradebot 엔진 정체 (#23) | journalctl 마지막 Bar# 시각 확인 | 600s 초과는 보통 일시적 API 지연 — 60분 내 RECOVERED 안 오면 개입 |
+| 🚨 STALE tradebot 엔진 (#22) | `systemctl status tradebot` 확인 | active=running 이면 journalctl로 Python 예외 추적. dead면 systemctl restart |
+| 🚨 STALE tradebot 엔진 정체 (#23) | journalctl 마지막 Bar# 시각 확인 | 600s 초과는 보통 일시적 API 지연 — 60분 내 RECOVERED 안 오면 개입 |
 | ✅ RECOVERED tradebot 엔진 (#24) | — | 무조치 (정상화 확인) |
 | ⚠️ MEMORY 임계값 초과 (#25) | `🔄 [SYSTEM] tradebot 재시작` 후속 알림 도착? | 도착 시 정상 자동 복구. 미도착 시 systemctl 수동 개입 |
 | 🔄 tradebot 재시작 (#26) | 메모리 사용량 정상화 확인 | Dashboard 새로고침으로 엔진 재개 확인 |
@@ -278,8 +278,8 @@
 
 | 우선순위 | 알림 |
 |---|---|
-| P0 (즉시) | ❌ BUY/SELL 실패, 🔑 API 인증 실패, 💥 시스템 초기화, ❌ 엔진 시작 실패, ⚠️ AUTO-RESUME 실패 |
-| P1 (1시간 내) | ⚠️ STALE tradebot 엔진/정체, ⚠️ MEMORY 임계 초과, ⚠️ REST API 연속 실패 |
+| P0 (즉시) | 🚨 STALE tradebot 엔진/정체, ❌ BUY/SELL 실패, 🔑 API 인증 실패, 💥 시스템 초기화, ❌ 엔진 시작 실패, ⚠️ AUTO-RESUME 실패 |
+| P1 (1시간 내) | ⚠️ MEMORY 임계 초과, ⚠️ REST API 연속 실패 |
 | P2 (영업일) | 🧹 DB 정리 부재, 📊 일일 요약 부재, 📈 주간 요약 부재 |
 | INFO (참고) | 🟢/🔴 거래 요청, 🔔 Golden/Dead Cross, ▶️/⏹️ 엔진 시작·종료, ✅ RECOVERED |
 
@@ -336,4 +336,5 @@
 | 2026-06-16 | 서버 cron 스크립트 6종 저장소 편입 | 92dad32 |
 | 2026-06-16 | STALE dedupe (TTL 3600s) + RECOVERED 알림 추가 | 372ccd1 |
 | 2026-06-16 | credentials.yaml / secrets.toml 권한 644→600 | (수동 chmod) |
-| 2026-06-16 | 본 문서 작성 (운영 매뉴얼 v1.0) | (이 커밋) |
+| 2026-06-16 | 본 문서 작성 (운영 매뉴얼 v1.0) | c478ba1 |
+| 2026-06-16 | STALE 아이콘 ⚠️ → 🚨 (가시성 강화) + P0 격상 | (이 커밋) |

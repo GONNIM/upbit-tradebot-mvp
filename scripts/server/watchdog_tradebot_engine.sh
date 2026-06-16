@@ -39,7 +39,7 @@ if [ -z "$last_line" ]; then
     msg="최근 30분간 Bar# 평가 로그 없음 (엔진 정체 가능성)"
     echo "$(date '+%Y-%m-%d %H:%M:%S') WARN: $msg" >> "$LOG_FILE"
     if should_send_stale; then
-        notify_stale "⚠️ [STALE] tradebot 엔진" "$msg"
+        notify_stale "🚨 [STALE] tradebot 엔진" "$msg"
     fi
     exit 0
 fi
@@ -57,7 +57,7 @@ if [ $gap -gt $THRESHOLD_SECS ]; then
     msg="last Bar# was ${gap}s ago (threshold ${THRESHOLD_SECS}s)"
     echo "$(date '+%Y-%m-%d %H:%M:%S') STALE: $msg | $last_line" >> "$LOG_FILE"
     if should_send_stale; then
-        notify_stale "⚠️ [STALE] tradebot 엔진 정체" "$msg
+        notify_stale "🚨 [STALE] tradebot 엔진 정체" "$msg
 last_line: $last_line"
     fi
     exit 0
