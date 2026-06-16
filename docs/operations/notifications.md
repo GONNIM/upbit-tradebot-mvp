@@ -88,9 +88,9 @@
 |---|---|---|---|---|
 | 1 | 🟢 `[LIVE BUY 요청] {ticker}` | 예상가/사용 KRW/uuid | `buy_req:{uuid}` / 60s | trader.py:637 |
 | 2 | 🔴 `[LIVE SELL 요청] {ticker}` | 예상가/수량/uuid | `sell_req:{uuid}` / 60s | trader.py:1088 |
-| 3 | ❌ `[LIVE BUY 실패] {ticker}` | attempts/non_retriable/err | `buy_fail:{ticker}:{err}` / 60s | trader.py:512 |
-| 4 | ❌ `[LIVE SELL 실패] {ticker}` | qty/err | `sell_fail:{ticker}:{err}` / 60s | trader.py:1005 |
-| 5 | 🔑 `Upbit API 인증 실패` | err_summary | `api_auth:{err}` / 600s | trader.py:525, 1019 |
+| 3 | ❌ `매수 실패 — {ticker}` | 사유(한글)+재시도+가이드+raw err | `buy_fail:{ticker}:{err}` / 60s | trader.py:512 |
+| 4 | ❌ `매도 실패 — {ticker}` | 사유(한글)+수량+가이드+raw err | `sell_fail:{ticker}:{err}` / 60s | trader.py:1005 |
+| 5 | 🔑 `Upbit API 인증 실패` | 사유(한글)+3단계 액션+raw err | `api_auth:{err}` / 600s | trader.py:525, 1019 |
 | 6 | ❌ `[LIVE 고정가 매수 거부] {ticker}` (호가) | 원가/조정가 | `fixed_buy_tick:{ticker}` / 60s | trader.py:703 |
 | 7 | ❌ `[LIVE 고정가 매수 거부] {ticker}` (주문) | price/qty/err | `fixed_buy_fail:{ticker}:{err[:80]}` / 60s | trader.py:798 |
 | 8 | 🎯 `[LIVE 고정가 매수 요청] {ticker}` | 지정가/수량/timeout/uuid | `fixed_buy_req:{uuid}` / 60s | trader.py:862 |
@@ -115,18 +115,18 @@
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
 | 14 | ⏱ `[LIVE 고정가 매수 미체결 취소] {ticker}` | 지정가/elapsed/uuid | `fixed_buy_timeout:{uuid}` / 60s | order_reconciler.py:355 |
-| 15 | ⚠️ `[REST API 연속 실패]` | closed_ts/시도수/대기 | `rest_retry_exhausted` / 300s | live_loop.py:1126 |
+| 15 | ⚠️ `Upbit REST API 응답 지연 — {ticker}` | 시점/재시도(분해)/조치/dedupe 안내 | `rest_retry_exhausted` / 300s | live_loop.py:1126 |
 
 ### 2.5 엔진 운영 — CRITICAL (`pages/`)
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
 | 16 | ▶️ `[엔진 시작] {user_id} ({mode})` | dashboard 클릭 | `engine_start:{user_id}` / 30s | dashboard.py:542 |
-| 17 | ❌ `[엔진 시작 실패] {user_id} ({mode})` | start_engine returned False | `engine_start_fail:{user_id}` / 60s | dashboard.py:559 |
+| 17 | ❌ `엔진 시작 실패 — {user_id} / {mode}` | 사유 + 즉시 확인 명령 2가지 | `engine_start_fail:{user_id}` / 60s | dashboard.py:559 |
 | 18 | ⏸️ `[엔진 자동 종료] {user_id} ({mode})` | 파라미터 설정 진입 | `engine_auto_stop_params:{user_id}` / 30s | dashboard.py:584 |
 | 19 | ⏹️ `[엔진 수동 종료] {user_id} ({mode})` | dashboard 클릭 | `engine_stop:{user_id}` / 30s | dashboard.py:1948 |
 | 20 | 💥 `[엔진 종료 — 시스템 초기화] {user_id}` | 시스템 초기화 실행 | `engine_reset:{user_id}` / 30s | confirm_init_db.py:51 |
-| 21 | ⚠️ `[AUTO-RESUME 실패] {user_id}` | verified/capital_set | `auto_resume_fail:{user_id}` / 600s | dashboard.py:410 |
+| 21 | 🚨 `자동 재개 실패 — {user_id}` | Upbit 검증/자본금 설정 ✅❌ + 가이드 | `auto_resume_fail:{user_id}` / 600s | dashboard.py:410 |
 
 ---
 
@@ -337,4 +337,6 @@
 | 2026-06-16 | STALE dedupe (TTL 3600s) + RECOVERED 알림 추가 | 372ccd1 |
 | 2026-06-16 | credentials.yaml / secrets.toml 권한 644→600 | (수동 chmod) |
 | 2026-06-16 | 본 문서 작성 (운영 매뉴얼 v1.0) | c478ba1 |
-| 2026-06-16 | STALE 아이콘 ⚠️ → 🚨 (가시성 강화) + P0 격상 | (이 커밋) |
+| 2026-06-16 | STALE 아이콘 ⚠️ → 🚨 (가시성 강화) + P0 격상 | 8c65521 |
+| 2026-06-16 | 일/주간 digest v2 (balance/timezone/PRAGMA 3 버그 + 의미 지표) | 0aa128b |
+| 2026-06-16 | ⭐⭐⭐ 우선순위 5건 메시지 친화화 (#3/4/5/15/17/21) + error_messages 모듈 | (이 커밋) |

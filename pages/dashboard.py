@@ -404,14 +404,19 @@ if not engine_status_thread and engine_status_db:
                     f"[AUTO-RESUME] LIVE 자동 재개 불가 (verified={_upbit_ok}, capital_set={_capital_ok}) "
                     f"→ DB 정정"
                 )
-                # Critical #5 알림: AUTO-RESUME 실패 (수동 재시작 필요)
+                # Critical #5 알림: AUTO-RESUME 실패 (수동 재시작 필요) (v2 — 시각화)
                 try:
                     from services.notifier import send as _notify, LEVEL_CRITICAL
+                    _v = "✅" if _upbit_ok else "❌"
+                    _c = "✅" if _capital_ok else "❌"
                     _notify(
                         LEVEL_CRITICAL,
-                        f"⚠️ [AUTO-RESUME 실패] {user_id}",
-                        f"verified={_upbit_ok} capital_set={_capital_ok}\n"
-                        f"dashboard에서 수동 재시작 필요",
+                        f"🚨 자동 재개 실패 — {user_id}",
+                        (
+                            f"Upbit 검증: {_v}\n"
+                            f"자본금 설정: {_c}\n\n"
+                            f"💡 Dashboard 진입 → API 키 재인증 → 수동 시작"
+                        ),
                         dedupe_key=f"auto_resume_fail:{user_id}",
                         dedupe_ttl=600,
                     )
@@ -451,7 +456,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.15.2020")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.16.1557")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -553,13 +558,18 @@ with col10:
                     st.rerun()
                 else:
                     st.warning("⚠️ 트레이딩 엔진 실행 실패")
-                    # Critical 신규: 시작 실패 알림
+                    # Critical 신규: 시작 실패 알림 (v2 — 액션 가이드 포함)
                     try:
                         from services.notifier import send as _notify, LEVEL_CRITICAL
                         _notify(
                             LEVEL_CRITICAL,
-                            f"❌ [엔진 시작 실패] {user_id} ({mode})",
-                            "engine_manager.start_engine() returned False — 로그 확인 필요",
+                            f"❌ 엔진 시작 실패 — {user_id} / {mode}",
+                            (
+                                "사유: engine_manager가 False 반환\n\n"
+                                "💡 즉시 확인:\n"
+                                "  - tail -50 /root/upbit-tradebot-mvp/mcmax33_engine_debug.log\n"
+                                "  - systemctl status tradebot"
+                            ),
                             dedupe_key=f"engine_start_fail:{user_id}",
                             dedupe_ttl=60,
                         )

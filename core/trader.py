@@ -506,13 +506,21 @@ class UpbitTrader:
             logger.error(
                 f"[BUY-LIVE] FINAL FAILURE after attempts={attempts_used} | last_err={err_summary}"
             )
-            # Critical #3 + #6 알림: 매수 실패 + API 인증 실패 분리
+            # Critical #3 + #6 알림: 매수 실패 + API 인증 실패 분리 (v2 — 한국어 라벨)
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
+                from services.error_messages import format_error_block
+                _label, _raw = format_error_block(err_summary)
                 _notify(
                     LEVEL_CRITICAL,
-                    f"❌ [LIVE BUY 실패] {ticker}",
-                    f"attempts={attempts_used} non_retriable={non_retriable}\n{err_summary}",
+                    f"❌ 매수 실패 — {ticker}",
+                    (
+                        f"사유: {_label}\n"
+                        f"재시도: {attempts_used}회 모두 실패\n\n"
+                        f"💡 KRW 잔고 또는 risk_pct 점검\n"
+                        f"─────\n"
+                        f"err: {_raw}"
+                    ),
                     dedupe_key=f"buy_fail:{ticker}:{err_summary}",
                     dedupe_ttl=60,
                 )
@@ -525,7 +533,15 @@ class UpbitTrader:
                     _notify(
                         LEVEL_CRITICAL,
                         "🔑 Upbit API 인증 실패",
-                        err_summary,
+                        (
+                            f"사유: {_label}\n\n"
+                            f"💡 즉시 확인:\n"
+                            f"  1. Upbit 콘솔 → API 키 만료일\n"
+                            f"  2. 서버 IP 화이트리스트\n"
+                            f"  3. .env 의 UPBIT_ACCESS / UPBIT_SECRET\n"
+                            f"─────\n"
+                            f"err: {_raw}"
+                        ),
                         dedupe_key=f"api_auth:{err_summary}",
                         dedupe_ttl=600,
                     )
@@ -1000,13 +1016,21 @@ class UpbitTrader:
                     "ERROR",
                     f"❌ 업비트 시장가 매도 실패: {err_summary}",
                 )
-                # Critical #3 + #6 알림: 매도 실패 + API 인증 실패 분리
+                # Critical #3 + #6 알림: 매도 실패 + API 인증 실패 분리 (v2 — 한국어 라벨)
                 try:
                     from services.notifier import send as _notify, LEVEL_CRITICAL
+                    from services.error_messages import format_error_block
+                    _label, _raw = format_error_block(err_summary)
                     _notify(
                         LEVEL_CRITICAL,
-                        f"❌ [LIVE SELL 실패] {ticker}",
-                        f"qty≈{qty:.6f}\n{err_summary}",
+                        f"❌ 매도 실패 — {ticker}",
+                        (
+                            f"사유: {_label}\n"
+                            f"수량: {qty:.6f}\n\n"
+                            f"💡 보유 수량 또는 API 권한 점검\n"
+                            f"─────\n"
+                            f"err: {_raw}"
+                        ),
                         dedupe_key=f"sell_fail:{ticker}:{err_summary}",
                         dedupe_ttl=60,
                     )
@@ -1019,7 +1043,15 @@ class UpbitTrader:
                         _notify(
                             LEVEL_CRITICAL,
                             "🔑 Upbit API 인증 실패",
-                            err_summary,
+                            (
+                                f"사유: {_label}\n\n"
+                                f"💡 즉시 확인:\n"
+                                f"  1. Upbit 콘솔 → API 키 만료일\n"
+                                f"  2. 서버 IP 화이트리스트\n"
+                                f"  3. .env 의 UPBIT_ACCESS / UPBIT_SECRET\n"
+                                f"─────\n"
+                                f"err: {_raw}"
+                            ),
                             dedupe_key=f"api_auth:{err_summary}",
                             dedupe_ttl=600,
                         )
