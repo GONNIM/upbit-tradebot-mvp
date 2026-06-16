@@ -753,7 +753,7 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_WARNING
                 _notify(
                     LEVEL_WARNING,
-                    f"⚠️ 고정가 매수 보류 — {ticker}",
+                    f"고정가 매수 보류 — {ticker}",
                     (
                         "사유: KRW 잔고 0원\n\n"
                         "💡 입금 또는 risk_pct 조정"
@@ -779,7 +779,7 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_WARNING
                 _notify(
                     LEVEL_WARNING,
-                    f"⚠️ 고정가 매수 보류 — {ticker}",
+                    f"고정가 매수 보류 — {ticker}",
                     (
                         f"사유: KRW 잔고 부족\n"
                         f"가용: {avail:,.0f} KRW (최소 5,000 필요)\n\n"
