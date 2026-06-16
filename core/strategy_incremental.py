@@ -257,13 +257,20 @@ class IncrementalMACDStrategy:
                 f"🔔 MACD Buy Signal | macd={macd:.6f} signal={signal:.6f} "
                 f"threshold={self.macd_threshold:.6f}"
             )
-            # 중요 #9 알림: Golden Cross 신호 (매수 시도 여부와 별개로 신호 발생만 통지)
+            # 중요 #9 알림: Golden Cross 신호 (v2 — 의사결정 컨텍스트 보강)
             try:
                 from services.notifier import send as _notify, LEVEL_WARNING
+                _cw = macd - signal
+                _th = self.macd_threshold
+                _ratio = f"(threshold {_th:.6f}의 {_cw/_th:.0f}×)" if _th > 0 else "(threshold 없음)"
                 _notify(
                     LEVEL_WARNING,
-                    f"🔔 [MACD Golden Cross] {self.ticker}",
-                    f"macd={macd:.6f} signal={signal:.6f} threshold={self.macd_threshold:.6f}",
+                    f"매수 신호 — {self.ticker} (MACD Golden Cross)",
+                    (
+                        f"교차폭: +{_cw:.6f} {_ratio}\n"
+                        f"MACD: {macd:.6f}  Signal: {signal:.6f}\n\n"
+                        f"→ 후속 필터 통과 시 매수 진행"
+                    ),
                     dedupe_key=f"macd_gc:{self.ticker}",
                     dedupe_ttl=180,
                 )
@@ -415,13 +422,18 @@ class IncrementalMACDStrategy:
                     logger.info(
                         f"🔻 MACD Dead Cross | macd={macd:.6f} signal={signal:.6f}"
                     )
-                    # 중요 #9 알림: Dead Cross 신호
+                    # 중요 #9 알림: Dead Cross 신호 (v2 — 친화 표현)
                     try:
                         from services.notifier import send as _notify, LEVEL_WARNING
+                        _cw = macd - signal
                         _notify(
                             LEVEL_WARNING,
-                            f"🔻 [MACD Dead Cross] {self.ticker}",
-                            f"macd={macd:.6f} signal={signal:.6f}",
+                            f"매도 신호 — {self.ticker} (MACD Dead Cross)",
+                            (
+                                f"교차폭: {_cw:+.6f}\n"
+                                f"MACD: {macd:.6f}  Signal: {signal:.6f}\n\n"
+                                f"→ 보유 포지션 매도 평가 진행"
+                            ),
                             dedupe_key=f"macd_dc:{self.ticker}",
                             dedupe_ttl=180,
                         )
@@ -805,13 +817,18 @@ class IncrementalEMAStrategy:
             logger.info(
                 f"🔔 EMA Buy Signal | fast={ema_fast:.2f} slow={ema_slow:.2f}"
             )
-            # 중요 #9 알림: EMA Golden Cross 신호
+            # 중요 #9 알림: EMA Golden Cross 신호 (v2 — 친화 표현)
             try:
                 from services.notifier import send as _notify, LEVEL_WARNING
+                _cw = ema_fast - ema_slow
                 _notify(
                     LEVEL_WARNING,
-                    f"🔔 [EMA Golden Cross] {self.ticker}",
-                    f"ema_fast={ema_fast:.2f} ema_slow={ema_slow:.2f}",
+                    f"매수 신호 — {self.ticker} (EMA Golden Cross)",
+                    (
+                        f"교차폭: {_cw:+.2f} (Fast EMA가 Slow EMA를 상회)\n"
+                        f"Fast EMA: {ema_fast:.2f}  Slow EMA: {ema_slow:.2f}\n\n"
+                        f"→ 후속 필터 통과 시 매수 진행"
+                    ),
                     dedupe_key=f"ema_gc:{self.ticker}",
                     dedupe_ttl=180,
                 )

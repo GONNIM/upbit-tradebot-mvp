@@ -106,9 +106,9 @@
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
-| 11 | 🔔 `[MACD Golden Cross] {ticker}` | macd/signal/threshold | `macd_gc:{ticker}` / 180s | strategy_incremental.py:263 |
-| 12 | 🔻 `[MACD Dead Cross] {ticker}` | macd/signal | `macd_dc:{ticker}` / 180s | strategy_incremental.py:421 |
-| 13 | 🔔 `[EMA Golden Cross] {ticker}` | ema_fast/ema_slow | `ema_gc:{ticker}` / 180s | strategy_incremental.py:811 |
+| 11 | `매수 신호 — {ticker} (MACD Golden Cross)` | 교차폭 + threshold 배수 + MACD/Signal + 가이드 | `macd_gc:{ticker}` / 180s | strategy_incremental.py:263 |
+| 12 | `매도 신호 — {ticker} (MACD Dead Cross)` | 교차폭(±) + MACD/Signal + 가이드 | `macd_dc:{ticker}` / 180s | strategy_incremental.py:421 |
+| 13 | `매수 신호 — {ticker} (EMA Golden Cross)` | 교차폭(±) + Fast/Slow EMA + 가이드 | `ema_gc:{ticker}` / 180s | strategy_incremental.py:811 |
 
 ### 2.4 시스템 경고 — WARNING (`engine/`)
 
@@ -157,8 +157,8 @@
 
 | # | 트리거 | 제목 | 본문 | 부수 효과 |
 |---|---|---|---|---|
-| 25 | RSS > 1400MB | ⚠️ `[MEMORY] 임계값 초과` | `현재: {N}MB / 임계: 1400MB → 재시작 시도` | — |
-| 26 | systemctl restart 완료 | 🔄 `[SYSTEM] tradebot 재시작` | `사유: 메모리 임계 초과 (현재 {N}MB)` | 5초 sleep 후 발화 |
+| 25 | RSS > 1400MB | ⚠️ `메모리 임계 초과 — tradebot` | `현재: {N,NNN} MB ({P}%)` + `→ 자동 재시작 시도 중...` | — |
+| 26 | systemctl restart 완료 | 🔄 `tradebot 자동 재시작 완료` | `사유: 메모리 임계 초과 ({N,NNN} MB)` + `→ Dashboard 재개 확인 권고` | 5초 sleep 후 발화 |
 
 → 로그: `/var/log/tradebot_memory_monitor.log` (10분마다 INFO 누적)
 
@@ -339,4 +339,5 @@
 | 2026-06-16 | 본 문서 작성 (운영 매뉴얼 v1.0) | c478ba1 |
 | 2026-06-16 | STALE 아이콘 ⚠️ → 🚨 (가시성 강화) + P0 격상 | 8c65521 |
 | 2026-06-16 | 일/주간 digest v2 (balance/timezone/PRAGMA 3 버그 + 의미 지표) | 0aa128b |
-| 2026-06-16 | ⭐⭐⭐ 우선순위 5건 메시지 친화화 (#3/4/5/15/17/21) + error_messages 모듈 | (이 커밋) |
+| 2026-06-16 | ⭐⭐⭐ 우선순위 5건 메시지 친화화 (#3/4/5/15/17/21) + error_messages 모듈 | 2b37b9e |
+| 2026-06-16 | ⭐⭐ 우선순위 5건 친화화 (#11/12/13 전략 신호, #25/26 메모리) | (이 커밋) |
