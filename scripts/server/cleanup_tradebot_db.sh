@@ -55,10 +55,30 @@ DB_SIZE_FINAL=$(du -h "$DB_PATH" | cut -f1)
 log_message "DB 정리 완료 - 최종 크기: $DB_SIZE_FINAL (서비스 중단 없음)"
 log_message "=========================================="
 
-# 정보성 #13: cleanup 결과 알림 (주간 1회)
+# 정보성 #13: cleanup 결과 알림 (v2 — 친화 표현)
+# 천단위 쉼표 (awk fmt_num, BSD/GNU 호환)
+fmt_num() {
+    awk -v n="$1" 'BEGIN {
+        len = length(n)
+        for (i = len; i > 3; i -= 3)
+            n = substr(n, 1, i-3) "," substr(n, i-2)
+        print n
+    }'
+}
+
+BUY_FMT=$(fmt_num "${DELETED_BUY:-0}")
+SELL_FMT=$(fmt_num "${DELETED_SELL:-0}")
+LOGS_FMT=$(fmt_num "${DELETED_LOGS:-0}")
+CKPT_LABEL="OK"
+[ -z "$CKPT_RESULT" ] && CKPT_LABEL="실패"
+
 NOTIFIER=/root/notify_telegram.sh
-[ -x "$NOTIFIER" ] && "$NOTIFIER" "🧹 [DB 정리 완료]" "삭제: buy=$DELETED_BUY sell=$DELETED_SELL logs=$DELETED_LOGS
-체크포인트: $CKPT_RESULT
-DB 크기: $DB_SIZE_FINAL (서비스 중단 없음)"
+[ -x "$NOTIFIER" ] && "$NOTIFIER" "🧹 주간 DB 정리 완료" "삭제된 30일 이전 레코드:
+  BUY 평가: ${BUY_FMT}건
+  SELL 평가: ${SELL_FMT}건
+  로그: ${LOGS_FMT}건
+체크포인트: ${CKPT_LABEL}
+DB 크기: ${DB_SIZE_FINAL}
+가동 중단 없음 ✅"
 
 exit 0

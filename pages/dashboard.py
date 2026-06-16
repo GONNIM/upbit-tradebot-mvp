@@ -456,7 +456,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.16.1605")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.16.1610")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -541,13 +541,13 @@ with col10:
                 success = engine_manager.start_engine(user_id, test_mode=(not is_live))
                 if success:
                     insert_log(user_id, "INFO", f"✅ 트레이딩 엔진 실행됨 ({mode})")
-                    # Critical 신규: 엔진 수동 시작 알림
+                    # Critical 신규: 엔진 수동 시작 알림 (v2 — 친화 표현)
                     try:
                         from services.notifier import send as _notify, LEVEL_CRITICAL
                         _notify(
                             LEVEL_CRITICAL,
-                            f"▶️ [엔진 시작] {user_id} ({mode})",
-                            "사용자가 dashboard에서 '엔진 실행하기' 클릭",
+                            f"▶️ 엔진 시작 — {user_id} / {mode}",
+                            "출처: Dashboard 수동 클릭",
                             dedupe_key=f"engine_start:{user_id}",
                             dedupe_ttl=30,
                         )
@@ -588,13 +588,16 @@ with col20:
         if engine_status:
             engine_manager.stop_engine(user_id)
             insert_log(user_id, "INFO", f"⚡ 파라미터 설정을 위해 엔진 자동 종료됨 ({mode})")
-            # Critical 신규: 파라미터 설정으로 인한 자동 종료 알림
+            # Critical 신규: 파라미터 설정으로 인한 자동 종료 알림 (v2 — 친화 표현)
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
                 _notify(
                     LEVEL_CRITICAL,
-                    f"⏸️ [엔진 자동 종료] {user_id} ({mode})",
-                    "사유: 파라미터 설정 페이지 진입",
+                    f"⏸️ 엔진 일시 정지 — {user_id} / {mode}",
+                    (
+                        "사유: 파라미터 설정 진입\n\n"
+                        "→ 설정 완료 후 수동 재시작 필요"
+                    ),
                     dedupe_key=f"engine_auto_stop_params:{user_id}",
                     dedupe_ttl=30,
                 )
@@ -1952,13 +1955,13 @@ with btn_col3:
     if stop_engine_clicked:
         engine_manager.stop_engine(user_id)
         insert_log(user_id, "INFO", f"🛑 트레이딩 엔진 수동 종료됨 ({mode})")
-        # Critical 신규: 엔진 수동 종료 알림
+        # Critical 신규: 엔진 수동 종료 알림 (v2 — 친화 표현)
         try:
             from services.notifier import send as _notify, LEVEL_CRITICAL
             _notify(
                 LEVEL_CRITICAL,
-                f"⏹️ [엔진 수동 종료] {user_id} ({mode})",
-                "사용자가 dashboard에서 '🛑 트레이딩 엔진 종료' 클릭",
+                f"⏹️ 엔진 종료 — {user_id} / {mode}",
+                "출처: Dashboard 수동 클릭",
                 dedupe_key=f"engine_stop:{user_id}",
                 dedupe_ttl=30,
             )

@@ -647,13 +647,19 @@ class UpbitTrader:
                 ),
             )
 
-            # Critical #1 알림: LIVE BUY 요청 전송 성공 (체결은 reconciler가 확정)
+            # Critical #1 알림: LIVE BUY 요청 전송 성공 (v2 — 친화 표현)
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
                 _notify(
                     LEVEL_CRITICAL,
-                    f"🟢 [LIVE BUY 요청] {ticker}",
-                    f"예상가≈{price:,.2f} KRW\n사용 KRW≈{krw_to_use:,.0f}\nuuid={uuid}",
+                    f"🟢 매수 요청 — {ticker}",
+                    (
+                        f"가격: {price:,.2f} KRW\n"
+                        f"금액: {krw_to_use:,.0f} KRW\n\n"
+                        f"수분 내 체결 확정 대기\n"
+                        f"─────\n"
+                        f"uuid: {uuid}"
+                    ),
                     dedupe_key=f"buy_req:{uuid}",
                     dedupe_ttl=60,
                 )
@@ -719,8 +725,12 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
                 _notify(
                     LEVEL_CRITICAL,
-                    f"❌ [LIVE 고정가 매수 거부] {ticker}",
-                    f"호가 라운딩 비정상\n원가={price}\n조정가={rounded_price}",
+                    f"❌ 고정가 매수 거부 — {ticker}",
+                    (
+                        f"사유: 호가 단위 이탈 (0.5% 초과)\n"
+                        f"요청가: {price:,.4f} → 조정가: {rounded_price:,.2f}\n\n"
+                        f"💡 신호 정확성 확인 — 비정상 가격 의심"
+                    ),
                     dedupe_key=f"fixed_buy_tick:{ticker}",
                     dedupe_ttl=60,
                 )
@@ -743,8 +753,11 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_WARNING
                 _notify(
                     LEVEL_WARNING,
-                    f"❌ [LIVE 고정가 매수 잔고 부족] {ticker}",
-                    "가용 KRW=0\n주문 불가",
+                    f"⚠️ 고정가 매수 보류 — {ticker}",
+                    (
+                        "사유: KRW 잔고 0원\n\n"
+                        "💡 입금 또는 risk_pct 조정"
+                    ),
                     dedupe_key=f"fixed_buy_balance_zero:{ticker}",
                     dedupe_ttl=60,
                 )
@@ -766,8 +779,12 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_WARNING
                 _notify(
                     LEVEL_WARNING,
-                    f"❌ [LIVE 고정가 매수 잔고 부족] {ticker}",
-                    f"가용 KRW={avail:.0f}\n필요≥5,000",
+                    f"⚠️ 고정가 매수 보류 — {ticker}",
+                    (
+                        f"사유: KRW 잔고 부족\n"
+                        f"가용: {avail:,.0f} KRW (최소 5,000 필요)\n\n"
+                        f"💡 입금 또는 risk_pct 조정"
+                    ),
                     dedupe_key=f"fixed_buy_balance:{ticker}",
                     dedupe_ttl=60,
                 )
@@ -812,10 +829,18 @@ class UpbitTrader:
             logger.error(f"[BUY-LIMIT] FAILURE → {err_summary}")
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
+                from services.error_messages import format_error_block
+                _label, _raw = format_error_block(err_summary)
                 _notify(
                     LEVEL_CRITICAL,
-                    f"❌ [LIVE 고정가 매수 거부] {ticker}",
-                    f"price={rounded_price}\nqty={qty}\n{err_summary}",
+                    f"❌ 고정가 매수 거부 — {ticker}",
+                    (
+                        f"사유: {_label}\n"
+                        f"가격: {rounded_price:,.2f}  수량: {qty}\n\n"
+                        f"💡 Upbit 응답 코드 확인\n"
+                        f"─────\n"
+                        f"err: {_raw}"
+                    ),
                     dedupe_key=f"fixed_buy_fail:{ticker}:{err_summary[:80]}",
                     dedupe_ttl=60,
                 )
@@ -873,17 +898,18 @@ class UpbitTrader:
                 ),
             )
 
-            # 중요 알림: 고정가 매수 주문 등록
+            # 중요 알림: 고정가 매수 주문 등록 (v2 — 친화 표현)
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
                 _notify(
                     LEVEL_CRITICAL,
-                    f"🎯 [LIVE 고정가 매수 요청] {ticker}",
+                    f"🎯 고정가 매수 요청 — {ticker}",
                     (
-                        f"지정가={rounded_price:,.4f} KRW\n"
-                        f"수량≈{qty}\n"
-                        f"timeout=다음 봉(~{interval_sec}s)\n"
-                        f"uuid={uuid}"
+                        f"지정가: {rounded_price:,.4f} KRW\n"
+                        f"수량: {qty}\n"
+                        f"미체결 시 자동 취소: 다음 봉 (~{interval_sec}초)\n"
+                        f"─────\n"
+                        f"uuid: {uuid}"
                     ),
                     dedupe_key=f"fixed_buy_req:{uuid}",
                     dedupe_ttl=60,
@@ -1115,13 +1141,19 @@ class UpbitTrader:
                 ),
             )
 
-            # Critical #2 알림: LIVE SELL 요청 전송 성공 (체결은 reconciler가 확정)
+            # Critical #2 알림: LIVE SELL 요청 전송 성공 (v2 — 친화 표현)
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
                 _notify(
                     LEVEL_CRITICAL,
-                    f"🔴 [LIVE SELL 요청] {ticker}",
-                    f"예상가≈{price:,.2f} KRW\n수량≈{qty:.6f}\nuuid={uuid}",
+                    f"🔴 매도 요청 — {ticker}",
+                    (
+                        f"가격: {price:,.2f} KRW\n"
+                        f"수량: {qty:.6f}\n\n"
+                        f"수분 내 체결 확정 대기\n"
+                        f"─────\n"
+                        f"uuid: {uuid}"
+                    ),
                     dedupe_key=f"sell_req:{uuid}",
                     dedupe_ttl=60,
                 )

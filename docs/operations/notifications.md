@@ -86,21 +86,21 @@
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
-| 1 | 🟢 `[LIVE BUY 요청] {ticker}` | 예상가/사용 KRW/uuid | `buy_req:{uuid}` / 60s | trader.py:637 |
-| 2 | 🔴 `[LIVE SELL 요청] {ticker}` | 예상가/수량/uuid | `sell_req:{uuid}` / 60s | trader.py:1088 |
+| 1 | 🟢 `매수 요청 — {ticker}` | 가격 + 금액 + 체결 안내 + uuid | `buy_req:{uuid}` / 60s | trader.py:637 |
+| 2 | 🔴 `매도 요청 — {ticker}` | 가격 + 수량 + 체결 안내 + uuid | `sell_req:{uuid}` / 60s | trader.py:1088 |
 | 3 | ❌ `매수 실패 — {ticker}` | 사유(한글)+재시도+가이드+raw err | `buy_fail:{ticker}:{err}` / 60s | trader.py:512 |
 | 4 | ❌ `매도 실패 — {ticker}` | 사유(한글)+수량+가이드+raw err | `sell_fail:{ticker}:{err}` / 60s | trader.py:1005 |
 | 5 | 🔑 `Upbit API 인증 실패` | 사유(한글)+3단계 액션+raw err | `api_auth:{err}` / 600s | trader.py:525, 1019 |
-| 6 | ❌ `[LIVE 고정가 매수 거부] {ticker}` (호가) | 원가/조정가 | `fixed_buy_tick:{ticker}` / 60s | trader.py:703 |
-| 7 | ❌ `[LIVE 고정가 매수 거부] {ticker}` (주문) | price/qty/err | `fixed_buy_fail:{ticker}:{err[:80]}` / 60s | trader.py:798 |
-| 8 | 🎯 `[LIVE 고정가 매수 요청] {ticker}` | 지정가/수량/timeout/uuid | `fixed_buy_req:{uuid}` / 60s | trader.py:862 |
+| 6 | ❌ `고정가 매수 거부 — {ticker}` (호가) | 사유(호가 단위 이탈) + 원가→조정가 + 가이드 | `fixed_buy_tick:{ticker}` / 60s | trader.py:703 |
+| 7 | ❌ `고정가 매수 거부 — {ticker}` (주문) | 사유(한글) + 가격/수량 + 가이드 + raw err | `fixed_buy_fail:{ticker}:{err[:80]}` / 60s | trader.py:798 |
+| 8 | 🎯 `고정가 매수 요청 — {ticker}` | 지정가 + 수량 + 자동 취소 안내 + uuid | `fixed_buy_req:{uuid}` / 60s | trader.py:862 |
 
 ### 2.2 거래 이벤트 — WARNING (`core/trader.py`)
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
-| 9 | ❌ `[LIVE 고정가 매수 잔고 부족] {ticker}` | 가용 KRW=0 / 주문 불가 | `fixed_buy_balance_zero:{ticker}` / 60s | trader.py:728 |
-| 10 | ❌ `[LIVE 고정가 매수 잔고 부족] {ticker}` | 가용 KRW=N / 필요≥5,000 | `fixed_buy_balance:{ticker}` / 60s | trader.py:751 |
+| 9 | ⚠️ `고정가 매수 보류 — {ticker}` | 사유(잔고 0) + 가이드 | `fixed_buy_balance_zero:{ticker}` / 60s | trader.py:728 |
+| 10 | ⚠️ `고정가 매수 보류 — {ticker}` | 사유(잔고 부족) + 가용(comma) + 가이드 | `fixed_buy_balance:{ticker}` / 60s | trader.py:751 |
 
 ### 2.3 전략 신호 — WARNING (`core/strategy_incremental.py`)
 
@@ -114,18 +114,18 @@
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
-| 14 | ⏱ `[LIVE 고정가 매수 미체결 취소] {ticker}` | 지정가/elapsed/uuid | `fixed_buy_timeout:{uuid}` / 60s | order_reconciler.py:355 |
+| 14 | ⏱ `고정가 매수 미체결 → 자동 취소 — {ticker}` | 지정가 + 경과(초) + 재평가 안내 + uuid | `fixed_buy_timeout:{uuid}` / 60s | order_reconciler.py:355 |
 | 15 | ⚠️ `Upbit REST API 응답 지연 — {ticker}` | 시점/재시도(분해)/조치/dedupe 안내 | `rest_retry_exhausted` / 300s | live_loop.py:1126 |
 
 ### 2.5 엔진 운영 — CRITICAL (`pages/`)
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
-| 16 | ▶️ `[엔진 시작] {user_id} ({mode})` | dashboard 클릭 | `engine_start:{user_id}` / 30s | dashboard.py:542 |
+| 16 | ▶️ `엔진 시작 — {user_id} / {mode}` | 출처: Dashboard 수동 클릭 | `engine_start:{user_id}` / 30s | dashboard.py:542 |
 | 17 | ❌ `엔진 시작 실패 — {user_id} / {mode}` | 사유 + 즉시 확인 명령 2가지 | `engine_start_fail:{user_id}` / 60s | dashboard.py:559 |
-| 18 | ⏸️ `[엔진 자동 종료] {user_id} ({mode})` | 파라미터 설정 진입 | `engine_auto_stop_params:{user_id}` / 30s | dashboard.py:584 |
-| 19 | ⏹️ `[엔진 수동 종료] {user_id} ({mode})` | dashboard 클릭 | `engine_stop:{user_id}` / 30s | dashboard.py:1948 |
-| 20 | 💥 `[엔진 종료 — 시스템 초기화] {user_id}` | 시스템 초기화 실행 | `engine_reset:{user_id}` / 30s | confirm_init_db.py:51 |
+| 18 | ⏸️ `엔진 일시 정지 — {user_id} / {mode}` | 사유 + 수동 재시작 안내 | `engine_auto_stop_params:{user_id}` / 30s | dashboard.py:584 |
+| 19 | ⏹️ `엔진 종료 — {user_id} / {mode}` | 출처: Dashboard 수동 클릭 | `engine_stop:{user_id}` / 30s | dashboard.py:1948 |
+| 20 | 💥 `엔진 강제 종료 — {user_id}` | 사유 + DB/포지션 초기화 경고 | `engine_reset:{user_id}` / 30s | confirm_init_db.py:51 |
 | 21 | 🚨 `자동 재개 실패 — {user_id}` | Upbit 검증/자본금 설정 ✅❌ + 가이드 | `auto_resume_fail:{user_id}` / 600s | dashboard.py:410 |
 
 ---
@@ -169,7 +169,7 @@
 
 | # | 트리거 | 제목 | 본문 |
 |---|---|---|---|
-| 27 | 정리 완료 (1주 1회) | 🧹 `[DB 정리 완료]` | `삭제: buy=N sell=N logs=N`<br>`체크포인트: {result}`<br>`DB 크기: {size}` |
+| 27 | 정리 완료 (1주 1회) | 🧹 `주간 DB 정리 완료` | 카테고리별 삭제 건수(comma) + 체크포인트 OK/실패 + DB 크기 + 가동 중단 없음 ✅ |
 
 → 로그: `/var/log/tradebot_cleanup.log`. 30일 이전 audit/logs DELETE + 7일 이전 .backup 삭제.
 
@@ -340,4 +340,5 @@
 | 2026-06-16 | STALE 아이콘 ⚠️ → 🚨 (가시성 강화) + P0 격상 | 8c65521 |
 | 2026-06-16 | 일/주간 digest v2 (balance/timezone/PRAGMA 3 버그 + 의미 지표) | 0aa128b |
 | 2026-06-16 | ⭐⭐⭐ 우선순위 5건 메시지 친화화 (#3/4/5/15/17/21) + error_messages 모듈 | 2b37b9e |
-| 2026-06-16 | ⭐⭐ 우선순위 5건 친화화 (#11/12/13 전략 신호, #25/26 메모리) | (이 커밋) |
+| 2026-06-16 | ⭐⭐ 우선순위 5건 친화화 (#11/12/13 전략 신호, #25/26 메모리) | 57a0dc5 |
+| 2026-06-16 | ⭐ 우선순위 11건 친화화 (#1/2/6~10/14/16/18~20/27) | (이 커밋) |

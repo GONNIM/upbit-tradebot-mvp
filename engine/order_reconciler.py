@@ -349,17 +349,18 @@ class OrderReconciler:
             logger.error(f"[OR] cancel_order 실패 uuid={uuid}: {e}")
             return
 
-        # 중요 알림: 미체결 취소
+        # 중요 알림: 미체결 취소 (v2 — 친화 표현)
         try:
             from services.notifier import send as _notify, LEVEL_WARNING
             _notify(
                 LEVEL_WARNING,
-                f"⏱ [LIVE 고정가 매수 미체결 취소] {ticker}",
+                f"⏱ 고정가 매수 미체결 → 자동 취소 — {ticker}",
                 (
-                    f"지정가={meta.get('limit_price', 'n/a')}\n"
-                    f"elapsed={elapsed:.1f}s\n"
-                    f"uuid={uuid}\n"
-                    f"→ 다음 봉 시그널 재평가 예정"
+                    f"지정가: {meta.get('limit_price', 'n/a')}\n"
+                    f"경과: {elapsed:.1f}초 (봉 간격 도달)\n\n"
+                    f"→ 다음 봉 시그널에서 재평가\n"
+                    f"─────\n"
+                    f"uuid: {uuid}"
                 ),
                 dedupe_key=f"fixed_buy_timeout:{uuid}",
                 dedupe_ttl=60,
