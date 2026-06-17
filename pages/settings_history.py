@@ -352,20 +352,24 @@ with st.expander("🔎 스냅샷 상세 보기 (펼치기 / 숨기기)", expande
     st.markdown("### 📥 이 설정 불러오기 (복원)")
 
     # ✅ UX: 안내 3문항을 단일 info 박스 + 압축 HTML 로 묶어 행간 축소.
-    # 줄 사이 빈 줄을 제거하고 <p style="margin-bottom:0.35rem"> 로 제어.
+    # 다크 모드에서도 글자가 보이도록 박스 글자색 명시 (color:#1a1a1a),
+    # 강조용 <code> 는 흰색 배경 + 짙은 글자로 명시.
     st.markdown(
         f"""
 <div style="background:#eaf4ff;border-left:4px solid #1f77b4;
-            padding:10px 14px;border-radius:4px;line-height:1.45;">
-  <p style="margin:0 0 0.35rem 0;"><b>📌 무엇을 하나요?</b><br>
+            padding:10px 14px;border-radius:4px;line-height:1.45;
+            color:#1a1a1a;">
+  <p style="margin:0 0 0.35rem 0;color:#1a1a1a;"><b>📌 무엇을 하나요?</b><br>
     선택한 스냅샷 <b>id={selected_id}</b>
-    (<code>{snap['strategy_type']}</code> · <code>{snap['source_page']}</code> · <code>{_format_saved_at(snap['saved_at'])}</code>)
+    (<code style="background:#ffffff;color:#0b3d91;padding:1px 5px;border-radius:3px;">{snap['strategy_type']}</code>
+    · <code style="background:#ffffff;color:#0b3d91;padding:1px 5px;border-radius:3px;">{snap['source_page']}</code>
+    · <code style="background:#ffffff;color:#0b3d91;padding:1px 5px;border-radius:3px;">{_format_saved_at(snap['saved_at'])}</code>)
     의 <b>전략 파라미터 / 매수·매도 조건</b>을 <b>현재 설정 파일에 덮어씁니다.</b>
     즉, 그 시점의 설정으로 봇을 운영하게 됩니다.</p>
-  <p style="margin:0 0 0.35rem 0;"><b>↩️ 되돌릴 수 있나요?</b><br>
-    네. 복원 직전에 <b>"지금 설정"을 자동으로 사전 스냅샷(<code>auto_pre_restore</code>)으로 저장</b>합니다.
+  <p style="margin:0 0 0.35rem 0;color:#1a1a1a;"><b>↩️ 되돌릴 수 있나요?</b><br>
+    네. 복원 직전에 <b>"지금 설정"을 자동으로 사전 스냅샷(<code style="background:#ffffff;color:#0b3d91;padding:1px 5px;border-radius:3px;">auto_pre_restore</code>)으로 저장</b>합니다.
     잘못 복원했다면 그 사전 스냅샷을 다시 불러오기로 즉시 되돌릴 수 있습니다.</p>
-  <p style="margin:0;"><b>📈 복원 후 거래는 어떻게 되나요?</b><br>
+  <p style="margin:0;color:#1a1a1a;"><b>📈 복원 후 거래는 어떻게 되나요?</b><br>
     이후 발생하는 매수·매도 거래에는 <b>새로 생긴 복원 이벤트 row(active id)</b>가 자동 라벨링되어
     "이 설정으로 얼마나 벌었나" 가 자연스럽게 누적 집계됩니다.</p>
 </div>
@@ -381,14 +385,16 @@ with st.expander("🔎 스냅샷 상세 보기 (펼치기 / 숨기기)", expande
 
     with cb_strategy_col:
         # ✅ UX: 항목 ①을 단일 warning 박스로 묶어 시각적 구분 + 행간 압축
+        # 다크 모드 대응: color 명시 + code 태그 배경/글자색 강제
         st.markdown(
             f"""
 <div style="background:#fff7e6;border-left:4px solid #d97706;
-            padding:10px 14px;border-radius:4px;line-height:1.45;">
-  <p style="margin:0 0 0.35rem 0;"><b>① 전략 타입이 다른 스냅샷도 복원할까요?</b></p>
-  <p style="margin:0;">이 스냅샷은 <b>{snap['strategy_type']}</b> 전략입니다.
+            padding:10px 14px;border-radius:4px;line-height:1.45;
+            color:#1a1a1a;">
+  <p style="margin:0 0 0.35rem 0;color:#1a1a1a;"><b>① 전략 타입이 다른 스냅샷도 복원할까요?</b></p>
+  <p style="margin:0;color:#1a1a1a;">이 스냅샷은 <b>{snap['strategy_type']}</b> 전략입니다.
     현재 봇이 다른 전략(예: 반대 전략)으로 운영 중이라면, 복원 시
-    <b>봇의 전략이 <code>{snap['strategy_type']}</code> 로 전환됩니다.</b>
+    <b>봇의 전략이 <code style="background:#ffffff;color:#7c2d12;padding:1px 5px;border-radius:3px;">{snap['strategy_type']}</code> 로 전환됩니다.</b>
     의도하지 않은 전략 전환은 큰 영향이 있을 수 있어요.</p>
 </div>
             """,
@@ -401,13 +407,14 @@ with st.expander("🔎 스냅샷 상세 보기 (펼치기 / 숨기기)", expande
         )
 
     with cb_position_col:
-        # ✅ UX: 항목 ②도 동일 패턴
+        # ✅ UX: 항목 ②도 동일 패턴 (다크 모드 글자색 명시)
         st.markdown(
             """
 <div style="background:#fff7e6;border-left:4px solid #d97706;
-            padding:10px 14px;border-radius:4px;line-height:1.45;">
-  <p style="margin:0 0 0.35rem 0;"><b>② 코인을 보유한 상태에서도 복원할까요?</b></p>
-  <p style="margin:0;">현재 매수해서 들고 있는 코인이 있을 수 있어요.
+            padding:10px 14px;border-radius:4px;line-height:1.45;
+            color:#1a1a1a;">
+  <p style="margin:0 0 0.35rem 0;color:#1a1a1a;"><b>② 코인을 보유한 상태에서도 복원할까요?</b></p>
+  <p style="margin:0;color:#1a1a1a;">현재 매수해서 들고 있는 코인이 있을 수 있어요.
     복원하면 <b>익절(TP) / 손절(SL) 값이 즉시 새 설정으로 바뀝니다.</b>
     그 결과 보유 중인 코인이 <b>즉시 매도</b>되거나 <b>의도하지 않은 시점에 매도</b>될 수 있어요.</p>
 </div>
