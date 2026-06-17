@@ -568,7 +568,7 @@ def fetch_trades_for_snapshot(user_id: str, snapshot_id: int) -> list[dict]:
         "       entry_price, bars_held, settings_history_id "
         "FROM audit_trades "
         f"WHERE {' '.join(where)} "
-        "ORDER BY id ASC"
+        "ORDER BY id DESC"  # ✅ 최신 거래가 상위
     )
     with get_db(user_id) as conn:
         cur = conn.cursor()

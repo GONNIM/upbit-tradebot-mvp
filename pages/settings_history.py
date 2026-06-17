@@ -334,6 +334,13 @@ with st.expander("🔎 스냅샷 상세 보기 (펼치기 / 숨기기)", expande
         st.caption("이 구간에 발생한 거래가 없습니다.")
     else:
         trades_df = pd.DataFrame(trades)
+        # ✅ timestamp 포맷: YYYY-MM-DD HH:mm:ss.xxx (밀리초 3자리, T 구분자 제거)
+        if "timestamp" in trades_df.columns:
+            trades_df["timestamp"] = (
+                pd.to_datetime(trades_df["timestamp"])
+                  .dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+                  .str[:-3]
+            )
         st.dataframe(
             trades_df,
             use_container_width=True,
