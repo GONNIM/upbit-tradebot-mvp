@@ -589,13 +589,20 @@ def run_live_loop(
                     # 조건 파일 로드 (매번 최신 상태 반영)
                     trade_conditions = _load_trade_conditions(user_id, strategy_tag)
 
+                    # ✅ FIX(diag-1) — audit_settings 는 strategy 객체의 실제 운영 임계값을
+                    # 적재해야 한다. params 객체에 trailing_stop_pct 키가 없어 ts_pct=NULL 로
+                    # 적재되던 결함 해소 + SP5 hot reload 후의 갱신값도 정확 반영.
+                    _eng_strat = getattr(engine, "strategy", None)
+                    _eng_tp = getattr(_eng_strat, "take_profit", None) if _eng_strat else None
+                    _eng_sl = getattr(_eng_strat, "stop_loss", None) if _eng_strat else None
+                    _eng_ts = getattr(_eng_strat, "trailing_stop_pct", None) if _eng_strat else None
                     insert_settings_snapshot(
                         user_id=user_id,
                         ticker=params.upbit_ticker,
                         interval_sec=getattr(params, "interval_sec", 60),
-                        tp=params.take_profit,
-                        sl=params.stop_loss,
-                        ts_pct=getattr(params, "trailing_stop_pct", None),
+                        tp=_eng_tp if _eng_tp is not None else params.take_profit,
+                        sl=_eng_sl if _eng_sl is not None else params.stop_loss,
+                        ts_pct=_eng_ts if _eng_ts is not None else getattr(params, "trailing_stop_pct", None),
                         signal_gate=getattr(params, "signal_confirm_enabled", False),
                         threshold=getattr(params, "macd_threshold", 0.0),
                         buy_dict=trade_conditions.get("buy", {}),

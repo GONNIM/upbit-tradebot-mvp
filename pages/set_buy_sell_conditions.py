@@ -181,8 +181,9 @@ def load_conditions():
 
     if params_obj:
         default_ticker = params_obj.ticker  # 종목
-        default_tp_pct = params_obj.take_profit * 100.0  # 0.05 -> 5.0%
-        default_sl_pct = params_obj.stop_loss * 100.0    # 0.01 -> 1.0%
+        # ✅ FIX(diag-3) — 부동소수점 정밀도 보호 (0.025 * 100 = 2.4999999999999996 차단)
+        default_tp_pct = round(params_obj.take_profit * 100.0, 4)  # 0.05 -> 5.0%
+        default_sl_pct = round(params_obj.stop_loss * 100.0, 4)    # 0.01 -> 1.0%
         # trailing_stop은 params에 없으므로 기본값 사용
 
     if SAVE_PATH.exists():
@@ -252,11 +253,14 @@ def save_conditions():
     # ✅ TP/SL 파라미터 추가 저장 (토글 무관 항상 저장)
     # Why: 입력 필드가 "자주 변경하는 설정"에서 항상 노출되며, TS Only 설정에서도
     #      Trailing Stop 활성화 임계값으로 TP 값을 참조하므로 토글 OFF에도 값 보존 필요
-    conditions["sell"]["stop_loss_pct"] = st.session_state.get("stop_loss_pct", 1.0)
-    conditions["sell"]["take_profit_pct"] = st.session_state.get("take_profit_pct", 3.0)
+    # ✅ FIX(diag-3) — 부동소수점 정밀도 보호 (소수 넷째 자리까지)
+    conditions["sell"]["stop_loss_pct"] = round(float(st.session_state.get("stop_loss_pct", 1.0)), 4)
+    conditions["sell"]["take_profit_pct"] = round(float(st.session_state.get("take_profit_pct", 3.0)), 4)
 
     if st.session_state.get("trailing_stop", False):
-        conditions["sell"]["trailing_stop_threshold_pct"] = st.session_state.get("trailing_stop_threshold_pct", 10.0)
+        conditions["sell"]["trailing_stop_threshold_pct"] = round(
+            float(st.session_state.get("trailing_stop_threshold_pct", 10.0)), 4
+        )
         conditions["sell"]["use_fixed_trailing"] = st.session_state.get("use_fixed_trailing", False)
 
     with SAVE_PATH.open("w", encoding="utf-8") as f:
@@ -281,13 +285,14 @@ def save_conditions():
             ticker_changed = True
 
         # Stop Loss 변경 감지 (토글 무관)
-        new_sl_pct = st.session_state.get("stop_loss_pct", 1.0) / 100.0
+        # ✅ FIX(diag-3) — params 동기화 시 부동소수점 노이즈 차단
+        new_sl_pct = round(st.session_state.get("stop_loss_pct", 1.0) / 100.0, 6)
         if abs(params_obj.stop_loss - new_sl_pct) > 0.0001:
             params_obj.stop_loss = new_sl_pct
             sl_changed = True
 
         # Take Profit 변경 감지 (토글 무관)
-        new_tp_pct = st.session_state.get("take_profit_pct", 3.0) / 100.0
+        new_tp_pct = round(st.session_state.get("take_profit_pct", 3.0) / 100.0, 6)
         if abs(params_obj.take_profit - new_tp_pct) > 0.0001:
             params_obj.take_profit = new_tp_pct
             tp_changed = True
