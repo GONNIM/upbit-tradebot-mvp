@@ -456,7 +456,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.23.2035")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.23.2045")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -2008,17 +2008,23 @@ try:
             st.warning(
                 f"⚠️ **{_diff_cnt}개 항목이 엔진 ≠ UI 저장값.**\n"
                 f"설정을 저장한 직후라면 SP5 Hot Reload 로 다음 분에 자동 반영됩니다.\n"
-                f"`⚠️` 표시된 항목을 확인해주세요."
+                f"`⚠️` 표시된 항목은 아래 비교 도표에서 확인할 수 있습니다."
             )
         else:
             st.success("✅ 엔진 적용 conditions 가 UI 저장값과 일치합니다.")
 
+        # ✅ UX — 비교 도표는 expander 로 감싸 디폴트 숨김.
+        # 차이가 1건 이상이면 자동 펼침 (사용자 즉시 확인 가능).
         import pandas as _sp1_pd
-        st.dataframe(
-            _sp1_pd.DataFrame(_sp1_rows),
-            use_container_width=True,
-            hide_index=True,
-        )
+        with st.expander(
+            f"🔎 항목별 엔진 vs UI 비교 도표 (펼치기 / 숨기기)",
+            expanded=(_diff_cnt > 0),
+        ):
+            st.dataframe(
+                _sp1_pd.DataFrame(_sp1_rows),
+                use_container_width=True,
+                hide_index=True,
+            )
 except Exception as _sp1_e:
     st.caption(f"엔진 상태 표시 실패: {_sp1_e}")
 
