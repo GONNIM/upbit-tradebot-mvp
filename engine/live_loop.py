@@ -388,8 +388,10 @@ def run_live_loop(
     # ✅ P1 — 설정 History 시드 (idempotent). 사용자가 한 번도 명시 저장한 적 없는
     # 새 (user_id, strategy_tag) 조합에 첫 active_settings_id 를 확보.
     try:
-        from services.settings_history import seed_initial_snapshot
+        from services.settings_history import seed_initial_snapshot, record_strategy_init
         seed_initial_snapshot(user_id, strategy_tag)
+        # ✅ SP2 — strategy 객체 재초기화 시점 자동 row + applied_at 일괄 채움
+        record_strategy_init(user_id, strategy_tag)
     except Exception as _seed_e:
         logger.warning(f"[settings_history] seed_initial_snapshot 실패: {_seed_e}")
 
@@ -574,8 +576,11 @@ def run_live_loop(
     logger.info(f"[WARMUP] Required bars: {min_hist}")
 
     # ✅ 설정 스냅샷 1분 타이머 (봉과 무관하게 독립 동작)
+    # ✅ SP5 Hot Reload — conditions mtime 변경 감지 → strategy.reload_conditions 호출
+    _hot_reload_state: Dict[str, Any] = {"last_mtime": None}
+
     def _settings_snapshot_timer():
-        """1분마다 설정 스냅샷 기록 (별도 스레드)"""
+        """1분마다 설정 스냅샷 기록 + conditions mtime 변경 감지 → strategy 핫리로드"""
         last_minute: Optional[str] = None
         while not stop_event.is_set():
             try:
@@ -599,6 +604,53 @@ def run_live_loop(
                     )
                     last_minute = current_minute
                     logger.info(f"[SETTINGS-SNAPSHOT] ✅ Recorded at {current_minute}")
+
+                    # ✅ SP5 Hot Reload — mtime 변경 감지 시에만 strategy reload
+                    try:
+                        _cond_path = _get_trade_conditions_path(user_id, strategy_tag)
+                        if _cond_path and os.path.exists(_cond_path):
+                            _mtime = os.path.getmtime(_cond_path)
+                            _last_mtime = _hot_reload_state["last_mtime"]
+                            if _last_mtime is None:
+                                # 최초 호출 — strategy init 시점 mtime 으로 간주
+                                _hot_reload_state["last_mtime"] = _mtime
+                            elif _mtime != _last_mtime:
+                                _hot_buy = trade_conditions.get("buy", {}) or {}
+                                _hot_sell = trade_conditions.get("sell", {}) or {}
+                                _reload_result = engine.strategy.reload_conditions(
+                                    _hot_buy, _hot_sell
+                                )
+                                if _reload_result.get("changed"):
+                                    _changes = _reload_result["changed"]
+                                    _change_summary = ", ".join(
+                                        f"{k}: {v[0]!r}→{v[1]!r}" for k, v in _changes.items()
+                                    )
+                                    logger.warning(
+                                        f"🔄 [HOT-RELOAD] strategy 갱신 완료 | {_change_summary}"
+                                    )
+                                    # 활성 포지션 보유 중 Telegram CRITICAL (D7 결정 ii)
+                                    _in_position = bool(
+                                        getattr(engine.position, "has_position", False)
+                                    )
+                                    if _in_position:
+                                        try:
+                                            from services.notifier import send as _notify, LEVEL_CRITICAL
+                                            _notify(
+                                                LEVEL_CRITICAL,
+                                                f"🚨 [HOT-RELOAD] 운영 중 conditions 변경 — {user_id}",
+                                                (
+                                                    f"활성 포지션 보유 중 → TP/SL 즉시 새 임계로 적용됩니다.\n"
+                                                    f"변경 항목:\n{_change_summary}\n\n"
+                                                    f"의도하지 않은 변경이라면 대시보드에서 즉시 원복 저장 권장."
+                                                ),
+                                                dedupe_key=f"hot_reload:{user_id}:{int(_mtime)}",
+                                                dedupe_ttl=60,
+                                            )
+                                        except Exception:
+                                            pass
+                                _hot_reload_state["last_mtime"] = _mtime
+                    except Exception as _hot_e:
+                        logger.warning(f"[HOT-RELOAD] failed: {_hot_e}")
             except Exception as e:
                 logger.warning(f"[SETTINGS-SNAPSHOT] ❌ Failed: {e}")
 

@@ -292,6 +292,11 @@ if params:
             _lg.getLogger(__name__).error(
                 f"[settings_history] record_snapshot 실패 (set_config): {_sh_e}"
             )
+        # ✅ SP3 — set_config 의 params 는 strategy init 시점에만 적용됨 (Hot Reload 대상 외).
+        st.info(
+            "ℹ️ 전략 파라미터(EMA 주기·MACD 설정 등) 변경은 **엔진 재시작 시점에 적용**됩니다.\n"
+            "Stop Loss / Take Profit / Trailing 같은 매수·매도 조건은 `매수/매도 설정` 페이지에서 변경 시 다음 분에 자동 적용됩니다."
+        )
 
         # ✅ TEST 모드일 때: 파라미터 저장 시 DB 잔고 및 포지션을 초기화
         if mode == "TEST":

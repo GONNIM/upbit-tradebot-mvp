@@ -66,6 +66,12 @@ class StrategyEngine:
         self.position = position
         self.strategy = strategy
         self.trader = trader
+        # ✅ SP4 — trader 에 strategy 참조 주입 (audit_trades sl/tp/ts_pct 적재용)
+        try:
+            if hasattr(self.trader, "set_strategy_ref"):
+                self.trader.set_strategy_ref(strategy)
+        except Exception:
+            pass
         self.user_id = user_id
         self.ticker = ticker
         self.strategy_type = strategy_type.upper()
@@ -85,6 +91,8 @@ class StrategyEngine:
         # Reconciler가 봉 간격 초과 미체결을 cancel 처리하므로 다음 봉에서 풀어준다.
         self._pending_buy_uuid: Optional[str] = None
         self._pending_buy_bar: Optional[int] = None
+        # ✅ SP6 — 대기 봉 수 (사용자 conditions, 기본 3)
+        self._pending_buy_wait_bars: int = 3
 
     def is_new_bar(self, bar: Bar) -> bool:
         """
@@ -110,10 +118,12 @@ class StrategyEngine:
         """
         if self._pending_buy_uuid is None or self._pending_buy_bar is None:
             return
-        if self.bar_count > self._pending_buy_bar:
+        # ✅ SP6 — wait_bars 만큼 봉 경과 후 해제 (기본 3봉)
+        if self.bar_count > self._pending_buy_bar + (self._pending_buy_wait_bars - 1):
             logger.info(
                 f"🎯 LIMIT BUY pending 자동 해제 | uuid={self._pending_buy_uuid} "
                 f"start_bar={self._pending_buy_bar} now_bar={self.bar_count} "
+                f"wait_bars={self._pending_buy_wait_bars} "
                 f"(Reconciler가 봉 마감 시점 cancel 처리한 것으로 간주)"
             )
             try:
@@ -122,6 +132,7 @@ class StrategyEngine:
                 logger.warning(f"[ENGINE] LIMIT pending 해제 실패: {e}")
             self._pending_buy_uuid = None
             self._pending_buy_bar = None
+            self._pending_buy_wait_bars = 3  # 다음 매수를 위해 기본값 복원
 
     def _reconcile_position_with_wallet(self) -> None:
         """
@@ -524,16 +535,21 @@ class StrategyEngine:
 
         if fixed_price_mode:
             meta["fixed_price_buy"] = True
+            # ✅ SP6 — 대기 봉 수 (사용자 conditions, 기본 3)
+            wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
+            wait_bars = max(1, min(5, wait_bars))  # 안전 클램프 1~5
+            effective_interval_sec = self.interval_sec * wait_bars
             logger.info(
                 f"🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | "
-                f"close={bar.close} ticker={self.ticker}"
+                f"close={bar.close} ticker={self.ticker} "
+                f"wait_bars={wait_bars} effective_timeout≈{effective_interval_sec-5}s"
             )
             result = self.trader.buy_limit(
                 bar.close,
                 self.ticker,
                 ts=bar.ts,
                 meta=meta,
-                interval_sec=self.interval_sec,
+                interval_sec=effective_interval_sec,  # ✅ SP6 — wait_bars 곱셈된 값 전달
             )
         else:
             result = self.trader.buy_market(
@@ -545,13 +561,17 @@ class StrategyEngine:
 
         if result:
             # ✅ LIMIT 미체결 — position.open_position 보류, pending_order=True 유지.
-            # 봉 마감 시 Reconciler가 cancel → 다음 봉 진입 시 _maybe_release_limit_pending 에서 해제.
+            # 봉 마감 시 Reconciler가 cancel → wait_bars 봉 진입 시 _maybe_release_limit_pending 에서 해제.
             if result.get("limit_pending"):
                 self._pending_buy_uuid = result.get("uuid")
                 self._pending_buy_bar = self.bar_count
+                # ✅ SP6 — 대기 봉 수 기록 (pending 해제 시점 판단용)
+                self._pending_buy_wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
+                self._pending_buy_wait_bars = max(1, min(5, self._pending_buy_wait_bars))
                 logger.info(
                     f"🎯 LIMIT BUY 등록(체결 대기) | price={result['price']:.4f} "
-                    f"uuid={result.get('uuid')} bar={self.bar_count}"
+                    f"uuid={result.get('uuid')} bar={self.bar_count} "
+                    f"wait_bars={self._pending_buy_wait_bars}"
                 )
                 # 이벤트 큐 BUY 전송은 reconciler 가 체결 확정 시점에 별도 처리.
                 return

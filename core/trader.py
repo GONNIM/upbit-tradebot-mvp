@@ -231,9 +231,29 @@ class UpbitTrader:
         # 마지막 LIVE 주문 실패의 정확한 사유(B안) — UI 노출용
         self.last_buy_error: Optional[str] = None
         self.last_sell_error: Optional[str] = None
+        # ✅ SP4 — strategy 참조 (StrategyEngine 이 init 직후 set_strategy_ref 호출)
+        self._strategy_ref = None
 
         if test_mode and get_account(user_id) is None:
             create_or_init_account(user_id)
+
+    def set_strategy_ref(self, strategy) -> None:
+        """✅ SP4 — strategy 객체 참조 주입 (audit_trades sl/tp/ts_pct 적재용)."""
+        self._strategy_ref = strategy
+
+    def _current_thresholds(self) -> tuple:
+        """✅ SP4 — strategy 객체에서 sl/tp/ts_pct 현재 값 추출.
+        참조 없거나 속성 부재 시 (None, None, None)."""
+        s = self._strategy_ref
+        if s is None:
+            return (None, None, None)
+        try:
+            sl = getattr(s, "stop_loss", None)
+            tp = getattr(s, "take_profit", None)
+            ts_pct = getattr(s, "trailing_stop_pct", None)
+            return (sl, tp, ts_pct)
+        except Exception:
+            return (None, None, None)
 
     def _get_settings_history_id(self) -> Optional[int]:
         """
@@ -338,6 +358,12 @@ class UpbitTrader:
             amount = q * px
             fee = amount * (fee_ratio or 0.0)
 
+            # ✅ SP4 — strategy 객체에서 현재 임계값 보강 (호출자가 None 전달 시 strategy 값 사용)
+            _sl_strat, _tp_strat, _ts_strat = self._current_thresholds()
+            _tp_log = tp_price if tp_price is not None else _tp_strat
+            _sl_log = sl_price if sl_price is not None else _sl_strat
+            _ts_log = ts_pct if ts_pct is not None else _ts_strat
+
             # DB 감사 기록
             insert_trade_audit(
                 self.user_id,
@@ -352,10 +378,10 @@ class UpbitTrader:
                 entry_price,
                 entry_bar,
                 bars_held,
-                tp_price,
-                sl_price,
+                _tp_log,
+                _sl_log,
                 highest,
-                ts_pct,
+                _ts_log,
                 ts_armed,
                 timestamp=None,  # ✅ 실시간 체결 시각 (now_kst() 자동)
                 bar_time=meta.get("bar_time"),  # ✅ 해당 봉의 시각

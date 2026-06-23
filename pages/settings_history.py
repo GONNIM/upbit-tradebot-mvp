@@ -216,11 +216,31 @@ table_rows = []
 for r in rows:
     pnl = pnl_cache[r["id"]]
     pnl_disp = _format_pnl(pnl)
+    # ✅ SP2 — 사용자 저장 → 엔진 적용 격차 계산
+    _saved = r.get("saved_at") or ""
+    _applied = r.get("applied_at") or ""
+    if _saved and _applied:
+        try:
+            _delta = (datetime.fromisoformat(_applied) - datetime.fromisoformat(_saved)).total_seconds()
+            if _delta < 60:
+                _gap_disp = f"{int(_delta)}초"
+            elif _delta < 3600:
+                _gap_disp = f"{int(_delta // 60)}분 {int(_delta % 60)}초"
+            else:
+                _gap_disp = f"{int(_delta // 3600)}시간 {int((_delta % 3600) // 60)}분"
+        except Exception:
+            _gap_disp = "-"
+    elif _applied:
+        _gap_disp = "즉시"
+    else:
+        _gap_disp = "미적용"
     table_rows.append({
         "id": r["id"],
         "시간(KST)": _format_saved_at(r["saved_at"]),
         "전략": r["strategy_type"],
         "기록 위치": r["source_page"],
+        "적용 시각": _format_saved_at(r.get("applied_at")) or "—",
+        "적용 격차": _gap_disp,
         "유효 구간": pnl.get("interval_label", "-"),
         "실현 손익": pnl_disp["실현 손익"],
         "거래(B/S)": pnl_disp["거래(B/S)"],
@@ -241,6 +261,8 @@ st.dataframe(
         "시간(KST)": st.column_config.Column(width="small"),
         "전략": st.column_config.Column(width="small"),
         "기록 위치": st.column_config.Column(width="medium"),
+        "적용 시각": st.column_config.Column(width="small"),
+        "적용 격차": st.column_config.Column(width="small"),
         "유효 구간": st.column_config.Column(width="small"),
         "실현 손익": st.column_config.Column(width="small"),
         "거래(B/S)": st.column_config.Column(width="small"),

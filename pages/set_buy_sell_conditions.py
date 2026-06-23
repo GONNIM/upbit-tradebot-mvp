@@ -238,6 +238,12 @@ def save_conditions():
     if strategy_tag == "EMA" and st.session_state.get("surge_filter_enabled", False):
         conditions["buy"]["surge_threshold_pct"] = st.session_state.get("surge_threshold_pct", 0.01)
 
+    # ✅ SP6 — Fixed Price Buy 대기 봉 수 (활성화 시 저장, 기본 3)
+    if st.session_state.get("fixed_price_buy_enabled", False):
+        conditions["buy"]["fixed_price_buy_wait_bars"] = int(
+            st.session_state.get("fixed_price_buy_wait_bars", 3)
+        )
+
     # ✅ Stale Position 파라미터 추가 저장 (EMA 전략만)
     if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
         conditions["sell"]["stale_hours"] = st.session_state.get("stale_hours", 1.0)
@@ -540,6 +546,22 @@ if len(BUY_FILTERS) > 0:
         # ✅ Fixed Price Buy 안내 UI (전략 공통 · 활성화 시)
         if st.session_state.get("fixed_price_buy_enabled", False):
             st.markdown("#### ⚙️ 고정가 매수 동작 안내")
+
+            # ✅ SP6 — 대기 봉 수 입력 (1~5 봉, 기본 3)
+            wait_bars = st.number_input(
+                "지정가 매수 대기 봉 수 (1~5 봉)",
+                min_value=1, max_value=5,
+                value=int(st.session_state.get("fixed_price_buy_wait_bars", 3)),
+                step=1,
+                key=f"input_fixed_price_buy_wait_bars_{strategy_tag}",
+                help=(
+                    "설정한 봉 수 만큼 체결을 기다린 후 자동 취소합니다.\n"
+                    "1분봉 기준: 3봉 ≈ 3분, 5봉 ≈ 5분.\n"
+                    "변동성 큰 시장에서는 더 많은 봉을 기다리는 것이 체결률이 높습니다."
+                ),
+            )
+            st.session_state["fixed_price_buy_wait_bars"] = int(wait_bars)
+
             if mode != "LIVE":
                 st.warning(
                     f"⚠️ 현재 모드: **{mode}** — 고정가 매수는 **LIVE 모드 한정** 기능입니다. "
@@ -547,10 +569,10 @@ if len(BUY_FILTERS) > 0:
                 )
             else:
                 st.info(
-                    "🎯 매수 시그널 발생 봉의 **종가**로 Upbit **지정가(Limit) 주문**을 등록합니다.\n"
-                    "- 가격 자동: 봉 종가를 Upbit 호가 단위에 맞춰 라운딩 후 사용\n"
-                    "- Timeout: 다음 봉 시작 직전 미체결 시 **자동 취소** → 다음 봉 시그널 재평가\n"
-                    "- 알림: 주문 등록 / 미체결 취소 / API 거부 / 잔고 부족 시 Telegram 전송"
+                    f"🎯 매수 시그널 발생 봉의 **종가**로 Upbit **지정가(Limit) 주문**을 등록합니다.\n"
+                    f"- 가격 자동: 봉 종가를 Upbit 호가 단위에 맞춰 라운딩 후 사용\n"
+                    f"- **Timeout: {int(wait_bars)}봉 대기 후 미체결 시 자동 취소** → 다음 봉 시그널 재평가\n"
+                    f"- 알림: 주문 등록 / 미체결 취소 / API 거부 / 잔고 부족 시 Telegram 전송"
                 )
 
 st.divider()
@@ -718,6 +740,12 @@ with save_col:
             _lg.getLogger(__name__).error(
                 f"[settings_history] record_snapshot 실패 (set_buy_sell_conditions): {_sh_e}"
             )
+        # ✅ SP3 — Hot Reload 안내 (SP5 도입 후 자동 적용 — 재시작 불요)
+        st.success(
+            "✅ 설정이 저장되었습니다.\n\n"
+            "🔄 **엔진은 다음 분(약 60초 이내)에 자동으로 새 설정을 적용합니다.**\n"
+            "활성 포지션 보유 중이면 TP/SL 즉시 변경되므로 Telegram 알림이 발송됩니다."
+        )
         go_dashboard()
 
 # --- 현재 상태 출력 ---

@@ -141,6 +141,79 @@ class IncrementalMACDStrategy:
         self.last_buy_filter_result = None
         self.last_sell_filter_result = None
 
+    def reload_conditions(self, buy_conditions: dict, sell_conditions: dict) -> dict:
+        """
+        ✅ SP5 Hot Reload — 엔진 재시작 없이 conditions 갱신 (MACD).
+        MACD 전략은 SellFilterManager 미사용 → self.* 만 갱신.
+        """
+        buy_conditions = buy_conditions or {}
+        sell_conditions = sell_conditions or {}
+        changes: dict = {}
+
+        # === 매도 임계값 ===
+        if "take_profit_pct" in sell_conditions:
+            new_val = sell_conditions["take_profit_pct"] / 100.0
+            if abs(self.take_profit - new_val) > 1e-9:
+                changes["take_profit"] = (self.take_profit, new_val)
+                self.take_profit = new_val
+        if "stop_loss_pct" in sell_conditions:
+            new_val = sell_conditions["stop_loss_pct"] / 100.0
+            if abs(self.stop_loss - new_val) > 1e-9:
+                changes["stop_loss"] = (self.stop_loss, new_val)
+                self.stop_loss = new_val
+        if "trailing_stop_threshold_pct" in sell_conditions:
+            new_val = sell_conditions["trailing_stop_threshold_pct"] / 100.0
+            if abs((getattr(self, "trailing_stop_pct", 0) or 0) - new_val) > 1e-9:
+                changes["trailing_stop_pct"] = (
+                    getattr(self, "trailing_stop_pct", None), new_val,
+                )
+                self.trailing_stop_pct = new_val
+
+        # === 매도 boolean flags (MACD 키: dead_cross) ===
+        sell_flag_pairs = [
+            ("stop_loss", "enable_stop_loss"),
+            ("take_profit", "enable_take_profit"),
+            ("trailing_stop", "enable_trailing_stop"),
+            ("dead_cross", "enable_dead_cross"),
+        ]
+        for cond_key, attr in sell_flag_pairs:
+            if cond_key in sell_conditions:
+                new_val = bool(sell_conditions[cond_key])
+                cur_val = getattr(self, attr, None)
+                if cur_val is not None and cur_val != new_val:
+                    changes[attr] = (cur_val, new_val)
+                    setattr(self, attr, new_val)
+
+        # === 매수 boolean flags (MACD 키들) ===
+        buy_flag_pairs = [
+            ("golden_cross", "enable_golden_cross"),
+            ("macd_positive", "enable_macd_positive"),
+            ("signal_positive", "enable_signal_positive"),
+            ("bullish_candle", "enable_bullish_candle"),
+            ("macd_trending_up", "enable_macd_trending_up"),
+            ("above_ma20", "enable_above_ma20"),
+            ("above_ma60", "enable_above_ma60"),
+        ]
+        for cond_key, attr in buy_flag_pairs:
+            if cond_key in buy_conditions:
+                new_val = bool(buy_conditions[cond_key])
+                cur_val = getattr(self, attr, None)
+                if cur_val is not None and cur_val != new_val:
+                    changes[attr] = (cur_val, new_val)
+                    setattr(self, attr, new_val)
+
+        # conditions 자체 갱신
+        self.buy_conditions = buy_conditions
+        self.sell_conditions = sell_conditions
+
+        if changes:
+            logger.warning(
+                f"🔄 [HOT-RELOAD] MACD Strategy conditions 갱신 | "
+                f"changes={list(changes.keys())}"
+            )
+
+        return {"changed": changes, "filter_rebuild": False}
+
     def on_bar(
         self,
         bar: Bar,
@@ -655,6 +728,122 @@ class IncrementalEMAStrategy:
         """
         self.interval_min = interval_min
         logger.info(f"[EMA Strategy] Interval set to {interval_min} minutes")
+
+    def reload_conditions(self, buy_conditions: dict, sell_conditions: dict) -> dict:
+        """
+        ✅ SP5 Hot Reload — 엔진 재시작 없이 conditions 갱신.
+
+        live_loop 가 매 봉 또는 mtime 변경 감지 시 호출.
+        변경된 항목만 적용 + SellFilterManager / BuyFilterManager 재구성.
+
+        Returns:
+            {
+                "changed": {key: (old, new), ...},
+                "filter_rebuild": bool,
+            }
+        """
+        buy_conditions = buy_conditions or {}
+        sell_conditions = sell_conditions or {}
+        changes: dict = {}
+
+        # === 매도 임계값 (pct) ===
+        if "take_profit_pct" in sell_conditions:
+            new_val = sell_conditions["take_profit_pct"] / 100.0
+            if abs(self.take_profit - new_val) > 1e-9:
+                changes["take_profit"] = (self.take_profit, new_val)
+                self.take_profit = new_val
+                # trailing_stop_activation 은 take_profit 자동 추적
+                self.trailing_stop_activation_pct = self.take_profit
+
+        if "stop_loss_pct" in sell_conditions:
+            new_val = sell_conditions["stop_loss_pct"] / 100.0
+            if abs(self.stop_loss - new_val) > 1e-9:
+                changes["stop_loss"] = (self.stop_loss, new_val)
+                self.stop_loss = new_val
+
+        if "trailing_stop_threshold_pct" in sell_conditions:
+            new_val = sell_conditions["trailing_stop_threshold_pct"] / 100.0
+            if abs((self.trailing_stop_pct or 0) - new_val) > 1e-9:
+                changes["trailing_stop_pct"] = (self.trailing_stop_pct, new_val)
+                self.trailing_stop_pct = new_val
+
+        if "use_fixed_trailing" in sell_conditions:
+            new_val = bool(sell_conditions["use_fixed_trailing"])
+            if self.use_fixed_trailing != new_val:
+                changes["use_fixed_trailing"] = (self.use_fixed_trailing, new_val)
+                self.use_fixed_trailing = new_val
+
+        # === 매도 boolean flags ===
+        sell_flag_pairs = [
+            ("stop_loss", "enable_stop_loss"),
+            ("take_profit", "enable_take_profit"),
+            ("trailing_stop", "enable_trailing_stop"),
+            ("ema_dc", "enable_dead_cross"),
+            ("stale_position_check", "enable_stale_position"),
+        ]
+        for cond_key, attr in sell_flag_pairs:
+            if cond_key in sell_conditions:
+                new_val = bool(sell_conditions[cond_key])
+                cur_val = getattr(self, attr, None)
+                if cur_val is not None and cur_val != new_val:
+                    changes[attr] = (cur_val, new_val)
+                    setattr(self, attr, new_val)
+
+        # === Stale position params ===
+        if "stale_hours" in sell_conditions:
+            new_val = float(sell_conditions["stale_hours"])
+            if abs(self.stale_hours - new_val) > 1e-9:
+                changes["stale_hours"] = (self.stale_hours, new_val)
+                self.stale_hours = new_val
+        if "stale_threshold_pct" in sell_conditions:
+            new_val = float(sell_conditions["stale_threshold_pct"])
+            if abs(self.stale_threshold_pct - new_val) > 1e-9:
+                changes["stale_threshold_pct"] = (self.stale_threshold_pct, new_val)
+                self.stale_threshold_pct = new_val
+
+        # === 매수 boolean flags ===
+        buy_flag_pairs = [
+            ("ema_gc", "enable_ema_gc"),
+            ("above_base_ema", "enable_above_base_ema"),
+            ("bullish_candle", "enable_bullish_candle"),
+        ]
+        for cond_key, attr in buy_flag_pairs:
+            if cond_key in buy_conditions:
+                new_val = bool(buy_conditions[cond_key])
+                cur_val = getattr(self, attr, None)
+                if cur_val is not None and cur_val != new_val:
+                    changes[attr] = (cur_val, new_val)
+                    setattr(self, attr, new_val)
+
+        # === Surge filter ===
+        if "surge_filter_enabled" in buy_conditions:
+            new_val = bool(buy_conditions["surge_filter_enabled"])
+            if self.ema_surge_filter_enabled != new_val:
+                changes["ema_surge_filter_enabled"] = (self.ema_surge_filter_enabled, new_val)
+                self.ema_surge_filter_enabled = new_val
+        if "surge_threshold_pct" in buy_conditions:
+            new_val = float(buy_conditions["surge_threshold_pct"])
+            if abs(self.ema_surge_threshold_pct - new_val) > 1e-9:
+                changes["ema_surge_threshold_pct"] = (self.ema_surge_threshold_pct, new_val)
+                self.ema_surge_threshold_pct = new_val
+
+        # conditions 자체 갱신 (다른 키들도 보존)
+        self.buy_conditions = buy_conditions
+        self.sell_conditions = sell_conditions
+
+        # 필터 매니저 재구성 (변경 시에만)
+        filter_rebuild = bool(changes)
+        if filter_rebuild:
+            self.buy_filter_manager = BuyFilterManager()
+            self.sell_filter_manager = SellFilterManager()
+            self._register_buy_filters()
+            self._register_sell_filters()
+            logger.warning(
+                f"🔄 [HOT-RELOAD] EMA Strategy conditions 갱신 | "
+                f"changes={list(changes.keys())} | filters rebuilt"
+            )
+
+        return {"changed": changes, "filter_rebuild": filter_rebuild}
 
     def on_bar(
         self,

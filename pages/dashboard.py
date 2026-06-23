@@ -456,7 +456,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.17.2025")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.23.1543")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -1894,6 +1894,110 @@ if error_logs:
         },
     )
 st.write()
+
+st.divider()
+
+
+# ============================================================
+# ✅ SP1 — 🔧 엔진 상태: 실제 운영 conditions vs UI 저장값
+# ============================================================
+st.subheader("🔧 엔진 상태 (실시간 운영 conditions)")
+try:
+    from services.db import fetch_latest_audit_settings
+    from config import CONDITIONS_JSON_FILENAME as _SP1_COND_FN
+    import json as _sp1_json
+    from pathlib import Path as _SP1_Path
+
+    _sp1_engine = fetch_latest_audit_settings(user_id, ticker=params_obj.upbit_ticker) \
+        if params_obj else None
+
+    if _sp1_engine is None:
+        st.info("아직 audit_settings 기록이 없습니다. 엔진 시작 후 1분 뒤 표시됩니다.")
+    else:
+        _sp1_file_path = _SP1_Path(f"{user_id}_{strategy_tag}_{_SP1_COND_FN}")
+        _sp1_file_buy = {}
+        _sp1_file_sell = {}
+        if _sp1_file_path.exists():
+            try:
+                _sp1_fc = _sp1_json.loads(_sp1_file_path.read_text(encoding="utf-8"))
+                _sp1_file_buy = _sp1_fc.get("buy", {}) or {}
+                _sp1_file_sell = _sp1_fc.get("sell", {}) or {}
+            except Exception:
+                pass
+
+        _sp1_eng_buy = _sp1_engine.get("buy_json") or {}
+        _sp1_eng_sell = _sp1_engine.get("sell_json") or {}
+
+        # 비교 표 — 주요 임계값/토글
+        _sp1_rows = []
+        def _add(label, eng_val, ui_val):
+            if isinstance(eng_val, bool) or isinstance(ui_val, bool):
+                eng_disp = "✅ ON" if eng_val else "❌ OFF"
+                ui_disp = "✅ ON" if ui_val else "❌ OFF"
+            elif eng_val is None and ui_val is None:
+                eng_disp = ui_disp = "-"
+            else:
+                eng_disp = str(eng_val) if eng_val is not None else "-"
+                ui_disp = str(ui_val) if ui_val is not None else "-"
+            diff_mark = " ⚠️" if eng_val != ui_val else ""
+            _sp1_rows.append({
+                "항목": label + diff_mark,
+                "엔진 적용중": eng_disp,
+                "UI 저장값": ui_disp,
+            })
+
+        # 임계값 — engine 측은 self.* (백분율 변환됨)
+        _add("stop_loss_pct (%)",
+             round((_sp1_engine.get("sl") or 0) * 100, 4),
+             _sp1_file_sell.get("stop_loss_pct"))
+        _add("take_profit_pct (%)",
+             round((_sp1_engine.get("tp") or 0) * 100, 4),
+             _sp1_file_sell.get("take_profit_pct"))
+        _add("trailing_stop_threshold_pct (%)",
+             round((_sp1_engine.get("ts_pct") or 0) * 100, 4) if _sp1_engine.get("ts_pct") else None,
+             _sp1_file_sell.get("trailing_stop_threshold_pct"))
+
+        # boolean flags
+        for _key, _label in [
+            ("stop_loss", "stop_loss (sell)"),
+            ("take_profit", "take_profit (sell)"),
+            ("trailing_stop", "trailing_stop"),
+            ("ema_dc", "ema_dc"),
+            ("stale_position_check", "stale_position_check"),
+            ("ema_gc", "ema_gc (buy)"),
+            ("surge_filter_enabled", "surge_filter_enabled"),
+            ("fixed_price_buy_enabled", "fixed_price_buy_enabled"),
+        ]:
+            _eng_v = _sp1_eng_sell.get(_key) if _key in _sp1_eng_sell else _sp1_eng_buy.get(_key)
+            _ui_v = _sp1_file_sell.get(_key) if _key in _sp1_file_sell else _sp1_file_buy.get(_key)
+            _add(_label, _eng_v, _ui_v)
+
+        # 변경 사항 카운트
+        _diff_cnt = sum(1 for r in _sp1_rows if "⚠️" in r["항목"])
+
+        meta_col1, meta_col2 = st.columns(2)
+        with meta_col1:
+            st.caption(f"🕐 엔진 마지막 스냅샷: **{_sp1_engine.get('timestamp', '-')[:19]}** ({_sp1_engine.get('ticker')})")
+        with meta_col2:
+            st.caption(f"📁 UI 저장 파일: `{_sp1_file_path}`")
+
+        if _diff_cnt > 0:
+            st.warning(
+                f"⚠️ **{_diff_cnt}개 항목이 엔진 ≠ UI 저장값.**\n"
+                f"설정을 저장한 직후라면 SP5 Hot Reload 로 다음 분에 자동 반영됩니다.\n"
+                f"`⚠️` 표시된 항목을 확인해주세요."
+            )
+        else:
+            st.success("✅ 엔진 적용 conditions 가 UI 저장값과 일치합니다.")
+
+        import pandas as _sp1_pd
+        st.dataframe(
+            _sp1_pd.DataFrame(_sp1_rows),
+            use_container_width=True,
+            hide_index=True,
+        )
+except Exception as _sp1_e:
+    st.caption(f"엔진 상태 표시 실패: {_sp1_e}")
 
 st.divider()
 

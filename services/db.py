@@ -1129,6 +1129,51 @@ def insert_trade_audit(
 
 
 # (선택) 실행 시점 설정 스냅샷
+def fetch_latest_audit_settings(user_id: str, ticker: str | None = None) -> Optional[Dict[str, Any]]:
+    """
+    ✅ SP1 — 엔진이 실시간으로 사용 중인 conditions 의 최신 스냅샷 1건 조회.
+
+    audit_settings 는 1분당 1회 strategy 객체의 현재 임계값을 적재하므로
+    이 row 가 "엔진이 실제 적용 중인 conditions" 를 반영.
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            if ticker:
+                cur.execute(
+                    "SELECT timestamp, ticker, interval_sec, tp, sl, ts_pct, "
+                    "       signal_gate, threshold, buy_json, sell_json, bar_time "
+                    "FROM audit_settings "
+                    "WHERE ticker=? "
+                    "ORDER BY id DESC LIMIT 1",
+                    (ticker,),
+                )
+            else:
+                cur.execute(
+                    "SELECT timestamp, ticker, interval_sec, tp, sl, ts_pct, "
+                    "       signal_gate, threshold, buy_json, sell_json, bar_time "
+                    "FROM audit_settings "
+                    "ORDER BY id DESC LIMIT 1"
+                )
+            row = cur.fetchone()
+        if not row:
+            return None
+        cols = ["timestamp", "ticker", "interval_sec", "tp", "sl", "ts_pct",
+                "signal_gate", "threshold", "buy_json", "sell_json", "bar_time"]
+        result = dict(zip(cols, row))
+        # JSON 파싱
+        for k in ("buy_json", "sell_json"):
+            v = result.get(k)
+            if isinstance(v, str):
+                try:
+                    result[k] = json.loads(v)
+                except Exception:
+                    pass
+        return result
+    except Exception:
+        return None
+
+
 def insert_settings_snapshot(
     user_id: str,
     ticker: str,

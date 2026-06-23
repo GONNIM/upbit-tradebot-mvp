@@ -479,6 +479,53 @@ def ensure_orders_extended_schema(user_id: str | None):
     _migrate_audit_checks_bool_to_int(uid)
 
 
+def _relax_settings_history_check_for_strategy_init(conn):
+    """
+    SP2 마이그레이션 — settings_history 의 CHECK(source_page IN ...) 제약에
+    'strategy_init' 가 빠져 있는 기존 DB 에 추가.
+
+    SQLite 는 CHECK 제약을 ALTER 로 변경할 수 없어 sqlite_master.sql 을 직접 수정.
+    PRAGMA writable_schema 를 사용 후 즉시 OFF + integrity_check 로 검증.
+    idempotent — 이미 포함되어 있으면 무동작.
+    """
+    cur = conn.cursor()
+    try:
+        row = cur.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='settings_history'"
+        ).fetchone()
+        if not row or not row[0]:
+            return
+        sql = row[0]
+        if "'strategy_init'" in sql:
+            return  # 이미 포함
+        if "'auto_pre_restore'" not in sql:
+            logger.warning("[migrate] settings_history CHECK 형태가 예상과 달라 skip")
+            return
+        new_sql = sql.replace(
+            "'auto_pre_restore'",
+            "'auto_pre_restore', 'strategy_init'",
+        )
+        cur.execute("PRAGMA writable_schema = ON;")
+        cur.execute(
+            "UPDATE sqlite_master SET sql = ? "
+            "WHERE type='table' AND name='settings_history'",
+            (new_sql,),
+        )
+        cur.execute("PRAGMA writable_schema = OFF;")
+        ic = cur.execute("PRAGMA integrity_check").fetchone()
+        if ic and ic[0] != "ok":
+            logger.error(f"[migrate] settings_history integrity_check 실패: {ic}")
+        else:
+            logger.info("[migrate] settings_history CHECK relaxed (added 'strategy_init')")
+    except Exception as e:
+        logger.warning(f"[migrate] settings_history CHECK relax 실패: {e}")
+    finally:
+        try:
+            cur.execute("PRAGMA writable_schema = OFF;")
+        except Exception:
+            pass
+
+
 def ensure_settings_history_schema(user_id: str | None):
     """
     P1 — 설정 정보 History 마이그레이션.
@@ -506,13 +553,21 @@ def ensure_settings_history_schema(user_id: str | None):
         conditions_json TEXT,
         app_version     TEXT,
         note            TEXT,
+        applied_at      TEXT,
         CHECK (source_page IN (
             'set_config', 'set_buy_sell_conditions',
-            'initial_seed', 'restore', 'auto_pre_restore'
+            'initial_seed', 'restore', 'auto_pre_restore',
+            'strategy_init'
         )),
         CHECK (strategy_type IN ('MACD', 'EMA'))
     );
     """)
+
+    # ✅ SP2 — 기존 DB 대상 applied_at 컬럼 추가 (idempotent)
+    _ensure_column(conn, "settings_history", "applied_at", "TEXT")
+
+    # ✅ SP2 — 기존 DB 의 CHECK 제약에 'strategy_init' 누락된 경우 갱신
+    _relax_settings_history_check_for_strategy_init(conn)
 
     # 1-b) settings_history 인덱스
     cur.execute("""

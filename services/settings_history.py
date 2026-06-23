@@ -39,6 +39,7 @@ class RestoreError(Exception):
 _SOURCE_PAGES = frozenset({
     "set_config", "set_buy_sell_conditions",
     "initial_seed", "restore", "auto_pre_restore",
+    "strategy_init",  # ✅ SP2 — strategy 객체 재초기화 시점 자동 row
 })
 _STRATEGY_TYPES = frozenset({"MACD", "EMA"})
 
@@ -163,6 +164,60 @@ def record_snapshot(
     return new_id
 
 
+def record_strategy_init(
+    user_id: str,
+    strategy_type: str,
+    *,
+    note: Optional[str] = None,
+) -> Optional[int]:
+    """
+    ✅ SP2 — strategy 객체가 재초기화되어 새 conditions 를 적용한 시점에 호출.
+
+    동작:
+        1. source_page='strategy_init' 로 record_snapshot 호출 (현재 파일 상태 캡처)
+        2. 새로 생성된 row 의 applied_at 을 NOW 로 설정 (자기 자신 즉시 적용)
+        3. 이 strategy_type 의 이전 applied_at IS NULL row 들도 NOW 로 일괄 UPDATE
+           → "사용자 저장 시점 ~ 엔진 적용 시점" 격차를 시계열로 추적 가능
+
+    Returns:
+        새 strategy_init row id. 실패 시 None.
+    """
+    try:
+        new_id = record_snapshot(
+            user_id, "strategy_init", strategy_type,
+            note=note or "strategy 객체 재초기화 — 활성 운영 conditions 기록",
+        )
+    except (RecordError, ValueError) as e:
+        logger.warning(f"[settings_history] record_strategy_init 실패: {e}")
+        return None
+
+    now_str = now_kst()
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            # 새 row 자신의 applied_at
+            cur.execute(
+                "UPDATE settings_history SET applied_at = ? WHERE id = ?",
+                (now_str, int(new_id)),
+            )
+            # 같은 (user, strategy) 의 이전 NULL row 들도 일괄 UPDATE
+            cur.execute(
+                "UPDATE settings_history SET applied_at = ? "
+                "WHERE user_id = ? AND strategy_type = ? "
+                "AND applied_at IS NULL AND id <> ?",
+                (now_str, user_id, strategy_type, int(new_id)),
+            )
+            affected = cur.rowcount
+            conn.commit()
+        logger.info(
+            f"[settings_history] strategy_init id={new_id} applied_at={now_str[:19]} "
+            f"+ 이전 {affected} row 일괄 applied_at 채움"
+        )
+    except Exception as e:
+        logger.warning(f"[settings_history] applied_at UPDATE 실패: {e}")
+    return new_id
+
+
 def seed_initial_snapshot(user_id: str, strategy_type: str) -> Optional[int]:
     """
     settings_history 가 비어있는 (user_id, strategy_type) 조합에
@@ -245,7 +300,7 @@ def fetch_history(
 
     sql = (
         "SELECT id, user_id, saved_at, source_page, strategy_type, "
-        "       params_json, conditions_json, app_version, note "
+        "       params_json, conditions_json, app_version, note, applied_at "
         "FROM settings_history "
         f"WHERE {' AND '.join(where)} "
         "ORDER BY saved_at DESC, id DESC "
@@ -259,7 +314,7 @@ def fetch_history(
         rows = cur.fetchall()
 
     cols = ["id", "user_id", "saved_at", "source_page", "strategy_type",
-            "params_json", "conditions_json", "app_version", "note"]
+            "params_json", "conditions_json", "app_version", "note", "applied_at"]
     return [dict(zip(cols, r)) for r in rows]
 
 
@@ -269,7 +324,7 @@ def fetch_snapshot(user_id: str, snapshot_id: int) -> Optional[dict]:
         cur = conn.cursor()
         cur.execute(
             "SELECT id, user_id, saved_at, source_page, strategy_type, "
-            "       params_json, conditions_json, app_version, note "
+            "       params_json, conditions_json, app_version, note, applied_at "
             "FROM settings_history WHERE id = ? AND user_id = ?",
             (int(snapshot_id), user_id),
         )
@@ -277,7 +332,7 @@ def fetch_snapshot(user_id: str, snapshot_id: int) -> Optional[dict]:
     if not row:
         return None
     cols = ["id", "user_id", "saved_at", "source_page", "strategy_type",
-            "params_json", "conditions_json", "app_version", "note"]
+            "params_json", "conditions_json", "app_version", "note", "applied_at"]
     return dict(zip(cols, row))
 
 
