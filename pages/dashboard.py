@@ -456,7 +456,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.23.2026")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.23.2035")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -1941,6 +1941,18 @@ try:
                 return abs(float(eng_val) - float(ui_val)) > 1e-4
             return eng_val != ui_val
 
+        def _fmt(v):
+            # ✅ FIX(diag-4) — 표시값 정밀도 정리: float 은 round 4 후 str
+            if v is None:
+                return "-"
+            if isinstance(v, bool):
+                return str(v)
+            if isinstance(v, float):
+                v_r = round(v, 4)
+                # 정수면 .0 제거 (예: 30.0 → 30, 2.5 → 2.5)
+                return str(int(v_r)) if v_r == int(v_r) else str(v_r)
+            return str(v)
+
         def _add(label, eng_val, ui_val):
             if isinstance(eng_val, bool) or isinstance(ui_val, bool):
                 eng_disp = "✅ ON" if eng_val else "❌ OFF"
@@ -1948,8 +1960,8 @@ try:
             elif eng_val is None and ui_val is None:
                 eng_disp = ui_disp = "-"
             else:
-                eng_disp = str(eng_val) if eng_val is not None else "-"
-                ui_disp = str(ui_val) if ui_val is not None else "-"
+                eng_disp = _fmt(eng_val)
+                ui_disp = _fmt(ui_val)
             diff_mark = " ⚠️" if _is_diff(eng_val, ui_val) else ""
             _sp1_rows.append({
                 "항목": label + diff_mark,
