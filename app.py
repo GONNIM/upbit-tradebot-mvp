@@ -223,10 +223,42 @@ elif authentication_status is None:
     st.warning("아이디와 비밀번호를 입력해 주세요.")
 elif authentication_status:
     login_placeholder.empty()
-    
+
+    # ✅ [Mode Lock Guard] 실행 중 엔진 mode 와 세션 mode 정합.
+    #   같은 아이디로 이미 실행 중인 엔진이 있으면, 로그인 폼에서 선택한 mode
+    #   가 아닌 실행 중 mode 로 강제 override. set_engine_status 호출 이전에
+    #   개입하므로 DB last_mode 오염·감사 로그 혼선·UI 오인 원천 차단.
+    _selected_mode = st.session_state.get("mode", "TEST")
+    try:
+        from engine.engine_manager import engine_manager
+        _running_mode = engine_manager.get_running_mode(username)
+    except Exception:
+        _running_mode = None
+
+    if _running_mode and _running_mode != _selected_mode:
+        st.session_state["mode"] = _running_mode
+        st.session_state["_last_mode"] = _running_mode
+        st.session_state["live_mode_toggle"] = (_running_mode == "LIVE")
+        st.warning(
+            f"⚠️ **모드 강제 전환** — 현재 `{username}` 계정으로 "
+            f"**{_running_mode}** 엔진이 실행 중이어서 "
+            f"선택하신 **{_selected_mode}** 대신 **{_running_mode}** 모드로 진입합니다.\n\n"
+            f"- 다른 모드로 사용하려면 먼저 실행 중인 엔진을 정지하고 재로그인하세요."
+        )
+        try:
+            from services.db import insert_log
+            insert_log(
+                username,
+                "INFO",
+                f"[MODE-LOCK] 로그인 mode 강제 전환: selected={_selected_mode}, "
+                f"forced={_running_mode}",
+            )
+        except Exception:
+            pass
+
     _mode = st.session_state.get("mode", "TEST")
     mode_suffix = "LIVE" if _mode == "LIVE" else "TEST"
-    
+
     st.success(f"환영합니다, {name}님!  (모드: {mode_suffix})")
 
     # 2025-08-04 DB 분리

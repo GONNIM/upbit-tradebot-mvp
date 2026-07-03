@@ -97,6 +97,21 @@ class EngineManager:
         t = self._threads.get(key)
         return t is not None and t.is_alive()
 
+    def get_running_mode(self, user_id: str):
+        """
+        ✅ [Mode Lock Guard] 실제 살아있는 엔진의 mode 를 세션 참조 없이 반환.
+
+        - 반환: 'LIVE' / 'TEST' (엔진 running 중) 또는 None (없음)
+        - is_running 과 달리 current_mode() (session) 를 참조하지 않아
+          로그인 시점(=아직 session mode 확정 전) 에도 안전하게 호출 가능.
+        - dict.get 은 GIL 하 atomic → 별도 lock 불필요.
+        """
+        key = _user_key(user_id, "")  # captured_mode 는 키 생성에 미사용
+        t = self._threads.get(key)
+        if t is not None and t.is_alive():
+            return self._engine_mode.get(key)
+        return None
+
     def start_engine(
         self,
         user_id: str,
@@ -113,6 +128,23 @@ class EngineManager:
         """
         captured_mode = current_mode()
         tm = (test_mode if test_mode is not None else (captured_mode != MODE_LIVE))
+
+        # ✅ [Mode Lock Guard] 이미 다른 mode 로 실행 중이면 명시 거부.
+        #   순서 중요: LIVE Reconciler 기동(_live_engine_count 증가) 및
+        #   set_engine_status(last_mode 오염) 모두 이 지점 이전에 차단.
+        running_mode = self.get_running_mode(user_id)
+        if running_mode and running_mode != captured_mode:
+            msg = (
+                f"⛔ [MODE-LOCK] 엔진 시작 거부: user_id={user_id}, "
+                f"running={running_mode}, requested={captured_mode}. "
+                f"기존 {running_mode} 엔진을 먼저 정지하십시오."
+            )
+            logger.warning(msg)
+            try:
+                insert_log(user_id, "WARN", msg)
+            except Exception:
+                pass
+            return False
 
         # LIVE 모드 Reconciler 기동 및 미체결 로딩
         if captured_mode == MODE_LIVE:
