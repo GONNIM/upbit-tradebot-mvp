@@ -127,9 +127,59 @@ class PositionState:
             logger.error(f"[POS-SYNC] 동기화 실패: {e} → 기존 상태 유지")
             return self._has_position
 
+    def apply_entry(
+        self,
+        qty: float,
+        avg_price: float,
+        entry_bar: int,
+        entry_ts,
+        source: str,
+        highest_since_entry: Optional[float] = None,
+    ) -> None:
+        """
+        ✅ SP-PI-1: 통합 진입 API — 모든 P1/P2/P3/HTS 경로가 반드시 이 API 호출.
+        entry_ts 는 필수 (None 이면 예외) — Stale filter 결함 재발 물리적 차단.
+
+        Args:
+            qty: 보유 수량
+            avg_price: 평균 매수가
+            entry_bar: 진입 시점 bar_count
+            entry_ts: 진입 시점 timezone-aware datetime (필수)
+            source: 진입 경로 라벨 — "bot_market" / "bot_limit_fill" /
+                    "wallet_sync" / "boot_seed" / "hts_detect"
+            highest_since_entry: Stale Check 초기값 (None 이면 avg_price)
+        """
+        if entry_ts is None:
+            raise ValueError(f"entry_ts is required (source={source})")
+
+        self.has_position = True
+        self.qty = qty
+        self.avg_price = avg_price
+        self.entry_bar = entry_bar
+        self.entry_ts = entry_ts
+        self.last_action_ts = entry_ts
+        self.pending_order = False
+
+        # Trailing Stop 초기화
+        self.highest_price = avg_price
+        self.trailing_armed = False
+        self.trailing_fixed_amount = None
+        self.trailing_activation_price = None
+
+        # ✅ Stale Position Check 초기화
+        self.highest_since_entry = (
+            highest_since_entry if highest_since_entry is not None else avg_price
+        )
+
+        ts_iso = entry_ts.isoformat() if hasattr(entry_ts, "isoformat") else str(entry_ts)
+        logger.info(
+            f"✅ [POSITION-APPLY] source={source} qty={qty:.6f} "
+            f"entry={avg_price:.2f} bar={entry_bar} ts={ts_iso}"
+        )
+
     def open_position(self, qty: float, price: float, bar_idx: int, ts):
         """
-        매수 완료 (포지션 오픈)
+        봇 마켓 매수 완료 (기존 시그니처 유지, apply_entry 위임).
 
         Args:
             qty: 매수 수량
@@ -137,23 +187,12 @@ class PositionState:
             bar_idx: 진입 bar index
             ts: 진입 타임스탬프
         """
-        self.has_position = True
-        self.qty = qty
-        self.avg_price = price
-        self.entry_bar = bar_idx
-        self.entry_ts = ts
-        self.last_action_ts = ts
-        self.pending_order = False
-
-        # Trailing Stop 초기화
-        self.highest_price = price
-        self.trailing_armed = False
-
-        # ✅ Stale Position Check 초기화
-        self.highest_since_entry = price
-
-        logger.info(
-            f"✅ Position OPEN | qty={qty:.6f} price={price:.2f} bar={bar_idx}"
+        self.apply_entry(
+            qty=qty,
+            avg_price=price,
+            entry_bar=bar_idx,
+            entry_ts=ts,
+            source="bot_market",
         )
 
     def close_position(self, ts):

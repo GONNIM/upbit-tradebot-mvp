@@ -1047,22 +1047,57 @@ class IncrementalEMAStrategy:
             # 최소 보유 기간 체크
             bars_held = position.get_bars_held(current_bar_idx)
 
-            # ✅ B2: bars_held 음수/0 = 데이터 무결성 결손 신호.
-            #   기존의 estimate_bars_held_from_audit 보정은 자가 진단을 무시하고
-            #   잘못된 SELL을 진행시키는 위험이 있어 제거. SELL 차단 + 알람.
+            # ✅ SP-PI-4: bars_held ≤ 0 감지 시 audit_trades 실측으로 fallback.
+            #   과거에는 이 지점에서 SELL 을 통째 차단해 SL/TP/Stale/Trailing 전부 무력화
+            #   되는 결함이 있었다 (F4). SP-PI-1 통합 진입 API 도입으로 근본이 봉쇄되었으나,
+            #   방어책으로 audit 실측 fallback 을 재도입한다. audit 도 없으면 CRITICAL.
             if bars_held <= 0:
-                err_msg = (
-                    f"⚠️ [EMA] bars_held={bars_held} (음수/0) — 데이터 무결성 결손 감지. "
-                    f"SELL 차단 (HOLD 유지). entry_bar={position.entry_bar}, "
-                    f"current_bar={current_bar_idx}"
-                )
-                logger.error(err_msg)
+                from services.db import estimate_bars_held_from_audit
+                audit_bh = 0
                 try:
-                    from services.db import insert_log
-                    insert_log(self.user_id, "ERROR", err_msg)
-                except Exception:
-                    pass
-                return Action.HOLD
+                    audit_bh = int(estimate_bars_held_from_audit(self.user_id, self.ticker) or 0)
+                except Exception as _e:
+                    logger.warning(f"[EMA] audit bars_held fallback 조회 실패: {_e}")
+
+                if audit_bh > 0:
+                    # entry_bar 즉시 복구 → 다음 봉부터는 in-memory 값으로 정상 계산
+                    new_entry_bar = current_bar_idx - audit_bh
+                    logger.warning(
+                        f"⚠️ [EMA] in-memory bars_held={bars_held} → audit fallback={audit_bh} 적용 "
+                        f"(entry_bar {position.entry_bar} → {new_entry_bar}). "
+                        f"근본: apply_entry 미경유 진입 or 재시작 seed 지연 의심"
+                    )
+                    position.entry_bar = new_entry_bar
+                    bars_held = audit_bh
+                else:
+                    # audit 도 없으면 진짜 결손 → CRITICAL 알림 + SELL 차단 유지
+                    err_msg = (
+                        f"❌ [EMA] bars_held={bars_held} AND audit 실측 없음 — 데이터 무결성 결손 CRITICAL. "
+                        f"SELL 차단 (HOLD 유지). entry_bar={position.entry_bar}, "
+                        f"current_bar={current_bar_idx}"
+                    )
+                    logger.error(err_msg)
+                    try:
+                        from services.db import insert_log
+                        insert_log(self.user_id, "ERROR", err_msg)
+                    except Exception:
+                        pass
+                    try:
+                        from services.notifier import send as _notify_send, LEVEL_CRITICAL
+                        _notify_send(
+                            LEVEL_CRITICAL,
+                            f"🚨 포지션 무결성 결손 — {self.ticker}",
+                            (
+                                f"in-memory bars_held={bars_held}, audit_trades 실측도 없음.\n"
+                                f"봇 매도 필터 스킵 상태. 사용자 개입 필요.\n"
+                                f"entry_bar={position.entry_bar} current_bar={current_bar_idx}"
+                            ),
+                            dedupe_key=f"pos_desync:{self.ticker}",
+                            dedupe_ttl=300,
+                        )
+                    except Exception:
+                        pass
+                    return Action.HOLD
 
             logger.info(
                 f"🔍 [MIN_HOLDING_CHECK] bars_held={bars_held}, min_required={self.min_holding_period}, "

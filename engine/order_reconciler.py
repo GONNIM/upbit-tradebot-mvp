@@ -26,6 +26,8 @@ class OrderReconciler:
         self._stop = threading.Event()
         self._thr: Optional[threading.Thread] = None
         self._last_balance_sync = 0.0  # ✅ 마지막 잔고 동기화 시각 (time.time())
+        # ✅ SP-PI-2: LIMIT BUY 전량 체결 시 발화되는 콜백 — (user_id, ticker) → callable
+        self._fill_callbacks: Dict[tuple, Any] = {}
 
     def start(self):
         if self._thr and self._thr.is_alive():
@@ -78,7 +80,55 @@ class OrderReconciler:
         """엔진 정지 시 사용자 제거 (모드 변경 후 재시작에도 안전)."""
         with self._lock:
             self._live_user_ids.discard(user_id)
+            # ✅ SP-PI-2: fill callback 도 함께 정리
+            to_remove = [k for k in self._fill_callbacks.keys() if k[0] == user_id]
+            for k in to_remove:
+                self._fill_callbacks.pop(k, None)
         logger.info(f"[OR] user unregistered: {user_id}")
+
+    def register_fill_callback(self, user_id: str, ticker: str, callback):
+        """
+        ✅ SP-PI-2: LIMIT BUY 전량 체결 시 발화되는 콜백 등록.
+
+        callback signature:
+            callback(uuid: str, executed_price: float, executed_qty: float, executed_ts: datetime)
+
+        - (user_id, ticker) 조합당 하나만 유지 (중복 등록 시 덮어씀)
+        - StrategyEngine._on_limit_fill 등록 예정
+        - 호출은 OrderReconciler 스레드 컨텍스트 (콜백에서 락 사용 권장)
+        """
+        with self._lock:
+            self._fill_callbacks[(user_id, ticker)] = callback
+        logger.info(f"[OR] fill callback registered | user={user_id} ticker={ticker}")
+
+    def _fire_fill_callback(self, user_id: str, ticker: str, uuid: str,
+                            exec_price: float, exec_qty: float, exec_ts_iso):
+        """FILLED BUY 감지 시 등록된 fill callback 발화 (에러 격리)."""
+        with self._lock:
+            cb = self._fill_callbacks.get((user_id, ticker))
+        if cb is None:
+            logger.debug(f"[OR] fill callback none | user={user_id} ticker={ticker} uuid={uuid}")
+            return
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            if isinstance(exec_ts_iso, str) and exec_ts_iso:
+                try:
+                    exec_ts = datetime.fromisoformat(exec_ts_iso)
+                    if exec_ts.tzinfo is None:
+                        exec_ts = exec_ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                except Exception:
+                    exec_ts = datetime.now(ZoneInfo("Asia/Seoul"))
+            else:
+                exec_ts = datetime.now(ZoneInfo("Asia/Seoul"))
+            cb(uuid=uuid, executed_price=float(exec_price), executed_qty=float(exec_qty),
+               executed_ts=exec_ts)
+            logger.info(
+                f"[OR] fill callback fired | user={user_id} ticker={ticker} uuid={uuid} "
+                f"price={exec_price} qty={exec_qty} ts={exec_ts.isoformat()}"
+            )
+        except Exception as e:
+            logger.error(f"[OR] fill callback 실행 실패 uuid={uuid}: {e}", exc_info=True)
 
     def load_inflight_from_db(self, fetch_func):
         rows = fetch_func() or []
@@ -195,7 +245,7 @@ class OrderReconciler:
                 db_state = "FILLED" if exec_volume > 0 else "CANCELED"
             else:  # 'cancel'
                 db_state = "CANCELED"
-        
+
             self._finalize_order(
                 uuid=uuid,
                 user_id=user_id,
@@ -206,6 +256,25 @@ class OrderReconciler:
                 fee=paid_fee,
                 state=db_state
             )
+
+            # ✅ SP-PI-2: LIMIT BUY 전량 체결(FILLED) 감지 시 fill callback 발화
+            # D6 결정: 부분 체결(CANCELED + exec_vol > 0)은 처리하지 않음. FILLED 만 대상.
+            if db_state == "FILLED" and side == "BUY" and exec_volume > 0 and avg_price > 0:
+                # 최종 체결 시각: trades 최상단(가장 최근) 또는 order created_at fallback
+                exec_ts_iso = None
+                if trades:
+                    try:
+                        exec_ts_iso = trades[-1].get("created_at") or trades[0].get("created_at")
+                    except Exception:
+                        exec_ts_iso = None
+                if not exec_ts_iso:
+                    exec_ts_iso = info.get("created_at")
+                self._fire_fill_callback(
+                    user_id=user_id, ticker=ticker, uuid=uuid,
+                    exec_price=avg_price, exec_qty=exec_volume,
+                    exec_ts_iso=exec_ts_iso,
+                )
+
             with self._lock:
                 self._pending.pop(uuid, None)
 

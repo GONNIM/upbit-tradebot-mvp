@@ -174,7 +174,10 @@ def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
 
 
 def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[Dict[str, Any]]:
-    """DB에서 최근 completed BUY의 체결가와 entry_bar를 복구"""
+    """DB에서 최근 completed BUY의 체결가·entry_bar·entry_ts를 복구.
+
+    ✅ SP-PI-1: entry_ts_iso 도 함께 반환 (P3 boot seed 에서 원 시각 복원용).
+    """
     try:
         raw = get_last_open_buy_order(ticker, user_id)
         logger.info(f"[SEED] raw_last_open={raw}")
@@ -185,17 +188,23 @@ def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[Dict[str, A
         result = {}
         price = raw.get("price")
         entry_bar = raw.get("entry_bar")
+        entry_ts_iso = raw.get("entry_ts_iso")
 
         if price is not None:
             result["price"] = float(price)
         if entry_bar is not None:
             result["entry_bar"] = int(entry_bar)
+        if entry_ts_iso:
+            result["entry_ts_iso"] = str(entry_ts_iso)
 
         if not result:
             logger.info("[SEED] result=None (no price or entry_bar)")
             return None
 
-        logger.info(f"🔁 Seed from DB: price={result.get('price')} entry_bar={result.get('entry_bar')}")
+        logger.info(
+            f"🔁 Seed from DB: price={result.get('price')} "
+            f"entry_bar={result.get('entry_bar')} entry_ts={result.get('entry_ts_iso')}"
+        )
         return result
     except Exception as e:
         logger.warning(f"[SEED] failed: {e}")
@@ -434,24 +443,68 @@ def run_live_loop(
         if db_result:
             entry_price = db_result.get("price")
             entry_bar = db_result.get("entry_bar")
+            entry_ts_iso = db_result.get("entry_ts_iso")
 
-            position.has_position = True
-            position.avg_price = entry_price
-            position.qty = actual_qty  # ✅ 매도 시 필수!
-            if entry_bar is not None:
-                position.entry_bar = entry_bar
-            logger.info(f"🔁 Position recovered | entry={entry_price} qty={actual_qty:.6f} entry_bar={entry_bar}")
+            # ✅ SP-PI-1: entry_ts 원 시각 복원 (P3 boot_seed 경로)
+            entry_ts = None
+            if entry_ts_iso:
+                try:
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+                    entry_ts = datetime.fromisoformat(str(entry_ts_iso))
+                    if entry_ts.tzinfo is None:
+                        entry_ts = entry_ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+                except Exception as e:
+                    logger.warning(f"[SEED] entry_ts parse 실패: {e} → seed 시각 부재")
+                    entry_ts = None
+
+            if entry_price is not None and entry_ts is not None:
+                position.apply_entry(
+                    qty=actual_qty,
+                    avg_price=float(entry_price),
+                    entry_bar=int(entry_bar) if entry_bar is not None else 0,
+                    entry_ts=entry_ts,
+                    source="boot_seed",
+                )
+                logger.info(
+                    f"🔁 Position recovered | entry={entry_price} qty={actual_qty:.6f} "
+                    f"entry_bar={entry_bar} entry_ts={entry_ts.isoformat()}"
+                )
+            else:
+                # entry_ts 복원 실패 — 신뢰 가능 데이터 부족 → SP-PI-5 방침에 따라 has_position=False 유지
+                logger.error(
+                    f"❌ P3 boot seed 시각 복원 실패 → has_position=False 유지. "
+                    f"entry_price={entry_price} entry_ts_iso={entry_ts_iso}. "
+                    f"수동 정리 또는 force_liquidate 필요."
+                )
         else:
-            # ⚠️ DB에서 진입가를 찾지 못했지만 지갑에 코인이 있는 경우
-            logger.warning(
-                f"⚠️ 지갑에 코인({actual_qty:.6f})이 있지만 DB에서 진입가를 찾을 수 없습니다. "
-                f"포지션 복구 불가 - 수동 정리 또는 force_liquidate 필요"
+            # ✅ SP-PI-5: avg_price=None 비상 모드 완전 제거.
+            #   진입가·시각이 신뢰 가능하지 않은 상태로 has_position=True 를 유지하면
+            #   SL/TP/Stale 계산 불가 (avg_price None 시 division 실패)·잘못된 매도 위험.
+            #   → has_position=False 유지 + Telegram CRITICAL. 사용자 수동 개입 요청.
+            logger.critical(
+                f"❌ 지갑에 코인({actual_qty:.6f}) 있으나 DB 진입가 seed 실패 "
+                f"→ has_position=False 유지 (봇 매매 스킵). "
+                f"수동 정리 또는 force_liquidate 필요."
             )
-            # qty만이라도 설정해서 비상 매도는 가능하도록
-            position.has_position = True
-            position.qty = actual_qty
-            position.avg_price = None  # 진입가 불명
-            logger.warning(f"⚠️ 비상 모드: qty={actual_qty:.6f} 설정 완료, 진입가 없음")
+            try:
+                from services.notifier import send as _notify_send, LEVEL_CRITICAL
+                _notify_send(
+                    LEVEL_CRITICAL,
+                    f"🚨 포지션 seed 실패 — {params.upbit_ticker}",
+                    (
+                        f"봇 부팅 시 지갑에 코인({actual_qty:.6f}) 있으나 진입가 복원 불가.\n"
+                        f"봇 매매 정지 상태 유지 (잘못된 매도 방지).\n"
+                        f"HTS 수동 매도 or force_liquidate 필요."
+                    ),
+                    dedupe_key=f"boot_seed_fail:{params.upbit_ticker}",
+                    dedupe_ttl=600,
+                )
+            except Exception:
+                pass
+            # sync_from_wallet 가 이미 True 세팅했을 수 있으므로 명시적 False 리셋
+            position._has_position = False
+            position.qty = 0.0
 
     # ✅ Issue #17 Hotfix + Policy P-1: TEST 사용자는 등록 스킵 (지갑 조회 금지)
     reconciler = get_reconciler()

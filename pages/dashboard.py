@@ -456,7 +456,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.06.23.2045")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.03.2049")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":

@@ -94,6 +94,81 @@ class StrategyEngine:
         # ✅ SP6 — 대기 봉 수 (사용자 conditions, 기본 3)
         self._pending_buy_wait_bars: int = 3
 
+        # ✅ SP-PI-2: OrderReconciler LIMIT BUY 전량 체결 콜백 등록
+        # LIVE 모드 한정 — TEST 모드는 reconciler 미가동
+        try:
+            from engine.reconciler_singleton import get_reconciler
+            reconciler = get_reconciler()
+            reconciler.register_fill_callback(self.user_id, self.ticker, self._on_limit_fill)
+        except Exception as e:
+            logger.warning(f"[ENGINE] fill callback 등록 실패: {e}")
+
+    def _on_limit_fill(self, *, uuid: str, executed_price: float,
+                       executed_qty: float, executed_ts) -> None:
+        """
+        ✅ SP-PI-2: OrderReconciler → StrategyEngine fill callback.
+
+        LIMIT BUY 전량 체결(FILLED) 시 OrderReconciler 스레드에서 호출.
+        _pending_buy_uuid 와 일치하는 경우에만 apply_entry(source="bot_limit_fill")
+        발동. buy_market 등 다른 경로의 uuid 는 자동 스킵.
+
+        Thread safety:
+            - `_execution_lock` 사용으로 봉 처리 스레드와 원자성 보장
+            - position.apply_entry 는 attribute set 만 수행 (부작용 없음)
+        """
+        with self._execution_lock:
+            if self._pending_buy_uuid is None or uuid != self._pending_buy_uuid:
+                logger.debug(
+                    f"[LIMIT-FILL] uuid mismatch → skip | pending={self._pending_buy_uuid} "
+                    f"received={uuid}"
+                )
+                return
+
+            try:
+                self.position.apply_entry(
+                    qty=executed_qty,
+                    avg_price=executed_price,
+                    entry_bar=self.bar_count,
+                    entry_ts=executed_ts,
+                    source="bot_limit_fill",
+                )
+                ts_iso = (
+                    executed_ts.isoformat()
+                    if hasattr(executed_ts, "isoformat") else str(executed_ts)
+                )
+                logger.info(
+                    f"✅ [LIMIT-FILL] apply_entry 완료 | uuid={uuid} qty={executed_qty:.6f} "
+                    f"price={executed_price:.2f} entry_bar={self.bar_count} ts={ts_iso}"
+                )
+            except Exception as e:
+                logger.error(f"[LIMIT-FILL] apply_entry 실패 uuid={uuid}: {e}", exc_info=True)
+                return
+
+            # ✅ pending 해제 — _maybe_release_limit_pending 이 다시 발동하지 않도록
+            self._pending_buy_uuid = None
+            self._pending_buy_bar = None
+            self._pending_buy_wait_bars = 3
+            try:
+                self.position.set_pending(False)
+            except Exception:
+                pass
+
+            # ✅ 이벤트 큐 BUY 전송 (미체결 시점엔 미전송, 여기서 최종 전송)
+            if self.q is not None:
+                try:
+                    self.q.put((
+                        executed_ts,
+                        "BUY",
+                        {
+                            "uuid": uuid,
+                            "price": executed_price,
+                            "qty": executed_qty,
+                            "source": "bot_limit_fill",
+                        },
+                    ))
+                except Exception as e:
+                    logger.warning(f"[LIMIT-FILL] event queue put 실패: {e}")
+
     def is_new_bar(self, bar: Bar) -> bool:
         """
         중복 봉 방지
@@ -208,14 +283,24 @@ class StrategyEngine:
                                     source = "last_open_buy"
 
                         if entry_price is not None and entry_price > 0:
-                            self.position.has_position = True
-                            self.position.qty = actual_balance
-                            self.position.avg_price = entry_price
-                            self.position.entry_bar = int(entry_bar) if entry_bar is not None else self.bar_count
+                            # ✅ SP-PI-1: P2 자동 복구 — apply_entry 통합 API 사용
+                            # D2 결정: wallet_sync 는 now_kst() 를 entry_ts 로 사용
+                            # (매 봉 sync 이므로 실시각과 큰 차이 없음. P1 정상 매수 시엔 이 경로가
+                            #  더 이상 상시 발동하지 않음 — SP-PI-2 fill callback 이 P1 상당 처리 수행)
+                            from datetime import datetime
+                            from zoneinfo import ZoneInfo
+                            _p2_entry_ts = datetime.now(ZoneInfo("Asia/Seoul"))
+                            self.position.apply_entry(
+                                qty=actual_balance,
+                                avg_price=float(entry_price),
+                                entry_bar=int(entry_bar) if entry_bar is not None else self.bar_count,
+                                entry_ts=_p2_entry_ts,
+                                source="wallet_sync",
+                            )
                             logger.info(
-                                f"✅ [POSITION-SYNC] 자동 복구 성공 (source={source}): "
+                                f"✅ [POSITION-SYNC] 자동 복구 성공 (source={source}, api=apply_entry): "
                                 f"qty={actual_balance:.6f}, entry_price={entry_price:.2f}, "
-                                f"entry_bar={self.position.entry_bar}"
+                                f"entry_bar={self.position.entry_bar}, entry_ts={_p2_entry_ts.isoformat()}"
                             )
                         else:
                             # 신뢰 가능한 진입가 없음 → SELL 발동 금지 (HOLD 유지). 봇 의사결정 차단.

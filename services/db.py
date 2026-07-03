@@ -713,14 +713,60 @@ def update_coin_position(user_id, ticker, virtual_coin, virtual_coin_locked=0.0,
     insert_position_history(user_id, ticker, virtual_coin)
 
 
+def has_pending_bot_limit_buy(user_id, ticker) -> bool:
+    """
+    ✅ SP-PI-3: orders 테이블에 미체결 봇 LIMIT BUY 존재 여부.
+
+    D4 결정: state IN ('REQUESTED', 'PARTIALLY_FILLED') 기반.
+    schema 상 state / status 컬럼 어느 쪽 존재하든 대응. 어느 쪽도 없으면 False.
+
+    Returns:
+        True 면 봇의 LIMIT BUY 가 pending 상태 (미체결) — HTS 오판정 방지 목적으로 사용.
+    """
+    try:
+        import sqlite3 as _sqlite3
+        dbp = get_db_path(user_id)
+        conn = _sqlite3.connect(dbp)
+        try:
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(orders)")
+            cols = {row[1] for row in cur.fetchall()}
+            status_col = "state" if "state" in cols else ("status" if "status" in cols else None)
+            if status_col is None:
+                # 스키마 상 상태 컬럼 없음 → 보수적으로 False (기존 audit_trades 시각 fallback)
+                return False
+            cur.execute(
+                f"SELECT 1 FROM orders "
+                f"WHERE user_id=? AND ticker=? AND side='BUY' "
+                f"AND {status_col} IN ('REQUESTED','PARTIALLY_FILLED') LIMIT 1",
+                (user_id, ticker),
+            )
+            return cur.fetchone() is not None
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning(f"[DB] has_pending_bot_limit_buy failed: {e}")
+        return False
+
+
 def has_recent_bot_buy_for_ticker(user_id, ticker, within_seconds=30):
     """
     B3-잔여: audit_trades에 최근 within_seconds 내 BUY 기록이 있는지 검사.
     HTS 매수 감지 시 봇 BUY와 충돌 방지용.
 
+    ✅ SP-PI-3 (2단 정합성):
+        1) orders 테이블 pending LIMIT BUY 있으면 즉시 True — SP6 5봉 대기가
+           30초 window 넘어도 봇 매수를 HTS 로 오판정하지 않도록.
+        2) 그 외에는 audit_trades 최근 BUY row 를 within_seconds 로 확인 (기존).
+
     Returns:
-        bool: True면 최근 봇 BUY 존재 → HTS_BUY 마킹 스킵
+        bool: True면 봇 BUY 활동 존재 (pending 또는 최근 체결) → HTS_BUY 마킹 스킵
     """
+    # 1) pending LIMIT BUY 확인 (SP6 대응)
+    if has_pending_bot_limit_buy(user_id, ticker):
+        return True
+
+    # 2) audit_trades 최근 BUY 시각 확인 (체결 완료 후 window)
     try:
         with get_db(user_id) as conn:
             cur = conn.cursor()
@@ -1376,7 +1422,7 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         return cols
 
     def _fetch_one(conn, sql: str, params: tuple, cols: set) -> Optional[Dict[str, Any]]:
-        """price와 entry_bar를 함께 조회"""
+        """price, entry_bar, entry_ts_iso를 함께 조회 (SP-PI-1)"""
         try:
             cur = conn.cursor()
             cur.execute(sql, params)
@@ -1385,11 +1431,18 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
                 return None
 
             result = {}
-            # row[0]은 price, row[1]은 entry_bar (SELECT 순서대로)
-            if row[0] is not None:
-                result["price"] = float(row[0])
-            if len(row) > 1 and row[1] is not None:
-                result["entry_bar"] = int(row[1])
+            # SELECT 순서: price, [entry_bar], [entry_ts_iso]
+            idx = 0
+            if row[idx] is not None:
+                result["price"] = float(row[idx])
+            idx += 1
+            if "entry_bar" in cols:
+                if len(row) > idx and row[idx] is not None:
+                    result["entry_bar"] = int(row[idx])
+                idx += 1
+            # ✅ SP-PI-1: 진입 시각 복원 — orders 테이블에서 timestamp 계열 컬럼 반환
+            if len(row) > idx and row[idx] is not None:
+                result["entry_ts_iso"] = str(row[idx])
 
             return result if result else None
         except Exception as e:
@@ -1443,6 +1496,15 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
 
         if "entry_bar" in cols:
             select_cols += ", entry_bar"
+
+        # ✅ SP-PI-1: 진입 시각 복원 — 우선순위 executed_at > created_at > ts > timestamp
+        ts_col_pick = None
+        for cand in ("executed_at", "created_at", "ts", "timestamp"):
+            if cand in cols:
+                ts_col_pick = cand
+                break
+        if ts_col_pick:
+            select_cols += f", {ts_col_pick}"
 
         # ✅ B1 해결: 청산 검증 헬퍼 — 마지막 BUY 이후 SELL이 있으면 청산된 것으로 간주
         def _last_buy_closed_by_later_sell() -> bool:
