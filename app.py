@@ -181,6 +181,41 @@ with login_placeholder.container():
         },
     )
 
+    # ✅ [Mode Lock Guard — 위젯 인스턴스화 이전 세션 정합]
+    #   authenticator.login 직후에는 authentication_status/username 이
+    #   session_state 에 세팅됨. live_mode_toggle 위젯은 아직 인스턴스화
+    #   되지 않은 이 지점에서만 세션 값을 직접 override 하는 것이 안전
+    #   (Streamlit: 위젯 인스턴스화 후 그 key 직접 세팅 시 예외 발생).
+    _auth_status_early = st.session_state.get("authentication_status")
+    _username_early = st.session_state.get("username")
+    if _auth_status_early and _username_early:
+        try:
+            from engine.engine_manager import engine_manager
+            _running_mode_early = engine_manager.get_running_mode(_username_early)
+        except Exception:
+            _running_mode_early = None
+        _selected_mode_early = st.session_state.get("mode", "TEST")
+        if _running_mode_early and _running_mode_early != _selected_mode_early:
+            st.session_state["mode"] = _running_mode_early
+            st.session_state["_last_mode"] = _running_mode_early
+            st.session_state["live_mode_toggle"] = (_running_mode_early == "LIVE")
+            # warning 표시는 elif authentication_status 블록에서 수행하도록 정보 저장
+            st.session_state["_mode_lock_warning"] = {
+                "forced": _running_mode_early,
+                "selected": _selected_mode_early,
+                "username": _username_early,
+            }
+            try:
+                from services.db import insert_log
+                insert_log(
+                    _username_early,
+                    "INFO",
+                    f"[MODE-LOCK] 로그인 mode 강제 전환: "
+                    f"selected={_selected_mode_early}, forced={_running_mode_early}",
+                )
+            except Exception:
+                pass
+
     # 세션 상태 초기화 (토글 렌더링 전)
     if "live_mode_toggle" not in st.session_state:
         st.session_state["live_mode_toggle"] = True  # 기본값 LIVE
@@ -224,37 +259,17 @@ elif authentication_status is None:
 elif authentication_status:
     login_placeholder.empty()
 
-    # ✅ [Mode Lock Guard] 실행 중 엔진 mode 와 세션 mode 정합.
-    #   같은 아이디로 이미 실행 중인 엔진이 있으면, 로그인 폼에서 선택한 mode
-    #   가 아닌 실행 중 mode 로 강제 override. set_engine_status 호출 이전에
-    #   개입하므로 DB last_mode 오염·감사 로그 혼선·UI 오인 원천 차단.
-    _selected_mode = st.session_state.get("mode", "TEST")
-    try:
-        from engine.engine_manager import engine_manager
-        _running_mode = engine_manager.get_running_mode(username)
-    except Exception:
-        _running_mode = None
-
-    if _running_mode and _running_mode != _selected_mode:
-        st.session_state["mode"] = _running_mode
-        st.session_state["_last_mode"] = _running_mode
-        st.session_state["live_mode_toggle"] = (_running_mode == "LIVE")
+    # ✅ [Mode Lock Guard — 사용자 안내 배너]
+    #   실제 세션 override 는 위젯 인스턴스화 이전(login_placeholder 블록 내부)
+    #   에서 이미 처리됨. 여기서는 override 발생 사실만 warning 으로 노출.
+    _lock_info = st.session_state.pop("_mode_lock_warning", None)
+    if _lock_info:
         st.warning(
-            f"⚠️ **모드 강제 전환** — 현재 `{username}` 계정으로 "
-            f"**{_running_mode}** 엔진이 실행 중이어서 "
-            f"선택하신 **{_selected_mode}** 대신 **{_running_mode}** 모드로 진입합니다.\n\n"
+            f"⚠️ **모드 강제 전환** — 현재 `{_lock_info['username']}` 계정으로 "
+            f"**{_lock_info['forced']}** 엔진이 실행 중이어서 "
+            f"선택하신 **{_lock_info['selected']}** 대신 **{_lock_info['forced']}** 모드로 진입합니다.\n\n"
             f"- 다른 모드로 사용하려면 먼저 실행 중인 엔진을 정지하고 재로그인하세요."
         )
-        try:
-            from services.db import insert_log
-            insert_log(
-                username,
-                "INFO",
-                f"[MODE-LOCK] 로그인 mode 강제 전환: selected={_selected_mode}, "
-                f"forced={_running_mode}",
-            )
-        except Exception:
-            pass
 
     _mode = st.session_state.get("mode", "TEST")
     mode_suffix = "LIVE" if _mode == "LIVE" else "TEST"
