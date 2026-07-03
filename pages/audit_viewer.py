@@ -7,6 +7,7 @@ from services.init_db import get_db_path
 from services.db import fetch_buy_eval, fetch_trades_audit  # 기존 제공 함수 재사용
 
 from services.db import fetch_buy_eval, fetch_trades_audit, get_account
+from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-3
 from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
 from pathlib import Path
@@ -45,6 +46,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ✅ SP-NAV-3: 페이지 진입 컨텍스트 표준 로드 (세션 유실 시 자동 로그인 리다이렉트)
+bootstrap_page_context(required=("user_id",))
 
 # ✅ 쿼리 파라미터 처리
 qp = st.query_params
@@ -131,13 +135,15 @@ _hdr_l, _hdr_r = st.columns([5, 1])
 with _hdr_l:
     st.markdown(f"### 📑 감사 로그 뷰어")
 with _hdr_r:
-    # ✅ P5 — settings_history 상호 링크
+    # ✅ P5 — settings_history 상호 링크 (SP-NAV-3 표준화)
     if st.button("📜 설정 History", key="btn_to_settings_history",
                  use_container_width=True):
-        st.session_state["user_id"] = user_id
-        st.session_state["mode"] = mode
-        st.session_state["strategy_type"] = strategy_tag if 'strategy_tag' in dir() else "EMA"
-        st.switch_page("pages/settings_history.py")
+        navigate_to(
+            "pages/settings_history.py",
+            user_id=user_id,
+            mode=mode,
+            strategy_type=(strategy_tag if 'strategy_tag' in dir() else "EMA"),
+        )
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])
@@ -209,15 +215,14 @@ with col_go:
     vk_for_nav = st.session_state.get("virtual_krw", 0)
 
     if st.button("⬅️ 대시보드로 가기", use_container_width=True):
-        from urllib.parse import urlencode
-        params = urlencode({
-            "user_id": user_id,
-            "virtual_krw": vk_for_nav,
-            "mode": mode,
-            "strategy_type": strategy_tag,
-        })
-        st.markdown(f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">', unsafe_allow_html=True)
-        st.stop()
+        # ✅ SP-NAV-3: navigate_to 표준화 (session_state + query_params 이중 세팅)
+        navigate_to(
+            "pages/dashboard.py",
+            user_id=user_id,
+            virtual_krw=vk_for_nav,
+            mode=mode,
+            strategy_type=strategy_tag,
+        )
 
 # -------------------
 # 로컬 쿼리 헬퍼 (매도평가/설정스냅샷)

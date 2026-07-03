@@ -6,6 +6,7 @@ import time
 import logging
 from urllib.parse import urlencode
 
+from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-1
 from engine.engine_manager import engine_manager
 from engine.params import load_params, load_active_strategy, load_active_strategy_with_conditions
 
@@ -67,6 +68,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# ✅ SP-NAV-2: 페이지 진입 컨텍스트 표준 로드 (세션 유실 시 자동 로그인 리다이렉트)
+#   여기서 필수 user_id 를 검증하고 session_state 이중 저장을 수행하므로,
+#   이후 기존 획득 로직은 세션 값 fallback 으로 안전하게 동작한다.
+bootstrap_page_context(required=("user_id",))
 
 # ✅ 쿼리 파라미터 처리
 qp = st.query_params
@@ -456,7 +462,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.03.2120")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.03.2203")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -614,23 +620,21 @@ with col20:
             if db_acc and db_acc > 0:
                 vk_to_pass = db_acc
 
-        params = urlencode({
-            "virtual_krw": vk_to_pass,
-            "user_id": st.session_state.get("user_id", ""),
-            "mode": mode,
-            "verified": "1" if st.session_state.get("upbit_verified", False) else "0",
-            "capital_set": "1" if st.session_state.get("live_capital_set", False) else "0",
-            "strategy_type": strategy_tag,
-        })
-        st.markdown(f'<meta http-equiv="refresh" content="0; url=./set_config?{params}">', unsafe_allow_html=True)
-        st.stop()
+        # ✅ SP-NAV-2: navigate_to 표준화 (기존 meta refresh 대체)
+        navigate_to(
+            "pages/set_config.py",
+            virtual_krw=vk_to_pass,
+            user_id=st.session_state.get("user_id", ""),
+            mode=mode,
+            verified="1" if st.session_state.get("upbit_verified", False) else "0",
+            capital_set="1" if st.session_state.get("live_capital_set", False) else "0",
+            strategy_type=strategy_tag,
+        )
 with col30:
     logout = st.button("로그아웃하기", key="btn_logout", use_container_width=True)
     if logout:
-        st.markdown(
-            f'<meta http-equiv="refresh" content="0; url=/?redirected=1">',
-            unsafe_allow_html=True,
-        )
+        # ✅ SP-NAV-2: 로그아웃 → 로그인 페이지 표준 이동
+        st.switch_page("app.py")
 
 st.divider()
 
@@ -2036,10 +2040,13 @@ st.subheader("⚙️ Option 기능")
 # ✅ P2 — 설정 정보 History 뷰어 진입 버튼
 if st.button("📜 설정 History 보기", key="btn_settings_history",
              use_container_width=True):
-    st.session_state["user_id"] = user_id
-    st.session_state["mode"] = mode
-    st.session_state["strategy_type"] = strategy_tag
-    st.switch_page("pages/settings_history.py")
+    # ✅ SP-NAV-2: navigate_to 표준화 (session_state + query_params 이중 세팅)
+    navigate_to(
+        "pages/settings_history.py",
+        user_id=user_id,
+        mode=mode,
+        strategy_type=strategy_tag,
+    )
 
 # ✅ 제어 버튼
 btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1, 1, 1, 1])
@@ -2115,10 +2122,13 @@ with btn_col3:
 with btn_col4:
     reset_system_clicked = st.button("💥 시스템 초기화", key="btn_reset_system", use_container_width=True)
     if reset_system_clicked:
-        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
-        params = urlencode({"virtual_krw": virtual_krw, "user_id": user_id, "mode": mode})
-        st.markdown(f'<meta http-equiv="refresh" content="0; url=./confirm_init_db?{params}">', unsafe_allow_html=True)
-        st.stop()
+        # ✅ SP-NAV-2: navigate_to 표준화
+        navigate_to(
+            "pages/confirm_init_db.py",
+            virtual_krw=virtual_krw,
+            user_id=user_id,
+            mode=mode,
+        )
 
 st.divider()
 
@@ -2344,15 +2354,14 @@ with col1:
 with col2:
     settings_clicked = st.button("🛠️ 설정", key="btn_settings", use_container_width=True)
     if settings_clicked:
-        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
-        params = urlencode({
-            "virtual_krw": virtual_krw,
-            "user_id": user_id,
-            "mode": mode,
-            "strategy": strategy_tag,
-        })
-        st.markdown(f'<meta http-equiv="refresh" content="0; url=./set_buy_sell_conditions?{params}">', unsafe_allow_html=True)
-        st.stop()
+        # ✅ SP-NAV-2: navigate_to 표준화
+        navigate_to(
+            "pages/set_buy_sell_conditions.py",
+            virtual_krw=virtual_krw,
+            user_id=user_id,
+            mode=mode,
+            strategy=strategy_tag,
+        )
 
 # 전략 표시
 if len(BUY_STRATEGY) > 0:
@@ -2468,22 +2477,18 @@ with c4:
         # ticker 파라미터는 둘 중 있는 값으로 (프로젝트에 따라 params_obj.upbit_ticker 또는 params_obj.ticker 사용)
         ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
 
-        audit_params = urlencode({
-            "user_id": user_id,
-            "ticker": ticker_param,
-            "rows": int(audit_rows),
-            "only_failed": int(bool(audit_only_failed)),
-            "tab": default_tab,  # buy/sell/trades/settings 중 하나
-            "mode": mode,
-            # ★ 감사로그에서도 전략별 필터링을 하고 싶다면 strategy도 전달 (지금은 써도 되고 안 써도 됨)
-            "strategy": strategy_tag,
-            "virtual_krw": st.session_state.get("virtual_krw", virtual_krw),  # ✅ 페이지 간 virtual_krw 유지
-        })
-
-        # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
-        next_page = "audit_viewer"
-        st.markdown(f'<meta http-equiv="refresh" content="0; url=./{next_page}?{audit_params}">', unsafe_allow_html=True)
-        st.stop()
+        # ✅ SP-NAV-2: navigate_to 표준화 (세션 + URL 이중 세팅)
+        navigate_to(
+            "pages/audit_viewer.py",
+            user_id=user_id,
+            ticker=ticker_param,
+            rows=int(audit_rows),
+            only_failed=int(bool(audit_only_failed)),
+            tab=default_tab,
+            mode=mode,
+            strategy=strategy_tag,
+            virtual_krw=st.session_state.get("virtual_krw", virtual_krw),
+        )
 
 # 어디서든 임시 로그:
 with get_db(user_id) as conn:

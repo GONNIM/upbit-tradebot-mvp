@@ -23,6 +23,7 @@ from services.db import (
 )
 
 from utils.logging_util import init_log_file
+from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-5
 
 
 # --- 기본 설정 ---
@@ -45,6 +46,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ✅ SP-NAV-5: 페이지 진입 컨텍스트 표준 로드 (세션 유실 시 자동 로그인 리다이렉트)
+bootstrap_page_context(required=("user_id",))
 
 # --- URL 파라미터 확인 ---
 qp = st.query_params
@@ -395,23 +399,16 @@ if start_trading:
 
     print(f"[DEBUG] Final virtual_krw to pass: {final_virtual_krw}")  # 디버그 로그
 
-    # ✅ URL 에도 strategy_type 을 태워서 넘겨두면
-    #    dashboard 측에서 필요 시 바로 읽어 쓸 수 있음 (옵션)
-    query_string = urlencode({
-        "user_id": user_id,
-        "virtual_krw": final_virtual_krw,
-        "mode": mode,
-        "verified": int(upbit_ok),
-        "capital_set": int(capital_ok),
-        # ✅ strategy_type으로 통일
-        "strategy_type": selected_strategy_type,
-    })
-
-    st.markdown(
-        f'<meta http-equiv="refresh" content="0; url=./{next_page}?{query_string}">',
-        unsafe_allow_html=True,
+    # ✅ SP-NAV-5: navigate_to 표준화 (session_state + query_params 이중 세팅)
+    navigate_to(
+        f"pages/{next_page}.py",
+        user_id=user_id,
+        virtual_krw=final_virtual_krw,
+        mode=mode,
+        verified=int(upbit_ok),
+        capital_set=int(capital_ok),
+        strategy_type=selected_strategy_type,
     )
-    st.stop()
 
 # ✅ FIX: go_back 버튼 제거 (LIVE 모드 진입 조건 미충족 시에도 Dashboard로 이동)
 #    - 기존: LIVE 모드에서 조건 미충족 시 "Go Back" 버튼 표시 → 로그아웃 발생

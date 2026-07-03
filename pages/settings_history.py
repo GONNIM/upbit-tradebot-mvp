@@ -23,6 +23,7 @@ from services.settings_history import (
     fetch_snapshot,
     restore_snapshot,
 )
+from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-4
 
 # ============================================================
 # 기본 설정 & 사이드바 숨김 (audit_viewer 패턴)
@@ -44,6 +45,13 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+
+# ============================================================
+# ✅ SP-NAV-4: 페이지 진입 컨텍스트 표준 로드 (세션 유실 시 자동 로그인 리다이렉트)
+#   기존 st.error("user_id 가 비어있습니다") + st.stop() 대신 헬퍼가 흡수.
+# ============================================================
+bootstrap_page_context(required=("user_id",))
 
 
 # ============================================================
@@ -79,8 +87,16 @@ with header_col_l:
     st.markdown(f"### 📜 설정 정보 History · `{user_id}` · {mode}")
 with header_col_r:
     if st.button("⬅ 대시보드", use_container_width=True):
-        st.switch_page("pages/dashboard.py")
+        # ✅ SP-NAV-4 (F4 해소): navigate_to 로 세션·URL 이중 세팅
+        navigate_to(
+            "pages/dashboard.py",
+            user_id=user_id,
+            mode=mode,
+            strategy_type=active_strategy,
+        )
 
+# ✅ SP-NAV-4: bootstrap_page_context 가 이미 required 검증 수행 — 아래 방어는
+#   Streamlit 캐시·rerun 타이밍에서의 극단적 잔여 대응용으로만 유지.
 if not user_id:
     st.error("user_id 가 비어있습니다. 대시보드에서 다시 진입해 주세요.")
     st.stop()

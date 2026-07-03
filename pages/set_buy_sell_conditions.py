@@ -11,11 +11,15 @@ from config import (
     PARAMS_JSON_FILENAME,   # ✅ 파라미터 파일명
 )
 from engine.params import load_params, save_params, load_active_strategy  # ✅ 파라미터 로드/저장용
+from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-5
 
 
 # --- 페이지 설정 ---
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 st.markdown(style_main, unsafe_allow_html=True)
+
+# ✅ SP-NAV-5: 페이지 진입 컨텍스트 표준 로드 (세션 유실 시 자동 로그인 리다이렉트)
+bootstrap_page_context(required=("user_id",))
 
 qp = st.query_params
 
@@ -316,16 +320,14 @@ def save_conditions():
 
 
 def go_dashboard():
-    # ✅ Streamlit 1.46.0: URL로 파라미터 전달 (meta refresh + st.stop)
-    from urllib.parse import urlencode
-    params = urlencode({
-        "user_id": user_id,
-        "virtual_krw": virtual_krw,
-        "mode": mode,
-        "strategy": strategy_tag,
-    })
-    st.markdown(f'<meta http-equiv="refresh" content="0; url=./dashboard?{params}">', unsafe_allow_html=True)
-    st.stop()
+    # ✅ SP-NAV-5: navigate_to 표준화 (session_state + query_params 이중 세팅)
+    navigate_to(
+        "pages/dashboard.py",
+        user_id=user_id,
+        virtual_krw=virtual_krw,
+        mode=mode,
+        strategy=strategy_tag,
+    )
 
 
 # --- 최초 로딩 시 상태 불러오기 ---

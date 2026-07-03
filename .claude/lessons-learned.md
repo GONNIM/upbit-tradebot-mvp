@@ -1,6 +1,6 @@
 # Upbit Tradebot MVP - 교훈 모음
 
-> **총 교훈 수**: 19개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16 + Filter Logic #17 + DB Sync #18 + State Management #19)
+> **총 교훈 수**: 25개 (CLAUDE.md Issue #1-#11 + Streamlit UI #12-#16 + Filter Logic #17 + DB Sync #18 + State Management #19 + Position Integrity #20-#24 + Streamlit Widget #25)
 
 **목적**: 과거 트러블슈팅 경험을 체계적으로 기록하여 동일한 실수 방지
 
@@ -27,6 +27,12 @@
 - [교훈 #17: Dead Cross 상태에서 HTS 매수 시 즉시 자동매도 (필터 순서 문제)](#교훈-17-dead-cross-상태에서-hts-매수-시-즉시-자동매도-필터-순서-문제)
 - [교훈 #18: DB 자산 현황 vs 실제 계정 불일치 (부분 동기화의 한계)](#교훈-18-db-자산-현황-vs-실제-계좌-불일치-부분-동기화의-한계)
 - [교훈 #19: 편협적 수정으로 인한 데이터 흐름 누락 (전체 영향 범위 미고려)](#교훈-19-편협적-수정으로-인한-데이터-흐름-누락-전체-영향-범위-미고려)
+- [교훈 #20: 사업 존망급 상황에서 성급한 hotfix 배제 — 광범위 감사 우선](#교훈-20-사업-존망급-상황에서-성급한-hotfix-배제--광범위-감사-우선)
+- [교훈 #21: 다중 진입 경로 통합 API 원칙 — 필수 필드 강제로 회귀 물리 차단](#교훈-21-다중-진입-경로-통합-api-원칙--필수-필드-강제로-회귀-물리-차단)
+- [교훈 #22: DB vs in-memory 격차가 정책 원칙을 실질 위반한다](#교훈-22-db-vs-in-memory-격차가-정책-원칙을-실질-위반한다)
+- [교훈 #23: 정책 상수 vs 정책 값 mismatch로 인한 결과적 오작동](#교훈-23-정책-상수-vs-정책-값-mismatch로-인한-결과적-오작동)
+- [교훈 #24: 안전 로직의 확대 결함 — 조기 반환이 정상 flow를 통째로 스킵시킴](#교훈-24-안전-로직의-확대-결함--조기-반환이-정상-flow를-통째로-스킵시킴)
+- [교훈 #25: Streamlit 위젯 인스턴스화 후 session_state 직접 세팅 금지](#교훈-25-streamlit-위젯-인스턴스화-후-session_state-직접-세팅-금지)
 
 ---
 
@@ -2059,7 +2065,191 @@ grep -r "upbit_verified" --include="*.py" .
 
 ---
 
-**최종 업데이트**: 2026-05-14
+## 교훈 #20: 사업 존망급 상황에서 성급한 hotfix 배제 — 광범위 감사 우선
+
+**발생 계기 (2026-07-03)**: 사용자 클레임 2건(정체 포지션 필터 미발동 / SP6 매수 후 자동 손절 실패). 처음엔 표면 원인 2건(HTS entry_bar / has_recent 30초)만 hotfix 하려 했으나 사용자가 "재발 절대 금지, 다른 오작동 가능성까지 사전 차단" 명시.
+
+**교훈**:
+- LIVE 자본 노출 상황에서 부분 수정은 새 결함을 심을 위험
+- 사용자 명시 요구가 "재발 금지"급이면 **먼저 봇 매매 중단(자본 노출 0) → 광범위 결함 감사 → 통합 수정 기획 → 로컬 테스트 → 배포** 순서 강제
+- 감사에서 표면 결함이 뿌리 3축(진입 API 미통일 / has_recent mismatch / bars_held 안전로직 확대)으로 얽혀 있음을 발견 → 표면 hotfix 로는 재발 확실
+
+**정제된 구문**:
+```
+사용자 요구가 "재발 금지"급이면:
+  1. 봇 stopped 로 자본 노출 차단 (systemctl stop)
+  2. Phase A 감사 — 관련 flow 전수 조사 (10~15개 항목)
+  3. 결함 지도 (audit-map.md) 문서화
+  4. 통합 수정 기획 (5개 이상 SP 로 분리)
+  5. 로컬 unit test + walkthrough
+  6. 사용자 검토 → 배포 → 72h 모니터링
+```
+
+**관련**:
+- `docs/analysis/2026-07-03-position-integrity-audit/audit-map.md` (F1~F9)
+- `docs/plans/position-integrity-hardening/plan.md`, `phase-d-walkthrough.md`
+- 커밋 `19347ac fix(position-integrity): SP-PI-1~5`
+
+---
+
+## 교훈 #21: 다중 진입 경로 통합 API 원칙 — 필수 필드 강제로 회귀 물리 차단
+
+**문제 (2026-07-03)**: `PositionState` 진입 정보 세팅 경로가 5가지(P1 bot_market / P2 wallet_sync / P3 boot_seed / SP6 LIMIT fill / HTS 감지)인데 그 중 P1 `open_position` 만 `entry_ts` 세팅. 나머지는 `has_position=True` 만 세팅 + `entry_ts=None` → Stale filter 영구 무효화.
+
+**교훈**:
+- 다중 진입 경로가 있는 상태 객체는 **통합 API 관문 하나로 통일**해야 필드 누락 회귀 차단
+- 통합 API 는 **필수 필드에 대해 None 예외 발생**시켜 물리 차단
+- 각 진입 경로에 `source` 라벨을 넣어 사후 추적성 확보
+
+**정제된 구문 (강제 적용)**:
+```python
+def apply_entry(self, qty, avg_price, entry_bar, entry_ts, source, ...):
+    if entry_ts is None:
+        raise ValueError(f"entry_ts is required (source={source})")
+    # 모든 필드 완전 세팅
+    ...
+
+def open_position(self, ...):
+    """기존 시그니처 유지, 내부 apply_entry 위임"""
+    self.apply_entry(..., source="bot_market")
+```
+
+**회귀 방지**: unit test 로 `entry_ts=None` 시 ValueError 검증 → 미래에 이 규칙을 깨는 코드 도입 시 즉시 실패.
+
+**관련**:
+- `core/position_state.py:apply_entry` (SP-PI-1)
+- `tests/test_position_integrity.py::test_apply_entry_requires_entry_ts`
+
+---
+
+## 교훈 #22: DB vs in-memory 격차가 정책 원칙을 실질 위반한다
+
+**문제 (2026-07-03)**: Issue #17 Policy P-3 "hts_buy 플래그는 매도 결정에 영향을 주지 않는다" 는 코드 주석에 명시 유지. 그러나 실제 흐름:
+- HTS 감지 → `mark_position_as_hts_buy` 는 DB `account_positions.meta` 만 `hts_buy=True` 세팅
+- **in-memory `PositionState` 는 전혀 건드리지 않음** (entry_bar/entry_ts/avg_price 모두 None 유지)
+- 이후 `bars_held ≤ 0` 안전 로직이 SELL 시스템 전체 스킵 → **매도 결정에 실질 영향**
+
+**교훈**:
+- 정책 원칙("hts_buy 는 X에 영향 없다")이 코드에 명시돼 있어도, DB 만 갱신하고 관련 in-memory 상태를 방치하면 **간접 영향으로 원칙이 실질 위반**됨
+- 3중 진실 소스(account_positions DB / audit_trades DB / in-memory PositionState)를 각각 매핑해 격차 정기 감사 필요
+- Policy 명시만으로 안전 보장 안 됨 — 실측 데이터로 정합성 검증 필수
+
+**정제된 구문**:
+```
+Policy 검증 = 코드 주석 확인 (X)
+Policy 검증 = 매매 흐름 실측 대조 (audit_sell_eval / audit_trades / 로그) (O)
+```
+
+**관련**:
+- `docs/analysis/2026-07-03-position-integrity-audit/audit-map.md` F1, A11 (3중 진실 소스)
+
+---
+
+## 교훈 #23: 정책 상수 vs 정책 값 mismatch로 인한 결과적 오작동
+
+**문제 (2026-07-03)**: `has_recent_bot_buy_for_ticker(within_seconds=30)` — 상수 30초. SP6 `fixed_price_buy_wait_bars=5` (5봉 = 5분 = 300초) — 대기 정책.
+- LIMIT 매수 대기 30초 초과 시 봇 매수를 HTS로 오판정 → 매도 필터 무력화
+- 두 정책 값 모두 개별로는 올바르지만 결합 시 결과적 오작동
+
+**교훈**:
+- 정책 상수는 관련 다른 정책과 **함께 재검토** 필수
+- 매매 관련 시간 window 상수는 **동적 계산** 또는 **최대치 커버** 이 안전
+- 신규 정책 도입(SP6 5봉 대기) 시 기존 정책 상수(30초 window) 영향 반드시 재감사
+
+**정제된 구문 (강제 적용)**:
+```
+새 정책 추가 시:
+  - Grep 관련 상수 전수 조사
+  - 대기·window 관련 상수 값이 새 정책과 mismatch 되지 않는지 검증
+  - 정책 간 시간 관계도(sequence diagram) 그려 정합성 확인
+```
+
+**관련**:
+- `services/db.py:has_recent_bot_buy_for_ticker` (SP-PI-3)
+- `services/db.py:has_pending_bot_limit_buy` (신규 — orders 테이블 pending 우선)
+
+---
+
+## 교훈 #24: 안전 로직의 확대 결함 — 조기 반환이 정상 flow를 통째로 스킵시킴
+
+**문제 (2026-07-03)**: `strategy_incremental.py:1053~` `bars_held ≤ 0` 시 `return Action.HOLD` — "데이터 무결성 결손" 감지 시 SELL 시스템 전체를 스킵시키는 안전 로직. 그러나:
+- entry_bar 세팅 결함(P2 자동 복구가 상시 활성) 이 만성화되면
+- 이 조건이 상시 참 → SL/TP/Stale/Trailing 모두 실행 안 됨
+- 사용자 클레임 "필터가 한 번도 발동한 적 없다"의 근본 원인
+
+**교훈**:
+- 안전 조기 반환은 **넓게 스킵시키지 말고** 좁게 판단해야 함
+- 결손 감지 시 무조건 스킵 대신 **fallback 시도 + CRITICAL 알림** 조합
+- 안전 로직도 audit 로그로 발동 빈도 정기 관측 — 상시 발동은 결함 신호
+
+**정제된 구문**:
+```python
+if bars_held <= 0:
+    # ❌ 나쁜 패턴: SELL 시스템 전체 스킵
+    # return Action.HOLD
+    
+    # ✅ 좋은 패턴: fallback + 알림
+    audit_bh = estimate_bars_held_from_audit(...)
+    if audit_bh > 0:
+        entry_bar = current_bar - audit_bh  # 즉시 복구
+        bars_held = audit_bh
+    else:
+        notify_critical(...)  # 결손 알림
+        return Action.HOLD    # 그 종목만 스킵
+```
+
+**관련**:
+- `core/strategy_incremental.py:1053~` (SP-PI-4)
+
+---
+
+## 교훈 #25: Streamlit 위젯 인스턴스화 후 session_state 직접 세팅 금지
+
+**문제 (2026-07-03 21:20)**: Mode Lock 배포 후 TEST 로그인 시:
+```
+StreamlitAPIException: st.session_state.live_mode_toggle cannot be modified
+after the widget with key live_mode_toggle is instantiated.
+```
+Override 로직이 `st.toggle(key="live_mode_toggle")` 위젯 인스턴스화 **이후에** `st.session_state["live_mode_toggle"] = ...` 로 세팅 → Streamlit 규칙 위반 → 대시보드 진입 불가.
+
+**교훈**:
+- Streamlit 위젯 key 세션 값은 위젯이 인스턴스화된 후에는 **위젯이 소유** — 외부 setter 금지
+- 세션 override 는 반드시 **위젯 인스턴스화 이전** 시점에 실행
+- 로그인 성공 후 처리(elif authentication_status:) 는 위젯 이후이므로 이 지점에서 위젯 key 세팅 불가
+- 해결: authenticator.login 직후, 다른 위젯 인스턴스화 이전 시점으로 override 로직 이동. warning 배너는 session_state 로 정보 전달 후 elif 블록에서 표시.
+
+**정제된 구문 (강제 적용)**:
+```python
+# ✅ 위젯 인스턴스화 이전 = session_state 직접 세팅 안전
+with login_placeholder.container():
+    authenticator.login(...)  # 위젯 A
+
+    # 여기서 아직 st.toggle(key="X") 이전이므로 st.session_state["X"] 세팅 안전
+    if condition:
+        st.session_state["X"] = new_value
+        st.session_state["_pending_warning"] = {...}
+
+    st.toggle("...", key="X")  # 위젯 B — X 세션값 초기값으로 사용
+
+# ✅ 위젯 이후 = 배너 노출만 (session_state key 는 read only 취급)
+if authenticated:
+    warning_info = st.session_state.pop("_pending_warning", None)
+    if warning_info:
+        st.warning(...)
+```
+
+**회귀 방지**:
+- 로컬 unit test 로는 Streamlit 위젯 실체를 재현하기 어려움 → **로컬 실행 테스트 필수** 를 Phase 2 walkthrough 에 추가
+- 다른 위젯 key 를 session_state 로 세팅하는 코드 발견 시 즉시 리팩토링
+
+**관련**:
+- `app.py:174~230` (Mode Lock override 위치 이동)
+- 커밋 `9a188ef fix(mode-lock): TEST 로그인 시 Streamlit 위젯 세션 API 예외 해소`
+- 초기 배포 `331ef4f` → hotfix `9a188ef` (8분 안에 재발견·수정)
+
+---
+
+**최종 업데이트**: 2026-07-03
 **작성자**: Claude Code (AI Assistant)
-**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16 + Filter Logic Issue #17 + DB Sync Issue #18 + State Management Issue #19
-**관련 문서**: `.claude/context/project-rules.md`, `docs/issues/issue-17.md`, `.claude/lessons-learned.md`
+**기반 문서**: CLAUDE.md Issue #1-#11 + Streamlit UI Issue #12-#16 + Filter Logic Issue #17 + DB Sync Issue #18 + State Management Issue #19 + Position Integrity #20-#24 + Streamlit Widget #25
+**관련 문서**: `.claude/context/project-rules.md`, `docs/analysis/2026-07-03-position-integrity-audit/audit-map.md`, `docs/plans/position-integrity-hardening/`, `docs/plans/mode-lock-login-guard/`
