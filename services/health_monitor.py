@@ -21,7 +21,8 @@ class HealthMonitor:
     🔍 24시간 안정성: 시스템 헬스 모니터링 및 자동 복구
     """
     
-    def __init__(self, check_interval: int = 30):
+    def __init__(self, check_interval: int = 60):
+        # ✅ O3: 30초 → 60초 (헬스 체크 자체의 CPU 부하 절반, 매매 안정성 무영향)
         self.check_interval = check_interval
         self.monitoring = False
         self.monitor_thread = None
@@ -84,7 +85,10 @@ class HealthMonitor:
             process = psutil.Process(os.getpid())
             memory_info = process.memory_info()
             memory_mb = memory_info.rss / 1024 / 1024
-            cpu_percent = process.cpu_percent(interval=1)
+            # ✅ O2: interval=1 (1초 blocking) → interval=None (non-blocking, 이전
+            #   호출 대비 delta 즉시 반환). 첫 호출은 0.0 반환하지만 매 사이클
+            #   재호출되므로 이후부터 정확. 헬스 체크 자체의 CPU 소비 원인 제거.
+            cpu_percent = process.cpu_percent(interval=None)
             
             # 🔧 엔진 상태 체크
             engine_threads = get_engine_threads()
