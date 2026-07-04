@@ -40,12 +40,28 @@ class HealthMonitor:
         
         self.start_time = time.time()
         
-    def start_monitoring(self):
-        """모니터링 시작"""
+    def start_monitoring(self, initiator_user_id: Optional[str] = None):
+        """
+        모니터링 시작.
+
+        ✅ hotfix: initiator_user_id 파라미터 도입 (2026-07-04).
+           logger.info 뿐만 아니라 사용자 DB 의 logs 테이블에 이중 저장 →
+           journalctl 로거 stream 문제를 우회해서 시작 여부 확실히 추적.
+        """
         with self._lock:
             if self.monitoring:
+                # 이미 시작됨 — 재호출 흔적 남김
+                if initiator_user_id:
+                    try:
+                        insert_log(
+                            initiator_user_id,
+                            "INFO",
+                            "🏥 헬스 모니터 재호출 (이미 실행 중)",
+                        )
+                    except Exception:
+                        pass
                 return False
-                
+
             self.monitoring = True
             self.monitor_thread = threading.Thread(
                 target=self._monitor_loop,
@@ -54,6 +70,17 @@ class HealthMonitor:
             )
             self.monitor_thread.start()
             logger.info("🏥 헬스 모니터링 시작됨")
+            # ✅ 이중화: DB 저장 (사용자 DB 의 logs 테이블)
+            if initiator_user_id:
+                try:
+                    insert_log(
+                        initiator_user_id,
+                        "INFO",
+                        f"🏥 헬스 모니터링 시작됨 (initiator={initiator_user_id}, "
+                        f"thread_alive={self.monitor_thread.is_alive()})",
+                    )
+                except Exception:
+                    pass
             return True
     
     def stop_monitoring(self):
@@ -195,9 +222,13 @@ class HealthMonitor:
 _health_monitor = HealthMonitor()
 
 
-def start_health_monitoring():
-    """헬스 모니터링 시작"""
-    return _health_monitor.start_monitoring()
+def start_health_monitoring(initiator_user_id: Optional[str] = None):
+    """헬스 모니터링 시작.
+
+    Args:
+        initiator_user_id: 시작을 트리거한 사용자 (이중 로그용).
+    """
+    return _health_monitor.start_monitoring(initiator_user_id=initiator_user_id)
 
 
 def stop_health_monitoring():

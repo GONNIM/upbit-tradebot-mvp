@@ -278,9 +278,20 @@ elif authentication_status:
 
     # 2025-08-04 DB 분리
     init_db_if_needed(username)
-    
+
+    # ✅ hotfix: app.py 인증 후처리 도달 흔적 (헬스 모니터 시작 흐름 추적용)
+    try:
+        from services.db import insert_log as _insert_log_app
+        _insert_log_app(
+            username,
+            "INFO",
+            "[APP-FLOW] 인증 후처리 진입 — 헬스 모니터 시작 요청 직전",
+        )
+    except Exception:
+        pass
+
     # 🏥 24시간 운영: 헬스 모니터링 자동 시작
-    start_health_monitoring()
+    start_health_monitoring(initiator_user_id=username)
 
     # 초기 세션 설정
     st.session_state.setdefault("user_id", username)
