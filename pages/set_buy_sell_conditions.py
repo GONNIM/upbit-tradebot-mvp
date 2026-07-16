@@ -301,8 +301,16 @@ def save_conditions():
             params_obj.take_profit = new_tp_pct
             tp_changed = True
 
+        # Order Ratio 변경 감지 (RATIO-1)
+        ratio_changed = False
+        current_saved_ratio = float(getattr(params_obj, "order_ratio", 1.0) or 1.0)
+        new_ratio = float(st.session_state.get("order_ratio_quick", current_saved_ratio))
+        if abs(current_saved_ratio - new_ratio) > 1e-6:
+            params_obj.order_ratio = new_ratio
+            ratio_changed = True
+
         # 변경사항이 있으면 params 파일 저장
-        if ticker_changed or tp_changed or sl_changed:
+        if ticker_changed or tp_changed or sl_changed or ratio_changed:
             save_params(params_obj, params_file, strategy_type=strategy_tag)
 
             # 변경된 항목 표시
@@ -313,6 +321,8 @@ def save_conditions():
                 changed_items.append("TP")
             if sl_changed:
                 changed_items.append("SL")
+            if ratio_changed:
+                changed_items.append("주문 비율")
 
             st.info(f"📝 {'/'.join(changed_items)} 값이 파라미터 파일에도 반영되었습니다.")
 
@@ -493,11 +503,31 @@ with st.expander("🎯 자주 변경하는 설정", expanded=True):
         )
         st.session_state["stop_loss_pct"] = sl_pct_quick
 
+    # 💰 주문 비율 (RATIO-1)
+    st.markdown("**💰 주문 비율**")
+    RATIO_OPTIONS = [("1%", 0.01), ("10%", 0.10), ("25%", 0.25), ("50%", 0.50), ("100%", 1.0)]
+    saved_ratio = float(getattr(params_obj, "order_ratio", 1.0) or 1.0) if params_obj else 1.0
+    current_ratio = float(st.session_state.get("order_ratio_quick", saved_ratio))
+    ratio_cols = st.columns(5)
+    for i, (label, value) in enumerate(RATIO_OPTIONS):
+        is_selected = abs(current_ratio - value) < 1e-6
+        if ratio_cols[i].button(
+            label,
+            key=f"quick_ratio_{strategy_tag}_{label}",
+            type="primary" if is_selected else "secondary",
+            use_container_width=True,
+        ):
+            st.session_state["order_ratio_quick"] = value
+            st.rerun()
+
+    ratio_display_pct = float(st.session_state.get("order_ratio_quick", saved_ratio)) * 100
+
     # 현재 설정 안내
     st.info(
         f"🎯 **{ticker_input}** | "
         f"💰 TP: **+{tp_pct_quick:.1f}%** | "
-        f"🔻 SL: **-{sl_pct_quick:.1f}%**"
+        f"🔻 SL: **-{sl_pct_quick:.1f}%** | "
+        f"💰 비율: **{ratio_display_pct:.0f}%**"
     )
 
 st.divider()
