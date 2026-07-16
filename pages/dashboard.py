@@ -462,7 +462,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.04.0933")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.10.1732")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -1380,6 +1380,9 @@ def _render_latest_signal_section():
 
                 st.caption(f"Source: **BUY** (Base EMA GAP 전략)")
 
+                if checks.get('via_backfill'):
+                    st.warning("🔄 이 신호는 **BACKFILL 재평가 경로**로 기록되었습니다. 실주문은 실행되지 않고 감사로그만 UPSERT됩니다. (실시간 봉 수신 지연/누락 → REST reconcile로 뒤늦게 발견된 신호)")
+
                 # 추가 정보 박스
                 if not condition_met:
                     st.info(f"💡 매수 조건: 가격이 ₩{price_needed:,.0f} 이하로 하락하면 매수 ({abs(gap_to_target):.2%}p 더 하락 필요)")
@@ -1427,6 +1430,9 @@ def _render_latest_signal_section():
                 )
 
                 st.caption(f"Source: **BUY** (매수 평가 감사로그)")
+
+                if checks.get('via_backfill'):
+                    st.warning("🔄 이 신호는 **BACKFILL 재평가 경로**로 기록되었습니다. 실주문은 실행되지 않고 감사로그만 UPSERT됩니다. (실시간 봉 수신 지연/누락 → REST reconcile로 뒤늦게 발견된 신호)")
 
         elif source == "SELL":
             trigger_key = latest.get('trigger_key', '-')

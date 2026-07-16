@@ -359,6 +359,14 @@ if section == "buy":
 
         df_buy["strategy_mode"] = df_buy["checks"].apply(_get_strategy_mode)
 
+        # BACKFILL 재평가 경로 여부 추출 → 🔄 표시용
+        def _get_via_backfill(checks):
+            if isinstance(checks, dict) and checks.get('via_backfill'):
+                return "🔄"
+            return ""
+
+        df_buy["via_backfill_display"] = df_buy["checks"].apply(_get_via_backfill)
+
         # ✅ is_gap_strategy 컬럼 추가
         df_buy["is_gap_strategy"] = df_buy["strategy_mode"] == "BASE_EMA_GAP"
 
@@ -427,6 +435,7 @@ if section == "buy":
                 # ✅ Base EMA GAP 전략 전용 컬럼 순서 — '신호' 컬럼을 가장 왼쪽에 배치
                 column_order = [
                     "signal_icon",
+                    "via_backfill_display",
                     "timestamp", "bar_time", "ticker", "bar", "price",
                     "gap_status", "gap_display", "gap_threshold_display", "gap_diff_display",
                     "price_needed", "base_ema",
@@ -438,6 +447,7 @@ if section == "buy":
                 # 컬럼명 한글화
                 df_buy_display = df_buy_display.rename(columns={
                     "signal_icon": "신호",
+                    "via_backfill_display": "재평가",
                     "timestamp": "기록시각",
                     "bar_time": "봉시각",
                     "ticker": "티커",
@@ -478,6 +488,7 @@ if section == "buy":
                 # ✅ 컬럼 순서 재배치 — '신호' 컬럼을 가장 왼쪽에 배치
                 column_order = [
                     "signal_icon",
+                    "via_backfill_display",
                     "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
@@ -489,9 +500,14 @@ if section == "buy":
                 column_order = [col for col in column_order if col in df_buy_display.columns]
                 df_buy_display = df_buy_display[column_order]
 
-                # signal_icon 한글 컬럼명 (일반 EMA/MACD 분기)
+                # signal_icon / via_backfill 한글 컬럼명 (일반 EMA/MACD 분기)
+                rename_map = {}
                 if "signal_icon" in df_buy_display.columns:
-                    df_buy_display = df_buy_display.rename(columns={"signal_icon": "신호"})
+                    rename_map["signal_icon"] = "신호"
+                if "via_backfill_display" in df_buy_display.columns:
+                    rename_map["via_backfill_display"] = "재평가"
+                if rename_map:
+                    df_buy_display = df_buy_display.rename(columns=rename_map)
 
             # ✅ Arrow 직렬화를 위해 dict/list 타입 컬럼을 문자열로 변환
             if "checks" in df_buy_display.columns:
@@ -505,7 +521,7 @@ if section == "buy":
 
             # ✅ B13 최적화: Styler.apply(axis=1) 제거 → '신호' 컬럼(🟢)으로 BUY_SIGNAL 식별
             #   (Styler는 2000행 × 18컬럼 = 36,000회 함수 호출 + Streamlit 직렬화 부담으로 로딩 지연 발생)
-            st.caption("🟢 = BUY 신호 발동 행 (overall_ok=1)")
+            st.caption("🟢 = BUY 신호 발동 (overall_ok=1)  ·  🔄 = BACKFILL 재평가 경로 (실주문 미실행, 감사로그만 기록)")
             st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")

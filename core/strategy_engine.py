@@ -524,8 +524,8 @@ class StrategyEngine:
                     f"bar={self.bar_count}"
                 )
 
-            # 감사 로그
-            self._record_audit_log(bar, ind_snapshot, action)
+            # 감사 로그 (BACKFILL 재평가 경로면 checks.via_backfill=True로 기록)
+            self._record_audit_log(bar, ind_snapshot, action, is_backfill=backfill_mode)
 
             # 4. 주문 실행
             # ✅ Backfill 모드일 때는 감사 로그만 기록하고 실제 주문은 건너뜀
@@ -912,7 +912,7 @@ class StrategyEngine:
         except Exception as e:
             logger.error(f"❌ WARMUP 로그 기록 실패: {e}")
 
-    def _record_audit_log(self, bar: Bar, indicators: Dict[str, Any], action: Action):
+    def _record_audit_log(self, bar: Bar, indicators: Dict[str, Any], action: Action, is_backfill: bool = False):
         """
         감사 로그 기록 (매 봉마다)
 
@@ -920,6 +920,7 @@ class StrategyEngine:
             bar: 현재 봉
             indicators: 지표 스냅샷
             action: 전략 액션
+            is_backfill: BACKFILL 재평가 경로 여부 (True면 실주문 미실행)
         """
         try:
             current_price = bar.close
@@ -937,6 +938,7 @@ class StrategyEngine:
                     "signal": float(signal) if signal is not None else None,
                     "price": float(current_price) if current_price is not None else None,
                     "strategy_mode": "MACD",  # ✅ MACD 전략
+                    "via_backfill": bool(is_backfill),  # BACKFILL 재평가 경로 여부 (실주문 미실행 케이스 구분)
                 }
             else:  # EMA
                 # EMA 전략: macd 컬럼에 ema_fast, signal 컬럼에 ema_slow 저장
@@ -964,6 +966,7 @@ class StrategyEngine:
                     "ema_slow_buy": float(ema_slow_buy) if ema_slow_buy is not None else None,
                     "ema_fast_sell": float(ema_fast_sell) if ema_fast_sell is not None else None,
                     "ema_slow_sell": float(ema_slow_sell) if ema_slow_sell is not None else None,
+                    "via_backfill": bool(is_backfill),  # BACKFILL 재평가 경로 여부 (실주문 미실행 케이스 구분)
                 }
 
                 # ✅ Base EMA GAP 전략 모드 감지 (enable_base_ema_gap 속성 우선 확인)
@@ -998,6 +1001,7 @@ class StrategyEngine:
                     # Checks 필드 구성
                     buy_checks = gap_details.copy()
                     buy_checks["cross_status"] = cross_status
+                    buy_checks["via_backfill"] = bool(is_backfill)  # BACKFILL 재평가 경로 여부
 
                     # Notes 구성
                     if condition_met:
