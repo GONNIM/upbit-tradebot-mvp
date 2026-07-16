@@ -462,7 +462,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.16.2145")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.16.2210")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -541,13 +541,13 @@ st.session_state["strategy_type"] = strategy_tag
 # ✅ params 파일 로딩용 base strategy (BASE_EMA_GAP → EMA 변환)
 params_strategy = "EMA" if strategy_tag == "BASE_EMA_GAP" else strategy_tag
 
-col10, col20, col30 = st.columns([1, 1, 1])
+col10, col20, col30, col40 = st.columns([1, 1, 1, 1])
 
 with col10:
     # ✅ 실행되지 않았을 경우: 실행 버튼 표시
     if not engine_status:
         start_trading = st.button(
-            f"Upbit Trade Bot v1 ({mode}) 엔진 실행하기",
+            "🚀 엔진 실행하기",
             key="btn_start_engine",
             use_container_width=True
         )
@@ -594,7 +594,7 @@ with col10:
                 st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
 with col20:
     start_setting = st.button(
-        f"Upbit Trade Bot v1 ({mode}) 파라미터 설정하기",
+        "⚙️ 파라미터 설정",
         key="btn_config",
         use_container_width=True
     )
@@ -640,14 +640,7 @@ with col20:
             strategy_type=strategy_tag,
         )
 with col30:
-    logout = st.button("로그아웃하기", key="btn_logout", use_container_width=True)
-    if logout:
-        # ✅ SP-NAV-2: 로그아웃 → 로그인 페이지 표준 이동
-        st.switch_page("app.py")
-
-# PAUSE-1: 매매 중지/재개 토글 (엔진 실행 여부와 무관, 상태는 DB에 영속)
-pause_col1, pause_col2 = st.columns([1, 5])
-with pause_col1:
+    # PAUSE-1: 매매 중지/재개 토글 (엔진 실행 여부와 무관, 상태는 DB에 영속)
     if _trading_paused:
         if st.button(
             "▶️ 매매 재개",
@@ -669,11 +662,11 @@ with pause_col1:
             insert_log(user_id, "INFO", "⏸️ 매매 일시중지 (사용자 요청)")
             st.warning("⏸️ 매매가 일시중지됩니다. 엔진과 지표는 계속 유지됩니다.")
             st.rerun()
-with pause_col2:
-    st.caption(
-        "💡 **매매 중지**는 봇 엔진과 감사로그·지표를 유지한 채 **실주문(BUY/SELL)만 스킵**합니다. "
-        "엔진을 완전히 종료하지 않고 잠시 매매만 멈추고 싶을 때 사용하세요."
-    )
+with col40:
+    logout = st.button("🚪 로그아웃", key="btn_logout", use_container_width=True)
+    if logout:
+        # ✅ SP-NAV-2: 로그아웃 → 로그인 페이지 표준 이동
+        st.switch_page("app.py")
 
 st.divider()
 
