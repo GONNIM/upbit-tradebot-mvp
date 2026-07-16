@@ -7,7 +7,7 @@ from core.indicator_state import IndicatorState
 from core.position_state import PositionState
 from core.strategy_action import Action
 from core.trader import UpbitTrader
-from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit
+from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit, get_trading_paused
 from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 import logging
@@ -564,6 +564,11 @@ class StrategyEngine:
             indicators: 지표 스냅샷
         """
         if action == Action.HOLD or action == Action.NOOP:
+            return
+
+        # PAUSE-1: 매매 일시중지 게이트 (BUY + SELL 모두 스킵, 감사로그·지표는 유지)
+        if get_trading_paused(self.user_id):
+            logger.info(f"⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action={action.value}")
             return
 
         # 주문 진행 중이면 대기

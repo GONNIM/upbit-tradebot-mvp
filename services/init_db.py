@@ -841,6 +841,18 @@ def ensure_engine_status_last_mode(user_id: str):
     conn.close()
 
 
+def ensure_users_trading_paused(user_id: str):
+    """
+    users 테이블에 trading_paused 컬럼 추가 (PAUSE-1):
+      - trading_paused: 매매 일시중지 스위치 (0=정상, 1=중지)
+      - 엔진 재기동 후에도 상태 유지, execute() 최상단 게이트에서 참조
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE users ADD COLUMN trading_paused INTEGER DEFAULT 0")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -858,6 +870,7 @@ def ensure_all_schemas(user_id: str):
     ensure_account_positions_locked(user_id) # ✅ account_positions virtual_coin_locked 추가
     ensure_account_positions_entry_price(user_id)  # ✅ account_positions entry_price 추가
     ensure_engine_status_last_mode(user_id)        # ✅ engine_status last_mode 추가 (재시작 자동 재개)
+    ensure_users_trading_paused(user_id)           # ✅ PAUSE-1: users trading_paused 추가
 
 
 def init_db_if_needed(user_id):

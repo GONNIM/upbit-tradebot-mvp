@@ -889,6 +889,39 @@ def get_engine_status(user_id) -> bool:
         return bool(row and row[0])
 
 
+def get_trading_paused(user_id: str) -> bool:
+    """
+    PAUSE-1: users.trading_paused 조회.
+    - 컬럼 부재 등 예외 시 False 로 안전 처리 (엔진 정상 매매 유지가 default).
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT trading_paused FROM users WHERE username = ?", (user_id,))
+            row = cur.fetchone()
+            return bool(row and row[0])
+    except Exception:
+        return False
+
+
+def set_trading_paused(user_id: str, paused: bool) -> None:
+    """
+    PAUSE-1: users.trading_paused 갱신.
+    - users 행이 없으면 INSERT (username 만 채움, 나머지 컬럼은 NULL/기본값).
+    """
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO users (username, trading_paused)
+            VALUES (?, ?)
+            ON CONFLICT(username) DO UPDATE SET trading_paused = excluded.trading_paused
+            """,
+            (user_id, int(bool(paused))),
+        )
+        conn.commit()
+
+
 def get_last_engine_mode(user_id) -> str | None:
     """
     마지막 start_engine 시 captured_mode 조회 (TEST/LIVE).

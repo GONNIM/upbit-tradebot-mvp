@@ -462,7 +462,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.16.2125")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.16.2145")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -472,6 +472,15 @@ if str(mode).upper() == "TEST":
     )
 elif str(mode).upper() == "LIVE":
     st.info("🔴 **LIVE 모드** — 실제 Upbit 거래소에 주문이 전송됩니다.")
+
+# PAUSE-1: 매매 일시중지 상태 배너
+from services.db import get_trading_paused, set_trading_paused
+_trading_paused = get_trading_paused(user_id)
+if _trading_paused:
+    st.error(
+        "⏸️ **매매 일시중지 상태** — 엔진과 지표는 정상 작동하지만 "
+        "실주문(BUY/SELL)은 실행되지 않습니다. 재개하려면 아래 '▶️ 매매 재개' 버튼을 클릭하세요."
+    )
 
 # 🕒 현재 시각 및 수동 리프레시 버튼
 time_col, refresh_col = st.columns([8, 1])
@@ -635,6 +644,36 @@ with col30:
     if logout:
         # ✅ SP-NAV-2: 로그아웃 → 로그인 페이지 표준 이동
         st.switch_page("app.py")
+
+# PAUSE-1: 매매 중지/재개 토글 (엔진 실행 여부와 무관, 상태는 DB에 영속)
+pause_col1, pause_col2 = st.columns([1, 5])
+with pause_col1:
+    if _trading_paused:
+        if st.button(
+            "▶️ 매매 재개",
+            key="btn_resume_trading",
+            use_container_width=True,
+            type="primary",
+        ):
+            set_trading_paused(user_id, False)
+            insert_log(user_id, "INFO", "▶️ 매매 재개 (사용자 요청)")
+            st.success("▶️ 매매가 재개됩니다.")
+            st.rerun()
+    else:
+        if st.button(
+            "⏸️ 매매 중지",
+            key="btn_pause_trading",
+            use_container_width=True,
+        ):
+            set_trading_paused(user_id, True)
+            insert_log(user_id, "INFO", "⏸️ 매매 일시중지 (사용자 요청)")
+            st.warning("⏸️ 매매가 일시중지됩니다. 엔진과 지표는 계속 유지됩니다.")
+            st.rerun()
+with pause_col2:
+    st.caption(
+        "💡 **매매 중지**는 봇 엔진과 감사로그·지표를 유지한 채 **실주문(BUY/SELL)만 스킵**합니다. "
+        "엔진을 완전히 종료하지 않고 잠시 매매만 멈추고 싶을 때 사용하세요."
+    )
 
 st.divider()
 
