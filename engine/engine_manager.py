@@ -370,9 +370,12 @@ class EngineManager:
 
             logger.info(f"[ENGINE] Loaded params: strategy_type={params.strategy_type}")
 
+            # ✅ RATIO-HR: params_file 경로 주입 → 매수마다 order_ratio 최신값 로드
+            params_file_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
             trader = UpbitTrader(
                 user_id, risk_pct=params.order_ratio, test_mode=test_mode,
                 strategy_type=getattr(params, "strategy_type", None),  # ✅ P1
+                params_file=params_file_path,
             )
 
             update_engine_status(user_id, "running")
@@ -459,7 +462,25 @@ class EngineManager:
                 insert_log(user_id, "LOG", f"{log_msg}")
                 log_to_file(f"{log_msg}", user_id)
             elif event_type in ("BUY", "SELL"):
-                ts, _, qty, price, cross, macd, signal = event[:7]
+                # ✅ 두 이벤트 형식 지원:
+                #   A) 시장가 매매 (strategy_engine._execute_buy/sell):
+                #      (ts, event_type, qty, price, cross, macd, signal)  # 7개
+                #   B) 지정가 체결 (strategy_engine._on_limit_fill 등):
+                #      (ts, event_type, {"uuid":..., "price":..., "qty":..., "source":...})  # 3개 dict payload
+                if len(event) == 3 and isinstance(event[2], dict):
+                    ts, _, payload = event
+                    qty = float(payload.get("qty") or 0)
+                    price = float(payload.get("price") or 0)
+                    cross = str(payload.get("source", "-"))
+                    macd = payload.get("macd", "-")
+                    signal = payload.get("signal", "-")
+                elif len(event) >= 7:
+                    ts, _, qty, price, cross, macd, signal = event[:7]
+                else:
+                    msg = f"⚠️ 지원되지 않는 {event_type} 이벤트 형식 (len={len(event)}): {event}"
+                    insert_log(user_id, "WARN", msg)
+                    log_to_file(msg, user_id)
+                    return
                 amount = qty * price
                 fee = amount * MIN_FEE_RATIO
                 insert_log(

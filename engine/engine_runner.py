@@ -41,7 +41,23 @@ def process_engine_event(user_id: str, event: tuple, ticker: str, order_ratio: f
             return
 
         elif event_type in ("BUY", "SELL"):
-            ts, _, qty, price, cross, macd, signal = event[:7]
+            # ✅ 두 이벤트 형식 지원 (engine_manager와 동일):
+            #   A) (ts, event_type, qty, price, cross, macd, signal)  # 7개 — 시장가
+            #   B) (ts, event_type, {"price":..., "qty":..., "source":...})  # 3개 dict — 지정가 체결
+            if len(event) == 3 and isinstance(event[2], dict):
+                ts, _, payload = event
+                qty = float(payload.get("qty") or 0)
+                price = float(payload.get("price") or 0)
+                cross = str(payload.get("source", "-"))
+                macd = payload.get("macd", "-")
+                signal = payload.get("signal", "-")
+            elif len(event) >= 7:
+                ts, _, qty, price, cross, macd, signal = event[:7]
+            else:
+                msg = f"⚠️ 지원되지 않는 {event_type} 이벤트 형식 (len={len(event)}): {event}"
+                insert_log(user_id, "WARN", msg)
+                log_to_file(msg, user_id)
+                return
             amount = qty * price
             fee = amount * MIN_FEE_RATIO
             msg = f"{event_type} signal: {qty:.6f} @ {price:,.2f} = {amount:,.2f} (fee={fee:,.2f})"
@@ -85,10 +101,13 @@ def engine_runner_main(
 
     try:
         # ✅ 파라미터 및 트레이더 설정
-        params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}")
+        params_file_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+        params = load_params(params_file_path)
+        # ✅ RATIO-HR: params_file 경로 주입 → 매수마다 order_ratio 최신값 로드
         trader = UpbitTrader(
             user_id, risk_pct=params.order_ratio, test_mode=test_mode,
             strategy_type=getattr(params, "strategy_type", None),  # ✅ P1
+            params_file=params_file_path,
         )
 
         # ✅ 엔진 상태 등록

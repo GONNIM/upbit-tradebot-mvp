@@ -222,6 +222,7 @@ class UpbitTrader:
         test_mode: bool = True,
         *,
         strategy_type: Optional[str] = None,  # ✅ P1 — 거래 → settings_history 라벨링용
+        params_file: Optional[str] = None,    # ✅ RATIO-HR: order_ratio hot-reload용 params JSON 경로
     ):
         self.user_id = user_id
         self.risk_pct = risk_pct
@@ -234,8 +235,51 @@ class UpbitTrader:
         # ✅ SP4 — strategy 참조 (StrategyEngine 이 init 직후 set_strategy_ref 호출)
         self._strategy_ref = None
 
+        # ✅ RATIO-HR: hot-reload 상태
+        self._params_file: Optional[str] = params_file
+        self._last_ratio_reload_ts: float = 0.0  # 로그 스팸 방지 (같은 값 반복 로깅 억제)
+
         if test_mode and get_account(user_id) is None:
             create_or_init_account(user_id)
+
+    def _current_risk_pct(self) -> float:
+        """
+        ✅ RATIO-HR: buy_market 시점마다 params JSON 에서 order_ratio 최신값 로드.
+
+        - params_file 미지정 시 self.risk_pct (초기값) 그대로 반환
+        - JSON 읽기 실패 / 이상값(≤0, >1.0) 시 self.risk_pct fallback
+        - 값 변경 감지 시 INFO 로그 + self.risk_pct 갱신 (다음 재시작 없이 즉시 반영)
+        """
+        if not self._params_file or not os.path.exists(self._params_file):
+            return self.risk_pct
+        try:
+            with open(self._params_file, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            raw = data.get("order_ratio")
+            if raw is None:
+                return self.risk_pct
+            val = float(raw)
+            if val <= 0 or val > 1.0:
+                logger.warning(
+                    f"[RATIO-HR] order_ratio 이상값 감지 ({val}) — fallback {self.risk_pct}"
+                )
+                return self.risk_pct
+            # 변경 감지 시 갱신 + 로깅 (동일값 반복 로깅은 60초 쿨다운)
+            if abs(val - self.risk_pct) > 1e-9:
+                logger.info(
+                    f"🔄 [RATIO-HR] order_ratio hot-reload: "
+                    f"{self.risk_pct:.4f} → {val:.4f} (user={self.user_id})"
+                )
+                self.risk_pct = val
+            return val
+        except Exception as e:
+            now = _time.time()
+            if now - self._last_ratio_reload_ts > 60:
+                logger.warning(
+                    f"[RATIO-HR] order_ratio hot-reload 실패 ({e}) — fallback {self.risk_pct}"
+                )
+                self._last_ratio_reload_ts = now
+            return self.risk_pct
 
     def set_strategy_ref(self, strategy) -> None:
         """✅ SP4 — strategy 객체 참조 주입 (audit_trades sl/tp/ts_pct 적재용)."""
@@ -415,14 +459,16 @@ class UpbitTrader:
         # 🔧 위험비율 적용 + 원 단위 내림 (수수료 차감 후에도 잔고 부족이 안 되도록
         #    매수 수수료(MIN_FEE_RATIO)만큼 미리 깎는다 — risk_pct=1.0 전액 매수에서
         #    Upbit `insufficient_funds_bid` 거부 방지)
-        krw_to_use = math.floor(avail * self.risk_pct / (1 + MIN_FEE_RATIO))
+        # ✅ RATIO-HR: params JSON 최신 order_ratio 반영 (엔진 재시작 불필요)
+        risk_pct = self._current_risk_pct()
+        krw_to_use = math.floor(avail * risk_pct / (1 + MIN_FEE_RATIO))
 
         if krw_to_use < 5000:
             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
             return {}
-        
+
         qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
-        logger.info(f"[BUY] plan krw_to_use={krw_to_use:.4f} price={price:.8f} fee={MIN_FEE_RATIO} -> qty={qty}")
+        logger.info(f"[BUY] plan krw_to_use={krw_to_use:.4f} price={price:.8f} risk_pct={risk_pct:.4f} fee={MIN_FEE_RATIO} -> qty={qty}")
 
         if self.test_mode:
             current_krw = self._krw_balance()
@@ -489,7 +535,8 @@ class UpbitTrader:
 
             if current_krw < krw_to_use:
                 # 수수료 차감 후에도 안전한 금액으로 재조정 (A안과 동일 공식)
-                adjusted = math.floor(current_krw * self.risk_pct / (1 + MIN_FEE_RATIO))
+                # ✅ RATIO-HR: 재조정 시점에도 최신 order_ratio 반영
+                adjusted = math.floor(current_krw * self._current_risk_pct() / (1 + MIN_FEE_RATIO))
                 if adjusted < 5000:
                     last_err = (
                         f"활성 KRW 부족: 현재={current_krw:.0f} 요청={krw_to_use:.0f} "
@@ -821,7 +868,9 @@ class UpbitTrader:
             )
             return {}
 
-        krw_to_use = math.floor(avail * self.risk_pct / (1 + MIN_FEE_RATIO))
+        # ✅ RATIO-HR: 지정가 매수도 최신 order_ratio 반영
+        risk_pct = self._current_risk_pct()
+        krw_to_use = math.floor(avail * risk_pct / (1 + MIN_FEE_RATIO))
         if krw_to_use < 5000:
             err = f"활성 KRW 부족: 가용={avail:.0f} 계산={krw_to_use:.0f} (최소 5,000 미만)"
             logger.warning(f"[BUY-LIMIT] {err}")
