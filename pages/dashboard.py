@@ -462,7 +462,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.22.2031")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.22.2109")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
@@ -2021,6 +2021,10 @@ try:
         _add("trailing_stop_threshold_pct (%)",
              round((_sp1_engine.get("ts_pct") or 0) * 100, 4) if _sp1_engine.get("ts_pct") else None,
              _sp1_file_sell.get("trailing_stop_threshold_pct"))
+        # ✅ order_ratio (%) — hot-reload 로 매수 시점마다 params.json 동기화
+        # audit_settings 미기록 필드라 params_obj 값을 양쪽 컬럼에 동일 표시 (사용자 요청)
+        _order_ratio_pct = round((float(getattr(params_obj, "order_ratio", 0)) or 0) * 100, 4)
+        _add("order_ratio (%)", _order_ratio_pct, _order_ratio_pct)
 
         # boolean flags
         for _key, _label in [
@@ -2069,6 +2073,125 @@ try:
             )
 except Exception as _sp1_e:
     st.caption(f"엔진 상태 표시 실패: {_sp1_e}")
+
+st.divider()
+
+# ============================================================
+# 🎯 전략 핵심 설정 (매수/매도 조건 설정 페이지에서 관리)
+# ============================================================
+try:
+    st.subheader("🎯 전략 핵심 설정")
+    st.caption("**⚙️ 매수/매도 조건 설정** 페이지의 '🎯 자주 변경하는 설정'에서 수정 (즉시 반영)")
+
+    _core_col1, _core_col2, _core_col3, _core_col4 = st.columns(4)
+    with _core_col1:
+        _ticker_disp = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "-")
+        st.metric("🎯 거래 종목", str(_ticker_disp))
+    with _core_col2:
+        _tp_disp = float(getattr(params_obj, "take_profit", 0) or 0) * 100
+        st.metric("💰 Take Profit", f"+{_tp_disp:.2f}%")
+    with _core_col3:
+        _sl_disp = float(getattr(params_obj, "stop_loss", 0) or 0) * 100
+        st.metric("🔻 Stop Loss", f"-{_sl_disp:.2f}%")
+    with _core_col4:
+        _ratio_disp = float(getattr(params_obj, "order_ratio", 0) or 0) * 100
+        st.metric("💰 주문 비율", f"{_ratio_disp:.0f}%")
+except Exception as _core_e:
+    st.caption(f"전략 핵심 설정 표시 실패: {_core_e}")
+
+st.divider()
+
+# ============================================================
+# ⚙️ 파라미터 설정 (사이드바에서 관리) — 카테고리별 고도화 표시
+# ============================================================
+try:
+    st.subheader("⚙️ 파라미터 설정")
+    st.caption("**사이드바 ⚙️ 파라미터 설정** 폼에서 수정 (변경 시 '🧪 파라미터 저장하기' 클릭 필요, 엔진 재시작 시 반영)")
+
+    _is_ema = str(getattr(params_obj, "strategy_type", "")).upper() == "EMA"
+    _use_separate_ema = bool(getattr(params_obj, "use_separate_ema", False))
+
+    with st.expander("📊 기본", expanded=True):
+        _p_col1, _p_col2, _p_col3 = st.columns(3)
+        with _p_col1:
+            st.metric("전략 타입", str(getattr(params_obj, "strategy_type", "-")))
+        with _p_col2:
+            st.metric("실행 모드", str(getattr(params_obj, "engine_exec_mode", "-")))
+        with _p_col3:
+            st.metric("봉 단위", str(getattr(params_obj, "interval", "-")))
+
+    with st.expander("📈 이동평균 (EMA / MACD 기간)", expanded=True):
+        if _is_ema and _use_separate_ema:
+            st.caption("🔀 매수/매도 EMA 별도 설정 활성화")
+            _e_col1, _e_col2, _e_col3, _e_col4 = st.columns(4)
+            with _e_col1:
+                st.metric("Fast Buy", int(getattr(params_obj, "fast_buy", None) or getattr(params_obj, "fast_period", 0)))
+            with _e_col2:
+                st.metric("Slow Buy", int(getattr(params_obj, "slow_buy", None) or getattr(params_obj, "slow_period", 0)))
+            with _e_col3:
+                st.metric("Fast Sell", int(getattr(params_obj, "fast_sell", None) or getattr(params_obj, "fast_period", 0)))
+            with _e_col4:
+                st.metric("Slow Sell", int(getattr(params_obj, "slow_sell", None) or getattr(params_obj, "slow_period", 0)))
+        else:
+            _e_col1, _e_col2, _e_col3 = st.columns(3)
+            with _e_col1:
+                st.metric("Fast Period", int(getattr(params_obj, "fast_period", 0)))
+            with _e_col2:
+                st.metric("Slow Period", int(getattr(params_obj, "slow_period", 0)))
+            with _e_col3:
+                st.metric("Signal Period", int(getattr(params_obj, "signal_period", 0)))
+
+        _ma_col1, _ma_col2 = st.columns(2)
+        with _ma_col1:
+            st.metric("MA Type", str(getattr(params_obj, "ma_type", "-")))
+        with _ma_col2:
+            st.metric("최소 보유 기간 (봉)", int(getattr(params_obj, "min_holding_period", 0)))
+
+    if _is_ema:
+        with st.expander("🎯 Base EMA (EMA 전략 전용)", expanded=True):
+            _b_col1, _b_col2, _b_col3 = st.columns(3)
+            with _b_col1:
+                st.metric("Base EMA 기간", int(getattr(params_obj, "base_ema_period", 0)))
+            with _b_col2:
+                _gap_en = bool(getattr(params_obj, "base_ema_gap_enabled", False))
+                st.metric("Base EMA GAP 전략", "✅ ON" if _gap_en else "❌ OFF")
+            with _b_col3:
+                _gap_diff = float(getattr(params_obj, "base_ema_gap_diff", 0) or 0) * 100
+                st.metric("GAP 임계값", f"{_gap_diff:+.2f}%")
+    else:
+        with st.expander("🔧 MACD 옵션 (MACD 전략 전용)", expanded=True):
+            _m_col1, _m_col2, _m_col3 = st.columns(3)
+            with _m_col1:
+                st.metric("MACD Threshold", f"{float(getattr(params_obj, 'macd_threshold', 0) or 0):.4f}")
+            with _m_col2:
+                _me = bool(getattr(params_obj, "macd_exit_enabled", False))
+                st.metric("MACD Exit", "✅ ON" if _me else "❌ OFF")
+            with _m_col3:
+                _sc = bool(getattr(params_obj, "signal_confirm_enabled", False))
+                st.metric("Signal Confirm", "✅ ON" if _sc else "❌ OFF")
+
+    with st.expander("⏰ 거래 시간 제한", expanded=False):
+        _t_col1, _t_col2, _t_col3, _t_col4 = st.columns(4)
+        with _t_col1:
+            _th_en = bool(getattr(params_obj, "enable_trading_hours", False))
+            st.metric("거래 시간 제한", "✅ ON" if _th_en else "❌ OFF")
+        with _t_col2:
+            st.metric("시작 시각", str(getattr(params_obj, "trading_start_time", "-")))
+        with _t_col3:
+            st.metric("종료 시각", str(getattr(params_obj, "trading_end_time", "-")))
+        with _t_col4:
+            _off_sell = bool(getattr(params_obj, "allow_sell_during_off_hours", True))
+            st.metric("휴식시간 매도 허용", "✅ ON" if _off_sell else "❌ OFF")
+
+    with st.expander("💰 자산 설정", expanded=False):
+        _c_col1, _c_col2 = st.columns(2)
+        with _c_col1:
+            st.metric("주문 총액 (KRW)", f"{int(getattr(params_obj, 'cash', 0) or 0):,}")
+        with _c_col2:
+            _comm = float(getattr(params_obj, "commission", 0) or 0) * 100
+            st.metric("수수료율", f"{_comm:.3f}%")
+except Exception as _param_e:
+    st.caption(f"파라미터 설정 표시 실패: {_param_e}")
 
 st.divider()
 
@@ -2170,104 +2293,7 @@ with btn_col4:
 
 st.divider()
 
-# ✅ params 요약 카드 표시
-st.subheader("⚙️ 파라미터 설정값")
-from ui.sidebar import INTERVAL_OPTIONS
-
-
-def get_interval_label(interval_code: str) -> str:
-    """
-    내부 interval 코드(minute1 등) → 한글 라벨(1분봉 등) 반환
-    예: "minute1" → "1분봉"
-    """
-    for label, code in INTERVAL_OPTIONS.items():
-        if code == interval_code:
-            return label
-    return "알 수 없음"
-
-
-def get_macd_exit_enabled() -> str:
-    return "사용" if params_obj.macd_exit_enabled else "미사용"
-
-
-def get_signal_confirm_enabled() -> str:
-    return "사용" if params_obj.signal_confirm_enabled else "미사용"
-
-
-# ★ 전략 요약 HTML 동적으로 구성
-strategy_html_parts = [
-    f"<b>Strategy:</b> {strategy_tag}",
-    f"<b>Mode:</b> {mode}",
-    f"<b>Ticker:</b> {params_obj.ticker}",
-    f"<b>Interval:</b> {get_interval_label(params_obj.interval)}",
-]
-
-if is_macd:
-    # MACD 전략일 때만 MACD 상세 파라미터 표시
-    strategy_html_parts.append(
-        f"<b>MACD:</b> Fast={params_obj.fast_period}, "
-        f"Slow={params_obj.slow_period}, Signal={params_obj.signal_period}, "
-        f"기준값={params_obj.macd_threshold}"
-    )
-    strategy_html_parts.append(
-        f"<b>MACD Exit:</b> {get_macd_exit_enabled()}, Signal Confirm: {get_signal_confirm_enabled()}"
-    )
-elif is_ema:
-    # EMA 전략: 별도 매수/매도 확인
-    use_separate = getattr(params_obj, "use_separate_ema", True)
-    base_ema = getattr(params_obj, "base_ema_period", 200)
-    gap_diff = getattr(params_obj, "base_ema_gap_diff", -0.005)
-    ma_type_raw = getattr(params_obj, "ma_type", "SMA")
-
-    # ma_type 표시 매핑
-    ma_type_display = {
-        "SMA": "SMA(단순이동평균)",
-        "EMA": "EMA(지수이동평균)",
-        "WMA": "WMA(가중이동평균)"
-    }.get(ma_type_raw, ma_type_raw)
-
-    if use_separate:
-        # 별도 매수/매도 EMA
-        fast_buy = getattr(params_obj, "fast_buy", None) or params_obj.fast_period
-        slow_buy = getattr(params_obj, "slow_buy", None) or params_obj.slow_period
-        fast_sell = getattr(params_obj, "fast_sell", None) or params_obj.fast_period
-        slow_sell = getattr(params_obj, "slow_sell", None) or params_obj.slow_period
-        strategy_html_parts.append(
-            f"<b>EMA (Separate):</b> Buy={fast_buy}/{slow_buy}, Sell={fast_sell}/{slow_sell}, MA계산={ma_type_display}"
-        )
-    else:
-        # 공통 EMA
-        strategy_html_parts.append(
-            f"<b>EMA (Common):</b> Fast={params_obj.fast_period}, Slow={params_obj.slow_period}, MA계산={ma_type_display}"
-        )
-
-    # Base EMA GAP 파라미터 표시
-    strategy_html_parts.append(
-        f"<b>Base EMA GAP:</b> {gap_diff*100:.1f}% (Base EMA={base_ema})"
-    )
-
-strategy_html_parts.append(
-    f"<b>TP/SL:</b> {params_obj.take_profit*100:.1f}% / {params_obj.stop_loss*100:.1f}%"
-)
-strategy_html_parts.append(
-    f"<b>Order 비율:</b> {params_obj.order_ratio*100:.0f}%"
-)
-strategy_html_parts.append(
-    f"<b>최소 진입 Bar:</b> {params_obj.min_holding_period}"
-)
-strategy_html_parts.append(
-    f"<b>Cross Over:</b> {params_obj.macd_crossover_threshold}"
-)
-
-st.markdown(
-    "<div style=\"padding: 1em; border-radius: 0.5em; background-color: #f0f2f6; color: #111; border: 1px solid #ccc; font-size: 16px; font-weight: 500\">"
-    + " &nbsp;|&nbsp; ".join(strategy_html_parts) +
-    "</div>",
-    unsafe_allow_html=True,
-)
-st.write("")
-
-st.divider()
+# ✅ 구 "⚙️ 파라미터 설정값" HTML 블록 제거 — 상단 "⚙️ 파라미터 설정" 카테고리 metric 패널로 대체됨
 
 # ★ 전략별 Condition JSON 파일명:
 #   - MACD: {user_id}_MACD_buy_sell_conditions.json
