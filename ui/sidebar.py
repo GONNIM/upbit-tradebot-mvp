@@ -37,6 +37,17 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
     # 파일에서 읽어온 마지막 저장값 (공통 기본값)
     DEFAULT_PARAMS = load_params_obj.dict() if load_params_obj else {}
 
+    # ✅ RATIO-HR: 사이드바에서는 order_ratio 를 표시만 하고 수정 불가.
+    # 저장값(fresh from disk)을 한 곳에서 결정해 display / LiveParams 저장에 공통 사용.
+    saved_ratio = (
+        float(load_params_obj.order_ratio)
+        if load_params_obj and load_params_obj.order_ratio
+        else 1.0
+    )
+    # 세션 미초기화 시 저장값으로 세팅 (set_config 미경유 진입 방어)
+    if "order_ratio" not in st.session_state:
+        st.session_state.order_ratio = saved_ratio
+
     # ---------- 전략 타입 / 엔진 모드 ----------
     allowed_strategies = [s.upper() for s in STRATEGY_TYPES]
 
@@ -379,32 +390,27 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
 
         st.write("")
 
+        # ✅ RATIO-HR: 사이드바 주문 비율은 표시 전용(disabled).
+        # 수정은 '⚙️ 매수/매도 조건 설정' 페이지의 '💰 주문 비율' 섹션에서만 가능.
+        # 사이드바 form submit 이 세션 default 값(1.0)으로 params.order_ratio 를 덮어쓰던 결함 방지.
+        # (saved_ratio 는 make_sidebar 진입부에서 이미 로드됨)
         columns = st.columns(4)
         for i, (name, info) in enumerate(CASH_OPTIONS.items()):
-            if columns[i].button(info["button"], key=name, use_container_width=True):
-                st.session_state.order_ratio = info["ratio"]
-                st.session_state.order_amount = (
-                    st.session_state.virtual_amount * st.session_state.order_ratio
-                )
-                st.rerun()
-
-        # ✅ 저장 안내 메시지 추가
-        saved_ratio = load_params_obj.order_ratio if load_params_obj else 1.0
-        current_ratio = st.session_state.order_ratio
-
-        if abs(saved_ratio - current_ratio) > 0.001:
-            st.warning(
-                f"⚠️ **주문 비율이 변경되었습니다!**\n\n"
-                f"- 💾 저장된 비율: **{saved_ratio * 100:.0f}%**\n"
-                f"- 🎯 현재 선택: **{current_ratio * 100:.0f}%**\n\n"
-                f"**반드시 '파라미터 저장하기' 버튼을 클릭하세요!**",
-                icon="⚠️"
+            is_saved = abs(saved_ratio - info["ratio"]) < 1e-6
+            columns[i].button(
+                info["button"],
+                key=name,
+                use_container_width=True,
+                disabled=True,
+                type="primary" if is_saved else "secondary",
             )
-        else:
-            st.info(
-                f"💾 저장된 주문 비율: **{saved_ratio * 100:.0f}%**",
-                icon="✅"
-            )
+
+        # ✅ 저장된 비율 안내 (수정 경로 안내 포함)
+        st.info(
+            f"💾 저장된 주문 비율: **{saved_ratio * 100:.0f}%**\n\n"
+            f"수정: **매수/매도 조건 설정** 페이지 → 💰 주문 비율",
+            icon="✅"
+        )
 
         st.subheader("운용자산")
         st.info(f"{st.session_state.virtual_amount:,.0f} KRW")
@@ -441,7 +447,8 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
             take_profit=tp,
             stop_loss=sl,
             cash=int(cash),
-            order_ratio=st.session_state.order_ratio,
+            # ✅ RATIO-HR: 사이드바는 order_ratio 수정 불가 — 항상 저장된 값(params) 그대로 유지
+            order_ratio=saved_ratio,
             macd_exit_enabled=macd_exit_enabled,
             signal_confirm_enabled=signal_confirm_enabled,
             base_ema_period=int(base_ema_period),

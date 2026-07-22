@@ -186,7 +186,18 @@ if get_account(user_id) is None:
 if "virtual_amount" not in st.session_state:
     st.session_state.virtual_amount = virtual_krw
 if "order_ratio" not in st.session_state:
-    st.session_state.order_ratio = 1
+    # ✅ RATIO-HR: 하드코딩 1(=100%) 대신 params 저장값으로 초기화
+    # 사이드바가 세션 default를 그대로 params에 저장해 사용자의 이전 설정을 100%로 덮어쓰는 결함 방지
+    try:
+        _p_ratio = load_params(
+            f"{user_id}_{PARAMS_JSON_FILENAME}",
+            strategy_type=st.session_state.get("strategy_type"),
+        )
+        st.session_state.order_ratio = (
+            float(_p_ratio.order_ratio) if _p_ratio and _p_ratio.order_ratio else 1.0
+        )
+    except Exception:
+        st.session_state.order_ratio = 1.0
 if "order_amount" not in st.session_state:
     st.session_state.order_amount = virtual_krw
 
