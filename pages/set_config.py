@@ -156,7 +156,11 @@ if mode == "LIVE" and (not upbit_ok or not capital_ok):
 st.session_state["upbit_verified"] = upbit_ok
 st.session_state["live_capital_set"] = capital_ok
 
-if virtual_krw < MIN_CASH:
+# ✅ MIN_CASH 검사는 TEST 모드에만 적용.
+# LIVE 모드에서는 100% 매수 후 KRW 잔고 = 0 이 정상 상황이며, 이 시점에도
+# 사용자는 파라미터/조건 설정 페이지에 진입해야 함 (예: 매도 조건 조정).
+# TEST 모드는 가상 자본을 사용자가 명시 세팅하므로 최소 금액 검사가 의미 있음.
+if mode == "TEST" and virtual_krw < MIN_CASH:
     st.warning(
         f"현재 운용자산({virtual_krw} KRW)가 최소 주문 가능 금액({MIN_CASH} KRW)보다 작습니다.\n"
         "처음 화면(app.py)에서 운용자산을 다시 설정해 주세요."

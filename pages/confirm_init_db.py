@@ -40,7 +40,8 @@ mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 
 
-if virtual_krw < MIN_CASH:
+# ✅ MIN_CASH 검사는 TEST 모드에만 적용 (LIVE는 매수 후 KRW=0 정상 상황 존재).
+if mode == "TEST" and virtual_krw < MIN_CASH:
     st.switch_page("app.py")
 
 
