@@ -18,6 +18,13 @@ from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-
 st.set_page_config(page_title="Upbit Trade Bot v1", page_icon="🤖", layout="wide")
 st.markdown(style_main, unsafe_allow_html=True)
 
+# ✅ toast 큐 소비 — 버튼 콜백에서 st.rerun() 직전에 세션에 세팅한 메시지를
+# 다음 rerun 시점에 표시. (rerun 은 현재 실행을 abort 하므로 toast 를 콜백에서
+# 직접 호출하면 큐가 렌더링 전에 유실됨.)
+_pending_toast = st.session_state.pop("_ratio_toast_pending", None)
+if _pending_toast:
+    st.toast(_pending_toast, icon="✅")
+
 # ✅ SP-NAV-5: 페이지 진입 컨텍스트 표준 로드 (세션 유실 시 자동 로그인 리다이렉트)
 bootstrap_page_context(required=("user_id",))
 
@@ -519,12 +526,13 @@ with st.expander("🎯 자주 변경하는 설정", expanded=True):
                     _p_now.order_ratio = float(value)
                     save_params(_p_now, params_file, strategy_type=strategy_tag)
                     st.session_state["order_ratio_quick"] = value  # 표시 일관성 (참고용)
-                    st.toast(f"✅ 주문 비율 {label} 저장 완료 (hot-reload 로 즉시 반영)", icon="✅")
+                    # ✅ toast 는 rerun 후 페이지 상단에서 표시 (콜백 내 직접 호출은 rerun 으로 유실)
+                    st.session_state["_ratio_toast_pending"] = f"✅ 주문 비율 {label} 저장 완료 (hot-reload 로 즉시 반영)"
+                    st.rerun()
                 else:
-                    st.error("❌ 주문 비율 저장 실패: params 로드 실패")
+                    st.error("❌ 주문 비율 저장 실패: params 로드 실패 (rerun 미실행 — 메시지 유지)")
             except Exception as _ratio_e:
-                st.error(f"❌ 주문 비율 저장 실패: {_ratio_e}")
-            st.rerun()
+                st.error(f"❌ 주문 비율 저장 실패: {_ratio_e} (rerun 미실행 — 메시지 유지)")
 
     ratio_display_pct = saved_ratio * 100
 
