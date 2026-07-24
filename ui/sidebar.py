@@ -42,7 +42,7 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
     saved_ratio = (
         float(load_params_obj.order_ratio)
         if load_params_obj and load_params_obj.order_ratio
-        else 1.0
+        else 0.1
     )
     # 세션 미초기화 시 저장값으로 세팅 (set_config 미경유 진입 방어)
     if "order_ratio" not in st.session_state:

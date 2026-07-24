@@ -46,7 +46,7 @@ class LiveParams(BaseModel):
     macd_exit_enabled: bool = True
     signal_confirm_enabled: bool = False
 
-    order_ratio: float = Field(default=1.0, gt=0)
+    order_ratio: float = Field(default=0.1, gt=0)
 
     # EMA 전용 (Base EMA)
     base_ema_period: int = Field(

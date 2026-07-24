@@ -192,7 +192,7 @@ def get_current_balances(user_id: str, params_obj, is_live: bool, force_refresh:
         # ✅ 실시간 API 조회 (강제매도/매수 직후에만)
         trader_view = UpbitTrader(
             user_id,
-            risk_pct=getattr(params_obj, "order_ratio", 1.0),
+            risk_pct=getattr(params_obj, "order_ratio", 0.1),
             test_mode=False,
         )
         try:
@@ -462,7 +462,7 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.22.2109")
+st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.24.1141")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
