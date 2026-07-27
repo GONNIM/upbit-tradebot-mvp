@@ -515,16 +515,21 @@ class StalePositionFilter(BaseFilter):
         if elapsed_hours >= self.stale_hours:
             max_gain = position.get_max_gain_from_entry()
 
+            # ✅ [Phase 1-F/P2-4] f-string 안전화 — 이전엔 "{x:.2%} if x else 'None'" 리터럴 문자열
+            # 이었고 x=None 시 :.2% 포매팅으로 TypeError 위험. 사전 포매팅으로 변경.
+            _max_gain_str = f"{max_gain:.2%}" if max_gain is not None else "None"
+            _avg_price_str = f"{position.avg_price:.2f}" if position.avg_price is not None else "None"
+            _highest_str = f"{position.highest_since_entry:.2f}" if position.highest_since_entry is not None else "None"
             logger.info(
                 f"🔍 DEBUG [STALE_POSITION_CHECK] "
                 f"enable=True, "
                 f"elapsed_hours={elapsed_hours:.2f}h, required_hours={self.stale_hours}h, "
-                f"max_gain={max_gain:.2%} if max_gain else 'None', "
+                f"max_gain={_max_gain_str}, "
                 f"threshold={self.stale_threshold_pct:.2%}, "
-                f"entry_price={position.avg_price:.2f}, "
+                f"entry_price={_avg_price_str}, "
                 f"entry_time={position.entry_ts}, "
                 f"current_time={current_time}, "
-                f"highest_since_entry={position.highest_since_entry:.2f} if position.highest_since_entry else 'None', "
+                f"highest_since_entry={_highest_str}, "
                 f"current_price={current_price:.2f}"
             )
 

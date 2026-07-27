@@ -84,6 +84,12 @@ class OrderReconciler:
             to_remove = [k for k in self._fill_callbacks.keys() if k[0] == user_id]
             for k in to_remove:
                 self._fill_callbacks.pop(k, None)
+            # ✅ [Phase 1-F/P2-2] hts-detect callback 도 함께 정리 (stale reference 방지)
+            hts_cbs = getattr(self, "_hts_callbacks", None)
+            if hts_cbs:
+                to_remove_hts = [k for k in hts_cbs.keys() if k[0] == user_id]
+                for k in to_remove_hts:
+                    hts_cbs.pop(k, None)
         logger.info(f"[OR] user unregistered: {user_id}")
 
     def register_fill_callback(self, user_id: str, ticker: str, callback):

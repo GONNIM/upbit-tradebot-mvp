@@ -103,7 +103,33 @@ class StrategyEngine:
             # ✅ [Fix 4] HTS 매수 감지 콜백 등록 — Reconciler → position_state.avg_price 즉시 동기화
             reconciler.register_hts_detect_callback(self.user_id, self.ticker, self._on_hts_detect)
         except Exception as e:
-            logger.warning(f"[ENGINE] fill callback 등록 실패: {e}")
+            # ✅ [Phase 1-F/P2-5] 콜백 등록 실패는 HTS 즉시 동기화 무력화 → CRITICAL 승격
+            err_msg = (
+                f"❌ [ENGINE] Reconciler callback 등록 실패: {e} | "
+                f"HTS-DETECT 즉시 동기화 무력화 상태. sync_from_wallet Fix 1 만 방어."
+            )
+            logger.critical(err_msg)
+            try:
+                from services.db import insert_log
+                insert_log(self.user_id, "ERROR", err_msg)
+            except Exception:
+                pass
+            try:
+                from services.notifier import send as _notify_send, LEVEL_CRITICAL
+                _notify_send(
+                    LEVEL_CRITICAL,
+                    f"🚨 Reconciler 콜백 등록 실패 — {self.ticker}",
+                    (
+                        f"에러: {e}\n\n"
+                        f"HTS 매수 발생 시 즉시 동기화 불가.\n"
+                        f"봉 단위 sync_from_wallet 만 방어.\n"
+                        f"엔진 재시작 검토 필요."
+                    ),
+                    dedupe_key=f"reconciler_reg_fail:{self.ticker}",
+                    dedupe_ttl=600,
+                )
+            except Exception:
+                pass
 
     def _on_hts_detect(self, *, avg_price: float, qty: float, reason: str) -> None:
         """
@@ -132,6 +158,20 @@ class StrategyEngine:
                     self.position.entry_ts = datetime.now(ZoneInfo("Asia/Seoul"))
                 if self.position.entry_bar is None:
                     self.position.entry_bar = self.bar_count
+                # ✅ [Phase 1-F/P2-3] HTS_BUY_ADD 시 highest 재계산 (avg 변경으로 옛 highest 무의미)
+                if str(reason).upper() == "HTS_BUY_ADD":
+                    old_highest = self.position.highest_price
+                    old_since_entry = self.position.highest_since_entry
+                    self.position.highest_price = None
+                    self.position.highest_since_entry = None
+                    self.position.trailing_armed = False
+                    self.position.trailing_fixed_amount = None
+                    self.position.trailing_activation_price = None
+                    logger.warning(
+                        f"🔄 [HTS-DETECT-CALLBACK] HTS_BUY_ADD 로 avg 변경 → Trailing 상태 리셋 | "
+                        f"old_highest={old_highest} old_since_entry={old_since_entry} "
+                        f"→ 모두 None. 다음 봉부터 새 avg 기준 추적 재개."
+                    )
                 logger.warning(
                     f"✅ [HTS-DETECT-CALLBACK] position_state.avg_price 동기화 완료 | "
                     f"reason={reason} | old_avg={old_avg} → new_avg={avg_price:.6f} | "
@@ -376,9 +416,13 @@ class StrategyEngine:
             logger.debug(f"⏭️ 중복 봉 무시: {bar.ts}")
             return
 
-        # ✅ Position-Wallet 동기화 체크 (전략 평가 전)
-        # force_liquidate, 수동 거래 등으로 인한 불일치 자동 해결
-        self._reconcile_position_with_wallet()
+        # ✅ [Phase 1-C/P1-2] Position-Wallet 동기화를 execution_lock 안으로 이동
+        # 감사 결과: 락 밖 실행 시 Reconciler HTS-DETECT 콜백(_on_hts_detect, 락 획득)과
+        # race → apply_entry 가 콜백 최신 avg 를 DB 캐시값으로 덮어써 Trailing Stop 오작동.
+        with self._execution_lock:
+            # ✅ Position-Wallet 동기화 체크 (전략 평가 전)
+            # force_liquidate, 수동 거래 등으로 인한 불일치 자동 해결
+            self._reconcile_position_with_wallet()
 
         # 1. 버퍼 추가
         self.buffer.append(bar)
@@ -480,8 +524,10 @@ class StrategyEngine:
             logger.debug(f"[ENGINE] 중복 봉 무시 | {bar.ts}")
             return
 
-        # ✅ Position-Wallet 동기화
-        self._reconcile_position_with_wallet()
+        # ✅ [Phase 1-C/P1-2] Position-Wallet 동기화를 execution_lock 안으로 이동
+        # (동일 이유: Reconciler HTS-DETECT 콜백과 race 방지)
+        with self._execution_lock:
+            self._reconcile_position_with_wallet()
 
         # 1. 버퍼 추가 (BACKFILL 모드는 제외)
         # Issue #9: BACKFILL은 과거 봉 재평가이므로 버퍼 추가/bar_count 증가 불필요

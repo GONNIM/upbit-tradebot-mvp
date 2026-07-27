@@ -437,6 +437,13 @@ class IncrementalMACDStrategy:
             # ✅ Stop Loss 체크 (조건 파일에서 ON일 때만)
             # 🔍 DEBUG: Stop Loss 조건 및 활성화 상태 로그 추가
             pnl_pct = position.get_pnl_pct(current_price)
+            # ✅ [Phase 1-D/P1-3] MACD 인라인 pnl_pct=None silent skip 방지
+            # 감사 결과: EMA 는 sell_filter_manager 사용해 Fix 3 WARN 적용됨. MACD 는 인라인 → 로그 없이 스킵됐음.
+            if pnl_pct is None:
+                logger.warning(
+                    f"⚠️ [MACD-STOP_LOSS_CHECK] pnl_pct=None (avg_price={position.avg_price}) → SL/TP/TS 전량 스킵 "
+                    f"| has_position={position.has_position}, qty={position.qty}, current_price={current_price}"
+                )
             stop_loss_triggered = pnl_pct is not None and pnl_pct <= -self.stop_loss
 
             logger.info(

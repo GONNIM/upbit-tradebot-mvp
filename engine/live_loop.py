@@ -502,9 +502,24 @@ def run_live_loop(
                 )
             except Exception:
                 pass
-            # sync_from_wallet 가 이미 True 세팅했을 수 있으므로 명시적 False 리셋
+            # ✅ [Phase 1-E/P1-4] sync_from_wallet 가 이미 True 세팅했을 수 있으므로 명시적 False 리셋.
+            # 감사 결과: 이전엔 has_position + qty 만 리셋했으나 avg_price/entry_ts/entry_bar 는 잔존 →
+            # 다음 sync_from_wallet 이 wallet 감지 시 Fix 1 조건 (avg_price is None) False 로 스킵되어
+            # 옛 값 그대로 사용 → 위험 상태 지속. avg_price 등 관련 필드 모두 완전 리셋.
             position._has_position = False
             position.qty = 0.0
+            position.avg_price = None
+            position.entry_ts = None
+            position.entry_bar = None
+            position.highest_price = None
+            position.highest_since_entry = None
+            position.trailing_armed = False
+            position.trailing_fixed_amount = None
+            position.trailing_activation_price = None
+            logger.warning(
+                f"🔄 [BOOT-SEED] 완전 상태 리셋 완료 (avg_price/entry_ts/entry_bar/highest 모두 None). "
+                f"사용자 개입 대기 상태."
+            )
 
     # ✅ Issue #17 Hotfix + Policy P-1: TEST 사용자는 등록 스킵 (지갑 조회 금지)
     reconciler = get_reconciler()

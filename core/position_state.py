@@ -136,18 +136,58 @@ class PositionState:
 
                 if recovered_price is not None:
                     self.avg_price = recovered_price
+                    # ✅ [Phase 1-B] entry_ts / entry_bar 도 함께 복구 (P1-1 근본 봉쇄)
+                    # 감사 결과: avg_price 만 복구하면 Stale filter 가 entry_ts=None 으로
+                    # silent NO_POSITION return → SELL 무력화.
+                    # 실제 HTS 매수 시각을 봇이 알 수 없으므로 sync 시각으로 세팅 (Stale timer
+                    # 는 봇이 인식한 시점부터 카운트, 사용자 관점에서는 방어 보수적).
+                    if self.entry_ts is None:
+                        try:
+                            from datetime import datetime
+                            from zoneinfo import ZoneInfo
+                            self.entry_ts = datetime.now(ZoneInfo("Asia/Seoul"))
+                            logger.warning(
+                                f"✅ [POS-SYNC] entry_ts 도 함께 복구 (sync 시각) | "
+                                f"entry_ts={self.entry_ts.isoformat()} | ticker={self.ticker}"
+                            )
+                        except Exception as _e:
+                            logger.error(f"[POS-SYNC] entry_ts 복구 실패: {_e}")
                     logger.warning(
                         f"✅ [POS-SYNC] avg_price 복구 성공 | source={recovery_src} | "
                         f"avg_price={recovered_price:.6f} | qty={actual_balance:.6f} | ticker={self.ticker}"
                     )
                 else:
                     # 복구 실패: has_position=True + avg_price=None invariant 위반 상태
-                    # (Fix 2 의 SELL 스킵 로직이 이를 감지)
-                    logger.error(
+                    # ✅ [Phase 1-F/P2-1] 즉시 CRITICAL 알림 (Fix 2 봉 진입 대기 없이 사용자 인지)
+                    err_msg = (
                         f"❌ [POS-SYNC] avg_price 복구 실패 (DB 캐시 부재 + Upbit API 실패) | "
-                        f"has_position=True + avg_price=None invariant 위반 상태. "
-                        f"SELL 필터 전량 스킵 위험 → Fix 2 로직이 방어. | ticker={self.ticker}"
+                        f"has_position=True + avg_price=None invariant 위반. "
+                        f"SELL 필터 전량 스킵 위험 → Phase 1-A invariant 검증이 방어. | "
+                        f"ticker={self.ticker}"
                     )
+                    logger.critical(err_msg)
+                    try:
+                        if hasattr(self.trader, 'user_id'):
+                            from services.db import insert_log
+                            insert_log(self.trader.user_id, "ERROR", err_msg)
+                    except Exception:
+                        pass
+                    try:
+                        from services.notifier import send as _notify_send, LEVEL_CRITICAL
+                        _notify_send(
+                            LEVEL_CRITICAL,
+                            f"🚨 avg_price 복구 실패 — {self.ticker}",
+                            (
+                                f"DB 캐시 + Upbit API 모두 avg_buy_price 조회 실패.\n"
+                                f"봇이 SELL 필터 실행 못하는 상태.\n"
+                                f"수동 정리 or force_liquidate 필요.\n"
+                                f"qty={actual_balance}"
+                            ),
+                            dedupe_key=f"avg_price_recovery_failed:{self.ticker}",
+                            dedupe_ttl=600,
+                        )
+                    except Exception:
+                        pass
 
             # ✅ Issue #17: metadata 동기화 (hts_buy 플래그)
             if hasattr(self.trader, 'user_id'):
