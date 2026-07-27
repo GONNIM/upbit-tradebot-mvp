@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# ✅ [Phase 2] git pre-push hook — 배포 전 회귀 테스트 강제
+#
+# 활성화: 프로젝트 루트에서 `git config core.hooksPath .githooks` 1회 실행
+#
+# 우회 필요 시 (긴급 rollback 등):
+#   git push --no-verify
+# 단, 사용자 실 자금 관련 코드 변경 시 절대 우회 금지 (2026-07-27 원칙).
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+echo "🔒 pre-push hook: 회귀 테스트 게이트 실행..."
+if bash "$PROJECT_ROOT/scripts/regression_gate.sh"; then
+    exit 0
+else
+    echo ""
+    echo "🚨 git push 차단됨 — 회귀 테스트 실패."
+    echo "   해결 후 재시도 or (긴급 시) git push --no-verify"
+    exit 1
+fi

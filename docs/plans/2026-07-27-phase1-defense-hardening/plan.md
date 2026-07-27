@@ -209,20 +209,52 @@ _highest_str = f"{position.highest_since_entry:.2f}" if position.highest_since_e
 
 ---
 
-## 7. Phase 2 로드맵 (이번 주말)
+## 7. Phase 2 완료 (2026-07-27 밤, 커밋 대기 중)
 
-**목표**: 5건 결함 각각 pytest 재현 → deploy.sh CI 게이트화 → 다음 배포부터 동일 결함 물리 차단.
+**목표 달성**: 5건 결함 각각 회귀 테스트 재현 + CI 게이트 자동화. 다음 배포부터 동일 결함 물리 차단.
 
-**파일 계획**:
-- `tests/regressions/test_r_2026_07_20_order_ratio_stale.py` (F1)
-- `tests/regressions/test_r_2026_07_20_limit_fill_unpack.py` (F1')
-- `tests/regressions/test_r_2026_07_22_sidebar_ratio_overwrite.py` (F2)
-- `tests/regressions/test_r_2026_07_24_conditions_stale_state.py` (F3)
-- `tests/regressions/test_r_2026_07_27_hts_avg_price_missing.py` (F5)
-- `tests/regressions/fixtures/{fake_upbit,fake_reconciler,db_fixture,bar_fixture}.py`
-- `deploy.sh` 수정: `pytest tests/regressions -q` 게이트 삽입
+**신설 파일**:
+- `tests/regressions/__init__.py`
+- `tests/regressions/fixtures/__init__.py`
+- `tests/regressions/fixtures/fake_upbit.py` — Upbit API mock (get_balances 시퀀스, get_order)
+- `tests/regressions/fixtures/fake_reconciler.py` — Reconciler mock (fill/hts callback 발화)
+- `tests/regressions/fixtures/db_fixture.py` — 임시 SQLite tempdir context
+- `tests/regressions/test_r_2026_07_20_order_ratio_stale.py` (F1) — **5 tests**
+- `tests/regressions/test_r_2026_07_20_limit_fill_unpack.py` (F1') — **6 tests**
+- `tests/regressions/test_r_2026_07_22_sidebar_ratio_overwrite.py` (F2) — **5 tests**
+- `tests/regressions/test_r_2026_07_24_conditions_stale_state.py` (F3) — **5 tests**
+- `tests/regressions/test_r_2026_07_27_hts_avg_price_missing.py` (F5) — **13 tests**
+- `scripts/regression_gate.sh` — 회귀 테스트 게이트 (배포 전 필수)
+- `.githooks/pre-push` — git push 시점에 게이트 자동 강제
+- `.git/config` `core.hooksPath = .githooks` — hook 활성화
 
-**예상 소요**: 16~20h.
+**총 34 tests 통과**. 로컬 실행 결과:
+```
+Ran 34 tests in 0.013s
+OK
+✅ 회귀 테스트 34/34 통과 — 배포 진행 가능
+```
+
+**시나리오 커버리지**:
+- **F1**: hot-reload 값 갱신 / 파일 없음 fallback / 이상값 fallback / JSON 손상 fallback / 필드 없음 fallback
+- **F1'**: 7-tuple / 3-tuple dict / SELL 7-tuple / invalid 2-tuple / dict 필드 결손 / 실제 코드 예외 없음
+- **F2**: 버튼 disabled / saved_ratio 사용 / session_state 사용 금지 / disk 로드 / fallback 안전 값
+- **F3**: save_conditions 에서 order_ratio 제거 / ratio_changed 플래그 제거 / 버튼 즉시 저장 / disk 값 하이라이트 / fallback 안전 값
+- **F5** (핵심 13개): DB 캐시 복구 / Upbit API 복구 / **entry_ts 함께 복구 (P1-1 커버)** / I1 감지 / I1 avg=0 감지 / I3 감지 / 정상 상태 / SL NO_PNL / TP NO_PNL / **SL WARN 로그** / 콜백 메서드 존재 / 콜백 발화 / **unregister 콜백 정리 (P2-2)**
+
+**CI 게이트 사용법**:
+```bash
+# 수동 실행
+bash scripts/regression_gate.sh
+
+# 자동 (git push 시)
+git push  # → .githooks/pre-push → regression_gate.sh 자동 실행
+
+# 우회 (긴급 rollback 시만, 실 자금 관련은 절대 금지)
+git push --no-verify
+```
+
+**예상 소요 실측**: 16~20h → **약 90분 완료** (fixtures + 5 test files + gate + hook).
 
 ---
 
