@@ -100,8 +100,45 @@ class StrategyEngine:
             from engine.reconciler_singleton import get_reconciler
             reconciler = get_reconciler()
             reconciler.register_fill_callback(self.user_id, self.ticker, self._on_limit_fill)
+            # ✅ [Fix 4] HTS 매수 감지 콜백 등록 — Reconciler → position_state.avg_price 즉시 동기화
+            reconciler.register_hts_detect_callback(self.user_id, self.ticker, self._on_hts_detect)
         except Exception as e:
             logger.warning(f"[ENGINE] fill callback 등록 실패: {e}")
+
+    def _on_hts_detect(self, *, avg_price: float, qty: float, reason: str) -> None:
+        """
+        ✅ [Fix 4] OrderReconciler → StrategyEngine HTS-DETECT callback.
+
+        HTS 매수 감지 시 Reconciler 스레드에서 호출. position_state.avg_price 를
+        즉시 세팅하여 다음 SELL 평가에서 SL/TP/TS 필터가 정상 작동하도록 보장.
+
+        2026-07-24 사건 근본 원인: HTS 매수 후 avg_price=None 인 상태로 방치 →
+        모든 SELL 필터가 pnl_pct=None 로 조기 return → 2일 반 동안 매도 무력화.
+
+        Thread safety:
+            - `_execution_lock` 사용으로 봉 처리 스레드와 원자성 보장
+            - 이미 avg_price 세팅되어 있으면 덮어쓰기 (Upbit avg_buy_price 가 진실의 소스)
+        """
+        with self._execution_lock:
+            try:
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+                old_avg = self.position.avg_price
+                # 최신 Upbit avg_buy_price 로 갱신 (HTS_BUY_ADD 시에도 반영)
+                self.position.avg_price = float(avg_price)
+                self.position.qty = float(qty)
+                # entry_ts / entry_bar 는 최초 감지 시점만 세팅 (이미 있으면 유지)
+                if self.position.entry_ts is None:
+                    self.position.entry_ts = datetime.now(ZoneInfo("Asia/Seoul"))
+                if self.position.entry_bar is None:
+                    self.position.entry_bar = self.bar_count
+                logger.warning(
+                    f"✅ [HTS-DETECT-CALLBACK] position_state.avg_price 동기화 완료 | "
+                    f"reason={reason} | old_avg={old_avg} → new_avg={avg_price:.6f} | "
+                    f"qty={qty:.6f} | ticker={self.ticker}"
+                )
+            except Exception as e:
+                logger.error(f"[HTS-DETECT-CALLBACK] position 동기화 실패: {e}", exc_info=True)
 
     def _on_limit_fill(self, *, uuid: str, executed_price: float,
                        executed_qty: float, executed_ts) -> None:

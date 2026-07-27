@@ -378,6 +378,37 @@ class IncrementalMACDStrategy:
             # 🔍 TRACE: SELL 블록 진입 확인
             logger.info(f"🔥 [SELL_BLOCK_ENTRY] MACD Strategy sell evaluation started | bar_idx={current_bar_idx}")
 
+            # ✅ [Fix 2] Invariant 검증: has_position=True + avg_price=None 상태 감지 (EMA 와 동일 처리)
+            if position.avg_price is None or position.avg_price <= 0:
+                err_msg = (
+                    f"🚨 [MACD] has_position=True 인데 avg_price={position.avg_price} (None/0) — "
+                    f"SL/TP/TS 전량 무력화 위험 → SELL 평가 스킵. 수동 정리 or force_liquidate 필요. "
+                    f"ticker={self.ticker}, qty={position.qty}"
+                )
+                logger.critical(err_msg)
+                try:
+                    from services.db import insert_log
+                    insert_log(self.user_id, "ERROR", err_msg)
+                except Exception:
+                    pass
+                try:
+                    from services.notifier import send as _notify_send, LEVEL_CRITICAL
+                    _notify_send(
+                        LEVEL_CRITICAL,
+                        f"🚨 포지션 진입가 미세팅 — {self.ticker}",
+                        (
+                            f"has_position=True 이나 avg_price 없음.\n"
+                            f"SL/TP/TS 전량 스킵 상태 (봇 매도 필터 무력화).\n"
+                            f"수동 정리 or force_liquidate 필요.\n"
+                            f"qty={position.qty}"
+                        ),
+                        dedupe_key=f"avg_price_missing:{self.ticker}",
+                        dedupe_ttl=600,
+                    )
+                except Exception:
+                    pass
+                return Action.HOLD
+
             # 최소 보유 기간 체크
             bars_held = position.get_bars_held(current_bar_idx)
 
@@ -1043,6 +1074,40 @@ class IncrementalEMAStrategy:
 
             # 🔍 TRACE: SELL 블록 진입 확인
             logger.info(f"🔥 [SELL_BLOCK_ENTRY] EMA Strategy sell evaluation started | bar_idx={current_bar_idx}")
+
+            # ✅ [Fix 2] Invariant 검증: has_position=True + avg_price=None 상태 감지
+            # 이 상태에서 SELL 필터가 실행되면 pnl_pct=None 로 조기 return → SL/TP/TS 전량 스킵 (silent).
+            # 2026-07-24 사건: HTS 매수 후 avg_price 복구 실패 상태로 2일 반 동안 SL 미발동.
+            # Fix 1 에서 avg_price 복구 시도했으나 실패한 경우, SELL 평가 자체를 스킵하고 알림.
+            if position.avg_price is None or position.avg_price <= 0:
+                err_msg = (
+                    f"🚨 [EMA] has_position=True 인데 avg_price={position.avg_price} (None/0) — "
+                    f"SL/TP/TS 전량 무력화 위험 → SELL 평가 스킵. 수동 정리 or force_liquidate 필요. "
+                    f"ticker={self.ticker}, qty={position.qty}"
+                )
+                logger.critical(err_msg)
+                try:
+                    from services.db import insert_log
+                    insert_log(self.user_id, "ERROR", err_msg)
+                except Exception:
+                    pass
+                try:
+                    from services.notifier import send as _notify_send, LEVEL_CRITICAL
+                    _notify_send(
+                        LEVEL_CRITICAL,
+                        f"🚨 포지션 진입가 미세팅 — {self.ticker}",
+                        (
+                            f"has_position=True 이나 avg_price 없음.\n"
+                            f"SL/TP/TS 전량 스킵 상태 (봇 매도 필터 무력화).\n"
+                            f"수동 정리 or force_liquidate 필요.\n"
+                            f"qty={position.qty}"
+                        ),
+                        dedupe_key=f"avg_price_missing:{self.ticker}",
+                        dedupe_ttl=600,
+                    )
+                except Exception:
+                    pass
+                return Action.HOLD
 
             # 최소 보유 기간 체크
             bars_held = position.get_bars_held(current_bar_idx)

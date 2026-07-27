@@ -101,6 +101,54 @@ class PositionState:
             self._has_position = actual_has_position
             self.qty = actual_balance
 
+            # ✅ [Fix 1] avg_price 복구 (HTS 매수 미인식 결함 근본 방지)
+            # wallet 잔고는 있는데 avg_price 가 None/0 이면 다음 매도 필터가 pnl=None
+            # 조기 return 으로 SL/TP/TS/Stale 전량 무력화됨 (2026-07-24 사건).
+            # 우선순위: 1) DB 캐시(Reconciler HTS-DETECT 반영) → 2) Upbit avg_buy_price 직접 조회.
+            if actual_has_position and (self.avg_price is None or self.avg_price <= 0):
+                recovered_price = None
+                recovery_src = None
+
+                # 1순위: DB 캐시 (account_positions.entry_price, Reconciler 업데이트)
+                try:
+                    if hasattr(self.trader, 'user_id'):
+                        from services.db import get_position_entry_price
+                        cached = get_position_entry_price(self.trader.user_id, self.ticker)
+                        if cached is not None and cached > 0:
+                            recovered_price = float(cached)
+                            recovery_src = "db_cache"
+                except Exception as _e:
+                    logger.debug(f"[POS-SYNC] DB 캐시 조회 실패: {_e}")
+
+                # 2순위: Upbit API 직접 조회 (LIVE 모드만, DB 캐시 미반영 시 즉시 실측)
+                if recovered_price is None and not getattr(self.trader, "test_mode", True):
+                    try:
+                        symbol = self.ticker.split("-")[-1].strip().upper() if self.ticker else self.ticker
+                        for b in (self.trader.upbit.get_balances() or []):
+                            if str(b.get("currency", "")).upper() == symbol:
+                                api_avg = float(b.get("avg_buy_price") or 0.0)
+                                if api_avg > 0:
+                                    recovered_price = api_avg
+                                    recovery_src = "upbit_api"
+                                break
+                    except Exception as _e:
+                        logger.warning(f"[POS-SYNC] Upbit avg_buy_price 조회 실패: {_e}")
+
+                if recovered_price is not None:
+                    self.avg_price = recovered_price
+                    logger.warning(
+                        f"✅ [POS-SYNC] avg_price 복구 성공 | source={recovery_src} | "
+                        f"avg_price={recovered_price:.6f} | qty={actual_balance:.6f} | ticker={self.ticker}"
+                    )
+                else:
+                    # 복구 실패: has_position=True + avg_price=None invariant 위반 상태
+                    # (Fix 2 의 SELL 스킵 로직이 이를 감지)
+                    logger.error(
+                        f"❌ [POS-SYNC] avg_price 복구 실패 (DB 캐시 부재 + Upbit API 실패) | "
+                        f"has_position=True + avg_price=None invariant 위반 상태. "
+                        f"SELL 필터 전량 스킵 위험 → Fix 2 로직이 방어. | ticker={self.ticker}"
+                    )
+
             # ✅ Issue #17: metadata 동기화 (hts_buy 플래그)
             if hasattr(self.trader, 'user_id'):
                 from services.db import get_position_meta

@@ -101,6 +101,38 @@ class OrderReconciler:
             self._fill_callbacks[(user_id, ticker)] = callback
         logger.info(f"[OR] fill callback registered | user={user_id} ticker={ticker}")
 
+    def register_hts_detect_callback(self, user_id: str, ticker: str, callback):
+        """
+        ✅ [Fix 4] HTS 매수 감지 시 발화되는 콜백 등록.
+
+        callback signature:
+            callback(avg_price: float, qty: float, reason: str)
+
+        - reason: "HTS_BUY" (신규) 또는 "HTS_BUY_ADD" (추가 매수)
+        - StrategyEngine._on_hts_detect 등록. position_state.avg_price 즉시 동기화용.
+        - 2026-07-24 사건: Reconciler 가 DB 만 업데이트하고 position_state 는 그대로 → SL 미발동 근본 원인.
+        """
+        if not hasattr(self, "_hts_callbacks"):
+            self._hts_callbacks: Dict[tuple, Any] = {}
+        with self._lock:
+            self._hts_callbacks[(user_id, ticker)] = callback
+        logger.info(f"[OR] hts-detect callback registered | user={user_id} ticker={ticker}")
+
+    def _fire_hts_detect_callback(self, user_id: str, ticker: str, avg_price: float, qty: float, reason: str):
+        """[Fix 4] HTS 매수 감지 시 등록된 콜백 발화 (에러 격리)."""
+        cbs = getattr(self, "_hts_callbacks", None)
+        if not cbs:
+            return
+        with self._lock:
+            cb = cbs.get((user_id, ticker))
+        if cb is None:
+            return
+        try:
+            cb(avg_price=float(avg_price), qty=float(qty), reason=str(reason))
+            logger.info(f"[OR] hts-detect callback fired | user={user_id} ticker={ticker} reason={reason}")
+        except Exception as _e:
+            logger.error(f"[OR] hts-detect callback error | user={user_id} ticker={ticker}: {_e}")
+
     def _fire_fill_callback(self, user_id: str, ticker: str, uuid: str,
                             exec_price: float, exec_qty: float, exec_ts_iso):
         """FILLED BUY 감지 시 등록된 fill callback 발화 (에러 격리)."""
@@ -550,6 +582,18 @@ class OrderReconciler:
                                         f"✅ [HTS-DETECT] audit_trades 기록 완료 | "
                                         f"ticker={ticker} | reason={reason_str} | price={avg_buy_price}"
                                     )
+
+                                    # ✅ [Fix 4] strategy_engine 에 즉시 통보 (position_state.avg_price 동기화)
+                                    # 2026-07-24 사건: Reconciler 가 DB 만 업데이트하고 position_state 는 그대로
+                                    # → sync_from_wallet 이 avg_price=None 유지 → SL 무력화
+                                    if avg_buy_price > 0:
+                                        self._fire_hts_detect_callback(
+                                            user_id=user_id,
+                                            ticker=ticker,
+                                            avg_price=avg_buy_price,
+                                            qty=curr_qty,
+                                            reason=reason_str,
+                                        )
 
                             update_position_from_balances(user_id, ticker, balances)
 

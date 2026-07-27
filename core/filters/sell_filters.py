@@ -56,10 +56,16 @@ class StopLossFilter(BaseFilter):
 
         pnl_pct = position.get_pnl_pct(current_price)
         if pnl_pct is None:
+            # ✅ [Fix 3] silent skip 방지 — WARN 로그로 명시적 노출.
+            # position.avg_price 가 None/0 이면 pnl 계산 실패 → SL 무력화 (2026-07-24 사건).
+            logger.warning(
+                f"⚠️ [STOP_LOSS_CHECK] pnl_pct=None (avg_price={position.avg_price}) → SL 스킵. "
+                f"has_position={position.has_position}, qty={position.qty}, current_price={current_price}"
+            )
             return FilterResult(
                 should_block=False,
                 reason="NO_PNL",
-                details="PnL calculation failed"
+                details=f"PnL calculation failed (avg_price={position.avg_price})"
             )
 
         # ✅ 절대 최대 손실 안전장치 (5%) — Policy P-3와 무관하게 보존
@@ -167,10 +173,15 @@ class TakeProfitFilter(BaseFilter):
 
         pnl_pct = position.get_pnl_pct(current_price)
         if pnl_pct is None:
+            # ✅ [Fix 3] silent skip 방지
+            logger.warning(
+                f"⚠️ [TAKE_PROFIT_CHECK] pnl_pct=None (avg_price={position.avg_price}) → TP 스킵. "
+                f"has_position={position.has_position}, qty={position.qty}, current_price={current_price}"
+            )
             return FilterResult(
                 should_block=False,
                 reason="NO_PNL",
-                details="PnL calculation failed"
+                details=f"PnL calculation failed (avg_price={position.avg_price})"
             )
 
         take_profit_triggered = pnl_pct >= self.take_profit_pct
@@ -262,6 +273,18 @@ class TrailingStopFilter(BaseFilter):
         # ✅ STEP 1: Take Profit 도달 체크 (trailing_armed 활성화 트리거)
         if not position.trailing_armed:
             pnl_pct = position.get_pnl_pct(current_price)
+
+            # ✅ [Fix 3] silent skip 방지 — avg_price 없으면 TS 활성화 자체 불가
+            if pnl_pct is None:
+                logger.warning(
+                    f"⚠️ [TRAILING_STOP_CHECK] pnl_pct=None (avg_price={position.avg_price}) → TS 활성화 스킵. "
+                    f"has_position={position.has_position}, qty={position.qty}, current_price={current_price}"
+                )
+                return FilterResult(
+                    should_block=False,
+                    reason="NO_PNL",
+                    details=f"PnL calculation failed (avg_price={position.avg_price})"
+                )
 
             if pnl_pct is not None and pnl_pct >= self.take_profit_pct:
                 # Take Profit 도달 → Trailing Stop 활성화
