@@ -286,6 +286,53 @@ class StrategyEngine:
             self._pending_buy_bar = None
             self._pending_buy_wait_bars = 3  # 다음 매수를 위해 기본값 복원
 
+    def _record_invariant_snapshot(self, *, context: str = "unknown") -> None:
+        """
+        ✅ [Phase 3-F] 매 봉 상태 스냅샷 기록 (system_health 페이지 데이터 소스).
+
+        - 매매 흐름 절대 방해 X: 전체 try/except 로 감쌈.
+        - check_position_invariants() 결과가 있으면 violation_code/msg 도 기록.
+        - wallet 실측값 (qty, avg) 도 함께 기록해 memory 와 대비 가능.
+        """
+        try:
+            from services.invariant_monitor import record_snapshot
+            from core.position_invariants import check_position_invariants
+
+            # wallet 실측 (LIVE 만; TEST 는 None)
+            wallet_qty = None
+            wallet_avg = None
+            if not getattr(self.trader, "test_mode", True):
+                try:
+                    wallet_qty = float(self.trader._coin_balance(self.ticker))
+                    # avg_buy_price 실측 시도 (실패 시 None)
+                    for b in (self.trader.upbit.get_balances() or []):
+                        sym = self.ticker.split("-")[-1].upper() if "-" in self.ticker else self.ticker.upper()
+                        if str(b.get("currency", "")).upper() == sym:
+                            _v = float(b.get("avg_buy_price") or 0.0)
+                            if _v > 0:
+                                wallet_avg = _v
+                            break
+                except Exception:
+                    pass
+
+            # invariant 검증
+            violation = check_position_invariants(self.position, context=context)
+            v_code = violation[0] if violation else None
+            v_msg = violation[1] if violation else None
+
+            record_snapshot(
+                self.position,
+                user_id=self.user_id,
+                ticker=self.ticker,
+                wallet_qty=wallet_qty,
+                wallet_avg=wallet_avg,
+                violation_code=v_code,
+                violation_msg=v_msg,
+            )
+        except Exception as e:
+            # 무해 (관찰 계층은 절대 매매 흐름 방해 X)
+            logger.debug(f"[ENGINE] invariant snapshot 기록 실패 (무해): {e}")
+
     def _reconcile_position_with_wallet(self) -> None:
         """
         지갑 잔고 기반 PositionState 동기화
@@ -442,6 +489,10 @@ class StrategyEngine:
             logger.debug(f"[ENGINE] 평가 시작 전 포지션 상태 동기화 | bar={self.bar_count}")
             self.position.sync_from_wallet()
             has_position_before_eval = self.position.has_position
+
+            # ✅ [Phase 3-F] Invariant 스냅샷 기록 (매 봉 관찰 계층)
+            # 매매 흐름 절대 방해 X (실패 시 무해). system_health 페이지 조회용.
+            self._record_invariant_snapshot(context="pre_eval")
 
             # 포지션 유무에 따라 적절한 EMA 값 전달
             is_buy_eval = not self.position.has_position

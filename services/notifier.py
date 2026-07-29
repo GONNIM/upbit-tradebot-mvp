@@ -48,16 +48,44 @@ _dedupe_lock = threading.Lock()
 _dedupe_state: dict = {}
 
 
-def _get_credentials() -> Tuple[Optional[str], Optional[str]]:
-    """환경변수 우선, 없으면 streamlit secrets 시도. 둘 다 없으면 (None, None)."""
+def _get_credentials(level: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+    """
+    환경변수 우선, 없으면 streamlit secrets 시도. 둘 다 없으면 (None, None).
+
+    ✅ [Phase 3-C] 3-tier 채널 분리 (backward compatible):
+    - level 이 주어지고 TELEGRAM_CHAT_ID_<LEVEL> 이 세팅되어 있으면 그 채널 사용.
+    - 없으면 기본 TELEGRAM_CHAT_ID 사용 (기존 동작).
+    - 실 자금 사용자는 CRITICAL 을 개인 폰, WARN 을 그룹 채널로 분리 가능.
+
+    예시 환경변수:
+        TELEGRAM_BOT_TOKEN=xxx
+        TELEGRAM_CHAT_ID=default_chat        # 기본 (기존 유지)
+        TELEGRAM_CHAT_ID_CRITICAL=personal   # CRITICAL 만 개인
+        TELEGRAM_CHAT_ID_WARNING=group       # WARN 만 그룹
+        TELEGRAM_CHAT_ID_INFO=archive        # INFO 만 아카이브
+    """
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    chat = os.environ.get("TELEGRAM_CHAT_ID")
+
+    # ✅ 3-tier: level 별 채널 우선
+    chat = None
+    if level:
+        level_upper = str(level).upper()
+        chat = os.environ.get(f"TELEGRAM_CHAT_ID_{level_upper}")
+    # tier 없으면 기본 채널
+    if not chat:
+        chat = os.environ.get("TELEGRAM_CHAT_ID")
+
     if token and chat:
         return token, chat
+
     try:
         import streamlit as _st  # type: ignore
-        token = token or _st.secrets.get("TELEGRAM_BOT_TOKEN")
-        chat = chat or _st.secrets.get("TELEGRAM_CHAT_ID")
+        if not token:
+            token = _st.secrets.get("TELEGRAM_BOT_TOKEN")
+        if not chat and level:
+            chat = _st.secrets.get(f"TELEGRAM_CHAT_ID_{str(level).upper()}")
+        if not chat:
+            chat = _st.secrets.get("TELEGRAM_CHAT_ID")
     except Exception:
         pass
     if not token or not chat:
@@ -109,7 +137,8 @@ def send(
     try:
         if _should_skip_by_dedupe(dedupe_key, dedupe_ttl):
             return False
-        token, chat = _get_credentials()
+        # ✅ [Phase 3-C] level 기반 채널 라우팅
+        token, chat = _get_credentials(level=level)
         if not token or not chat:
             return False
         if _requests is None:

@@ -258,19 +258,30 @@ git push --no-verify
 
 ---
 
-## 8. Phase 3 로드맵 (다음 주)
+## 8. Phase 3 완료 (2026-07-29, 커밋 대기 중)
 
-**목표**: Observability — 사건 감지 시간 2.5일 → 수 분 단축.
+**목표 달성**: Observability — 사건 감지 시간 2.5일 → 수 분 단축.
 
-**파일 계획**:
-- `services/invariant_monitor.py` — 실시간 invariant 스냅샷 SQLite 적재
-- `services/audit_logger.py` — JSONL RotatingFileHandler 별도 audit log
-- `pages/system_health.py` — 대시보드 별도 페이지 (invariant 상태, silent counter, CRITICAL 이력)
-- `services/notifier.py` — CRITICAL/WARN/INFO 3-tier 채널 분리
-- `pages/dashboard.py` — 상단 헬스 배지 (초록/노랑/빨강)
-- `services/init_db.py` — `invariant_snapshots` 테이블 migration
+**구현 파일**:
+- `services/invariant_monitor.py` ⭐ 신규 — 실시간 invariant 스냅샷 SQLite 적재 (`invariant_snapshots` 테이블 자동 migration)
+  - `record_snapshot()` / `get_latest_snapshot()` / `get_recent_violations()` / `get_health_status()` / `cleanup_old_snapshots()`
+  - 임계치: HEALTHY(0건) → DEGRADED(≤3건) → CRITICAL(>3건) / 1시간 기준
+  - 실패 시 항상 예외 흡수 (관찰 계층 매매 흐름 절대 방해 금지)
+- `services/audit_logger.py` ⭐ 신규 — JSONL RotatingFileHandler (10MB × 20 rotation = 200MB)
+  - Per-user 파일: `{user_id}_audit.log`
+  - `event()` / `sell_triggered()` / `buy_triggered()` / `invariant_violation()` / `hts_detected()`
+- `services/notifier.py` — 3-tier 채널 라우팅 확장 (backward compatible)
+  - `TELEGRAM_CHAT_ID_CRITICAL` / `_WARNING` / `_INFO` — 없으면 기본 `TELEGRAM_CHAT_ID`
+- `pages/system_health.py` ⭐ 신규 — 헬스 배지 + wallet vs memory 스냅샷 + 최근 CRITICAL 이력 + audit log 위치 안내
+- `pages/dashboard.py` — 상단 우측 헬스 배지 (초록/노랑/빨강, 클릭 시 system_health 이동)
+- `core/strategy_engine.py` — 봉 처리 후 `_record_invariant_snapshot()` 호출 (execution_lock 내부, 실패는 흡수)
 
-**예상 소요**: 3~7일.
+**회귀 테스트**: `tests/regressions/test_r_2026_07_29_phase3_observability.py` — 16 tests
+- TestInvariantMonitor (8) — 스냅샷 roundtrip, violation 저장, 헬스 판정, 예외 흡수
+- TestAuditLogger (5) — JSONL 기록, helper 함수, 예외 흡수
+- TestNotifierTierRouting (4) — 3-tier 라우팅, backward compatibility, 자격증명 없음
+
+**전체 회귀 스위트**: 50 tests OK (기존 34 + Phase 3 16).
 
 ---
 
@@ -289,7 +300,9 @@ git push --no-verify
   - `7991a48` (07-22 20:31) — F2 fix
   - `43eecb1` (07-24 11:41) — F3 fix
   - `4e2bc3e` (07-27 12:19) — F5 fix (4단)
-  - **이번 배포** (07-27 20:58) — Phase 1 defense hardening (본 문서)
+  - `e182230` (07-27 20:58) — Phase 1 defense hardening (invariant + reconciler + boot seed)
+  - `65d6b55` (07-28) — Phase 2 (regression tests + git pre-push hook, 34 tests)
+  - **이번 배포** (07-29) — Phase 3 observability (invariant_monitor + audit_logger + 3-tier notifier + system_health, +16 tests → 50 total)
 
 ---
 

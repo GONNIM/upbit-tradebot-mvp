@@ -462,7 +462,24 @@ st.session_state.engine_started = engine_status
 
 
 # ✅ 상단 정보
-st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.27.2058")
+_hdr_col1, _hdr_col2 = st.columns([5, 1])
+with _hdr_col1:
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.29.2110")
+with _hdr_col2:
+    # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
+    try:
+        from services.invariant_monitor import get_health_status
+        _ticker_hb = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "KRW-JTO") if params_obj else "KRW-JTO"
+        _health = get_health_status(user_id, _ticker_hb)
+        _emoji = {"green": "🟢", "yellow": "🟡", "red": "🔴", "gray": "⚪"}.get(
+            _health["color"], "⚪"
+        )
+        _btn_label = f"{_emoji} 헬스 {_health['status'].upper()}"
+        if st.button(_btn_label, key="btn_health_badge", use_container_width=True,
+                     help=_health["reason"]):
+            navigate_to("pages/system_health.py", user_id=user_id, ticker=_ticker_hb)
+    except Exception as _hbe:
+        st.caption(f"헬스 배지 실패: {_hbe}")
 
 # ✅ B10: TEST/LIVE 모드 명시 표기 (UI 혼동 방지)
 if str(mode).upper() == "TEST":
