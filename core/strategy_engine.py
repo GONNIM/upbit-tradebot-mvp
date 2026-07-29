@@ -635,6 +635,10 @@ class StrategyEngine:
             self.position.sync_from_wallet()
             has_position_before_eval = self.position.has_position
 
+            # ✅ [Phase 3-F] Invariant 스냅샷 기록 (매 봉 관찰 계층)
+            # 매매 흐름 절대 방해 X (실패 시 무해). system_health 페이지 조회용.
+            self._record_invariant_snapshot(context="pre_eval_confirmed")
+
             is_buy_eval = not self.position.has_position
             ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
             action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
