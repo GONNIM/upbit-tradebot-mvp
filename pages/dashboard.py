@@ -464,12 +464,17 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.29.2136")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.07.29.2208")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
+    # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
+    # globals().get()으로 안전 조회 + 세션스테이트/DB fallback.
     try:
         from services.invariant_monitor import get_health_status
-        _ticker_hb = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "KRW-JTO") if params_obj else "KRW-JTO"
+        _p_hb = globals().get("params_obj")
+        _ticker_hb = (getattr(_p_hb, "upbit_ticker", None) or getattr(_p_hb, "ticker", None)) if _p_hb else None
+        if not _ticker_hb:
+            _ticker_hb = st.session_state.get("selected_ticker") or "KRW-JTO"
         _health = get_health_status(user_id, _ticker_hb)
         _emoji = {"green": "🟢", "yellow": "🟡", "red": "🔴", "gray": "⚪"}.get(
             _health["color"], "⚪"
