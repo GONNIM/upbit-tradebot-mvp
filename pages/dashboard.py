@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1436")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1441")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -2081,7 +2081,7 @@ try:
 
         # ✅ 2026-08-05 옵션 C (v2): "저장 시각 vs 엔진 반영 시각 vs 지연" 항상 표시
         # (사용자 지적: v1 은 _diff_cnt > 0 조건 안에만 있어 반영 완료 시 카드 안 보임)
-        _sync_lag_s: Optional[float] = None
+        _sync_lag_s = None
         _file_mtime_str = "-"
         _eng_ts_str = "-"
         try:
