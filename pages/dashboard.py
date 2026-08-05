@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1427")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1436")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -2079,17 +2079,19 @@ try:
         with meta_col2:
             st.caption(f"📁 UI 저장 파일: `{_sp1_file_path}`")
 
-        # ✅ 2026-08-05 옵션 C: 파일 mtime vs 엔진 스냅샷 시각으로 "지연 vs 결함" 구분
-        # - <=10s: 방금 저장, 정상 반영 대기 (info)
-        # - 10~65s: 5초 tick 감지 창구 벗어남, 대기 지속 (soft warning)
-        # - >65s: 진짜 결함 신호 (critical warning)
+        # ✅ 2026-08-05 옵션 C (v2): "저장 시각 vs 엔진 반영 시각 vs 지연" 항상 표시
+        # (사용자 지적: v1 은 _diff_cnt > 0 조건 안에만 있어 반영 완료 시 카드 안 보임)
         _sync_lag_s: Optional[float] = None
+        _file_mtime_str = "-"
+        _eng_ts_str = "-"
         try:
             if _sp1_file_path.exists():
                 import datetime as _dt
                 _file_mtime = _sp1_file_path.stat().st_mtime
+                _file_mtime_str = _dt.datetime.fromtimestamp(_file_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 _eng_ts_raw = _sp1_engine.get("timestamp") if _sp1_engine else None
                 if _eng_ts_raw:
+                    _eng_ts_str = str(_eng_ts_raw)[:19]
                     _eng_dt = _dt.datetime.fromisoformat(_eng_ts_raw)
                     if _eng_dt.tzinfo is None:
                         _eng_dt = _eng_dt.replace(tzinfo=_dt.timezone.utc).astimezone()
@@ -2097,23 +2099,49 @@ try:
         except Exception:
             _sync_lag_s = None
 
-        if _diff_cnt > 0:
-            if _sync_lag_s is not None and 0 < _sync_lag_s <= 10:
-                st.info(
-                    f"⏳ **방금 저장** (파일이 엔진 스냅샷보다 {_sync_lag_s:.0f}초 앞섬) — "
-                    f"5초 tick 안에 hot-reload 로 자동 반영됩니다."
-                )
-            elif _sync_lag_s is not None and 10 < _sync_lag_s <= 65:
-                st.warning(
-                    f"⏳ **반영 대기 중** (지연 {_sync_lag_s:.0f}초) — 5초 tick 감지 창구 벗어남. "
-                    f"65초 후에도 지속되면 hot-reload 결함 신호이므로 로그 확인 필요."
-                )
+        # 📊 항상 표시되는 "동기화 상태" 카드 — 저장 후 반영 여부 즉시 확인
+        st.markdown("**🔄 동기화 상태 (파일 저장 → 엔진 반영)**")
+        _sync_col1, _sync_col2, _sync_col3 = st.columns(3)
+        with _sync_col1:
+            st.metric("📁 파일 저장 시각", _file_mtime_str)
+        with _sync_col2:
+            st.metric("⚙️ 엔진 반영 시각", _eng_ts_str)
+        with _sync_col3:
+            if _sync_lag_s is None:
+                st.metric("⏱️ 지연", "-")
             else:
-                st.warning(
-                    f"⚠️ **{_diff_cnt}개 항목이 엔진 ≠ UI 저장값.**\n"
-                    f"지연이 65초 이상이면 hot-reload 결함 의심 — `journalctl -u tradebot | grep HOT-RELOAD` 확인.\n"
-                    f"`⚠️` 표시된 항목은 아래 비교 도표에서 확인할 수 있습니다."
-                )
+                _lag_disp = f"{_sync_lag_s:+.0f}초"
+                st.metric("⏱️ 지연", _lag_disp)
+
+        # 상태별 배너 (지연 크기 + diff 유무 조합)
+        if _sync_lag_s is None:
+            st.info("ℹ️ 아직 엔진 스냅샷이 없거나 파일이 없어 지연 계산 불가.")
+        elif _sync_lag_s <= 0 and _diff_cnt == 0:
+            st.success(
+                f"✅ **최신 반영 완료** — 엔진 스냅샷이 파일 저장 시각 이후 (지연 {_sync_lag_s:+.0f}초). "
+                f"UI 저장값과 엔진 값 완전 일치."
+            )
+        elif 0 < _sync_lag_s <= 10:
+            st.info(
+                f"⏳ **방금 저장** (파일이 엔진 스냅샷보다 {_sync_lag_s:.0f}초 앞섬) — "
+                f"5초 tick 안에 hot-reload 로 자동 반영됩니다. 잠시 후 새로고침."
+            )
+        elif 10 < _sync_lag_s <= 65:
+            st.warning(
+                f"⏳ **반영 대기 중** (지연 {_sync_lag_s:.0f}초) — 5초 tick 감지 창구 벗어남. "
+                f"65초 후에도 지속되면 hot-reload 결함 신호이므로 로그 확인 필요."
+            )
+        elif _sync_lag_s > 65:
+            st.error(
+                f"🚨 **hot-reload 결함 의심** (지연 {_sync_lag_s:.0f}초) — 65초 초과. "
+                f"`journalctl -u tradebot | grep HOT-RELOAD` 확인 필요."
+            )
+        elif _diff_cnt > 0:
+            # 지연은 없지만 (파일이 audit보다 이전) 어긋난 항목 존재 — 진짜 결함
+            st.warning(
+                f"⚠️ **{_diff_cnt}개 항목 어긋남** (지연 {_sync_lag_s:+.0f}초 — 파일이 audit보다 이전). "
+                f"hot-reload 안 된 잔여 항목 의심. `⚠️` 표시된 항목은 아래 비교 도표에서 확인."
+            )
         else:
             st.success("✅ 엔진 적용 conditions 가 UI 저장값과 일치합니다.")
 

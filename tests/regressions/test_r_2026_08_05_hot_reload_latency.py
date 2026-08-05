@@ -165,6 +165,21 @@ class TestDashboardLagIndicator(unittest.TestCase):
                 f"지연 상태 표시 문구 '{marker}' 사라짐 — 옵션 C 회귀",
             )
 
+    def test_sync_status_card_always_visible(self):
+        """✅ 옵션 C v2: 동기화 상태 카드가 diff 조건과 무관하게 항상 표시되는지."""
+        src = self.DASHBOARD.read_text(encoding="utf-8")
+        for marker in (
+            "🔄 동기화 상태",
+            "파일 저장 시각",
+            "엔진 반영 시각",
+            "최신 반영 완료",
+        ):
+            self.assertIn(
+                marker,
+                src,
+                f"항상 표시 동기화 카드 문구 '{marker}' 사라짐 — 사용자 가시성 회귀",
+            )
+
 
 class TestInsertSnapshotUpsertSQL(unittest.TestCase):
     """A 심층: services/db.py 의 insert_settings_snapshot 이 UPSERT 로 전환됐는지."""
