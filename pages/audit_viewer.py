@@ -359,9 +359,15 @@ if section == "buy":
 
         df_buy["strategy_mode"] = df_buy["checks"].apply(_get_strategy_mode)
 
-        # BACKFILL 재평가 경로 여부 추출 → 🔄 표시용
+        # ✅ 2026-08-05 정규화: via_backfill 값이 SQLite/JSON 왕복에서 bool/int/str
+        # 어떤 형태로 저장되어도 truthy 판정. 저장 값 예: True, 1, "1", "true", "True".
+        # False 계열: False, 0, "0", "false", None, missing key.
         def _get_via_backfill(checks):
-            if isinstance(checks, dict) and checks.get('via_backfill'):
+            if not isinstance(checks, dict):
+                return ""
+            raw = checks.get('via_backfill', False)
+            # 명시 정규화: bool/int/str 모두 커버
+            if raw is True or raw == 1 or (isinstance(raw, str) and raw.lower() in ("1", "true")):
                 return "🔄"
             return ""
 
@@ -521,7 +527,14 @@ if section == "buy":
 
             # ✅ B13 최적화: Styler.apply(axis=1) 제거 → '신호' 컬럼(🟢)으로 BUY_SIGNAL 식별
             #   (Styler는 2000행 × 18컬럼 = 36,000회 함수 호출 + Streamlit 직렬화 부담으로 로딩 지연 발생)
-            st.caption("🟢 = BUY 신호 발동 (overall_ok=1)  ·  🔄 = BACKFILL 재평가 경로 (실주문 미실행, 감사로그만 기록)")
+            st.caption(
+                "🟢 = BUY 신호 발동 (overall_ok=1)  ·  🔄 = BACKFILL 재평가 경로 (실주문 미실행, 감사로그만 기록)"
+            )
+            st.caption(
+                "📅 **봉시각** = 원 봉 시각 (재평가에도 불변)  ·  "
+                "**기록시각** = 판정 최초 기록 또는 BACKFILL 재평가 UPDATE 시각  ·  "
+                "💰 **실주문 시각/가격**은 [Trades 탭] 참조 (재평가는 실주문 실행 안 함)"
+            )
             st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
@@ -750,6 +763,11 @@ elif section == "sell":
 
             # ✅ B13 보강: SELL 신호(triggered=1) 안내
             st.caption("🔴 = SELL 신호 발동 행 (triggered=1)")
+            st.caption(
+                "📅 **봉시각** = 원 봉 시각 (재평가에도 불변)  ·  "
+                "**기록시각** = 판정 최초 기록 또는 BACKFILL 재평가 UPDATE 시각  ·  "
+                "💰 **실주문 시각/가격**은 [Trades 탭] 참조 (재평가는 실주문 실행 안 함)"
+            )
             st.dataframe(df_sell_display, use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")

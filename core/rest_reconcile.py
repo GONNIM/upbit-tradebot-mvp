@@ -18,6 +18,12 @@ from core.candle_clock import CandleClock
 
 logger = logging.getLogger(__name__)
 
+# ✅ 2026-08-05 P4: fetch_confirmed_candle 연속 실패 카운터.
+# 매 봉 REST 실패 시 로그 레벨을 INFO 로 낮추되(정상 fallback 흐름), 5회 이상
+# 누적 실패는 지속 이슈 신호이므로 Telegram CRITICAL 알림.
+_confirmed_fetch_consecutive_failures: Dict[str, int] = {}
+_CONFIRMED_FETCH_CRITICAL_THRESHOLD = 5
+
 
 # ============================================================
 # P0-1.3: REST 200개 제한 대응 - 다중 호출
@@ -513,6 +519,8 @@ def fetch_confirmed_candle(
                     f"close={close_price:.0f} | high={df.iloc[-1]['High']:.0f} | "
                     f"low={df.iloc[-1]['Low']:.0f} | volume={df.iloc[-1]['Volume']:.2f}"
                 )
+                # ✅ P4: 성공 시 연속 실패 카운터 리셋
+                _confirmed_fetch_consecutive_failures[ticker] = 0
                 return df.iloc[-1]
 
             # 케이스 2: latest_ts < closed_ts → API 지연, 재시도
@@ -547,12 +555,42 @@ def fetch_confirmed_candle(
             )
             time.sleep(wait)
 
-    # ❌ 최대 재시도 초과
+    # ❌ 최대 재시도 초과 → BACKFILL fallback (정상 설계 흐름이므로 INFO 레벨)
     total_wait = sum(WAIT_SCHEDULE[:max_retry])
-    logger.error(
-        f"[RECONCILE] ❌ 최대 재시도 초과 ({max_retry}회, {total_wait}초 대기) | ts={format_kst(closed_ts)} | "
-        f"→ 이번 봉 스킵 → BACKFILL로 처리 예정"
-    )
+    # ✅ P4: 연속 실패 카운터 증가 + 임계 초과 시 CRITICAL notify
+    _fails = _confirmed_fetch_consecutive_failures.get(ticker, 0) + 1
+    _confirmed_fetch_consecutive_failures[ticker] = _fails
+
+    if _fails >= _CONFIRMED_FETCH_CRITICAL_THRESHOLD:
+        # 지속 실패 = REST 자체 이슈 or Upbit rate-limit → CRITICAL notify
+        logger.warning(
+            f"🚨 [RECONCILE] 연속 {_fails}회 실패 (임계 {_CONFIRMED_FETCH_CRITICAL_THRESHOLD} 초과) | "
+            f"ticker={ticker} ts={format_kst(closed_ts)} | Upbit rate-limit or 네트워크 지속 이슈 의심"
+        )
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            _notify(
+                LEVEL_CRITICAL,
+                f"🚨 [REST-RECONCILE] {ticker} 연속 {_fails}회 실패",
+                (
+                    f"fetch_confirmed_candle 이 연속 {_fails}회 실패 (임계 "
+                    f"{_CONFIRMED_FETCH_CRITICAL_THRESHOLD} 초과).\n"
+                    f"ticker: {ticker}\n"
+                    f"봉 시각: {format_kst(closed_ts)}\n\n"
+                    f"💡 Upbit API rate-limit 또는 네트워크 지속 이슈 확인 필요.\n"
+                    f"BACKFILL 로 자동 fallback 되나 매매 정확성 저하 위험."
+                ),
+                dedupe_key=f"rest_reconcile_fail:{ticker}",
+                dedupe_ttl=300,  # 5분 dedupe (연속 실패 지속 시 5분마다 재알림)
+            )
+        except Exception:
+            pass
+    else:
+        # 임계 미만: 정상 fallback 흐름 (BACKFILL 로 흡수됨) → INFO 레벨
+        logger.info(
+            f"[RECONCILE] 재시도 초과 → BACKFILL fallback ({_fails}/{_CONFIRMED_FETCH_CRITICAL_THRESHOLD}) | "
+            f"({max_retry}회, {total_wait}초) | ts={format_kst(closed_ts)}"
+        )
     return None
 
 
