@@ -10,7 +10,12 @@ from config import (
     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
     PARAMS_JSON_FILENAME,   # ✅ 파라미터 파일명
 )
-from engine.params import load_params, save_params, load_active_strategy  # ✅ 파라미터 로드/저장용
+from engine.params import (
+    load_params,
+    save_params,
+    load_active_strategy,
+    sync_order_ratio_to_base,  # ✅ 2026-08-05: 100% 매수 결함 봉쇄용
+)
 from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-5
 
 
@@ -525,6 +530,10 @@ with st.expander("🎯 자주 변경하는 설정", expanded=True):
                 if _p_now is not None:
                     _p_now.order_ratio = float(value)
                     save_params(_p_now, params_file, strategy_type=strategy_tag)
+                    # ✅ 2026-08-05 봉쇄: trader hot-reload 가 base 파일 order_ratio 를
+                    # 읽는 코드 경로가 잔존할 수 있어(구버전 배포·수동 개입) base 파일에도
+                    # 동일 값을 동기화하여 100% 매수 결함 재발을 원천 봉쇄.
+                    sync_order_ratio_to_base(params_file, float(value))
                     st.session_state["order_ratio_quick"] = value  # 표시 일관성 (참고용)
                     # ✅ toast 는 rerun 후 페이지 상단에서 표시 (콜백 내 직접 호출은 rerun 으로 유실)
                     st.session_state["_ratio_toast_pending"] = f"✅ 주문 비율 {label} 저장 완료 (hot-reload 로 즉시 반영)"

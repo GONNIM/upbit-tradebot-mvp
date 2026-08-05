@@ -9,7 +9,12 @@ from config import (
     STRATEGY_TYPES,         # ✅ 전략 선택용 (예: ["MACD", "EMA"])
     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
 )
-from engine.params import load_params, save_params, save_active_strategy
+from engine.params import (
+    load_params,
+    save_params,
+    save_active_strategy,
+    sync_order_ratio_to_base,  # ✅ 2026-08-05: 100% 매수 결함 봉쇄용
+)
 from pages.audit_viewer import query
 from ui.sidebar import make_sidebar
 from services.db import (
@@ -299,6 +304,10 @@ if params:
         #    -> MACD 저장값과 EMA 저장값이 서로 덮어쓰지 않음
         exist_params = load_params(json_path, strategy_type=selected_strategy_type)
         save_params(params, json_path, strategy_type=selected_strategy_type)
+        # ✅ 2026-08-05 봉쇄: trader hot-reload 가 base 파일 order_ratio 를 읽는 코드
+        # 경로가 잔존할 수 있어(구버전 배포·수동 개입) base 파일에도 동기화하여
+        # 100% 매수 결함 재발 원천 봉쇄.
+        sync_order_ratio_to_base(json_path, float(getattr(params, "order_ratio", 0.1) or 0.1))
 
         # ✅ P1 — 설정 정보 History 스냅샷 (파일 저장 성공 시 적재).
         # 적재 실패해도 사용자 저장 자체는 영향 없음 (DM2 결정).

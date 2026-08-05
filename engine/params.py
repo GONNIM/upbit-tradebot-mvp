@@ -302,15 +302,56 @@ def _scoped_path(path: str, strategy_type: str | None) -> str:
     """
     ✅ 핵심:
     - 같은 user_id라도 MACD/EMA 각각 별도 파일로 저장/로드되게 한다.
-    - 예: "abc_latest_params.json" -> "abc_MACD_latest_params.json"
+    - 예: "abc_latest_params.json" -> "abc_latest_params_MACD.json"
     """
     if not strategy_type:
         return path
 
     st = str(strategy_type).upper().strip()
     p = Path(path)
-    # 파일명 앞에 "{STRATEGY}_"를 끼워 넣는다.
+    # 파일명 뒤에 "_{STRATEGY}" 를 끼워 넣는다.
     return str(p.with_name(f"{p.stem}_{st}{p.suffix}"))
+
+
+# ✅ 2026-08-05 파일 규칙 통일: trader hot-reload / 회귀 테스트에서 외부 사용 가능.
+def scoped_params_path(path: str, strategy_type: str | None) -> str:
+    """전략 접미사가 붙은 params JSON 경로를 반환한다 (public wrapper)."""
+    return _scoped_path(path, strategy_type)
+
+
+def sync_order_ratio_to_base(base_path: str, order_ratio: float) -> bool:
+    """
+    ✅ 2026-08-05: UI 설정 페이지에서 order_ratio 저장 시 base params 파일의
+    동일 필드를 동기화한다.
+
+    - trader hot-reload (_current_risk_pct) 가 base 경로를 읽는 코드 경로가
+      존재하여, UI-저장 파일과 hot-reload 파일이 어긋나면 100% 매수 결함이 재발한다.
+    - base 파일이 없거나 이상값(≤0, >1) 이면 skip.
+    - 반환: 실제 갱신 여부.
+    """
+    try:
+        val = float(order_ratio)
+    except (TypeError, ValueError):
+        return False
+    if val <= 0 or val > 1.0:
+        logger.warning(f"[BASE-SYNC] order_ratio 이상값 {val} — skip {base_path}")
+        return False
+    if not os.path.exists(base_path):
+        return False
+    try:
+        with open(base_path, encoding="utf-8") as f:
+            data = json.load(f)
+        old = data.get("order_ratio")
+        if old == val:
+            return False
+        data["order_ratio"] = val
+        with open(base_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.info(f"[BASE-SYNC] {base_path}: order_ratio {old} → {val}")
+        return True
+    except Exception as e:
+        logger.warning(f"[BASE-SYNC] {base_path} 동기화 실패: {e}")
+        return False
 
 
 def load_params(path: str, strategy_type: str | None = None) -> LiveParams | None:

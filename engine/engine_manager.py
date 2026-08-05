@@ -9,7 +9,7 @@ except Exception:
     class _Dummy: session_state = {}
     st = _Dummy()
 
-from engine.params import load_params
+from engine.params import load_params, scoped_params_path
 from engine.live_loop import run_live_loop
 from engine.lock_manager import get_user_lock
 from engine.global_state import (
@@ -371,7 +371,12 @@ class EngineManager:
             logger.info(f"[ENGINE] Loaded params: strategy_type={params.strategy_type}")
 
             # ✅ RATIO-HR: params_file 경로 주입 → 매수마다 order_ratio 최신값 로드
-            params_file_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
+            # 2026-08-05 봉쇄: trader hot-reload가 base 파일(예: mcmax33_latest_params.json)
+            # 을 읽어 EMA 저장값(0.1) 대신 기본값(1.0)으로 100% 매수하던 결함 → scoped 통일.
+            params_file_path = scoped_params_path(
+                f"{user_id}_{PARAMS_JSON_FILENAME}",
+                getattr(params, "strategy_type", None),
+            )
             trader = UpbitTrader(
                 user_id, risk_pct=params.order_ratio, test_mode=test_mode,
                 strategy_type=getattr(params, "strategy_type", None),  # ✅ P1
