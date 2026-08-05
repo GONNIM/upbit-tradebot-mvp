@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1441")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1451")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -2626,10 +2626,22 @@ st.write("")
 st.divider()
 
 # ------------------------------------------------------------
-# 📑 감사로그 뷰어 이동 — 디폴트 접기 (모바일 UX)
+# 📑 감사로그 뷰어 — 이동 버튼은 항상 표시 (2026-08-05 접근성 복구)
+#   f0c291a 이후 expander 접힘으로 버튼이 사용자 관점 사라진 문제 봉쇄.
+#   버튼은 헤더 우측에 항상 노출, 필터 옵션만 expander 안에 유지 (모바일 UX).
 # ------------------------------------------------------------
-with st.expander("📑 감사 로그", expanded=False):
-    c1, c2, c3, c4 = st.columns([2, 2, 2, 2])
+_audit_hdr_col1, _audit_hdr_col2 = st.columns([5, 1])
+with _audit_hdr_col1:
+    st.subheader("📑 감사 로그")
+with _audit_hdr_col2:
+    audit_log_clicked = st.button(
+        "🔍 감사로그 뷰어 열기",
+        key="btn_audit_log",
+        use_container_width=True,
+    )
+
+with st.expander("⚙️ 감사로그 필터 옵션 (Only failed / Rows / Default Tab)", expanded=False):
+    c1, c2, c3 = st.columns([2, 2, 2])
 
     with c1:
         # 실패한 BUY 평가만 보기 (기본 True)
@@ -2643,24 +2655,22 @@ with st.expander("📑 감사 로그", expanded=False):
         # 기본 탭 선택 (buy|sell|trades|settings)
         default_tab = st.selectbox("Default Tab", ["buy", "sell", "trades", "settings"], index=0, key="audit_default_tab")
 
-    with c4:
-        audit_log_clicked = st.button("🔍 감사로그 뷰어 열기", key="btn_audit_log", use_container_width=True)
-        if audit_log_clicked:
-            # ticker 파라미터는 둘 중 있는 값으로 (프로젝트에 따라 params_obj.upbit_ticker 또는 params_obj.ticker 사용)
-            ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
+if audit_log_clicked:
+    # ticker 파라미터는 둘 중 있는 값으로 (프로젝트에 따라 params_obj.upbit_ticker 또는 params_obj.ticker 사용)
+    ticker_param = getattr(params_obj, "upbit_ticker", None) or getattr(params_obj, "ticker", "")
 
-            # ✅ SP-NAV-2: navigate_to 표준화 (세션 + URL 이중 세팅)
-            navigate_to(
-                "pages/audit_viewer.py",
-                user_id=user_id,
-                ticker=ticker_param,
-                rows=int(audit_rows),
-                only_failed=int(bool(audit_only_failed)),
-                tab=default_tab,
-                mode=mode,
-                strategy=strategy_tag,
-                virtual_krw=st.session_state.get("virtual_krw", virtual_krw),
-            )
+    # ✅ SP-NAV-2: navigate_to 표준화 (세션 + URL 이중 세팅)
+    navigate_to(
+        "pages/audit_viewer.py",
+        user_id=user_id,
+        ticker=ticker_param,
+        rows=int(audit_rows),
+        only_failed=int(bool(audit_only_failed)),
+        tab=default_tab,
+        mode=mode,
+        strategy=strategy_tag,
+        virtual_krw=st.session_state.get("virtual_krw", virtual_krw),
+    )
 
 # 어디서든 임시 로그:
 with get_db(user_id) as conn:
