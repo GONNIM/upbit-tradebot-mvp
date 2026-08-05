@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1257")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1316")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -2053,6 +2053,8 @@ try:
             ("stop_loss", "stop_loss (sell)"),
             ("take_profit", "take_profit (sell)"),
             ("trailing_stop", "trailing_stop"),
+            # ✅ 2026-08-05: TS 방식(Peak-based vs Fixed/Profit-based) 파라미터 노출
+            ("use_fixed_trailing", "use_fixed_trailing (TS Fixed 모드)"),
             ("ema_dc", "ema_dc"),
             ("stale_position_check", "stale_position_check"),
             ("ema_gc", "ema_gc (buy)"),
@@ -2062,6 +2064,11 @@ try:
             _eng_v = _sp1_eng_sell.get(_key) if _key in _sp1_eng_sell else _sp1_eng_buy.get(_key)
             _ui_v = _sp1_file_sell.get(_key) if _key in _sp1_file_sell else _sp1_file_buy.get(_key)
             _add(_label, _eng_v, _ui_v)
+
+        # ✅ 2026-08-05: 고정가 매수 대기 봉수 파라미터 노출 (기존 파라미터 패널 누락 봉쇄)
+        _wait_bars_ui = _sp1_file_buy.get("fixed_price_buy_wait_bars")
+        _wait_bars_eng = _sp1_eng_buy.get("fixed_price_buy_wait_bars")
+        _add("fixed_price_buy_wait_bars (봉)", _wait_bars_eng, _wait_bars_ui)
 
         # 변경 사항 카운트
         _diff_cnt = sum(1 for r in _sp1_rows if "⚠️" in r["항목"])
@@ -2496,6 +2503,14 @@ with st.expander(f"📈 매수 설정 (Strategy: {strategy_tag})", expanded=Fals
                 f"🚫 **급등 차단 필터**: Slow EMA 대비 {surge_threshold_pct * 100:.1f}% 이상 상승 시 매수 차단"
             )
 
+    # ✅ 2026-08-05: 고정가 매수 대기 봉수 표시 (대시보드 누락 봉쇄)
+    if buy_state.get("fixed_price_buy_enabled", False):
+        _wait_bars = int(buy_state.get("fixed_price_buy_wait_bars", 3))
+        st.info(
+            f"🎯 **고정가 매수**: 봉 종가 지정가 주문 → **{_wait_bars}봉** "
+            f"(약 {_wait_bars * 60}초) 내 미체결 시 자동 취소"
+        )
+
 # 매도 설정 — 디폴트 접기 (사용자 요청)
 with st.expander(f"📉 매도 설정 (Strategy: {strategy_tag})", expanded=False):
     # 전략 표시
@@ -2536,6 +2551,18 @@ with st.expander(f"📉 매도 설정 (Strategy: {strategy_tag})", expanded=Fals
                 f"💡 **정체 포지션 필터**: {stale_hours}시간 동안 진입가 대비 최고 수익률이 "
                 f"{stale_threshold_pct * 100:.1f}% 미만이면 강제 매도"
             )
+
+    # ✅ 2026-08-05: Trailing Stop 방식(use_fixed_trailing) 표시 (대시보드 누락 봉쇄)
+    #     Issue #7 관련 파라미터 — Peak-based vs Fixed/Profit-based 로 매도 로직 자체가 달라짐.
+    if sell_state.get("trailing_stop", False):
+        _use_fixed_ts = bool(sell_state.get("use_fixed_trailing", False))
+        _ts_mode_label = "Fixed/Profit-based" if _use_fixed_ts else "Peak-based"
+        _ts_threshold = sell_state.get("trailing_stop_threshold_pct", 10.0)
+        _tp_ref = sell_state.get("take_profit_pct", 3.0)
+        st.info(
+            f"🧮 **Trailing Stop 방식**: {_ts_mode_label} | "
+            f"임계값 {_ts_threshold:.1f}% | TP +{_tp_ref:.1f}% 초과 시 발동"
+        )
 
 st.write("")
 

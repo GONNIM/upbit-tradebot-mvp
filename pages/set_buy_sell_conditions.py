@@ -826,6 +826,10 @@ with col1:
             if key == "surge_filter_enabled" and st.session_state.get(key, False):
                 surge_pct = st.session_state.get("surge_threshold_pct", 0.01) * 100
                 st.caption(f"   └─ 임계값: {surge_pct:.1f}%")
+            # ✅ 2026-08-05: 고정가 매수 대기 봉수 표시 (요약 섹션 누락 봉쇄)
+            if key == "fixed_price_buy_enabled" and st.session_state.get(key, False):
+                wait_bars = int(st.session_state.get("fixed_price_buy_wait_bars", 3))
+                st.caption(f"   └─ 대기 봉수: {wait_bars}봉 (약 {wait_bars * 60}초)")
 
 with col2:
     st.markdown("**📉 매도 설정**")
@@ -833,6 +837,23 @@ with col2:
         st.markdown("_핵심 전략:_")
         for key, label in SELL_STRATEGY.items():
             st.write(f"{'✅' if st.session_state[key] else '❌'} {label}")
+            # ✅ 2026-08-05: SL/TP/TS 임계값 병기 (요약 섹션 임계값 누락 봉쇄)
+            if key == "stop_loss" and st.session_state.get(key, False):
+                sl_pct = float(st.session_state.get("stop_loss_pct", 1.0))
+                st.caption(f"   └─ 임계값: -{sl_pct:.1f}%")
+            elif key == "take_profit" and st.session_state.get(key, False):
+                tp_pct = float(st.session_state.get("take_profit_pct", 3.0))
+                st.caption(f"   └─ 임계값: +{tp_pct:.1f}%")
+            elif key == "trailing_stop" and st.session_state.get(key, False):
+                ts_pct = float(st.session_state.get("trailing_stop_threshold_pct", 10.0))
+                # ✅ 2026-08-05: use_fixed_trailing 방식(Peak-based vs Fixed/Profit-based) 표기
+                use_fixed = bool(st.session_state.get("use_fixed_trailing", False))
+                mode_label = "Fixed/Profit-based" if use_fixed else "Peak-based"
+                tp_ref = float(st.session_state.get("take_profit_pct", 3.0))
+                st.caption(
+                    f"   └─ 임계값: {ts_pct:.1f}% | 방식: {mode_label} "
+                    f"(TP +{tp_ref:.1f}% 초과 시 발동)"
+                )
     if len(SELL_FILTERS) > 0:
         st.markdown("_매도 필터:_")
         for key, label in SELL_FILTERS.items():
