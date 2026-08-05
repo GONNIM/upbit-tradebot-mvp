@@ -81,5 +81,74 @@ class TestUIFieldVisibility(unittest.TestCase):
             )
 
 
+class TestConditionsLoadSaveSymmetry(unittest.TestCase):
+    """
+    ✅ 2026-08-05 오후 발견 결함:
+    save_conditions() 가 저장하는 조건부 파라미터를 load_conditions() 가 세션에
+    로드하지 않아, 파일값(5) vs 세션값(3) 이 어긋난 상태로 사용자에게 3봉으로
+    표시되던 결함(원인: fixed_price_buy_wait_bars 세션 로드 누락).
+
+    본 회귀는 save 되는 모든 조건부 파라미터가 load_conditions 함수 소스 내에서
+    세션 assignment 또는 setdefault 로 반드시 로드되는지 lint.
+    """
+
+    SETTINGS_PAGE = ROOT / "pages" / "set_buy_sell_conditions.py"
+
+    # save_conditions() 가 conditions JSON 에 넣는 조건부/필수 파라미터.
+    # (BUY_CONDITIONS/SELL_CONDITIONS bool 키는 for-loop 로 일괄 처리되므로 제외.)
+    CONDITIONAL_PARAMS = (
+        "surge_threshold_pct",
+        "fixed_price_buy_wait_bars",
+        "stale_hours",
+        "stale_threshold_pct",
+        "stop_loss_pct",
+        "take_profit_pct",
+        "trailing_stop_threshold_pct",
+        "use_fixed_trailing",
+    )
+
+    def _extract_function_source(self, src: str, func_name: str) -> str:
+        """단순 파이썬 함수 소스 슬라이스 — def 부터 다음 top-level 정의 직전까지."""
+        lines = src.split("\n")
+        start = None
+        for i, line in enumerate(lines):
+            if line.startswith(f"def {func_name}("):
+                start = i
+                break
+        if start is None:
+            raise AssertionError(f"{func_name} 함수를 소스에서 찾지 못함")
+        end = len(lines)
+        for i in range(start + 1, len(lines)):
+            line = lines[i]
+            if line and not line[0].isspace() and (
+                line.startswith("def ") or line.startswith("class ") or not line.startswith("#")
+            ):
+                end = i
+                break
+        return "\n".join(lines[start:end])
+
+    def test_all_save_params_are_loaded_into_session(self):
+        """save_conditions 가 저장하는 조건부 파라미터가 load_conditions 안에서 세션에 로드되는지."""
+        src = self.SETTINGS_PAGE.read_text(encoding="utf-8")
+        load_src = self._extract_function_source(src, "load_conditions")
+        missing = []
+        for key in self.CONDITIONAL_PARAMS:
+            # 세션 assignment 또는 setdefault 형태로 등장하는지 검사
+            patterns = (
+                f'st.session_state["{key}"]',
+                f"st.session_state['{key}']",
+                f'setdefault("{key}"',
+                f"setdefault('{key}'",
+            )
+            if not any(p in load_src for p in patterns):
+                missing.append(key)
+        self.assertEqual(
+            missing,
+            [],
+            "load_conditions() 에서 세션 로드 누락 (파일값과 세션값 stale 위험): "
+            + ", ".join(missing),
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

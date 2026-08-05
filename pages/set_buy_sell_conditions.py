@@ -215,6 +215,13 @@ def load_conditions():
             # ✅ Surge Filter 파라미터 로드 (EMA 전략만)
             st.session_state["surge_threshold_pct"] = buy_saved.get("surge_threshold_pct", 0.01)
 
+            # ✅ 2026-08-05: 고정가 매수 대기 봉수 세션 로드 (누락 결함 봉쇄)
+            # 이 로드가 없으면 페이지 진입 시 세션이 default(3) 으로 초기화되어
+            # 파일 저장값(예: 5) 과 어긋남 → 사용자가 화면에서 본 값과 실제 활성값 불일치.
+            st.session_state["fixed_price_buy_wait_bars"] = int(
+                buy_saved.get("fixed_price_buy_wait_bars", 3)
+            )
+
             # ✅ Stale Position 파라미터 로드
             st.session_state["stale_hours"] = sell_saved.get("stale_hours", 1.0)
             st.session_state["stale_threshold_pct"] = sell_saved.get("stale_threshold_pct", 0.01)
@@ -242,6 +249,8 @@ def load_conditions():
         st.session_state.setdefault("stop_loss_pct", default_sl_pct)
         st.session_state.setdefault("trailing_stop_threshold_pct", default_ts_threshold)
         st.session_state.setdefault("use_fixed_trailing", False)  # ✅ 고정폭 모드 기본값
+        # ✅ 2026-08-05: 고정가 매수 대기 봉수 기본값 (파일 없음 케이스, 파일 로드 케이스와 대칭)
+        st.session_state.setdefault("fixed_price_buy_wait_bars", 3)
 
 
 # --- 상태 저장하기 ---
