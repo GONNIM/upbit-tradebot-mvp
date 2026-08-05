@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1352")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1427")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -2079,12 +2079,41 @@ try:
         with meta_col2:
             st.caption(f"📁 UI 저장 파일: `{_sp1_file_path}`")
 
+        # ✅ 2026-08-05 옵션 C: 파일 mtime vs 엔진 스냅샷 시각으로 "지연 vs 결함" 구분
+        # - <=10s: 방금 저장, 정상 반영 대기 (info)
+        # - 10~65s: 5초 tick 감지 창구 벗어남, 대기 지속 (soft warning)
+        # - >65s: 진짜 결함 신호 (critical warning)
+        _sync_lag_s: Optional[float] = None
+        try:
+            if _sp1_file_path.exists():
+                import datetime as _dt
+                _file_mtime = _sp1_file_path.stat().st_mtime
+                _eng_ts_raw = _sp1_engine.get("timestamp") if _sp1_engine else None
+                if _eng_ts_raw:
+                    _eng_dt = _dt.datetime.fromisoformat(_eng_ts_raw)
+                    if _eng_dt.tzinfo is None:
+                        _eng_dt = _eng_dt.replace(tzinfo=_dt.timezone.utc).astimezone()
+                    _sync_lag_s = _file_mtime - _eng_dt.timestamp()
+        except Exception:
+            _sync_lag_s = None
+
         if _diff_cnt > 0:
-            st.warning(
-                f"⚠️ **{_diff_cnt}개 항목이 엔진 ≠ UI 저장값.**\n"
-                f"설정을 저장한 직후라면 SP5 Hot Reload 로 다음 분에 자동 반영됩니다.\n"
-                f"`⚠️` 표시된 항목은 아래 비교 도표에서 확인할 수 있습니다."
-            )
+            if _sync_lag_s is not None and 0 < _sync_lag_s <= 10:
+                st.info(
+                    f"⏳ **방금 저장** (파일이 엔진 스냅샷보다 {_sync_lag_s:.0f}초 앞섬) — "
+                    f"5초 tick 안에 hot-reload 로 자동 반영됩니다."
+                )
+            elif _sync_lag_s is not None and 10 < _sync_lag_s <= 65:
+                st.warning(
+                    f"⏳ **반영 대기 중** (지연 {_sync_lag_s:.0f}초) — 5초 tick 감지 창구 벗어남. "
+                    f"65초 후에도 지속되면 hot-reload 결함 신호이므로 로그 확인 필요."
+                )
+            else:
+                st.warning(
+                    f"⚠️ **{_diff_cnt}개 항목이 엔진 ≠ UI 저장값.**\n"
+                    f"지연이 65초 이상이면 hot-reload 결함 의심 — `journalctl -u tradebot | grep HOT-RELOAD` 확인.\n"
+                    f"`⚠️` 표시된 항목은 아래 비교 도표에서 확인할 수 있습니다."
+                )
         else:
             st.success("✅ 엔진 적용 conditions 가 UI 저장값과 일치합니다.")
 

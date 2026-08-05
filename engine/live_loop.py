@@ -648,84 +648,104 @@ def run_live_loop(
     _hot_reload_state: Dict[str, Any] = {"last_mtime": None}
 
     def _settings_snapshot_timer():
-        """1분마다 설정 스냅샷 기록 + conditions mtime 변경 감지 → strategy 핫리로드"""
+        """
+        1분마다 설정 스냅샷 기록 + conditions mtime 변경 감지 → strategy 핫리로드.
+
+        ✅ 2026-08-05 재구성 (옵션 A+B):
+        - mtime 감지는 5초 tick 마다 (기존 분당 1회 → 최대 5초 지연).
+        - hot-reload 트리거 시 즉시 스냅샷 발행 (UPSERT 로 정기 스냅샷 갱신).
+        - 정기 분 스냅샷은 기존과 동일 (기본 관찰성 유지).
+        """
         last_minute: Optional[str] = None
+
+        def _do_snapshot(current_minute):
+            """스냅샷 실행 공용 헬퍼 — 정기 분 tick + hot-reload 직후 재사용."""
+            _trade_conditions = _load_trade_conditions(user_id, strategy_tag)
+            # ✅ FIX(diag-1) — audit_settings 는 strategy 객체의 실제 운영 임계값을 적재.
+            _eng_strat = getattr(engine, "strategy", None)
+            _eng_tp = getattr(_eng_strat, "take_profit", None) if _eng_strat else None
+            _eng_sl = getattr(_eng_strat, "stop_loss", None) if _eng_strat else None
+            _eng_ts = getattr(_eng_strat, "trailing_stop_pct", None) if _eng_strat else None
+            insert_settings_snapshot(
+                user_id=user_id,
+                ticker=params.upbit_ticker,
+                interval_sec=getattr(params, "interval_sec", 60),
+                tp=_eng_tp if _eng_tp is not None else params.take_profit,
+                sl=_eng_sl if _eng_sl is not None else params.stop_loss,
+                ts_pct=_eng_ts if _eng_ts is not None else getattr(params, "trailing_stop_pct", None),
+                signal_gate=getattr(params, "signal_confirm_enabled", False),
+                threshold=getattr(params, "macd_threshold", 0.0),
+                buy_dict=_trade_conditions.get("buy", {}),
+                sell_dict=_trade_conditions.get("sell", {}),
+                bar_time=current_minute,
+            )
+            return _trade_conditions
+
         while not stop_event.is_set():
             try:
                 current_minute = now_kst_minute()
-                if last_minute != current_minute:
-                    # 조건 파일 로드 (매번 최신 상태 반영)
-                    trade_conditions = _load_trade_conditions(user_id, strategy_tag)
 
-                    # ✅ FIX(diag-1) — audit_settings 는 strategy 객체의 실제 운영 임계값을
-                    # 적재해야 한다. params 객체에 trailing_stop_pct 키가 없어 ts_pct=NULL 로
-                    # 적재되던 결함 해소 + SP5 hot reload 후의 갱신값도 정확 반영.
-                    _eng_strat = getattr(engine, "strategy", None)
-                    _eng_tp = getattr(_eng_strat, "take_profit", None) if _eng_strat else None
-                    _eng_sl = getattr(_eng_strat, "stop_loss", None) if _eng_strat else None
-                    _eng_ts = getattr(_eng_strat, "trailing_stop_pct", None) if _eng_strat else None
-                    insert_settings_snapshot(
-                        user_id=user_id,
-                        ticker=params.upbit_ticker,
-                        interval_sec=getattr(params, "interval_sec", 60),
-                        tp=_eng_tp if _eng_tp is not None else params.take_profit,
-                        sl=_eng_sl if _eng_sl is not None else params.stop_loss,
-                        ts_pct=_eng_ts if _eng_ts is not None else getattr(params, "trailing_stop_pct", None),
-                        signal_gate=getattr(params, "signal_confirm_enabled", False),
-                        threshold=getattr(params, "macd_threshold", 0.0),
-                        buy_dict=trade_conditions.get("buy", {}),
-                        sell_dict=trade_conditions.get("sell", {}),
-                        bar_time=current_minute
-                    )
+                # ── 정기 분 tick 스냅샷 (기존 동작 유지) ──
+                if last_minute != current_minute:
+                    _do_snapshot(current_minute)
                     last_minute = current_minute
                     logger.info(f"[SETTINGS-SNAPSHOT] ✅ Recorded at {current_minute}")
 
-                    # ✅ SP5 Hot Reload — mtime 변경 감지 시에만 strategy reload
-                    try:
-                        _cond_path = _get_trade_conditions_path(user_id, strategy_tag)
-                        if _cond_path and os.path.exists(_cond_path):
-                            _mtime = os.path.getmtime(_cond_path)
-                            _last_mtime = _hot_reload_state["last_mtime"]
-                            if _last_mtime is None:
-                                # 최초 호출 — strategy init 시점 mtime 으로 간주
-                                _hot_reload_state["last_mtime"] = _mtime
-                            elif _mtime != _last_mtime:
-                                _hot_buy = trade_conditions.get("buy", {}) or {}
-                                _hot_sell = trade_conditions.get("sell", {}) or {}
-                                _reload_result = engine.strategy.reload_conditions(
-                                    _hot_buy, _hot_sell
+                # ── ✅ 옵션 B: mtime 감지를 5초 tick 밖으로 이동 (분당 → 초당) ──
+                # ── ✅ 옵션 A: mtime 변경 감지 시 즉시 스냅샷 (UPSERT 로 정기 갱신) ──
+                try:
+                    _cond_path = _get_trade_conditions_path(user_id, strategy_tag)
+                    if _cond_path and os.path.exists(_cond_path):
+                        _mtime = os.path.getmtime(_cond_path)
+                        _last_mtime = _hot_reload_state["last_mtime"]
+                        if _last_mtime is None:
+                            # 최초 호출 — strategy init 시점 mtime 으로 간주
+                            _hot_reload_state["last_mtime"] = _mtime
+                        elif _mtime != _last_mtime:
+                            _hot_conditions = _load_trade_conditions(user_id, strategy_tag)
+                            _hot_buy = _hot_conditions.get("buy", {}) or {}
+                            _hot_sell = _hot_conditions.get("sell", {}) or {}
+                            _reload_result = engine.strategy.reload_conditions(
+                                _hot_buy, _hot_sell
+                            )
+                            if _reload_result.get("changed"):
+                                _changes = _reload_result["changed"]
+                                _change_summary = ", ".join(
+                                    f"{k}: {v[0]!r}→{v[1]!r}" for k, v in _changes.items()
                                 )
-                                if _reload_result.get("changed"):
-                                    _changes = _reload_result["changed"]
-                                    _change_summary = ", ".join(
-                                        f"{k}: {v[0]!r}→{v[1]!r}" for k, v in _changes.items()
-                                    )
-                                    logger.warning(
-                                        f"🔄 [HOT-RELOAD] strategy 갱신 완료 | {_change_summary}"
-                                    )
-                                    # 활성 포지션 보유 중 Telegram CRITICAL (D7 결정 ii)
-                                    _in_position = bool(
-                                        getattr(engine.position, "has_position", False)
-                                    )
-                                    if _in_position:
-                                        try:
-                                            from services.notifier import send as _notify, LEVEL_CRITICAL
-                                            _notify(
-                                                LEVEL_CRITICAL,
-                                                f"🚨 [HOT-RELOAD] 운영 중 conditions 변경 — {user_id}",
-                                                (
-                                                    f"활성 포지션 보유 중 → TP/SL 즉시 새 임계로 적용됩니다.\n"
-                                                    f"변경 항목:\n{_change_summary}\n\n"
-                                                    f"의도하지 않은 변경이라면 대시보드에서 즉시 원복 저장 권장."
-                                                ),
-                                                dedupe_key=f"hot_reload:{user_id}:{int(_mtime)}",
-                                                dedupe_ttl=60,
-                                            )
-                                        except Exception:
-                                            pass
-                                _hot_reload_state["last_mtime"] = _mtime
-                    except Exception as _hot_e:
-                        logger.warning(f"[HOT-RELOAD] failed: {_hot_e}")
+                                logger.warning(
+                                    f"🔄 [HOT-RELOAD] strategy 갱신 완료 | {_change_summary}"
+                                )
+                                # 활성 포지션 보유 중 Telegram CRITICAL (D7 결정 ii)
+                                _in_position = bool(
+                                    getattr(engine.position, "has_position", False)
+                                )
+                                if _in_position:
+                                    try:
+                                        from services.notifier import send as _notify, LEVEL_CRITICAL
+                                        _notify(
+                                            LEVEL_CRITICAL,
+                                            f"🚨 [HOT-RELOAD] 운영 중 conditions 변경 — {user_id}",
+                                            (
+                                                f"활성 포지션 보유 중 → TP/SL 즉시 새 임계로 적용됩니다.\n"
+                                                f"변경 항목:\n{_change_summary}\n\n"
+                                                f"의도하지 않은 변경이라면 대시보드에서 즉시 원복 저장 권장."
+                                            ),
+                                            dedupe_key=f"hot_reload:{user_id}:{int(_mtime)}",
+                                            dedupe_ttl=60,
+                                        )
+                                    except Exception:
+                                        pass
+                            # ✅ 옵션 A: hot-reload 감지 시 changes 유무 무관 즉시 스냅샷
+                            #    (파일 mtime 은 변경됐으므로 UI 저장 이벤트로 간주,
+                            #     UPSERT 로 같은 분 정기 스냅샷을 새 값으로 갱신)
+                            _do_snapshot(current_minute)
+                            logger.info(
+                                f"[SETTINGS-SNAPSHOT] ⚡ Hot-reload triggered snapshot at {current_minute}"
+                            )
+                            _hot_reload_state["last_mtime"] = _mtime
+                except Exception as _hot_e:
+                    logger.warning(f"[HOT-RELOAD] failed: {_hot_e}")
             except Exception as e:
                 logger.warning(f"[SETTINGS-SNAPSHOT] ❌ Failed: {e}")
 

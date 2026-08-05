@@ -1262,13 +1262,30 @@ def insert_settings_snapshot(
     buy_dict: dict, sell_dict: dict,
     bar_time: str | None = None  # ✅ 해당 봉의 시각
 ):
+    """
+    ✅ 2026-08-05 UPSERT 전환:
+    기존 INSERT OR IGNORE 로직은 같은 bar_time 에 이미 스냅샷이 있으면 새 값을 무시.
+    그 결과 hot-reload 로 파일이 변경돼도 같은 분 안에는 audit_settings 가 이전 값
+    으로 유지되어 대시보드가 최대 60초 동안 "엔진 ≠ UI 저장값" 어긋남 표시.
+    UPSERT (ON CONFLICT DO UPDATE) 로 전환하여 hot-reload 즉시 스냅샷이 기존
+    레코드를 갱신하도록 함 (bar_time 규약 유지).
+    """
     with get_db(user_id) as conn:
         cur = conn.cursor()
         cur.execute(
             """
-            INSERT OR IGNORE INTO audit_settings
+            INSERT INTO audit_settings
             (timestamp, ticker, interval_sec, tp, sl, ts_pct, signal_gate, threshold, buy_json, sell_json, bar_time)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(ticker, interval_sec, bar_time) DO UPDATE SET
+                timestamp = excluded.timestamp,
+                tp = excluded.tp,
+                sl = excluded.sl,
+                ts_pct = excluded.ts_pct,
+                signal_gate = excluded.signal_gate,
+                threshold = excluded.threshold,
+                buy_json = excluded.buy_json,
+                sell_json = excluded.sell_json
             """,
             (
                 now_kst(), ticker, interval_sec, tp, sl, ts_pct,
