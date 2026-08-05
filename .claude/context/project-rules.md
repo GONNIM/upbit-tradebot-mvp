@@ -158,6 +158,37 @@ mv mcmax33.db archive/  # 백업 후 보관
 - [ ] Syntax 검증 완료 (`python3 -m py_compile`)
 - [ ] 로직 테스트 완료
 
+### 1-A단계 (UI 파일 수정 시 필수): 브라우저 실측 · 접근성 회귀 방지
+**⚠️ pages/*.py 수정 시 이 단계 스킵 = 즉시 회귀 위험. 2026-08-05 6건 사고 근거.**
+
+**적용 대상**: `pages/dashboard.py`, `pages/set_buy_sell_conditions.py`, `pages/set_config.py`, `pages/audit_viewer.py` 등 Streamlit UI 파일.
+
+**필수 검증 3층** ([[feedback_ui_render_measurement]] 원칙):
+
+1. **py_compile 만으로는 부족** — 실행 시점 NameError/AttributeError 는 실제 import·render 시에만 발견
+   - `bash scripts/regression_gate.sh` 실행 → UI top-level import 게이트 + typing 심볼 검증 자동 통과 확인 (a8f2a5c 유형 봉쇄)
+
+2. **UI 변경 diff 사용자 브리핑** — "추가" 만 보고 "삭제/이동/접힘" 은 개발자가 놓치기 쉬움
+   - 커밋 전 diff 검토: `st.subheader → st.expander`, `st.button 위치 이동`, `expanded=True → False` 등 사용자 관점 사라짐 유발 변화 있으면 사용자에게 명시 보고
+   - 접힘 처리(`st.expander(expanded=False)`)는 사실상 삭제와 동급 — 자주 쓰는 액션(설정 페이지 이동, 감사 뷰어 등)은 접힘 대상 제외 (아래 "화이트리스트" 참조)
+
+3. **브라우저 실측 필수** — 배포 후 사용자에게 브라우저 새로고침 요청 → 화면 표시 문구/버튼 위치 확인
+   - "코드에 있음" ≠ "사용자가 볼 수 있음" — 개발자 관점 vs 사용자 관점 격차 봉쇄
+
+### 1-B단계 (UI 파일 수정 시 필수): 접힘 화이트리스트 원칙
+**모바일 UX 개선 시 다음 액션 버튼·섹션은 접힘 대상 제외 (top-level 노출 유지)**:
+
+| 대상 | 이유 |
+|---|---|
+| 감사로그 뷰어 열기 버튼 | 사용자 자주 접근 (오늘 f0c291a 회귀 사고) |
+| 설정 페이지 이동 버튼 | 파라미터 수정 진입점 |
+| 헬스 배지 · 동기화 상태 카드 | 봇 정상 상태 확인 진입점 |
+| 강제 매수·매도 버튼 | 사용자 즉시 개입 필요 |
+
+접힘(`expanded=False`) 은 상세 정보(전체 파라미터 표, 감사 필터 옵션 등)에만 적용.
+
+**회귀 봉쇄**: `tests/regressions/test_r_2026_08_05_audit_viewer_accessibility.py` 유형처럼 특정 버튼이 top-level 컬럼(`_audit_hdr_col*`) 안에 있는지 lint 필수.
+
 ### 2단계: dashboard.py 버전 업데이트 (필수!)
 ```bash
 # ⚠️ CRITICAL: 이 단계를 빠뜨리면 커밋 금지!
