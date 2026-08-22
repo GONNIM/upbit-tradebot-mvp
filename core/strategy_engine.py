@@ -7,7 +7,7 @@ from core.indicator_state import IndicatorState
 from core.position_state import PositionState
 from core.strategy_action import Action
 from core.trader import UpbitTrader
-from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit, get_trading_paused
+from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit, get_trading_paused, annotate_buy_eval_blocked
 from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
 import logging
@@ -715,6 +715,27 @@ class StrategyEngine:
             return
 
         if action == Action.BUY:
+            # ✅ WO-1 선행 1: state_polluted 게이트 — 신규 매수만 차단, 매도 경로는 계속 실행
+            # Issue #11 백업/복원 실패로 지표 오염 상태(state_polluted=True)에서는
+            # 크로스 판정 자체를 신뢰할 수 없으므로 신규 매수를 차단한다.
+            # 해제 조건: 봇 재시작 (WARMUP 재시드). 자동 해제 없음.
+            if getattr(self.indicators, 'state_polluted', False):
+                logger.error(
+                    f"🚫 [POLLUTED] 지표 오염 상태 — 신규 매수 차단 | "
+                    f"ticker={self.ticker} bar={self.bar_count} | 재시작(WARMUP 재시드)으로만 해제 가능"
+                )
+                try:
+                    from zoneinfo import ZoneInfo
+                    _bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
+                    annotate_buy_eval_blocked(
+                        user_id=self.user_id,
+                        ticker=self.ticker,
+                        bar_time=_bar_ts_kst.isoformat(),
+                        block_reason="STATE_POLLUTED",
+                    )
+                except Exception as _annotate_exc:
+                    logger.warning(f"[POLLUTED] audit annotate 예외 무시: {_annotate_exc}")
+                return  # 매수 미실행. pending 은 execute 진입 조건(라인 713)으로 이미 False 확정
             self._execute_buy(bar, indicators)
         elif action == Action.SELL or action == Action.CLOSE:
             self._execute_sell(bar, indicators)
@@ -1171,7 +1192,8 @@ class StrategyEngine:
                         failed_keys=[] if condition_met else [reason],
                         checks=buy_checks,
                         notes=notes,
-                        bar_time=bar_ts_kst.isoformat()
+                        bar_time=bar_ts_kst.isoformat(),
+                        is_backfill=is_backfill,  # ✅ WO-1: BACKFILL 경로 시 backfill_* 컬럼만 UPDATE
                     )
                 else:
                     # 일반 EMA/MACD 전략 로그 (기존 로직)
@@ -1229,7 +1251,8 @@ class StrategyEngine:
                             failed_keys=failed_keys_list,
                             checks=buy_checks,
                             notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}",
-                            bar_time=bar_ts_kst.isoformat()
+                            bar_time=bar_ts_kst.isoformat(),
+                            is_backfill=is_backfill,  # ✅ WO-1: BACKFILL 경로 시 backfill_* 컬럼만 UPDATE
                         )
                     elif action == Action.BUY:
                         # BUY 신호 발생
@@ -1262,7 +1285,8 @@ class StrategyEngine:
                             failed_keys=[],
                             checks=buy_checks,
                             notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}",
-                            bar_time=bar_ts_kst.isoformat()
+                            bar_time=bar_ts_kst.isoformat(),
+                            is_backfill=is_backfill,  # ✅ WO-1: BACKFILL 경로 시 backfill_* 컬럼만 UPDATE
                         )
 
             # 포지션 있을 때: SELL 평가 로그
@@ -1377,7 +1401,8 @@ class StrategyEngine:
                         triggered=False,
                         trigger_key=None,
                         notes=f"{cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}",
-                        bar_time=bar_ts_kst.isoformat()
+                        bar_time=bar_ts_kst.isoformat(),
+                        is_backfill=is_backfill,  # ✅ WO-1: BACKFILL 경로 시 backfill_* 컬럼만 UPDATE
                     )
                 elif action == Action.SELL or action == Action.CLOSE:
                     # SELL 신호 발생 - 구체적인 트리거 원인 판단
@@ -1452,7 +1477,8 @@ class StrategyEngine:
                         triggered=True,
                         trigger_key=trigger_reason,
                         notes=f"🔴 SELL | {trigger_reason} | {cross_status} | PNL={pnl_pct:.2%} | bar={self.bar_count}",
-                        bar_time=bar_ts_kst.isoformat()
+                        bar_time=bar_ts_kst.isoformat(),
+                        is_backfill=is_backfill,  # ✅ WO-1: BACKFILL 경로 시 backfill_* 컬럼만 UPDATE
                     )
 
         except Exception as e:

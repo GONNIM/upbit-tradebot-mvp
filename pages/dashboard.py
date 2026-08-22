@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.05.1533")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.22.1002")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -1434,8 +1434,16 @@ def _render_latest_signal_section():
 
                 st.caption(f"Source: **BUY** (Base EMA GAP 전략)")
 
-                if checks.get('via_backfill'):
-                    st.warning("🔄 이 신호는 **BACKFILL 재평가 경로**로 기록되었습니다. 실주문은 실행되지 않고 감사로그만 UPSERT됩니다. (실시간 봉 수신 지연/누락 → REST reconcile로 뒤늦게 발견된 신호)")
+                # ✅ WO-1 옵션 B: 신형 컬럼 우선 판정 (F6 변경형/누락형 구분)
+                _bf_type = latest.get('backfill_type') if isinstance(latest, dict) else None
+                _bf_at = latest.get('backfill_at') if isinstance(latest, dict) else None
+                if _bf_type == 'missing_bar':
+                    st.warning("🔄 이 봉은 **실시간 처리가 없이 BACKFILL로만 평가**됐습니다 (실시간 확정 봉 수신 실패). backfill_close 값이 최종 종가입니다.")
+                elif _bf_type == 'changed_close':
+                    st.info("🔄⚠️ 이 봉은 실시간 처리 이후 **BACKFILL 재평가(확정 종가 변경)**가 발생했습니다. 실시간 판정은 유지되며, backfill_* 컬럼은 F6 상태 이중 반영으로 **참고용**입니다.")
+                elif _bf_at or checks.get('via_backfill'):
+                    # 하위호환: 신형 컬럼 없거나 마이그레이션 이전 데이터
+                    st.warning("🔄 이 신호는 **BACKFILL 재평가 경로**로 기록되었습니다. (실시간 봉 수신 지연/누락 → REST reconcile로 뒤늦게 발견된 신호)")
 
                 # 추가 정보 박스
                 if not condition_met:
@@ -1485,8 +1493,16 @@ def _render_latest_signal_section():
 
                 st.caption(f"Source: **BUY** (매수 평가 감사로그)")
 
-                if checks.get('via_backfill'):
-                    st.warning("🔄 이 신호는 **BACKFILL 재평가 경로**로 기록되었습니다. 실주문은 실행되지 않고 감사로그만 UPSERT됩니다. (실시간 봉 수신 지연/누락 → REST reconcile로 뒤늦게 발견된 신호)")
+                # ✅ WO-1 옵션 B: 신형 컬럼 우선 판정 (F6 변경형/누락형 구분)
+                _bf_type = latest.get('backfill_type') if isinstance(latest, dict) else None
+                _bf_at = latest.get('backfill_at') if isinstance(latest, dict) else None
+                if _bf_type == 'missing_bar':
+                    st.warning("🔄 이 봉은 **실시간 처리가 없이 BACKFILL로만 평가**됐습니다 (실시간 확정 봉 수신 실패). backfill_close 값이 최종 종가입니다.")
+                elif _bf_type == 'changed_close':
+                    st.info("🔄⚠️ 이 봉은 실시간 처리 이후 **BACKFILL 재평가(확정 종가 변경)**가 발생했습니다. 실시간 판정은 유지되며, backfill_* 컬럼은 F6 상태 이중 반영으로 **참고용**입니다.")
+                elif _bf_at or checks.get('via_backfill'):
+                    # 하위호환: 신형 컬럼 없거나 마이그레이션 이전 데이터
+                    st.warning("🔄 이 신호는 **BACKFILL 재평가 경로**로 기록되었습니다. (실시간 봉 수신 지연/누락 → REST reconcile로 뒤늦게 발견된 신호)")
 
         elif source == "SELL":
             trigger_key = latest.get('trigger_key', '-')

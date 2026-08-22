@@ -442,10 +442,12 @@ def fetch_latest_buy_eval(user_id: str, ticker: str) -> dict | None:
     """
     특정 ticker의 가장 최신 BUY 평가 감사로그 조회
     - audit_buy_eval 테이블에서 timestamp 기준 최신순
+    - ✅ WO-1: 옵션 B 컬럼(backfill_*, prev_close) 포함
     """
     query = """
         SELECT timestamp, ticker, interval_sec, bar, price, macd, signal,
-               have_position, overall_ok, failed_keys, checks, notes
+               have_position, overall_ok, failed_keys, checks, notes,
+               backfill_close, backfill_reason, backfill_at, backfill_type, prev_close
         FROM audit_buy_eval
         WHERE ticker = ?
         ORDER BY timestamp DESC
@@ -470,6 +472,12 @@ def fetch_latest_buy_eval(user_id: str, ticker: str) -> dict | None:
                     "failed_keys": row[9],
                     "checks": row[10],
                     "notes": row[11],
+                    # ✅ WO-1 옵션 B
+                    "backfill_close": row[12],
+                    "backfill_reason": row[13],
+                    "backfill_at": row[14],
+                    "backfill_type": row[15],
+                    "prev_close": row[16],
                 }
             return None
     except Exception as e:
@@ -481,11 +489,13 @@ def fetch_latest_sell_eval(user_id: str, ticker: str) -> dict | None:
     """
     특정 ticker의 가장 최신 SELL 평가 감사로그 조회
     - audit_sell_eval 테이블에서 timestamp 기준 최신순
+    - ✅ WO-1: 옵션 B 컬럼(backfill_*, prev_close) 포함
     """
     query = """
         SELECT timestamp, ticker, interval_sec, bar, price, macd, signal,
                tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
-               checks, triggered, trigger_key, notes
+               checks, triggered, trigger_key, notes,
+               backfill_close, backfill_reason, backfill_at, backfill_type, prev_close
         FROM audit_sell_eval
         WHERE ticker = ?
         ORDER BY timestamp DESC
@@ -515,6 +525,12 @@ def fetch_latest_sell_eval(user_id: str, ticker: str) -> dict | None:
                     "triggered": row[14],
                     "trigger_key": row[15],
                     "notes": row[16],
+                    # ✅ WO-1 옵션 B
+                    "backfill_close": row[17],
+                    "backfill_reason": row[18],
+                    "backfill_at": row[19],
+                    "backfill_type": row[20],
+                    "prev_close": row[21],
                 }
             return None
     except Exception as e:
@@ -991,20 +1007,43 @@ def insert_buy_eval(
     failed_keys: list | None,
     checks: dict | None,
     notes: str = "",
-    bar_time: str | None = None  # ✅ 봉 시각 파라미터 (필수)
+    bar_time: str | None = None,  # ✅ 봉 시각 파라미터 (필수)
+    is_backfill: bool = False,    # ✅ WO-1: BACKFILL 재평가 경로 여부
 ):
     """
-    BUY 평가 감사로그 기록 (UPSERT 방식)
-    - timestamp: 로그 기록 시각 (자동으로 현재 시각)
-    - bar_time: 봉 시각 (분석 대상 봉의 시각)
-    - 같은 (ticker, bar_time)에 대해 기존 레코드가 있으면 UPDATE
-    - 없으면 INSERT
-    - 목적: 같은 봉에 대해 중복 기록 방지 (무결성 보장)
+    BUY 평가 감사로그 기록.
+
+    WO-1 (JTO-Claim-20260821-001) 옵션 B: 실시간 판정과 BACKFILL 재평가를 컬럼 분리:
+      - is_backfill=False (실시간): 실시간 컬럼(price/macd/signal/overall_ok/failed_keys/checks/notes)
+        만 INSERT 또는 UPDATE. backfill_* 컬럼은 절대 건드리지 않음 → 실시간 판정 이력 완전 보존.
+      - is_backfill=True (BACKFILL 재평가):
+          * 기존 레코드 있음 (changed_close 케이스): backfill_close/backfill_reason/backfill_at/
+            backfill_type='changed_close'/prev_close 만 UPDATE. 실시간 컬럼은 절대 덮어쓰지 않음.
+            → 실시간 매수 시도(action=BUY/overall_ok=1) 흔적 소거 결함(F1) 봉쇄.
+          * 기존 레코드 없음 (missing_bar 케이스): 실시간 컬럼 NULL 유지,
+            backfill_* 컬럼에만 값 + backfill_type='missing_bar' INSERT.
+          * 재-BACKFILL(2회 이상, 옵션 B 보완 1): 컬럼 무한 증식 금지 — 최신값만 유지,
+            [AUDIT-UPDATE] 로그에 prev_backfill_close 남김 (관측성 보존).
+          * F6 표기(옵션 B 보완 2): backfill_type 으로 변경형/누락형 구분 → audit 뷰어 오독 방지.
+
+    파라미터:
+        is_backfill: True 면 BACKFILL 경로, False 면 실시간 경로.
+        checks 안의 'reason' 필드는 BACKFILL 경로에서 backfill_reason 컬럼으로 복사됨.
     """
     if bar_time is None:
         raise ValueError("bar_time is required for audit_buy_eval")
 
     timestamp_now = now_kst()
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # BACKFILL 경로에서 backfill_reason 계산: checks.reason 우선, 없으면 notes 사용
+    _backfill_reason: str | None = None
+    if is_backfill:
+        if isinstance(checks, dict):
+            _backfill_reason = checks.get("reason") or None
+        if not _backfill_reason and notes:
+            _backfill_reason = notes
 
     with get_db(user_id) as conn:
         cur = conn.cursor()
@@ -1012,60 +1051,114 @@ def insert_buy_eval(
         # 1. 기존 레코드 확인 (같은 ticker, bar_time)
         cur.execute(
             """
-            SELECT id FROM audit_buy_eval
+            SELECT id, price, backfill_close FROM audit_buy_eval
             WHERE ticker=? AND bar_time=?
             """,
             (ticker, bar_time)
         )
         existing = cur.fetchone()
 
-        if existing:
-            # 2-1. UPDATE: 기존 레코드 갱신 (같은 봉에 대한 재평가)
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(
-                f"[AUDIT-UPDATE] BUY 평가 UPDATE | ticker={ticker} | bar_time={bar_time} | "
-                f"old_id={existing[0]} | new_price={price:.0f}"
-            )
-            cur.execute(
-                """
-                UPDATE audit_buy_eval
-                SET timestamp=?, interval_sec=?, bar=?, price=?, macd=?, signal=?,
-                    have_position=?, overall_ok=?, failed_keys=?, checks=?, notes=?
-                WHERE id=?
-                """,
-                (
-                    timestamp_now, interval_sec, bar, price, macd, signal,
-                    int(bool(have_position)), int(bool(overall_ok)),
-                    json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
-                    json.dumps(checks, ensure_ascii=False) if checks else None,
-                    notes,
-                    existing[0]
+        if is_backfill:
+            # ─── BACKFILL 경로 (via_backfill=True) ────────────────────────────
+            if existing:
+                # (A) changed_close 케이스: 실시간 레코드 존재 → backfill_* 컬럼만 UPDATE
+                existing_id, existing_realtime_price, existing_backfill_close = existing
+                # prev_close 는 첫 재평가 시만 실시간 price 로 백업 (이후 재-BACKFILL 은 유지)
+                cur.execute(
+                    "SELECT prev_close FROM audit_buy_eval WHERE id=?", (existing_id,)
                 )
-            )
+                _prev_close_row = cur.fetchone()
+                _prev_close_saved = _prev_close_row[0] if _prev_close_row else None
+                _new_prev_close = (
+                    _prev_close_saved
+                    if _prev_close_saved is not None
+                    else existing_realtime_price
+                )
+
+                # 재-BACKFILL 감지: 기존 backfill_close 가 이미 있으면 관측성 로그
+                if existing_backfill_close is not None:
+                    logger.info(
+                        f"[AUDIT-UPDATE] BUY BACKFILL 재평가 2회+ | ticker={ticker} | "
+                        f"bar_time={bar_time} | prev_backfill_close={existing_backfill_close:.4f} | "
+                        f"new_backfill_close={price:.4f} | realtime_price={existing_realtime_price}"
+                    )
+                else:
+                    logger.info(
+                        f"[AUDIT-UPDATE] BUY BACKFILL 재평가 (changed_close) | ticker={ticker} | "
+                        f"bar_time={bar_time} | realtime_price={existing_realtime_price} | "
+                        f"backfill_close={price:.4f} | reason={_backfill_reason}"
+                    )
+                cur.execute(
+                    """
+                    UPDATE audit_buy_eval
+                    SET backfill_close=?, backfill_reason=?, backfill_at=?,
+                        backfill_type='changed_close', prev_close=?
+                    WHERE id=?
+                    """,
+                    (price, _backfill_reason, timestamp_now, _new_prev_close, existing_id),
+                )
+            else:
+                # (B) missing_bar 케이스: 실시간 레코드 없음 → 실시간 컬럼 NULL 유지, backfill_* 만 INSERT
+                logger.info(
+                    f"[AUDIT-INSERT] BUY BACKFILL only (missing_bar) | ticker={ticker} | "
+                    f"bar_time={bar_time} | backfill_close={price:.4f} | reason={_backfill_reason}"
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_buy_eval
+                    (timestamp, bar_time, ticker, interval_sec, bar,
+                     backfill_close, backfill_reason, backfill_at, backfill_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'missing_bar')
+                    """,
+                    (timestamp_now, bar_time, ticker, interval_sec, bar,
+                     price, _backfill_reason, timestamp_now),
+                )
         else:
-            # 2-2. INSERT: 새 레코드 생성
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.debug(
-                f"[AUDIT-INSERT] BUY 평가 INSERT | ticker={ticker} | bar_time={bar_time} | "
-                f"price={price:.0f}"
-            )
-            cur.execute(
-                """
-                INSERT INTO audit_buy_eval
-                (timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
-                 have_position, overall_ok, failed_keys, checks, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp_now, bar_time, ticker, interval_sec, bar, price, macd, signal,
-                    int(bool(have_position)), int(bool(overall_ok)),
-                    json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
-                    json.dumps(checks, ensure_ascii=False) if checks else None,
-                    notes
+            # ─── 실시간 경로 (via_backfill=False) ────────────────────────────
+            if existing:
+                # 실시간 재판정 (예: Progressive Retry 성공 후) → 실시간 컬럼만 UPDATE
+                existing_id = existing[0]
+                logger.info(
+                    f"[AUDIT-UPDATE] BUY 실시간 재판정 | ticker={ticker} | bar_time={bar_time} | "
+                    f"old_id={existing_id} | new_price={price:.0f}"
                 )
-            )
+                cur.execute(
+                    """
+                    UPDATE audit_buy_eval
+                    SET timestamp=?, interval_sec=?, bar=?, price=?, macd=?, signal=?,
+                        have_position=?, overall_ok=?, failed_keys=?, checks=?, notes=?
+                    WHERE id=?
+                    """,
+                    (
+                        timestamp_now, interval_sec, bar, price, macd, signal,
+                        int(bool(have_position)), int(bool(overall_ok)),
+                        json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
+                        json.dumps(checks, ensure_ascii=False) if checks else None,
+                        notes,
+                        existing_id,
+                    ),
+                )
+            else:
+                # 실시간 최초 INSERT
+                logger.debug(
+                    f"[AUDIT-INSERT] BUY 실시간 INSERT | ticker={ticker} | bar_time={bar_time} | "
+                    f"price={price:.0f}"
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_buy_eval
+                    (timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
+                     have_position, overall_ok, failed_keys, checks, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        timestamp_now, bar_time, ticker, interval_sec, bar, price, macd, signal,
+                        int(bool(have_position)), int(bool(overall_ok)),
+                        json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
+                        json.dumps(checks, ensure_ascii=False) if checks else None,
+                        notes,
+                    ),
+                )
 
         conn.commit()
 
@@ -1088,79 +1181,194 @@ def insert_sell_eval(
     triggered: bool,
     trigger_key: str | None,
     notes: str = "",
-    bar_time: str | None = None  # ✅ 봉 시각 파라미터 (필수)
+    bar_time: str | None = None,  # ✅ 봉 시각 파라미터 (필수)
+    is_backfill: bool = False,    # ✅ WO-1: BACKFILL 재평가 경로 여부
 ):
     """
-    SELL 평가 감사로그 기록 (UPSERT 방식)
-    - timestamp: 로그 기록 시각 (자동으로 현재 시각)
-    - bar_time: 봉 시각 (분석 대상 봉의 시각)
-    - 같은 (ticker, bar_time)에 대해 기존 레코드가 있으면 UPDATE
-    - 없으면 INSERT
-    - 목적: 같은 봉에 대해 중복 기록 방지 (무결성 보장)
+    SELL 평가 감사로그 기록.
+
+    WO-1 옵션 B: 실시간/BACKFILL 컬럼 분리. `insert_buy_eval` 와 동일 정책.
+      - is_backfill=False: 실시간 컬럼(price/macd/.../checks/notes) 만 UPSERT.
+      - is_backfill=True + 기존 있음: backfill_* 컬럼만 UPDATE (실시간 SELL 판정 보존).
+      - is_backfill=True + 기존 없음: missing_bar 케이스 INSERT.
     """
     if bar_time is None:
         raise ValueError("bar_time is required for audit_sell_eval")
 
     timestamp_now = now_kst()
+    import logging
+    logger = logging.getLogger(__name__)
+
+    _backfill_reason: str | None = None
+    if is_backfill:
+        if isinstance(checks, dict):
+            _backfill_reason = checks.get("reason") or None
+        if not _backfill_reason and notes:
+            _backfill_reason = notes
 
     with get_db(user_id) as conn:
         cur = conn.cursor()
 
-        # 1. 기존 레코드 확인 (같은 ticker, bar_time)
         cur.execute(
             """
-            SELECT id FROM audit_sell_eval
+            SELECT id, price, backfill_close FROM audit_sell_eval
             WHERE ticker=? AND bar_time=?
             """,
             (ticker, bar_time)
         )
         existing = cur.fetchone()
 
-        if existing:
-            # 2-1. UPDATE: 기존 레코드 갱신 (같은 봉에 대한 재평가)
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(
-                f"[AUDIT-UPDATE] SELL 평가 UPDATE | ticker={ticker} | bar_time={bar_time} | "
-                f"old_id={existing[0]} | new_price={price:.0f}"
-            )
-            cur.execute(
-                """
-                UPDATE audit_sell_eval
-                SET timestamp=?, interval_sec=?, bar=?, price=?, macd=?, signal=?,
-                    tp_price=?, sl_price=?, highest=?, ts_pct=?, ts_armed=?,
-                    bars_held=?, checks=?, triggered=?, trigger_key=?, notes=?
-                WHERE id=?
-                """,
-                (
-                    timestamp_now, interval_sec, bar, price, macd, signal,
-                    tp_price, sl_price, highest, ts_pct, int(bool(ts_armed)),
-                    bars_held,
-                    json.dumps(checks, ensure_ascii=False) if checks else None,
-                    int(bool(triggered)), trigger_key, notes,
-                    existing[0]
+        if is_backfill:
+            if existing:
+                existing_id, existing_realtime_price, existing_backfill_close = existing
+                cur.execute(
+                    "SELECT prev_close FROM audit_sell_eval WHERE id=?", (existing_id,)
                 )
-            )
+                _prev_close_row = cur.fetchone()
+                _prev_close_saved = _prev_close_row[0] if _prev_close_row else None
+                _new_prev_close = (
+                    _prev_close_saved
+                    if _prev_close_saved is not None
+                    else existing_realtime_price
+                )
+
+                if existing_backfill_close is not None:
+                    logger.info(
+                        f"[AUDIT-UPDATE] SELL BACKFILL 재평가 2회+ | ticker={ticker} | "
+                        f"bar_time={bar_time} | prev_backfill_close={existing_backfill_close:.4f} | "
+                        f"new_backfill_close={price:.4f} | realtime_price={existing_realtime_price}"
+                    )
+                else:
+                    logger.info(
+                        f"[AUDIT-UPDATE] SELL BACKFILL 재평가 (changed_close) | ticker={ticker} | "
+                        f"bar_time={bar_time} | realtime_price={existing_realtime_price} | "
+                        f"backfill_close={price:.4f} | reason={_backfill_reason}"
+                    )
+                cur.execute(
+                    """
+                    UPDATE audit_sell_eval
+                    SET backfill_close=?, backfill_reason=?, backfill_at=?,
+                        backfill_type='changed_close', prev_close=?
+                    WHERE id=?
+                    """,
+                    (price, _backfill_reason, timestamp_now, _new_prev_close, existing_id),
+                )
+            else:
+                logger.info(
+                    f"[AUDIT-INSERT] SELL BACKFILL only (missing_bar) | ticker={ticker} | "
+                    f"bar_time={bar_time} | backfill_close={price:.4f} | reason={_backfill_reason}"
+                )
+                cur.execute(
+                    """
+                    INSERT INTO audit_sell_eval
+                    (timestamp, bar_time, ticker, interval_sec, bar,
+                     backfill_close, backfill_reason, backfill_at, backfill_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'missing_bar')
+                    """,
+                    (timestamp_now, bar_time, ticker, interval_sec, bar,
+                     price, _backfill_reason, timestamp_now),
+                )
         else:
-            # 2-2. INSERT: 새 레코드 생성
-            cur.execute(
-                """
-                INSERT INTO audit_sell_eval
-                (timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
-                 tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
-                 checks, triggered, trigger_key, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    timestamp_now, bar_time, ticker, interval_sec, bar, price, macd, signal,
-                    tp_price, sl_price, highest, ts_pct,
-                    int(bool(ts_armed)), bars_held,
-                    json.dumps(checks, ensure_ascii=False) if checks else None,
-                    int(bool(triggered)), trigger_key, notes
+            if existing:
+                existing_id = existing[0]
+                logger.info(
+                    f"[AUDIT-UPDATE] SELL 실시간 재판정 | ticker={ticker} | bar_time={bar_time} | "
+                    f"old_id={existing_id} | new_price={price:.0f}"
                 )
-            )
+                cur.execute(
+                    """
+                    UPDATE audit_sell_eval
+                    SET timestamp=?, interval_sec=?, bar=?, price=?, macd=?, signal=?,
+                        tp_price=?, sl_price=?, highest=?, ts_pct=?, ts_armed=?,
+                        bars_held=?, checks=?, triggered=?, trigger_key=?, notes=?
+                    WHERE id=?
+                    """,
+                    (
+                        timestamp_now, interval_sec, bar, price, macd, signal,
+                        tp_price, sl_price, highest, ts_pct, int(bool(ts_armed)),
+                        bars_held,
+                        json.dumps(checks, ensure_ascii=False) if checks else None,
+                        int(bool(triggered)), trigger_key, notes,
+                        existing_id,
+                    ),
+                )
+            else:
+                cur.execute(
+                    """
+                    INSERT INTO audit_sell_eval
+                    (timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
+                     tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
+                     checks, triggered, trigger_key, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        timestamp_now, bar_time, ticker, interval_sec, bar, price, macd, signal,
+                        tp_price, sl_price, highest, ts_pct,
+                        int(bool(ts_armed)), bars_held,
+                        json.dumps(checks, ensure_ascii=False) if checks else None,
+                        int(bool(triggered)), trigger_key, notes,
+                    ),
+                )
 
         conn.commit()
+
+
+def annotate_buy_eval_blocked(
+    user_id: str,
+    ticker: str,
+    bar_time: str,
+    block_reason: str,
+) -> bool:
+    """
+    WO-1 선행 1: 매수 게이트 차단 시 audit_buy_eval 의 checks JSON 에 blocked 정보를 추가한다.
+
+    실시간 판정 컬럼(price/overall_ok/failed_keys/notes 등)은 그대로 보존하고,
+    checks 안에만 `blocked=True`, `block_reason=<사유>`, `blocked_at=<ISO>` 필드를 추가한다.
+    옵션 B 정신(실시간 판정 이력 보존) 준수.
+
+    반환: 대상 행이 있고 UPDATE 성공 시 True, 대상 행 부재 시 False.
+    """
+    timestamp_now = now_kst()
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, checks FROM audit_buy_eval WHERE ticker=? AND bar_time=?",
+                (ticker, bar_time),
+            )
+            row = cur.fetchone()
+            if not row:
+                _logger.warning(
+                    f"[POLLUTED-AUDIT] 대상 행 없음 (annotate 스킵) | "
+                    f"ticker={ticker} bar_time={bar_time}"
+                )
+                return False
+            existing_id, existing_checks_raw = row
+            try:
+                checks_dict = json.loads(existing_checks_raw) if existing_checks_raw else {}
+            except Exception:
+                checks_dict = {}
+            if not isinstance(checks_dict, dict):
+                checks_dict = {}
+            checks_dict["blocked"] = True
+            checks_dict["block_reason"] = block_reason
+            checks_dict["blocked_at"] = timestamp_now
+            cur.execute(
+                "UPDATE audit_buy_eval SET checks=? WHERE id=?",
+                (json.dumps(checks_dict, ensure_ascii=False), existing_id),
+            )
+            conn.commit()
+            _logger.info(
+                f"[POLLUTED-AUDIT] annotate OK | ticker={ticker} bar_time={bar_time} "
+                f"reason={block_reason} id={existing_id}"
+            )
+            return True
+    except Exception as e:
+        _logger.warning(f"[POLLUTED-AUDIT] annotate 실패 | {e}")
+        return False
 
 
 def insert_trade_audit(
@@ -1311,7 +1519,8 @@ def fetch_buy_eval(user_id: str, ticker: str | None = None, only_failed=False, l
         cur = conn.cursor()
         q = """
             SELECT timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
-                   have_position, overall_ok, failed_keys, checks, notes
+                   have_position, overall_ok, failed_keys, checks, notes,
+                   backfill_close, backfill_reason, backfill_at, backfill_type, prev_close
             FROM audit_buy_eval
             WHERE 1=1
         """

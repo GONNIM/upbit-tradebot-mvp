@@ -111,7 +111,7 @@ Golden Cross 체크:
 **핵심 원리: BACKFILL 전후로 지표 상태 백업/복원**
 
 ```python
-# engine/live_loop.py:750-859
+# engine/live_loop.py:1013-1180 (WO-1 by JTO-Claim-20260821-001 로 try/finally + INFO 승격 추가; 이전 참조: 750-859)
 
 if backfill_ts_list:
     # ✅ Issue #11: BACKFILL 전 지표 상태 백업
@@ -160,7 +160,7 @@ current: Golden (새로 계산된 3215.70, 3213.55)
 #### 영향 범위
 
 - **파일**: `engine/live_loop.py`
-- **라인**: 750-859 (BACKFILL 루프)
+- **라인**: 1013-1180 (WO-1 후 갱신; 이전: 750-859)
 - **수정 내용**:
   - BACKFILL 시작 전: 지표 상태 백업 (35줄)
   - BACKFILL 종료 후: 지표 상태 복원 (30줄)

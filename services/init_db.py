@@ -792,6 +792,36 @@ def ensure_account_positions_meta(user_id: str):
     conn.close()
 
 
+def ensure_audit_backfill_columns(user_id: str):
+    """
+    WO-1 (JTO-Claim-20260821-001): audit_buy_eval / audit_sell_eval 에
+    BACKFILL 재평가 결과와 실시간 판정을 분리 저장하기 위한 컬럼 추가.
+
+    옵션 B (별도 컬럼) 채택 근거:
+      - 이력 보존: 실시간 판정과 BACKFILL 재평가가 서로 덮어쓰지 않음
+      - (ticker, bar_time) UNIQUE 제약 유지
+      - UI 필터링 최소 변경
+
+    신설 컬럼:
+      - backfill_close: BACKFILL 재평가된 close 값 (실시간 close 는 price 컬럼 유지)
+      - backfill_reason: BACKFILL 재평가 결과 사유 (예: 'NO_BUY_SIGNAL', 'BUY_SIGNAL')
+      - backfill_at: BACKFILL 실행 시각 (ISO 8601 KST)
+      - backfill_type: 'changed_close' (실시간 처리 후 close 값 갱신) |
+                       'missing_bar' (실시간 처리 자체가 없었음).
+                       ⚠️ F6: changed_close 인 경우 backfill_close 는 상태 이중 반영으로 참고용
+      - prev_close: 실시간 첫 판정 close 값 (F5 실측용; changed_close 케이스에서만 유효)
+    """
+    conn = _connect(user_id)
+    for tbl in ("audit_buy_eval", "audit_sell_eval"):
+        _safe_alter(conn, f"ALTER TABLE {tbl} ADD COLUMN backfill_close REAL")
+        _safe_alter(conn, f"ALTER TABLE {tbl} ADD COLUMN backfill_reason TEXT")
+        _safe_alter(conn, f"ALTER TABLE {tbl} ADD COLUMN backfill_at TEXT")
+        _safe_alter(conn, f"ALTER TABLE {tbl} ADD COLUMN backfill_type TEXT")
+        _safe_alter(conn, f"ALTER TABLE {tbl} ADD COLUMN prev_close REAL")
+    conn.commit()
+    conn.close()
+
+
 def ensure_accounts_locked(user_id: str):
     """
     accounts 테이블에 virtual_krw_locked 컬럼 추가:
@@ -865,6 +895,7 @@ def ensure_all_schemas(user_id: str):
     ensure_audit_settings_unique(user_id)    # ✅ UNIQUE 인덱스 (bar_time 기준)
     ensure_audit_buy_eval_bar_time(user_id)  # ✅ audit_buy_eval bar_time 추가
     ensure_audit_sell_eval_bar_time(user_id) # ✅ audit_sell_eval bar_time 추가
+    ensure_audit_backfill_columns(user_id)   # ✅ WO-1: BACKFILL 재평가 결과 분리 저장 (JTO-Claim-20260821-001)
     ensure_account_positions_meta(user_id)   # ✅ account_positions meta 추가
     ensure_accounts_locked(user_id)          # ✅ accounts virtual_krw_locked 추가
     ensure_account_positions_locked(user_id) # ✅ account_positions virtual_coin_locked 추가

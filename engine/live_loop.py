@@ -1015,9 +1015,10 @@ def run_live_loop(
                                 logger.info(msg)
                                 log_to_file(msg, user_id)
 
-                                # ✅ Issue #11: BACKFILL 전 지표 상태 백업
-                                # BACKFILL이 실시간 지표를 오염시켜 Golden Cross를 놓치는 문제 방지
-                                # prev 상태를 보존하여 다음 실시간 봉에서 정확한 크로스 감지 보장
+                                # ✅ WO-1 추가 C 설계 제약 #1: 백업 dict 생성은 try 밖에서 완성.
+                                # 백업 도중 예외 발생 시 BACKFILL 자체가 중단되므로 (상위 while 의 except 로 이동)
+                                # finally 진입 자체가 발생하지 않아 오염 상태 방지. saved_indicators 미정의 참조 위험 원천 봉쇄.
+                                # Issue #11: BACKFILL 이 실시간 지표를 오염시키지 않도록 prev 상태 보존.
                                 saved_indicators = {
                                     'ema_fast': engine.indicators.ema_fast,
                                     'ema_slow': engine.indicators.ema_slow,
@@ -1030,8 +1031,6 @@ def run_live_loop(
                                     'prev_macd': engine.indicators.prev_macd,
                                     'prev_signal': engine.indicators.prev_signal,
                                 }
-
-                                # 매수/매도 별도 EMA 사용 시 추가 백업
                                 if engine.indicators.use_separate_ema:
                                     saved_indicators.update({
                                         'ema_fast_buy': engine.indicators.ema_fast_buy,
@@ -1044,93 +1043,124 @@ def run_live_loop(
                                         'prev_ema_slow_sell': engine.indicators.prev_ema_slow_sell,
                                     })
 
-                                # 디버그 로그 (None 처리)
+                                # ✅ WO-1 추가 A: 백업 로그 debug → info 승격 (프로덕션 감시)
                                 prev_fast_str = f"{saved_indicators['prev_ema_fast']:.2f}" if saved_indicators['prev_ema_fast'] is not None else "None"
                                 prev_slow_str = f"{saved_indicators['prev_ema_slow']:.2f}" if saved_indicators['prev_ema_slow'] is not None else "None"
-                                logger.debug(
+                                logger.info(
                                     f"[BACKFILL] 지표 상태 백업 | "
                                     f"prev_ema_fast={prev_fast_str} "
                                     f"prev_ema_slow={prev_slow_str}"
                                 )
 
-                                for ts in sorted(backfill_ts_list):
-                                    try:
-                                        row = local_series.loc[ts]
+                                try:
+                                    for ts in sorted(backfill_ts_list):
+                                        try:
+                                            row = local_series.loc[ts]
 
-                                        # 봉 검증
-                                        valid, reason = candle_validator.validate(row)
-                                        if not valid:
-                                            logger.warning(f"[BACKFILL] 봉 검증 실패 | ts={format_kst(ts)} | {reason}")
+                                            # 봉 검증
+                                            valid, reason = candle_validator.validate(row)
+                                            if not valid:
+                                                logger.warning(f"[BACKFILL] 봉 검증 실패 | ts={format_kst(ts)} | {reason}")
+                                                continue
+
+                                            # Bar 객체 생성
+                                            bar = Bar(
+                                                ts=ts,
+                                                open=row['Open'],
+                                                high=row['High'],
+                                                low=row['Low'],
+                                                close=row['Close'],
+                                                volume=row['Volume'],
+                                                is_closed=True,
+                                                is_confirmed=True,
+                                                source="REST_BACKFILL"
+                                            )
+
+                                            # 감사 로그만 기록 (실제 매매는 하지 않음)
+                                            msg = f"🔄 [BACKFILL] 누락 봉 평가 | ts={format_kst(ts)} | close={bar.close:.0f}"
+                                            logger.info(msg)
+                                            log_to_file(msg, user_id)
+
+                                            # backfill_mode 플래그 추가하여 전략 엔진에서 실제 매매를 하지 않도록 함
+                                            backfill_diff_summary = {
+                                                "rest_failed": False,
+                                                "changed_count": 0,
+                                                "changed_ts": [],
+                                                "backfill_mode": True  # 실제 매매 금지 플래그
+                                            }
+                                            engine.on_new_bar_confirmed(bar, local_series, backfill_diff_summary)
+
+                                        except Exception as e:
+                                            logger.error(f"[BACKFILL] 봉 평가 실패 | ts={format_kst(ts)} | {e}")
                                             continue
 
-                                        # Bar 객체 생성
-                                        bar = Bar(
-                                            ts=ts,
-                                            open=row['Open'],
-                                            high=row['High'],
-                                            low=row['Low'],
-                                            close=row['Close'],
-                                            volume=row['Volume'],
-                                            is_closed=True,
-                                            is_confirmed=True,
-                                            source="REST_BACKFILL"
+                                    msg = f"✅ [BACKFILL] {len(backfill_ts_list)}개 누락 봉 평가 완료"
+                                    logger.info(msg)
+                                    log_to_file(msg, user_id)
+                                finally:
+                                    # ✅ WO-1 추가 C 설계 제약 #2: 복원은 finally 안, 자체 예외 처리 (silent continue 금지)
+                                    # Issue #11: BACKFILL 처리 중 변경된 지표를 원래 상태로 복원 → 다음 실시간 봉 크로스 감지 보장
+                                    try:
+                                        engine.indicators.ema_fast = saved_indicators['ema_fast']
+                                        engine.indicators.ema_slow = saved_indicators['ema_slow']
+                                        engine.indicators.ema_base = saved_indicators['ema_base']
+                                        engine.indicators.prev_ema_fast = saved_indicators['prev_ema_fast']
+                                        engine.indicators.prev_ema_slow = saved_indicators['prev_ema_slow']
+                                        engine.indicators.macd = saved_indicators['macd']
+                                        engine.indicators.signal = saved_indicators['signal']
+                                        engine.indicators.hist = saved_indicators['hist']
+                                        engine.indicators.prev_macd = saved_indicators['prev_macd']
+                                        engine.indicators.prev_signal = saved_indicators['prev_signal']
+
+                                        if engine.indicators.use_separate_ema:
+                                            engine.indicators.ema_fast_buy = saved_indicators['ema_fast_buy']
+                                            engine.indicators.ema_slow_buy = saved_indicators['ema_slow_buy']
+                                            engine.indicators.ema_fast_sell = saved_indicators['ema_fast_sell']
+                                            engine.indicators.ema_slow_sell = saved_indicators['ema_slow_sell']
+                                            engine.indicators.prev_ema_fast_buy = saved_indicators['prev_ema_fast_buy']
+                                            engine.indicators.prev_ema_slow_buy = saved_indicators['prev_ema_slow_buy']
+                                            engine.indicators.prev_ema_fast_sell = saved_indicators['prev_ema_fast_sell']
+                                            engine.indicators.prev_ema_slow_sell = saved_indicators['prev_ema_slow_sell']
+
+                                        # ✅ WO-1 추가 A + 추가 C 설계 제약 #3: 복원 성공 로그 (info 레벨, 백업 로그와 쌍)
+                                        prev_fast_str = f"{engine.indicators.prev_ema_fast:.2f}" if engine.indicators.prev_ema_fast is not None else "None"
+                                        prev_slow_str = f"{engine.indicators.prev_ema_slow:.2f}" if engine.indicators.prev_ema_slow is not None else "None"
+                                        logger.info(
+                                            f"[BACKFILL] 지표 상태 복원 완료 | "
+                                            f"prev_ema_fast={prev_fast_str} "
+                                            f"prev_ema_slow={prev_slow_str}"
                                         )
-
-                                        # 감사 로그만 기록 (실제 매매는 하지 않음)
-                                        msg = f"🔄 [BACKFILL] 누락 봉 평가 | ts={format_kst(ts)} | close={bar.close:.0f}"
-                                        logger.info(msg)
-                                        log_to_file(msg, user_id)
-
-                                        # backfill_mode 플래그 추가하여 전략 엔진에서 실제 매매를 하지 않도록 함
-                                        backfill_diff_summary = {
-                                            "rest_failed": False,
-                                            "changed_count": 0,
-                                            "changed_ts": [],
-                                            "backfill_mode": True  # 실제 매매 금지 플래그
-                                        }
-                                        engine.on_new_bar_confirmed(bar, local_series, backfill_diff_summary)
-
-                                    except Exception as e:
-                                        logger.error(f"[BACKFILL] 봉 평가 실패 | ts={format_kst(ts)} | {e}")
-                                        continue
-
-                                msg = f"✅ [BACKFILL] {len(backfill_ts_list)}개 누락 봉 평가 완료"
-                                logger.info(msg)
-                                log_to_file(msg, user_id)
-
-                                # ✅ Issue #11: BACKFILL 후 지표 상태 복원
-                                # BACKFILL 처리 중 변경된 지표를 원래 상태로 복원
-                                # 이를 통해 다음 실시간 봉에서 정확한 크로스 감지 보장
-                                engine.indicators.ema_fast = saved_indicators['ema_fast']
-                                engine.indicators.ema_slow = saved_indicators['ema_slow']
-                                engine.indicators.ema_base = saved_indicators['ema_base']
-                                engine.indicators.prev_ema_fast = saved_indicators['prev_ema_fast']
-                                engine.indicators.prev_ema_slow = saved_indicators['prev_ema_slow']
-                                engine.indicators.macd = saved_indicators['macd']
-                                engine.indicators.signal = saved_indicators['signal']
-                                engine.indicators.hist = saved_indicators['hist']
-                                engine.indicators.prev_macd = saved_indicators['prev_macd']
-                                engine.indicators.prev_signal = saved_indicators['prev_signal']
-
-                                # 매수/매도 별도 EMA 사용 시 복원
-                                if engine.indicators.use_separate_ema:
-                                    engine.indicators.ema_fast_buy = saved_indicators['ema_fast_buy']
-                                    engine.indicators.ema_slow_buy = saved_indicators['ema_slow_buy']
-                                    engine.indicators.ema_fast_sell = saved_indicators['ema_fast_sell']
-                                    engine.indicators.ema_slow_sell = saved_indicators['ema_slow_sell']
-                                    engine.indicators.prev_ema_fast_buy = saved_indicators['prev_ema_fast_buy']
-                                    engine.indicators.prev_ema_slow_buy = saved_indicators['prev_ema_slow_buy']
-                                    engine.indicators.prev_ema_fast_sell = saved_indicators['prev_ema_fast_sell']
-                                    engine.indicators.prev_ema_slow_sell = saved_indicators['prev_ema_slow_sell']
-
-                                # 디버그 로그 (None 처리)
-                                prev_fast_str = f"{engine.indicators.prev_ema_fast:.2f}" if engine.indicators.prev_ema_fast is not None else "None"
-                                prev_slow_str = f"{engine.indicators.prev_ema_slow:.2f}" if engine.indicators.prev_ema_slow is not None else "None"
-                                logger.debug(
-                                    f"[BACKFILL] 지표 상태 복원 완료 | "
-                                    f"prev_ema_fast={prev_fast_str} "
-                                    f"prev_ema_slow={prev_slow_str}"
-                                )
+                                    except Exception as _restore_exc:
+                                        # ✅ WO-1 추가 C 설계 제약 #2 + #3: 복원 실패 = 지표 오염 상태
+                                        # silent continue 금지 → ERROR 로그 + 안전 플래그 + CRITICAL notifier
+                                        logger.error(
+                                            f"[BACKFILL] ❌ 지표 상태 복원 실패 = 지표 오염 상태 | "
+                                            f"exception={_restore_exc}",
+                                            exc_info=True,
+                                        )
+                                        try:
+                                            # 안전 플래그: 후속 매매 억제 코드에서 이 플래그를 참조하여 신호 발생을 차단해야 함
+                                            # (매매 억제 로직은 별도 후속 작업. 여기서는 플래그 세팅과 알림까지 책임)
+                                            setattr(engine.indicators, 'state_polluted', True)
+                                        except Exception:
+                                            pass
+                                        try:
+                                            from services.notifier import send as _notify, LEVEL_CRITICAL
+                                            _notify(
+                                                LEVEL_CRITICAL,
+                                                f"🚨 [BACKFILL] 지표 상태 복원 실패 — {user_id}",
+                                                (
+                                                    f"BACKFILL 처리 중 지표 상태 복원에 실패했습니다.\n"
+                                                    f"엔진의 지표(EMA/MACD)가 오염된 상태로 남아 다음 봉 처리 시\n"
+                                                    f"잘못된 크로스 판정이 발생할 위험이 있습니다.\n\n"
+                                                    f"exception: {_restore_exc}\n"
+                                                    f"권장 조치: 봇 재시작 (WARMUP 재시드) 검토."
+                                                ),
+                                                dedupe_key=f"backfill_restore_fail:{user_id}",
+                                                dedupe_ttl=300,
+                                            )
+                                        except Exception:
+                                            pass
                         else:
                             msg = f"✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트"
                             logger.info(msg)

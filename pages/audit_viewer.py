@@ -281,7 +281,9 @@ if section == "buy":
             df_buy = pd.DataFrame(
                 df_buy,
                 columns=["timestamp","bar_time","ticker","interval_sec","bar","price","macd","signal",
-                         "have_position","overall_ok","failed_keys","checks","notes"]
+                         "have_position","overall_ok","failed_keys","checks","notes",
+                         # ✅ WO-1 옵션 B: BACKFILL 재평가 결과 분리 저장 컬럼
+                         "backfill_close","backfill_reason","backfill_at","backfill_type","prev_close"]
             )
         def _j(x):
             try:
@@ -362,16 +364,29 @@ if section == "buy":
         # ✅ 2026-08-05 정규화: via_backfill 값이 SQLite/JSON 왕복에서 bool/int/str
         # 어떤 형태로 저장되어도 truthy 판정. 저장 값 예: True, 1, "1", "true", "True".
         # False 계열: False, 0, "0", "false", None, missing key.
-        def _get_via_backfill(checks):
+        #
+        # ✅ WO-1 (JTO-Claim-20260821-001): 옵션 B (별도 컬럼) 도입 이후 우선순위:
+        #   1) backfill_type 컬럼 존재 시 → 신형 표기 (변경형/누락형 구분, F6 오독 방지)
+        #      - 'missing_bar' → 🔄 (실시간 판정 없음, backfill_* 컬럼만 유효)
+        #      - 'changed_close' → 🔄⚠️ (실시간 판정 별도 존재, backfill_* 는 상태 이중 반영으로 참고용)
+        #   2) 신규 컬럼 없음 (마이그레이션 이전 데이터) → 기존 checks.via_backfill 정규화
+        def _get_via_backfill_display(row):
+            # 신형 컬럼 우선
+            bf_type = row.get("backfill_type") if hasattr(row, "get") else None
+            if bf_type == "missing_bar":
+                return "🔄"
+            if bf_type == "changed_close":
+                return "🔄⚠️"
+            # 하위호환: 기존 checks.via_backfill
+            checks = row.get("checks") if hasattr(row, "get") else None
             if not isinstance(checks, dict):
                 return ""
             raw = checks.get('via_backfill', False)
-            # 명시 정규화: bool/int/str 모두 커버
             if raw is True or raw == 1 or (isinstance(raw, str) and raw.lower() in ("1", "true")):
                 return "🔄"
             return ""
 
-        df_buy["via_backfill_display"] = df_buy["checks"].apply(_get_via_backfill)
+        df_buy["via_backfill_display"] = df_buy.apply(_get_via_backfill_display, axis=1)
 
         # ✅ is_gap_strategy 컬럼 추가
         df_buy["is_gap_strategy"] = df_buy["strategy_mode"] == "BASE_EMA_GAP"
@@ -547,7 +562,8 @@ elif section == "sell":
     q = """
         SELECT timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
                tp_price, sl_price, highest, ts_pct, ts_armed, bars_held,
-               checks, triggered, trigger_key, notes
+               checks, triggered, trigger_key, notes,
+               backfill_close, backfill_reason, backfill_at, backfill_type, prev_close
         FROM audit_sell_eval
         WHERE 1=1
     """
