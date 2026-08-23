@@ -21,7 +21,7 @@ from core.strategy_engine import StrategyEngine
 
 # 🚀 REST Reconcile 모듈
 from core.candle_clock import CandleClock
-from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle, verify_past_candles_with_upbit
+from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle, fetch_confirmed_candle_v2, verify_past_candles_with_upbit
 from core.time_utils import now_utc, format_kst, floor_to_interval
 from core.candle_validator import CandleValidator
 
@@ -942,16 +942,17 @@ def run_live_loop(
                     if RECONCILE_ON_EVERY_CLOSE:
                         logger.info(f"🔄 [REST-RECONCILE] Fetching {RECONCILE_LOOKBACK_BARS} bars from REST...")
 
-                        # ✅ WO-2026-001 Task 1-A + Issue #8 강화: 최신 봉 확정 검증
-                        # closed_ts 봉을 별도로 조회하여 확정 종가만 반환 보장
-                        # Progressive Retry: interval의 50% 시간만 사용 (다음 봉 놓치지 않도록)
-                        # - 1분봉: 최대 27초 (5회)
-                        # - 3분봉: 최대 87초 (17회)
-                        confirmed_row = fetch_confirmed_candle(
+                        # ✅ WO-2 옵션 6 (JTO-Claim-20260821-001): '다음 봉 존재 = 확정' 결정적 판정
+                        # 재실측(H-R1) 근거: Upbit REST 는 거래 발생 시 진행 중 봉을 즉시 응답 포함,
+                        # 무거래 분은 캔들 자체 부재. 봉 T+1 존재 시 봉 T close 는 결정적 확정.
+                        # - 평균 지연: 0.1~5s (거래 시), ~30s (저volume)
+                        # - 상한 30s → BACKFILL fallback (기존 흐름과 동일)
+                        # - I2: 무거래 봉 즉시 단락 (audit 미생성)
+                        # - I1: verify 재조회 경로(과거 ts)는 기존 fetch_confirmed_candle 유지
+                        confirmed_row = fetch_confirmed_candle_v2(
                             ticker=params.upbit_ticker,
                             timeframe=params.interval,
-                            closed_ts=closed_ts
-                            # max_retry는 자동 계산 (interval 기반)
+                            closed_ts=closed_ts,
                         )
 
                         # 과거 데이터는 safe_fetch_rest로 조회 (이미 확정됨)
