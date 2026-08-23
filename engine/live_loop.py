@@ -21,7 +21,7 @@ from core.strategy_engine import StrategyEngine
 
 # 🚀 REST Reconcile 모듈
 from core.candle_clock import CandleClock
-from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle, fetch_confirmed_candle_v2, verify_past_candles_with_upbit
+from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle, fetch_confirmed_candle_v3, verify_past_candles_with_upbit
 from core.time_utils import now_utc, format_kst, floor_to_interval
 from core.candle_validator import CandleValidator
 
@@ -942,14 +942,14 @@ def run_live_loop(
                     if RECONCILE_ON_EVERY_CLOSE:
                         logger.info(f"🔄 [REST-RECONCILE] Fetching {RECONCILE_LOOKBACK_BARS} bars from REST...")
 
-                        # ✅ WO-2 옵션 6 (JTO-Claim-20260821-001): '다음 봉 존재 = 확정' 결정적 판정
-                        # 재실측(H-R1) 근거: Upbit REST 는 거래 발생 시 진행 중 봉을 즉시 응답 포함,
-                        # 무거래 분은 캔들 자체 부재. 봉 T+1 존재 시 봉 T close 는 결정적 확정.
-                        # - 평균 지연: 0.1~5s (거래 시), ~30s (저volume)
-                        # - 상한 30s → BACKFILL fallback (기존 흐름과 동일)
-                        # - I2: 무거래 봉 즉시 단락 (audit 미생성)
-                        # - I1: verify 재조회 경로(과거 ts)는 기존 fetch_confirmed_candle 유지
-                        confirmed_row = fetch_confirmed_candle_v2(
+                        # ✅ WO-2 옵션 7 + C1 오프바이원 교정 (개정 2.1판, JTO-Claim-20260821-001):
+                        # - v3 입구에서 upbit_ts = closed_ts - interval_sec 변환 (봇 라벨 → Upbit 라벨)
+                        # - FAST path (T-1 완결 + next 존재): 즉시 확정 (활성 종목 지연 ≤ 5s)
+                        # - SLOW path (T-1 완결 + next 부재): close 안정화 2회 일치 (저유동성)
+                        # - I2 (next 존재 + T-1 부재): 무거래 봉 즉시 단락
+                        # - A1 무해/유해 fallback 분류: NO-DATA 는 CRITICAL 미가산, 유해만 카운터
+                        # - verify 재조회 경로(과거 ts) 는 기존 fetch_confirmed_candle 유지 (I1)
+                        confirmed_row = fetch_confirmed_candle_v3(
                             ticker=params.upbit_ticker,
                             timeframe=params.interval,
                             closed_ts=closed_ts,
@@ -981,7 +981,19 @@ def run_live_loop(
                                 logger.warning(f"[CONFIRMED-ADD] closed_ts={format_kst(closed_ts)} 추가")
                                 rest_df = pd.concat([rest_df, confirmed_row.to_frame().T]).sort_index()
                         elif confirmed_row is None:
-                            logger.error(f"❌ [CONFIRMED] closed_ts={format_kst(closed_ts)} 조회 실패 → Reconcile 계속 (미확정 종가 사용 가능)")
+                            # ✅ WO-2 v3 P0 옵션 A: v3가 None 반환 시 봉 처리 즉시 중단.
+                            # 기존 프로덕션 F5 본체 경로 (미확정 rest_df → reconcile → 1217 → is_confirmed=True → 매매) 봉쇄.
+                            # v3 None 케이스 (I2/NO-DATA/유해 fallback) 모두 스킵이 안전:
+                            # - I2 (NO-TRADE-BAR): 무거래 봉, audit 미생성 유지
+                            # - NO-DATA (무해): 대상·후속 모두 무거래, BACKFILL 위임
+                            # - 유해 fallback: T-1 확인됐으나 SLOW 실패, BACKFILL 위임
+                            # 스킵된 봉은 다음 iteration REST-RECONCILE 에서 changed_ts 로 재감지 → BACKFILL 재평가.
+                            logger.info(
+                                f"⏸ [SKIP-BAR] ts={format_kst(closed_ts)} v3 미확정 → 봉 처리 보류 "
+                                f"(차기 reconcile/BACKFILL 위임, F5 뒷문 봉쇄)"
+                            )
+                            time.sleep(1)  # CPU 스핀 방지 (라인 1328 sleep 이 continue 로 건너뛰어짐)
+                            continue
 
                         # Reconcile: REST vs Local
                         merged, diff_summary = reconcile_series(local_series, rest_df)

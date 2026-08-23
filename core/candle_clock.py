@@ -81,20 +81,33 @@ class CandleClock:
 
     def get_closed_ts(self, now: datetime) -> datetime:
         """
+        ⚠️ [DOCSTRING BUG · WO-6 후보 · WO-2 개정 2.1판 §9 등재]
+        docstring/example 이 "방금 확정된 봉의 시작 시각" 이라 주장하지만 실제
+        반환값은 진행 중 봉의 시작 시각 (오프바이원). 즉 now=09:05:42 시점에는
+        09:04 봉 (09:04:00~09:04:59) 이 방금 확정된 것이나, 이 함수는 09:05:00
+        (진행 중 09:05 봉의 시작 시각) 을 반환한다.
+
+        파이프라인의 다른 코드(live_loop, audit, invariant 등) 는 이 관행에
+        맞춰 작성되어 있어 전역 수정은 영향 큼. WO-2 는 rest_reconcile.py 의
+        fetch_confirmed_candle_v3 함수 경계에서 upbit_ts = closed_ts − interval_sec
+        변환으로 국지 보정 (C1). 전역 개편은 WO-6 로 이관.
+
         방금 확정된 봉의 timestamp (UTC 기준)
 
         Args:
             now: 현재 시각 (UTC)
 
         Returns:
-            datetime: 확정된 봉의 시작 시각 (UTC)
+            datetime: (오프바이원) 진행 중 봉의 시작 시각. 실제 완결된 봉은
+                      반환값 − interval_sec.
 
         Example:
             >>> clock = CandleClock("minute1")
             >>> now = datetime(2026, 2, 28, 9, 5, 42, tzinfo=UTC)
             >>> closed = clock.get_closed_ts(now)
             >>> closed
-            datetime(2026, 2, 28, 9, 5, 0, tzinfo=UTC)
+            datetime(2026, 2, 28, 9, 5, 0, tzinfo=UTC)  # 진행 중 09:05 봉의 시작
+            # 실제 방금 확정된 봉: 09:04:00 ~ 09:04:59
         """
         closed_ts = floor_to_interval(now, self.interval_sec)
 

@@ -595,135 +595,195 @@ def fetch_confirmed_candle(
 
 
 # ============================================================
-# WO-2 (JTO-Claim-20260821-001): 옵션 6 — "다음 봉 존재 = 확정" 결정적 판정
+# WO-2 (JTO-Claim-20260821-001, 개정 2.1판): 옵션 7 (혼합) + 오프바이원 v2 경계 교정
 # ============================================================
 
-def fetch_confirmed_candle_v2(
+def fetch_confirmed_candle_v3(
     ticker: str,
     timeframe: str,
     closed_ts: datetime,
 ) -> Optional[pd.Series]:
     """
-    WO-2 옵션 6: '다음 봉(진행 중 or 확정) 존재' 로 봉 T 확정을 결정적 판정.
+    WO-2 옵션 7 (혼합) + C1 오프바이원 교정:
+      1. v3 입구에서 upbit_ts = closed_ts - interval_sec 변환 (봇 라벨 → Upbit 라벨)
+      2. FAST path: has_upbit_T AND has_next (봇 라벨 = Upbit 의 다음 봉) → 즉시 확정
+      3. I2: has_next AND NOT has_upbit_T → 무거래 봉 즉시 단락
+      4. SLOW path: has_upbit_T AND NOT has_next → close 안정화 2회 일치 (5s×4=20s)
+      5. FINAL: 상한 30s → A1 분류 (NO-DATA 무해 / 유해 fallback)
 
-    재실측(H-R1) 근거 (docs/plans/2026-08-23-wo2-fetch-confirmed-hardening.md §4):
-      - Upbit REST 는 거래 발생 시 진행 중 봉을 즉시 응답에 포함
-      - 무거래 분은 캔들 자체 부재 (skip·지연 아님)
-      → 봉 T+X (X≥1) 이 응답에 있으면 봉 T 의 close 는 결정적으로 확정된 값
+    ⚠️ candle_clock.py:82 get_closed_ts 오프바이원 (봇 CLOCK-CLOSE 시각 = 진행 중
+       봉 시작 시각) 을 v3 경계에서 교정. 파이프라인 전역 라벨 개편은 WO-6.
+
+    A1 분류 (CRITICAL 오경보 방지):
+      - had_upbit_T_ever=false AND had_next_ever=false → NO-DATA (무해, 카운터 미가산)
+      - had_upbit_T_ever=true → 유해 fallback (카운터 가산, 5회 CRITICAL)
+      - I2 단락 → 카운터 무관
 
     Args:
-        ticker: 종목 코드 (예: KRW-JTO)
+        ticker: 종목 코드
         timeframe: "minute1" 등
-        closed_ts: 확정 대상 봉 timestamp (UTC, timezone-aware)
+        closed_ts: 봇 라벨 (get_closed_ts 결과, UTC tz-aware)
 
     Returns:
         pd.Series | None
-          - 확정 반환: 대상 봉 row (실시간 처리로 진행)
-          - None + I2 로그: 무거래 봉 (즉시 단락, audit 미생성)
-          - None + fallback 로그: 상한 30s 후 fallback (BACKFILL 로 흡수)
+          - 확정: 대상 봉 row (봇 라벨로 복원)
+          - None: 무거래 (I2) / NO-DATA (무해) / 유해 fallback
 
-    ⚠️ 이 함수는 '현재 봉' 확정 판정 전용. 과거 봉 재조회(verify 등)는 기존
-       fetch_confirmed_candle() 사용 (count 산정이 다름 — I1 함수 분리 근거).
+    ⚠️ 이 함수는 '현재 봉' 확정 판정 전용. 과거 봉 재조회는 기존
+       fetch_confirmed_candle() 사용.
     """
     from datetime import datetime as _dt
     import pyupbit
-    # I1: count=3 (count=2 는 무거래 갭에서 T 밀림 위험)
+
+    # C1: v3 입구 라벨 교정. candle_clock.py 의 오프바이원을 경계에서 흡수.
+    interval_sec = CandleClock.TIMEFRAME_SEC.get(timeframe, 60)
+    upbit_ts = closed_ts - timedelta(seconds=interval_sec)
+
     COUNT = 3
-    MAX_RETRY = 7           # 0s + 5×6 = 30s 상한
+    FAST_MAX_RETRY = 7      # 0s + 5×6 = 30s 총 상한 (FAST + SLOW 합산)
     WAIT_SEC = 5
     t_first_call = _dt.now(timezone.utc)
 
-    for attempt in range(MAX_RETRY):
+    # A1: 상한 도달 시 무해/유해 판정용 이력 트래킹
+    had_upbit_T_ever = False
+    had_next_ever = False
+
+    # 최근 조회의 upbit_T close (SLOW path 안정화 검증용)
+    last_upbit_T_close: Optional[float] = None
+
+    for attempt in range(FAST_MAX_RETRY):
         try:
-            df = pyupbit.get_ohlcv(
-                ticker=ticker,
-                interval=timeframe,
-                count=COUNT,
-            )
+            df = pyupbit.get_ohlcv(ticker=ticker, interval=timeframe, count=COUNT)
         except Exception as e:
             logger.warning(
-                f"[CONFIRMED-D] 예외 발생 | ticker={ticker} ts={format_kst(closed_ts)} | "
-                f"attempt={attempt+1}/{MAX_RETRY} | {e}"
+                f"[CONFIRMED-D] 예외 | ticker={ticker} upbit_ts={format_kst(upbit_ts)} "
+                f"attempt={attempt+1}/{FAST_MAX_RETRY} | {e}"
             )
-            if attempt < MAX_RETRY - 1:
+            if attempt < FAST_MAX_RETRY - 1:
                 time.sleep(WAIT_SEC)
             continue
 
         if df is None or df.empty:
-            if attempt < MAX_RETRY - 1:
+            if attempt < FAST_MAX_RETRY - 1:
                 time.sleep(WAIT_SEC)
             continue
 
-        # 컬럼명 표준화 + Timezone UTC 변환
         df.columns = [c.capitalize() for c in df.columns]
         if df.index.tzinfo is None:
             df.index = df.index.tz_localize("Asia/Seoul")
         df.index = df.index.tz_convert("UTC")
 
-        # I1: timestamp 기반 판정 (iloc/last-row 참조 금지)
-        has_next = any(ts > closed_ts for ts in df.index)
-        has_T = closed_ts in df.index
+        # 판정
+        has_upbit_T = upbit_ts in df.index                      # 완결된 T-1 봉 존재
+        has_next    = any(ts > upbit_ts for ts in df.index)     # T-1 이후 봉 (진행 중 or 확정) 존재
 
-        if has_next and has_T:
-            # ✅ 결정적 확정
+        # 이력 트래킹 (A1)
+        if has_upbit_T:
+            had_upbit_T_ever = True
+        if has_next:
+            had_next_ever = True
+
+        # ─── FAST path: 완결된 T-1 존재 + 다음 봉 존재 → 즉시 확정 ───
+        if has_upbit_T and has_next:
             elapsed_ms = (_dt.now(timezone.utc) - t_first_call).total_seconds() * 1000
-            row = df.loc[closed_ts]
+            row = df.loc[upbit_ts].copy()
+            row.name = closed_ts  # ★ 봇 라벨로 복원해 반환 (파이프라인 라벨링 유지)
             logger.info(
-                f"✅ [CONFIRMED-D] ts={format_kst(closed_ts)} close={row['Close']:.0f} "
+                f"✅ [CONFIRMED-D-FAST] ts={format_kst(closed_ts)} "
+                f"upbit_ts={format_kst(upbit_ts)} close={row['Close']:.0f} "
                 f"via=next_bar_exists elapsed={elapsed_ms:.0f}ms"
             )
-            # 연속 실패 카운터 리셋 (기존 함수와 동일 정책)
             _confirmed_fetch_consecutive_failures[ticker] = 0
             return row
 
-        if has_next and not has_T:
-            # I2: 무거래 봉 즉시 단락 (재시도 금지, audit 미생성)
+        # ─── I2: 다음 봉 존재하나 T-1 부재 → 무거래 봉 즉시 단락 ───
+        if has_next and not has_upbit_T:
             logger.info(
-                f"⏭ [NO-TRADE-BAR] ts={format_kst(closed_ts)} 처리 생략 "
-                f"(다음 봉 존재하나 대상 봉 부재 = 무거래 분)"
+                f"⏭ [NO-TRADE-BAR] upbit_ts={format_kst(upbit_ts)} "
+                f"(봇 라벨={format_kst(closed_ts)}) 무거래 분 (audit 미생성)"
             )
             return None
 
-        # not has_next → 다음 봉 아직 미등장, 재시도
-        if attempt < MAX_RETRY - 1:
+        # ─── SLOW path: T-1 존재하나 next 부재 → close 안정화 검증 ───
+        if has_upbit_T and not has_next:
+            new_close = float(df.loc[upbit_ts]['Close'])
+            if last_upbit_T_close is not None and abs(new_close - last_upbit_T_close) < 1e-9:
+                # 2회 연속 일치 → SLOW 확정
+                elapsed_ms = (_dt.now(timezone.utc) - t_first_call).total_seconds() * 1000
+                row = df.loc[upbit_ts].copy()
+                row.name = closed_ts
+                logger.info(
+                    f"✅ [CONFIRMED-D-SLOW] ts={format_kst(closed_ts)} "
+                    f"upbit_ts={format_kst(upbit_ts)} close={row['Close']:.0f} "
+                    f"via=close_stable_2consec elapsed={elapsed_ms:.0f}ms"
+                )
+                _confirmed_fetch_consecutive_failures[ticker] = 0
+                return row
+            last_upbit_T_close = new_close
+            if attempt < FAST_MAX_RETRY - 1:
+                logger.debug(
+                    f"[CONFIRMED-D-SLOW] 안정화 대기 | upbit_ts={format_kst(upbit_ts)} "
+                    f"close={new_close:.0f} attempt={attempt+1}/{FAST_MAX_RETRY}"
+                )
+                time.sleep(WAIT_SEC)
+                continue
+
+        # ─── 그 외 (has_upbit_T=false AND has_next=false) → 재시도 대기 ───
+        if attempt < FAST_MAX_RETRY - 1:
             logger.debug(
-                f"[CONFIRMED-D] 다음 봉 미등장 | ts={format_kst(closed_ts)} | "
-                f"attempt={attempt+1}/{MAX_RETRY} | {WAIT_SEC}s 대기"
+                f"[CONFIRMED-D] 대상·후속 모두 미등장 | upbit_ts={format_kst(upbit_ts)} "
+                f"attempt={attempt+1}/{FAST_MAX_RETRY} | {WAIT_SEC}s 대기"
             )
             time.sleep(WAIT_SEC)
 
-    # 상한 30s 도달 → BACKFILL fallback (기존 정책과 동일 log/notify 흐름)
-    total_wait = (MAX_RETRY - 1) * WAIT_SEC
+    # ─── 상한 30s 도달 → A1 분류 ───
+    if not had_upbit_T_ever and not had_next_ever:
+        # 무해 fallback (NO-DATA): 대상 봉·후속 모두 무거래 시간대. CRITICAL 카운터 미가산.
+        logger.info(
+            f"⏸ [NO-DATA] upbit_ts={format_kst(upbit_ts)} (봇 라벨={format_kst(closed_ts)}) "
+            f"대상·후속 봉 모두 무거래 → BACKFILL fallback (무해, CRITICAL 카운터 미가산)"
+        )
+        return None
+
+    # 유해 fallback: had_upbit_T=true 인 순간 존재했으나 최종 확정 실패
+    # (FAST 실패 + SLOW 도 close 안정화 실패)
     _fails = _confirmed_fetch_consecutive_failures.get(ticker, 0) + 1
     _confirmed_fetch_consecutive_failures[ticker] = _fails
     if _fails >= _CONFIRMED_FETCH_CRITICAL_THRESHOLD:
         logger.warning(
-            f"🚨 [CONFIRMED-D] 연속 {_fails}회 실패 (임계 {_CONFIRMED_FETCH_CRITICAL_THRESHOLD}) | "
-            f"ticker={ticker} ts={format_kst(closed_ts)}"
+            f"🚨 [CONFIRMED-D] 유해 fallback 연속 {_fails}회 (임계 "
+            f"{_CONFIRMED_FETCH_CRITICAL_THRESHOLD}) | ticker={ticker} "
+            f"upbit_ts={format_kst(upbit_ts)}"
         )
         try:
             from services.notifier import send as _notify, LEVEL_CRITICAL
             _notify(
                 LEVEL_CRITICAL,
-                f"🚨 [CONFIRMED-D] {ticker} 연속 {_fails}회 실패",
+                f"🚨 [CONFIRMED-D] {ticker} 유해 fallback 연속 {_fails}회",
                 (
-                    f"fetch_confirmed_candle_v2 (옵션 6) 이 연속 {_fails}회 실패.\n"
+                    f"fetch_confirmed_candle_v3 (옵션 7) 유해 fallback 연속 {_fails}회.\n"
                     f"ticker: {ticker}\n"
-                    f"봉 시각: {format_kst(closed_ts)}\n\n"
-                    f"💡 Upbit REST 지속 지연 or 다음 봉 등장 이상. BACKFILL 로 흡수."
+                    f"봉 시각 (봇 라벨): {format_kst(closed_ts)}\n"
+                    f"봉 시각 (upbit): {format_kst(upbit_ts)}\n\n"
+                    f"💡 T-1 존재 확인됐으나 FAST+SLOW 모두 확정 실패. "
+                    f"Upbit REST 지속 지연 or 시스템 이상 의심."
                 ),
-                dedupe_key=f"confirmed_d_fail:{ticker}",
+                dedupe_key=f"confirmed_d_v3_fail:{ticker}",
                 dedupe_ttl=300,
             )
         except Exception:
             pass
     else:
         logger.info(
-            f"[CONFIRMED-D] 다음 봉 미등장 상한 도달 → BACKFILL fallback "
+            f"[CONFIRMED-D] 확정 실패 (유해, FAST·SLOW 모두 불발) "
             f"({_fails}/{_CONFIRMED_FETCH_CRITICAL_THRESHOLD}) | "
-            f"({MAX_RETRY}회, {total_wait}s) | ts={format_kst(closed_ts)}"
+            f"upbit_ts={format_kst(upbit_ts)}"
         )
     return None
+
+
+# 하위 호환 alias — v2 이름을 임시 유지 (다른 코드에서 참조 방지용, 신규 사용 금지)
+fetch_confirmed_candle_v2 = fetch_confirmed_candle_v3
 
 
 # ============================================================
