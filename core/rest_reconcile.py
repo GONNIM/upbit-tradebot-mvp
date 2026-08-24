@@ -602,14 +602,20 @@ def fetch_confirmed_candle_v3(
     ticker: str,
     timeframe: str,
     closed_ts: datetime,
-) -> Optional[pd.Series]:
+) -> "Optional[Tuple[datetime, pd.Series]]":
     """
-    WO-2 옵션 7 (혼합) + C1 오프바이원 교정:
+    WO-2 옵션 7 (혼합) + C1 오프바이원 교정 + H-A 라벨 통일 (개정 2.2판):
       1. v3 입구에서 upbit_ts = closed_ts - interval_sec 변환 (봇 라벨 → Upbit 라벨)
       2. FAST path: has_upbit_T AND has_next (봇 라벨 = Upbit 의 다음 봉) → 즉시 확정
       3. I2: has_next AND NOT has_upbit_T → 무거래 봉 즉시 단락
       4. SLOW path: has_upbit_T AND NOT has_next → close 안정화 2회 일치 (5s×4=20s)
       5. FINAL: 상한 30s → A1 분류 (NO-DATA 무해 / 유해 fallback)
+
+    ⚠️ H-A (2026-08-24, 2차 배포 롤백 원인 봉쇄):
+      row.name 을 봇 라벨(closed_ts) 로 복원하지 않고 upbit_ts 그대로 유지.
+      호출측이 upbit_ts 로 rest_df/local_series 인덱스와 일관 매칭.
+      → 라벨 이중화 (동일 upbit 캔들이 두 ts 로 존재) 결함 원천 봉쇄.
+      반환 인터페이스: (upbit_ts, Series) 튜플. Series.name = upbit_ts.
 
     ⚠️ candle_clock.py:82 get_closed_ts 오프바이원 (봇 CLOCK-CLOSE 시각 = 진행 중
        봉 시작 시각) 을 v3 경계에서 교정. 파이프라인 전역 라벨 개편은 WO-6.
@@ -625,8 +631,8 @@ def fetch_confirmed_candle_v3(
         closed_ts: 봇 라벨 (get_closed_ts 결과, UTC tz-aware)
 
     Returns:
-        pd.Series | None
-          - 확정: 대상 봉 row (봇 라벨로 복원)
+        (upbit_ts, pd.Series) | None
+          - 확정: (upbit_ts, row) — row.name == upbit_ts, 호출측 upbit_ts 로 사용
           - None: 무거래 (I2) / NO-DATA (무해) / 유해 fallback
 
     ⚠️ 이 함수는 '현재 봉' 확정 판정 전용. 과거 봉 재조회는 기존
@@ -687,14 +693,15 @@ def fetch_confirmed_candle_v3(
         if has_upbit_T and has_next:
             elapsed_ms = (_dt.now(timezone.utc) - t_first_call).total_seconds() * 1000
             row = df.loc[upbit_ts].copy()
-            row.name = closed_ts  # ★ 봇 라벨로 복원해 반환 (파이프라인 라벨링 유지)
+            # ⚠️ H-A: row.name 을 upbit_ts 그대로 유지 (봇 라벨 복원 금지 — 라벨 이중화 원천 봉쇄)
+            row.name = upbit_ts
             logger.info(
-                f"✅ [CONFIRMED-D-FAST] ts={format_kst(closed_ts)} "
+                f"✅ [CONFIRMED-D-FAST] closed_ts={format_kst(closed_ts)} "
                 f"upbit_ts={format_kst(upbit_ts)} close={row['Close']:.0f} "
                 f"via=next_bar_exists elapsed={elapsed_ms:.0f}ms"
             )
             _confirmed_fetch_consecutive_failures[ticker] = 0
-            return row
+            return (upbit_ts, row)
 
         # ─── I2: 다음 봉 존재하나 T-1 부재 → 무거래 봉 즉시 단락 ───
         if has_next and not has_upbit_T:
@@ -711,14 +718,15 @@ def fetch_confirmed_candle_v3(
                 # 2회 연속 일치 → SLOW 확정
                 elapsed_ms = (_dt.now(timezone.utc) - t_first_call).total_seconds() * 1000
                 row = df.loc[upbit_ts].copy()
-                row.name = closed_ts
+                # ⚠️ H-A: row.name 을 upbit_ts 그대로 유지 (봇 라벨 복원 금지)
+                row.name = upbit_ts
                 logger.info(
-                    f"✅ [CONFIRMED-D-SLOW] ts={format_kst(closed_ts)} "
+                    f"✅ [CONFIRMED-D-SLOW] closed_ts={format_kst(closed_ts)} "
                     f"upbit_ts={format_kst(upbit_ts)} close={row['Close']:.0f} "
                     f"via=close_stable_2consec elapsed={elapsed_ms:.0f}ms"
                 )
                 _confirmed_fetch_consecutive_failures[ticker] = 0
-                return row
+                return (upbit_ts, row)
             last_upbit_T_close = new_close
             if attempt < FAST_MAX_RETRY - 1:
                 logger.debug(

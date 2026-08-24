@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.23.1849")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.08.24.1205")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -1372,12 +1372,17 @@ def _render_latest_signal_section():
 
         # SELL 평가 정보
         # ✅ checks JSON에서 cross_status 추출
-        checks_raw = latest.get('checks', '{}')
+        # ✅ AD1 (2026-08-24, WO-2 v3 롤백 원인 봉쇄): checks 가 None 인 경우
+        # (WO-1 옵션 B missing_bar 행: 실시간 컬럼 NULL) 을 방어. 라인 1396 이하
+        # checks.get() 접근에서 AttributeError 재발 방지.
+        checks_raw = latest.get('checks') or '{}'
         try:
             import json
-            checks = json.loads(checks_raw) if isinstance(checks_raw, str) else checks_raw
+            _parsed = json.loads(checks_raw) if isinstance(checks_raw, str) else checks_raw
+            checks = _parsed if isinstance(_parsed, dict) else {}
             cross_status = checks.get('cross_status', 'Neutral')
         except Exception:
+            checks = {}
             cross_status = 'Neutral'
 
         # ✅ 상태 표시: triggered > cross_status 순으로 우선순위

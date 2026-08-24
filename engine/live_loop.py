@@ -942,18 +942,25 @@ def run_live_loop(
                     if RECONCILE_ON_EVERY_CLOSE:
                         logger.info(f"🔄 [REST-RECONCILE] Fetching {RECONCILE_LOOKBACK_BARS} bars from REST...")
 
-                        # ✅ WO-2 옵션 7 + C1 오프바이원 교정 (개정 2.1판, JTO-Claim-20260821-001):
-                        # - v3 입구에서 upbit_ts = closed_ts - interval_sec 변환 (봇 라벨 → Upbit 라벨)
-                        # - FAST path (T-1 완결 + next 존재): 즉시 확정 (활성 종목 지연 ≤ 5s)
-                        # - SLOW path (T-1 완결 + next 부재): close 안정화 2회 일치 (저유동성)
-                        # - I2 (next 존재 + T-1 부재): 무거래 봉 즉시 단락
-                        # - A1 무해/유해 fallback 분류: NO-DATA 는 CRITICAL 미가산, 유해만 카운터
-                        # - verify 재조회 경로(과거 ts) 는 기존 fetch_confirmed_candle 유지 (I1)
-                        confirmed_row = fetch_confirmed_candle_v3(
+                        # ✅ WO-2 v3 + H-A 라벨 통일 (개정 2.2판, JTO-Claim-20260821-001):
+                        # - v3 반환: (upbit_ts, Series) 튜플 or None
+                        # - upbit_ts 는 실제 완결된 upbit 캔들의 시작 라벨 (closed_ts - interval_sec)
+                        # - H-A: rest_df/local_series/Bar.ts 는 모두 upbit 라벨로 일관 (라벨 이중화 봉쇄)
+                        # - closed_ts (봇 라벨) 는 CLOCK-CLOSE 중복 방지 (last_bar_ts)에만 사용
+                        # - I2/NO-DATA/유해 fallback → None → SKIP-BAR + continue (P0 옵션 A)
+                        _v3_result = fetch_confirmed_candle_v3(
                             ticker=params.upbit_ticker,
                             timeframe=params.interval,
                             closed_ts=closed_ts,
                         )
+
+                        # 튜플 언패킹 + None 처리
+                        if _v3_result is None:
+                            confirmed_row = None
+                            upbit_ts = None
+                        else:
+                            upbit_ts, confirmed_row = _v3_result
+                            # upbit_ts 는 이후 rest_df / local_series / Bar 인덱스 매칭에 사용
 
                         # 과거 데이터는 safe_fetch_rest로 조회 (이미 확정됨)
                         rest_df = safe_fetch_rest(
@@ -963,36 +970,30 @@ def run_live_loop(
                             total_count=RECONCILE_LOOKBACK_BARS
                         )
 
-                        # ✅ 확정 봉 검증 성공 시 rest_df 업데이트 (미확정 종가 덮어쓰기)
+                        # ✅ H-A: rest_df 병합은 upbit_ts 위치에 (봇 라벨 위치 덮어쓰기 금지)
                         if confirmed_row is not None and rest_df is not None:
-                            if closed_ts in rest_df.index:
-                                # rest_df의 closed_ts 봉을 fetch_confirmed_candle 결과로 덮어쓰기
-                                original_close = rest_df.loc[closed_ts, 'Close']
-                                rest_df.loc[closed_ts] = confirmed_row
-                                new_close = rest_df.loc[closed_ts, 'Close']
-
+                            if upbit_ts in rest_df.index:
+                                original_close = rest_df.loc[upbit_ts, 'Close']
+                                rest_df.loc[upbit_ts] = confirmed_row
+                                new_close = rest_df.loc[upbit_ts, 'Close']
                                 if abs(original_close - new_close) > 0.01:
                                     logger.warning(
-                                        f"[CONFIRMED-FIX] 최신 봉 종가 보정 | ts={format_kst(closed_ts)} | "
+                                        f"[CONFIRMED-FIX] 최신 봉 종가 보정 | upbit_ts={format_kst(upbit_ts)} | "
                                         f"미확정={original_close:.0f} → 확정={new_close:.0f}"
                                     )
                             else:
-                                # rest_df에 closed_ts 없으면 추가
-                                logger.warning(f"[CONFIRMED-ADD] closed_ts={format_kst(closed_ts)} 추가")
+                                # rest_df에 upbit_ts 없으면 추가 (진행 중 봉 첫 체결 이전 케이스)
+                                logger.warning(f"[CONFIRMED-ADD] upbit_ts={format_kst(upbit_ts)} 추가")
                                 rest_df = pd.concat([rest_df, confirmed_row.to_frame().T]).sort_index()
                         elif confirmed_row is None:
-                            # ✅ WO-2 v3 P0 옵션 A: v3가 None 반환 시 봉 처리 즉시 중단.
-                            # 기존 프로덕션 F5 본체 경로 (미확정 rest_df → reconcile → 1217 → is_confirmed=True → 매매) 봉쇄.
-                            # v3 None 케이스 (I2/NO-DATA/유해 fallback) 모두 스킵이 안전:
-                            # - I2 (NO-TRADE-BAR): 무거래 봉, audit 미생성 유지
-                            # - NO-DATA (무해): 대상·후속 모두 무거래, BACKFILL 위임
-                            # - 유해 fallback: T-1 확인됐으나 SLOW 실패, BACKFILL 위임
-                            # 스킵된 봉은 다음 iteration REST-RECONCILE 에서 changed_ts 로 재감지 → BACKFILL 재평가.
+                            # ✅ P0 옵션 A: v3 None 시 봉 처리 즉시 중단 (F5 뒷문 봉쇄).
+                            # I2/NO-DATA/유해 fallback 모두 스킵이 안전. 스킵된 봉은 다음 iteration
+                            # REST-RECONCILE에서 changed_ts 로 재감지 → BACKFILL 재평가.
                             logger.info(
-                                f"⏸ [SKIP-BAR] ts={format_kst(closed_ts)} v3 미확정 → 봉 처리 보류 "
+                                f"⏸ [SKIP-BAR] closed_ts={format_kst(closed_ts)} v3 미확정 → 봉 처리 보류 "
                                 f"(차기 reconcile/BACKFILL 위임, F5 뒷문 봉쇄)"
                             )
-                            time.sleep(1)  # CPU 스핀 방지 (라인 1328 sleep 이 continue 로 건너뛰어짐)
+                            time.sleep(1)
                             continue
 
                         # Reconcile: REST vs Local
@@ -1225,16 +1226,18 @@ def run_live_loop(
                     else:
                         logger.info("[VERIFY] 과거 봉 없음 → 검증 스킵 (초기 봉)")
 
-                    # 확정된 봉 추출
-                    if closed_ts in local_series.index:
-                        row = local_series.loc[closed_ts]
+                    # ✅ H-A 라벨 통일: 확정된 봉 추출은 upbit_ts (v3 반환값) 기준
+                    # v3 성공 케이스에서만 이 지점 진입 (v3 None 은 앞선 continue 로 스킵됨)
+                    # upbit_ts 는 rest_df.loc[upbit_ts] 로 병합됐고 local_series 에도 upbit_ts 인덱스로 존재
+                    if upbit_ts is not None and upbit_ts in local_series.index:
+                        row = local_series.loc[upbit_ts]
 
                         # WO-2026-001 Task 2-B: 🔒 봉 데이터 검증 가드
                         valid, reason = candle_validator.validate(row)
                         if not valid:
                             logger.error(
                                 f"[STRATEGY] 봉 검증 실패 ❌ | {reason} | "
-                                f"ts={format_kst(closed_ts)} | "
+                                f"upbit_ts={format_kst(upbit_ts)} | "
                                 f"O={row['Open']:.0f} H={row['High']:.0f} "
                                 f"L={row['Low']:.0f} C={row['Close']:.0f} V={row['Volume']:.2f} | "
                                 f"→ 전략 실행 차단 (포지션 현상 유지)"
@@ -1243,12 +1246,15 @@ def run_live_loop(
                             continue
 
                         logger.debug(
-                            f"[VALIDATOR] 봉 검증 통과 ✅ | ts={format_kst(closed_ts)} | "
+                            f"[VALIDATOR] 봉 검증 통과 ✅ | upbit_ts={format_kst(upbit_ts)} | "
                             f"C={row['Close']:.0f}"
                         )
 
+                        # ✅ H-A: Bar.ts 는 upbit 라벨 (실제 완결된 캔들의 시작 시각).
+                        # closed_ts (봇 라벨) 는 last_bar_ts 갱신용으로만 사용.
+                        # WO-6 오프바이원 근본 수정 예정.
                         bar = Bar(
-                            ts=closed_ts,
+                            ts=upbit_ts,
                             open=row['Open'],
                             high=row['High'],
                             low=row['Low'],
@@ -1262,10 +1268,13 @@ def run_live_loop(
                         # 엔진에 확정 봉 전달
                         engine.on_new_bar_confirmed(bar, local_series, diff_summary)
 
-                        # ✅ Critical Fix: engine.last_bar_ts 업데이트 (중복 방지)
+                        # ✅ Critical Fix: engine.last_bar_ts 업데이트 (중복 방지) — 봇 라벨(closed_ts) 유지
                         engine.last_bar_ts = closed_ts
 
-                        logger.info(f"✅ [CONFIRMED] 봉 처리 완료 | ts={format_kst(closed_ts)} | close={bar.close}")
+                        logger.info(
+                            f"✅ [CONFIRMED] 봉 처리 완료 | closed_ts={format_kst(closed_ts)} | "
+                            f"upbit_ts={format_kst(upbit_ts)} | close={bar.close}"
+                        )
                     else:
                         # ✅ Medium-Risk Fix: closed_ts 누락 시 재조회 (Progressive Retry)
                         logger.warning(f"⚠️ [CLOCK-CLOSE] closed_ts={format_kst(closed_ts)}가 local_series에 없음")

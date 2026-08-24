@@ -223,7 +223,107 @@ def fetch_confirmed_candle_v3(closed_ts, timeframe):  # closed_ts = 봇 라벨
 **⚠️ 경고 (C1 명시)**:
 > **교정 없이 SLOW path 를 붙이면 F5 재생산**. 오프바이원 있는 상태로 close 안정화 검증하면 진행 중 봉의 close 를 안정화된 값으로 오판 → 매매 판정을 진행 중 봉 값으로 실행하는 위험. **교정과 SLOW path는 반드시 함께 도입**.
 
-### 4.5 P0 옵션 A — v3 None 시 호출측 즉시 스킵 (F5 뒷문 봉쇄)
+### 4.6 라벨 이중화 결함 + H-A 개정판 (2026-08-23 19:22 롤백 원인)
+
+**관측 (LV1)**: 2차 배포 (v3 옵션 A) 후 29분 관측 결과 audit 이중화 확정.
+
+| bar_time | 실시간 price | backfill_close | 비고 |
+|---|---|---|---|
+| 18:56 | — | 782 (missing_bar) | 실 upbit 봉 |
+| 18:57 | 782 | — | 봇 라벨 (내용=upbit 18:56) |
+| 19:00 | — | 783 | 실 upbit |
+| 19:01 | 783 | — | 봇 라벨 (내용=upbit 19:00) |
+| 19:05 | — | 783 | 실 upbit |
+| **19:06** | **783** | **785** | **both — 실시간·백필 겹침** |
+| 19:07 | 785 | — | 봇 라벨 (내용=upbit 19:06) |
+
+**근본 원인 (LV2)**: `live_loop.py:967-971`에서 `rest_df.loc[closed_ts] = confirmed_row` — v3의 봇 라벨 복원(row.name=closed_ts) 봉을 봇 라벨 위치에 덮어씀. reconcile_series 가 rest_df의 upbit T 원본 봉과 별도 인식 → BACKFILL 이중 처리.
+
+**LV3 트립와이어 발동 (19:22:11)**: `pages/dashboard.py:1396` `AttributeError: 'NoneType' object has no attribute 'get'` — 이중화로 인해 checks=NULL인 backfill_only 행이 대시보드 렌더에 방어 없이 접근됨. **매매 흐름 무관, 실주문 발화 없음**.
+
+**롤백**: 19:22:50 restart, HEAD 3b76e02 복귀. 오염 구간 (18:53:51~19:22:50, 약 29분) audit 이중 행은 **삭제하지 않고 기록으로 보존**.
+
+### 4.7 H-A 개정판 스펙 (HV1·HV2 반영)
+
+**핵심**: v3 라벨 복원 (`row.name = closed_ts`) 제거 + 호출측 라벨 통일 (upbit_ts 사용).
+
+**HV1 판정 (레거시 audit 의미론 검증)**:
+- 8/20 사건 audit: bar_time=04:34, price=777 → upbit 04:34 캔들의 (미확정) 값, 확정 779로 changed_close 백필됨. **레거시 bar_time = upbit 라벨** (부분 오염 존재하나 대체로 일치)
+- 정상 구간 (09:00~09:30 KST) 실시간 행 24건 대조:
+  - match_T (bar_time = upbit 라벨): **7건**
+  - match_T-1 (오프바이원 시그니처): 5건
+  - mismatch (미확정 close 차이): 12건
+- **결론**: **H-A 후 마이그레이션 불요**. 레거시 자체가 이미 이 문제를 반영하고 있었음 ("행이 담은 캔들의 upbit 라벨" 의미론). H-A는 라벨을 바꾸는 게 아니라 처리 대상 캔들을 "진행 중 → 완결"로 이동시키는 F5 수정의 본질.
+
+**HV2 판정 (라벨 공간 감사)**:
+
+| 지점 | 현재 | H-A 후 |
+|---|---|---|
+| `rest_reconcile.py:686-689` FAST | `row.name = closed_ts` | **제거** (upbit_ts 그대로) |
+| `rest_reconcile.py:713-714` SLOW | 동상 | 제거 |
+| `live_loop.py:967-971` rest_df 병합 | `rest_df.loc[closed_ts] = confirmed_row` | `rest_df.loc[upbit_ts] = confirmed_row` (v3 반환값에 upbit_ts 포함) |
+| `live_loop.py:1217` 실시간 조건 | `if closed_ts in local_series.index:` | `if upbit_ts in local_series.index:` |
+| `live_loop.py:1218` row 추출 | `row = local_series.loc[closed_ts]` | `row = local_series.loc[upbit_ts]` |
+| `live_loop.py:1238` Bar 생성 | `Bar(ts=closed_ts, ...)` | `Bar(ts=upbit_ts, ...)` — Bar.ts는 upbit 라벨 |
+| `live_loop.py:1254` last_bar_ts | `engine.last_bar_ts = closed_ts` | **유지 (봇 라벨)** — CLOCK-CLOSE 중복 방지 로직 무영향 |
+| `live_loop.py:929` 중복 방지 | `if closed_ts <= engine.last_bar_ts:` | **유지** (봇 라벨 vs 봇 라벨 일관) |
+| `position_state.py:247` entry_ts | bar.ts 유래 | 자동 upbit_ts |
+| audit `bar_time` | bar.ts KST 변환 | 자동 upbit_ts KST (레거시 의미론과 동일) |
+
+**변수명 분리 규칙 (docstring 명시)**:
+- `closed_ts` — 봇/시계 라벨 (`get_closed_ts()` 결과, CLOCK-CLOSE 트리거용)
+- `upbit_ts` — 캔들 라벨 (rest_df/local_series 인덱스, Upbit REST 응답, Bar.ts)
+- Bar.ts docstring: "실제 upbit 캔들의 시작 라벨. 봇의 `closed_ts` 와 다를 수 있음 (오프바이원 근본 해결은 WO-6)."
+
+**혼용 결함 3라인이 유일**: `live_loop.py:1217, 1218, 1238`. H-A 로 upbit_ts 통일 시 자연 해소.
+
+### 4.9 서킷브레이커 방침 (사용자 지시, 2026-08-24)
+
+**3차 배포 후 라벨/확정 판정 계열 신규 결함 발견 시**:
+- 핫픽스 시도 없이 **즉시 롤백** (git reset + unit 원복)
+- **WO-2 동결** (더 이상 옵션 8, 9, H-B 등 추가 하지 않음)
+- **WO-6 (candle_clock 근본 수정 + 전역 라벨 통일) 선행 계획으로 전환** 보고
+- 4차 배포 이전에 근본 수정 완료 필수
+
+**동결 대상**:
+- rest_reconcile.py fetch_confirmed_candle_v3 신규 변형
+- live_loop.py 라벨 처리 로직 추가 수정
+
+**WO-6 선행 계획 골격 (참고)**:
+- candle_clock.py:82 `get_closed_ts` 근본 수정 (진행 중 봉 → 완결된 T-1 반환)
+- 파이프라인 전역에서 closed_ts 를 완결 봉 라벨로 통일 (upbit_ts 개념 소멸)
+- last_bar_ts 라벨 공간 통일 (live_loop vs strategy_engine 갱신 상충 해소)
+- audit `bar_time` 의미론 통일 정책 문서화
+- 기존 audit 마이그레이션 (필요시) 계획
+
+### 4.10 2026-08-23 2차 배포 사고 기록
+
+- **1차 배포 (17:17~17:31, 옵션 6 단독)**: 5분 만에 100% fallback + CRITICAL. 롤백. 원인: 오프바이원 + 저유동성 (WO-2 개정 1판 → 2판 → 2.1판).
+- **2차 배포 (18:52~19:22, v3 + P0 옵션 A)**: 29분 만에 audit 라벨 이중화 발견 (LV1 4쌍) + dashboard AttributeError (LV3 트립와이어). 롤백. 원인: v3 라벨 복원 (`row.name = closed_ts`) + `rest_df.loc[closed_ts]` 봇 라벨 위치 덮어쓰기 (WO-2 개정 2.1판 → 2.2판, H-A).
+- **오염 구간**: 2026-08-23 18:53:51 ~ 19:22:50 audit_buy_eval 이중 행 존재. **삭제 없이 기록 보존** (사용자 지시).
+- **3차 배포 예정 (2026-08-24, H-A + AD1)**: 라벨 이중화 원천 봉쇄 + dashboard 방어 가드.
+
+### 4.8 스모크 계획 갱신 (H-A 개정판 대응)
+
+**L 재정의**: v3 반환 `row.name == upbit_ts` (봇 라벨 아님) + close == ticks 대조. 라벨 복원 제거 검증.
+**M 재정의**: 실환경 봉 처리 후 audit_buy_eval SELECT — 각 upbit_ts 행이 단일 존재 (실시간+백필 이중화 부재) 확인.
+**Q 신설 (이중화 회귀 방지 필수)**:
+```sql
+-- 배포 후 30분: 실시간 T+1 price vs 백필 T backfill_close 이중화 쌍 부재 검증
+SELECT r.bar_time AS realtime_ts, r.price, b.bar_time AS backfill_ts, b.backfill_close
+FROM audit_buy_eval r JOIN audit_buy_eval b
+  ON r.ticker = b.ticker
+  AND datetime(r.bar_time, '-1 minute') = datetime(b.bar_time)
+  AND r.price = b.backfill_close
+  AND r.price IS NOT NULL AND b.backfill_close IS NOT NULL
+WHERE r.ticker = 'KRW-JTO'
+  AND r.bar_time >= '<배포 시각>';
+-- 결과 0행 필수. 1행이라도 있으면 이중화 회귀 → 배포 금지/롤백.
+```
+
+**deploy-checklist 신규 항목**:
+- "배포 직후 30분 내 라벨 정합 검증 SQL (스모크 Q) 실행 — 이중화 0건 확인 필수"
+- "대시보드 신호 시각은 완결 봉(upbit 라벨) 기준 — 봇 CLOCK-CLOSE 시각과 60s 차이 있음" (운영 주석)
 
 **배경 (2026-08-23 P0 정적 확인)**: v3 자체는 확정 판정을 정확히 하지만, 호출측 (`live_loop.py:983-984`) 에서 v3 None 시 `logger.error("Reconcile 계속 (미확정 종가 사용 가능)")` 만 찍고 흐름 계속 → `rest_df` (별도 `safe_fetch_rest` 결과, 미확정 종가 포함) 가 그대로 `reconcile_series` → `local_series` → 라인 1217 → `Bar(is_confirmed=True, source="REST_RECONCILED")` → 매매 판정 실행. **이 경로는 v3 뒷문이 아니라 현행 프로덕션 F5 본체 경로였음**. 1차 배포가 우연히 안전했던 것은 오프바이원 상태에서 봇 라벨이 rest_df에도 없어 라인 1217 False로 흐른 것이며 데이터 오염 0건도 우연이었다.
 
