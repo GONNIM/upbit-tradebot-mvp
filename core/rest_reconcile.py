@@ -8,7 +8,7 @@ REST Reconcile - Upbit 공식 차트 정합성 보장 (리스크 헷지 최우�
 """
 import pyupbit
 import pandas as pd
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Optional, Tuple, Dict, List
 import logging
 import time
@@ -590,138 +590,6 @@ def fetch_confirmed_candle(
         logger.info(
             f"[RECONCILE] 재시도 초과 → BACKFILL fallback ({_fails}/{_CONFIRMED_FETCH_CRITICAL_THRESHOLD}) | "
             f"({max_retry}회, {total_wait}초) | ts={format_kst(closed_ts)}"
-        )
-    return None
-
-
-# ============================================================
-# WO-2 (JTO-Claim-20260821-001): 옵션 6 — "다음 봉 존재 = 확정" 결정적 판정
-# ============================================================
-
-def fetch_confirmed_candle_v2(
-    ticker: str,
-    timeframe: str,
-    closed_ts: datetime,
-) -> Optional[pd.Series]:
-    """
-    WO-2 옵션 6: '다음 봉(진행 중 or 확정) 존재' 로 봉 T 확정을 결정적 판정.
-
-    재실측(H-R1) 근거 (docs/plans/2026-08-23-wo2-fetch-confirmed-hardening.md §4):
-      - Upbit REST 는 거래 발생 시 진행 중 봉을 즉시 응답에 포함
-      - 무거래 분은 캔들 자체 부재 (skip·지연 아님)
-      → 봉 T+X (X≥1) 이 응답에 있으면 봉 T 의 close 는 결정적으로 확정된 값
-
-    Args:
-        ticker: 종목 코드 (예: KRW-JTO)
-        timeframe: "minute1" 등
-        closed_ts: 확정 대상 봉 timestamp (UTC, timezone-aware)
-
-    Returns:
-        pd.Series | None
-          - 확정 반환: 대상 봉 row (실시간 처리로 진행)
-          - None + I2 로그: 무거래 봉 (즉시 단락, audit 미생성)
-          - None + fallback 로그: 상한 30s 후 fallback (BACKFILL 로 흡수)
-
-    ⚠️ 이 함수는 '현재 봉' 확정 판정 전용. 과거 봉 재조회(verify 등)는 기존
-       fetch_confirmed_candle() 사용 (count 산정이 다름 — I1 함수 분리 근거).
-    """
-    from datetime import datetime as _dt
-    import pyupbit
-    # I1: count=3 (count=2 는 무거래 갭에서 T 밀림 위험)
-    COUNT = 3
-    MAX_RETRY = 7           # 0s + 5×6 = 30s 상한
-    WAIT_SEC = 5
-    t_first_call = _dt.now(timezone.utc)
-
-    for attempt in range(MAX_RETRY):
-        try:
-            df = pyupbit.get_ohlcv(
-                ticker=ticker,
-                interval=timeframe,
-                count=COUNT,
-            )
-        except Exception as e:
-            logger.warning(
-                f"[CONFIRMED-D] 예외 발생 | ticker={ticker} ts={format_kst(closed_ts)} | "
-                f"attempt={attempt+1}/{MAX_RETRY} | {e}"
-            )
-            if attempt < MAX_RETRY - 1:
-                time.sleep(WAIT_SEC)
-            continue
-
-        if df is None or df.empty:
-            if attempt < MAX_RETRY - 1:
-                time.sleep(WAIT_SEC)
-            continue
-
-        # 컬럼명 표준화 + Timezone UTC 변환
-        df.columns = [c.capitalize() for c in df.columns]
-        if df.index.tzinfo is None:
-            df.index = df.index.tz_localize("Asia/Seoul")
-        df.index = df.index.tz_convert("UTC")
-
-        # I1: timestamp 기반 판정 (iloc/last-row 참조 금지)
-        has_next = any(ts > closed_ts for ts in df.index)
-        has_T = closed_ts in df.index
-
-        if has_next and has_T:
-            # ✅ 결정적 확정
-            elapsed_ms = (_dt.now(timezone.utc) - t_first_call).total_seconds() * 1000
-            row = df.loc[closed_ts]
-            logger.info(
-                f"✅ [CONFIRMED-D] ts={format_kst(closed_ts)} close={row['Close']:.0f} "
-                f"via=next_bar_exists elapsed={elapsed_ms:.0f}ms"
-            )
-            # 연속 실패 카운터 리셋 (기존 함수와 동일 정책)
-            _confirmed_fetch_consecutive_failures[ticker] = 0
-            return row
-
-        if has_next and not has_T:
-            # I2: 무거래 봉 즉시 단락 (재시도 금지, audit 미생성)
-            logger.info(
-                f"⏭ [NO-TRADE-BAR] ts={format_kst(closed_ts)} 처리 생략 "
-                f"(다음 봉 존재하나 대상 봉 부재 = 무거래 분)"
-            )
-            return None
-
-        # not has_next → 다음 봉 아직 미등장, 재시도
-        if attempt < MAX_RETRY - 1:
-            logger.debug(
-                f"[CONFIRMED-D] 다음 봉 미등장 | ts={format_kst(closed_ts)} | "
-                f"attempt={attempt+1}/{MAX_RETRY} | {WAIT_SEC}s 대기"
-            )
-            time.sleep(WAIT_SEC)
-
-    # 상한 30s 도달 → BACKFILL fallback (기존 정책과 동일 log/notify 흐름)
-    total_wait = (MAX_RETRY - 1) * WAIT_SEC
-    _fails = _confirmed_fetch_consecutive_failures.get(ticker, 0) + 1
-    _confirmed_fetch_consecutive_failures[ticker] = _fails
-    if _fails >= _CONFIRMED_FETCH_CRITICAL_THRESHOLD:
-        logger.warning(
-            f"🚨 [CONFIRMED-D] 연속 {_fails}회 실패 (임계 {_CONFIRMED_FETCH_CRITICAL_THRESHOLD}) | "
-            f"ticker={ticker} ts={format_kst(closed_ts)}"
-        )
-        try:
-            from services.notifier import send as _notify, LEVEL_CRITICAL
-            _notify(
-                LEVEL_CRITICAL,
-                f"🚨 [CONFIRMED-D] {ticker} 연속 {_fails}회 실패",
-                (
-                    f"fetch_confirmed_candle_v2 (옵션 6) 이 연속 {_fails}회 실패.\n"
-                    f"ticker: {ticker}\n"
-                    f"봉 시각: {format_kst(closed_ts)}\n\n"
-                    f"💡 Upbit REST 지속 지연 or 다음 봉 등장 이상. BACKFILL 로 흡수."
-                ),
-                dedupe_key=f"confirmed_d_fail:{ticker}",
-                dedupe_ttl=300,
-            )
-        except Exception:
-            pass
-    else:
-        logger.info(
-            f"[CONFIRMED-D] 다음 봉 미등장 상한 도달 → BACKFILL fallback "
-            f"({_fails}/{_CONFIRMED_FETCH_CRITICAL_THRESHOLD}) | "
-            f"({MAX_RETRY}회, {total_wait}s) | ts={format_kst(closed_ts)}"
         )
     return None
 
