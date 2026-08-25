@@ -60,32 +60,6 @@ Streamlit 서비스는 재시작 후 웹 서버만 대기 상태로 들어가고
 - 원인: Streamlit 프로세스는 기동됐으나 트레이딩 엔진(live_loop)이 dashboard 세션/AUTO-RESUME 트리거를 기다림. 배포 완결을 systemd `active` 상태로만 판정하면 공백을 놓친다.
 - 재발 방지: 본 체크리스트의 7단계 로그 시퀀스 확인 의무화.
 
-### 2026-08-23 배포 (WO-2 2차, v3 + P0 옵션 A, v1.2026.08.23.1849) — **롤백 (29분)**
-
-- `systemctl restart tradebot`: 18:52:28 KST → 엔진 시작 18:53:47
-- **29분 만에 audit 라벨 이중화 확정 (LV1 4쌍)** + dashboard AttributeError (LV3 트립와이어)
-- 롤백 restart: 19:22:50 (약 29분 트레이딩 공백)
-- 근본 원인 (LV2): v3 라벨 복원 (`row.name = closed_ts`) + `live_loop.py:971 rest_df.loc[closed_ts] = confirmed_row` — 봇 라벨 위치를 upbit T 데이터로 덮어쓰기 → 동일 upbit 캔들이 두 라벨(upbit T + 봇 T+1)로 이중 존재
-- 트립와이어: `dashboard.py:1396 AttributeError` (매매 무관, missing_bar 방어 부재)
-- **오염 구간**: 18:53:51 ~ 19:22:50 audit_buy_eval 이중 행 존재 (삭제 없이 기록 보존)
-- 재발 방지: 아래 "라벨 정합 검증 관문" (스모크 Q) + AD1 dashboard 방어 가드.
-
-### 신규 관문: 라벨 정합 검증 (스모크 Q 실전판)
-
-**배포 직후 30분 내 다음 SQL 실행 필수. 결과 1행 이상 시 즉시 롤백**:
-
-```sql
--- 실시간 T+1 price == 백필 T backfill_close 이중화 쌍 (0행 필수)
-SELECT r.bar_time AS realtime_ts, r.price, b.bar_time AS backfill_ts, b.backfill_close
-FROM audit_buy_eval r JOIN audit_buy_eval b
-  ON r.ticker = b.ticker
-  AND datetime(r.bar_time, '-1 minute') = datetime(b.bar_time)
-  AND r.price = b.backfill_close
-  AND r.price IS NOT NULL AND b.backfill_close IS NOT NULL
-WHERE r.ticker = '<TICKER>'
-  AND r.bar_time >= '<배포 엔진 시작 시각>';
-```
-
 ### 2026-08-23 배포 (WO-2 1차, 옵션 6 단독, v1.2026.08.23.1713) — **롤백**
 
 - `systemctl restart tradebot`: 17:17:57 KST → 엔진 시작 17:19:25
