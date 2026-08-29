@@ -81,22 +81,29 @@ class CandleClock:
 
     def get_closed_ts(self, now: datetime) -> datetime:
         """
-        방금 확정된 봉의 timestamp (UTC 기준)
+        방금 확정된 봉의 timestamp (UTC 기준, Upbit 봉 시작 시각과 일치)
+
+        WO-6 개편 (2026-08-25):
+        기존에는 현재 시각을 봉 간격으로 내림한 값(진행 중인 봉의 시작 시각)을
+        반환하여 오프바이원 결함이 있었다. 개편 후에는 "방금 확정된 봉의 시작
+        시각" 즉 진행 중 봉의 이전 봉 시작 시각을 반환한다. 이 값은 Upbit
+        REST API가 반환하는 봉 시각과 항상 일치한다.
 
         Args:
             now: 현재 시각 (UTC)
 
         Returns:
-            datetime: 확정된 봉의 시작 시각 (UTC)
+            datetime: 방금 확정된 봉의 시작 시각 (UTC)
 
         Example:
             >>> clock = CandleClock("minute1")
             >>> now = datetime(2026, 2, 28, 9, 5, 42, tzinfo=UTC)
             >>> closed = clock.get_closed_ts(now)
             >>> closed
-            datetime(2026, 2, 28, 9, 5, 0, tzinfo=UTC)
+            datetime(2026, 2, 28, 9, 4, 0, tzinfo=UTC)  # 09:04 봉 (09:05 봉의 이전)
         """
-        closed_ts = floor_to_interval(now, self.interval_sec)
+        boundary = floor_to_interval(now, self.interval_sec)
+        closed_ts = boundary - timedelta(seconds=self.interval_sec)
 
         logger.info(
             f"[CLOCK] 봉 확정 | closed={format_kst(closed_ts)} (UTC: {closed_ts.isoformat()})"

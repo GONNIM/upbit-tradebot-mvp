@@ -10,6 +10,8 @@ from core.trader import UpbitTrader
 from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit, get_trading_paused, annotate_buy_eval_blocked
 from typing import Optional, Dict, Any
 from zoneinfo import ZoneInfo
+from collections import OrderedDict
+from datetime import datetime
 import logging
 import queue
 import threading  # ✅ Issue #10: 스레드 락 추가
@@ -86,6 +88,12 @@ class StrategyEngine:
 
         # ✅ Issue #10: 스레드 락 (audit 로깅 ~ execution 원자적 보장)
         self._execution_lock = threading.Lock()
+
+        # ✅ WO-6 (2026-08-25): 봉당 매매 판단 1회 강제.
+        # 실시간 평가(backfill_mode=False)가 매매 판단을 실행한 봉의 ts 이력.
+        # BACKFILL 재평가는 등록하지 않아 순서가 꼬여도 실시간 평가가 차단되지 않음.
+        # OrderedDict 로 등록 순서를 유지하고, 상한 초과 시 popitem(last=False)로 정리.
+        self._evaluated_bar_ts: "OrderedDict[datetime, None]" = OrderedDict()
 
         # ✅ 고정가 매수(Limit) 미체결 추적 — 봉 경계 통과 시 pending 자동 해제용.
         # Reconciler가 봉 간격 초과 미체결을 cancel 처리하므로 다음 봉에서 풀어준다.
@@ -641,6 +649,18 @@ class StrategyEngine:
 
             is_buy_eval = not self.position.has_position
             ind_snapshot = self.indicators.get_snapshot(is_buy_eval=is_buy_eval)
+
+            # ✅ WO-6 (2026-08-25): 봉당 매매 판단 1회 강제 (매매 판단 직전 검사).
+            # - 실시간(backfill_mode=False)이 이미 판단한 봉의 재진입은 스킵.
+            # - BACKFILL 재평가(backfill_mode=True)는 검사에서 제외 (audit UPDATE 목적).
+            # - 지표 갱신·재평가 기록(WO-1 별도 컬럼)은 위에서 이미 완료됨.
+            if (not backfill_mode) and (bar.ts in self._evaluated_bar_ts):
+                logger.info(
+                    f"[ENGINE] 봉당 매매 판단 1회 규칙 적용 (실시간 재진입 스킵) | ts={bar.ts} "
+                    f"(지표 갱신은 이미 완료. VERIFY 후속 부분 재계산 등)"
+                )
+                return
+
             action = self.strategy.on_bar(bar, ind_snapshot, self.position, self.bar_count)
 
             # 로그 출력
@@ -691,6 +711,23 @@ class StrategyEngine:
                 f"final_has_position={self.position.has_position} | "
                 f"action={action.value if action else 'NONE'}"
             )
+
+            # ✅ WO-6 (2026-08-25): 실시간 평가만 이력에 등록.
+            # BACKFILL 은 등록하지 않음 (순서 꼬여도 실시간 평가가 차단되지 않도록).
+            if not backfill_mode:
+                self._register_evaluated_bar(bar.ts)
+
+    # ✅ WO-6 (2026-08-25): 봉당 매매 판단 1회 이력 관리 헬퍼
+    _EVAL_HISTORY_MAX = 1000  # 최근 1000봉 (분봉 기준 약 16시간 분량)
+
+    def _register_evaluated_bar(self, ts) -> None:
+        """실시간 평가가 매매 판단을 실행한 봉의 ts 를 이력에 등록.
+
+        OrderedDict 로 등록 순서를 유지하고, 상한 초과 시 오래된 항목부터 제거.
+        """
+        self._evaluated_bar_ts[ts] = None
+        while len(self._evaluated_bar_ts) > self._EVAL_HISTORY_MAX:
+            self._evaluated_bar_ts.popitem(last=False)
 
     def execute(self, action: Action, bar: Bar, indicators: Dict[str, Any]):
         """

@@ -8,8 +8,9 @@ REST Reconcile - Upbit 공식 차트 정합성 보장 (리스크 헷지 최우�
 """
 import pyupbit
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Optional, Tuple, Dict, List
+import requests
+from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple, Dict, List, Union, Any
 import logging
 import time
 
@@ -23,6 +24,143 @@ logger = logging.getLogger(__name__)
 # 누적 실패는 지속 이슈 신호이므로 Telegram CRITICAL 알림.
 _confirmed_fetch_consecutive_failures: Dict[str, int] = {}
 _CONFIRMED_FETCH_CRITICAL_THRESHOLD = 5
+
+# ✅ WO-6 (2026-08-25): 무거래 봉 센티널.
+# Upbit 는 무거래 분에 봉을 만들지 않는다. 가짜 봉을 합성하면 지표가 차트와
+# 어긋나므로, 별도 표지로 반환하여 호출부가 그 봉을 건너뛰도록 한다.
+class _NoTradeMarker:
+    """무거래 봉 표지 (센티널). 절대 pd.Series 로 다뤄서는 안 됨."""
+    def __repr__(self) -> str:
+        return "NO_TRADE"
+
+NO_TRADE: Any = _NoTradeMarker()
+
+# ✅ WO-6 (2026-08-25): 케이스 B (다음 봉 미존재) 안정화 확인 상태.
+# 키: (ticker, closed_ts), 값: (first_check_ts, first_close)
+# 5초 뒤 재조회에서 종가가 같으면 확정, 다르면 다음 조회의 케이스로 재판정.
+_case_b_state: Dict[Tuple[str, datetime], Tuple[datetime, float]] = {}
+_CASE_B_STABILIZATION_SEC = 5
+_CASE_B_STATE_MAX_AGE_SEC = 1800  # 30분. 오래된 항목 자동 삭제 상한 (안전장치).
+
+
+def _case_b_state_gc(now: datetime) -> None:
+    """오래된 _case_b_state 항목을 자동 삭제 (안전장치).
+
+    함수 이상 종료 등으로 정리되지 못한 항목이 전역 dict 에 누적되는 것을
+    방지한다. closed_ts 가 30 분 이전인 항목은 삭제한다.
+    """
+    threshold = now - timedelta(seconds=_CASE_B_STATE_MAX_AGE_SEC)
+    stale_keys = [
+        key for key, (_, _) in list(_case_b_state.items())
+        if key[1] < threshold
+    ]
+    for key in stale_keys:
+        _case_b_state.pop(key, None)
+    if stale_keys:
+        logger.debug(f"[RECONCILE] _case_b_state GC: {len(stale_keys)}개 항목 삭제")
+
+
+def _has_trades_in_minute(ticker: str, closed_ts: datetime) -> Optional[bool]:
+    """✅ WO-6 보완 F1b (2026-08-29): 특정 분에 체결이 있었는지 ticks API 로 확인.
+
+    /v1/trades/ticks 는 당일 UTC 기준 최근 체결만 반환한다. 재시도 소진 시점의
+    closed_ts 는 수십초~수분 전 봉이므로 당일 데이터로 충분히 판별 가능.
+
+    Args:
+        ticker: 예 'KRW-JTO'
+        closed_ts: 대상 봉 시작 시각 (UTC, timezone-aware)
+
+    Returns:
+        True  → 체결 존재
+        False → 체결 0건
+        None  → API 실패 등 판별 불가 (호출부는 보수적으로 None 취급)
+    """
+    try:
+        # to 파라미터: 대상 봉 종료 후 1초 (UTC HH:mm:ss)
+        boundary_utc = closed_ts + timedelta(seconds=60)
+        to_str = boundary_utc.strftime('%H:%M:%S')
+        r = requests.get(
+            'https://api.upbit.com/v1/trades/ticks',
+            params={'market': ticker, 'count': 500, 'to': to_str},
+            timeout=3,
+        )
+        if r.status_code != 200:
+            logger.debug(f"[RECONCILE] ticks API HTTP {r.status_code}")
+            return None
+        data = r.json()
+        if not isinstance(data, list):
+            return None
+        # 대상 분 필터: trade_time_utc 이 closed_ts 와 같은 분
+        minute_prefix_utc = closed_ts.strftime('%H:%M:')
+        for t in data:
+            tt = t.get('trade_time_utc', '')
+            if tt.startswith(minute_prefix_utc):
+                return True
+        return False
+    except Exception as e:
+        logger.debug(f"[RECONCILE] ticks API 예외: {e}")
+        return None
+
+
+def _classify_no_trade_after_exhaustion(
+    ticker: str, timeframe: str, closed_ts: datetime
+) -> Optional[Any]:
+    """✅ WO-6 보완 F1 (2026-08-26) + F1b (2026-08-29): 재시도 소진 후 무거래 판별.
+
+    무거래 봉인데 다음 봉조차 아직 반영 안 된 경우, 케이스 B/C 재시도가 모두
+    소진되어 None 이 반환되고 실패 계수가 쌓인다. 조용한 시간대에는 이것이
+    거짓 CRITICAL 알림으로 이어진다.
+
+    ## F1 판별 (get_ohlcv 기반)
+    - latest_ts > closed_ts + closed_ts not in df.index → NO_TRADE (확정)
+    - latest_ts >= closed_ts + closed_ts in df.index → None (거래 있음)
+    - latest_ts < closed_ts → F1b 로 보조 판별
+
+    ## F1b 판별 (trades/ticks 보조)
+    - 연속 무거래 시작 지점(latest_ts < closed_ts)에서 ticks API 로 체결 여부 확인.
+    - 체결 0건 → NO_TRADE 반환 (실패 계수 미가산)
+    - 체결 존재 → None 유지 (기존 실패 흐름)
+    - ticks 실패 → None 유지 (보수적)
+
+    Returns:
+        NO_TRADE 센티널 → 확정적으로 무거래
+        None → 거래 있음 or 판별 불가 (호출부는 기존 실패 흐름으로 진행)
+    """
+    try:
+        df = pyupbit.get_ohlcv(ticker=ticker, interval=timeframe, count=10)
+        if df is None or df.empty:
+            # F1b 보조: 응답 자체가 없어도 ticks 로 확인
+            has_trade = _has_trades_in_minute(ticker, closed_ts)
+            if has_trade is False:
+                return NO_TRADE
+            return None
+        df.columns = [c.capitalize() for c in df.columns]
+        if df.index.tzinfo is None:
+            df.index = df.index.tz_localize("Asia/Seoul")
+        df.index = df.index.tz_convert("UTC")
+
+        latest_ts = df.index[-1]
+        if latest_ts < closed_ts:
+            # F1b: REST 반영 아직 안 됨 → ticks 로 체결 여부 확인
+            has_trade = _has_trades_in_minute(ticker, closed_ts)
+            if has_trade is False:
+                logger.info(
+                    f"[RECONCILE] F1b ticks 체결 0건 확인 → NO_TRADE | "
+                    f"ts={format_kst(closed_ts)}"
+                )
+                return NO_TRADE
+            # has_trade True 또는 None → None 유지
+            return None
+
+        # latest_ts >= closed_ts: 다음 봉(또는 대상 봉)이 응답에 있음
+        if closed_ts in df.index:
+            # 거래 있었음 → 기존 실패 흐름 유지
+            return None
+        # 다음 봉 존재하는데 대상 봉 없음 → 무거래 확정
+        return NO_TRADE
+    except Exception as e:
+        logger.warning(f"[RECONCILE] 소진 후 무거래 판별 예외: {e}")
+        return None
 
 
 # ============================================================
@@ -436,7 +574,7 @@ def fetch_confirmed_candle(
     timeframe: str,
     closed_ts: datetime,
     max_retry: int = None
-) -> Optional[pd.Series]:
+) -> Union[pd.Series, None, Any]:
     """
     확정 종가만 반환. to 파라미터 없이 최신 봉 조회.
 
@@ -446,21 +584,34 @@ def fetch_confirmed_candle(
     - Progressive Retry → interval의 50% 시간까지만 대기
     - 최대 재시도 초과 시 None 반환 → BACKFILL로 처리
 
+    ✅ WO-6 (2026-08-25) 개편:
+    - 케이스 처리 순서: A(다음 봉 존재) → C(API 지연) → B(다음 봉 미존재)
+    - 무거래 봉은 NO_TRADE 표지 반환 (가짜 봉 합성 금지)
+    - 케이스 B는 5초 안정화 1회 (재시도 스케줄 강등 대신)
+    - closed_ts 는 Upbit 봉 시작 시각과 일치 (candle_clock.get_closed_ts 재정의 이후)
+
     Args:
         ticker: 종목 코드 (예: KRW-BTC)
         timeframe: "minute1", "minute3", etc.
-        closed_ts: 확정되어야 할 봉의 시작 timestamp (UTC, timezone-aware)
+        closed_ts: 방금 확정된 봉의 시작 timestamp (UTC, timezone-aware,
+                   Upbit 봉 시작 시각과 일치)
         max_retry: 최대 재시도 횟수 (None이면 interval에 따라 자동 계산)
 
     Returns:
-        pd.Series | None: 확정 봉 row, 실패 시 None (BACKFILL로 처리)
+        pd.Series: 확정 봉 row (케이스 A 거래 있음, 케이스 B 안정화 확정)
+        NO_TRADE (센티널): 대상 봉 자체가 무거래 (케이스 A 하위, 봉 자체 없음)
+        None: 재시도 초과 실패 (호출부가 재조정 계속 진행)
 
     Example:
         >>> from datetime import datetime, timezone
         >>> closed_ts = datetime(2026, 3, 14, 7, 5, 0, tzinfo=timezone.utc)
-        >>> candle = fetch_confirmed_candle("KRW-BTC", "minute1", closed_ts)
-        >>> if candle is not None:
-        ...     print(f"Close: {candle['Close']:.0f}")
+        >>> result = fetch_confirmed_candle("KRW-BTC", "minute1", closed_ts)
+        >>> if result is None:
+        ...     print("재시도 초과, 재조정 계속 진행")
+        >>> elif result is NO_TRADE:
+        ...     print("무거래 봉, 건너뛰기")
+        >>> else:
+        ...     print(f"확정 종가: {result['Close']:.0f}")
     """
     # Interval별 재시도 횟수 계산 (interval의 50% 시간만 사용)
     # - 1분봉: (60초 - 5초 JITTER) * 50% = 27초 → 5회
@@ -477,6 +628,10 @@ def fetch_confirmed_candle(
         )
 
     WAIT_SCHEDULE = [5] * max_retry  # 5초씩 max_retry회
+    state_key = (ticker, closed_ts)
+
+    # ✅ WO-6 안전장치: 함수 진입 시마다 오래된 _case_b_state 항목 GC
+    _case_b_state_gc(datetime.now(timezone.utc))
 
     for attempt in range(max_retry):
         try:
@@ -511,20 +666,35 @@ def fetch_confirmed_candle(
             # ✅ 최신 봉 timestamp 추출
             latest_ts = df.index[-1]
 
-            # 케이스 1: closed_ts와 정확히 일치 → 성공
-            if latest_ts == closed_ts:
-                close_price = df.iloc[-1]["Close"]
-                logger.info(
-                    f"[RECONCILE] 확정 종가 ✅ | ts={format_kst(closed_ts)} | "
-                    f"close={close_price:.0f} | high={df.iloc[-1]['High']:.0f} | "
-                    f"low={df.iloc[-1]['Low']:.0f} | volume={df.iloc[-1]['Volume']:.2f}"
-                )
-                # ✅ P4: 성공 시 연속 실패 카운터 리셋
-                _confirmed_fetch_consecutive_failures[ticker] = 0
-                return df.iloc[-1]
+            # ============================================================
+            # WO-6 개편: 케이스 A → C → B 순서로 판정
+            # ============================================================
 
-            # 케이스 2: latest_ts < closed_ts → API 지연, 재시도
+            # 케이스 A: 다음 봉 존재 → 즉시 확정 (다음 봉 거래 = 이전 봉 마감 확실)
+            if latest_ts > closed_ts:
+                _case_b_state.pop(state_key, None)  # 이전 안정화 상태 정리
+                if closed_ts in df.index:
+                    # 거래 있음: 정상 확정
+                    close_price = df.loc[closed_ts, "Close"]
+                    logger.info(
+                        f"[RECONCILE] 확정 종가 (다음 봉 존재) ✅ | ts={format_kst(closed_ts)} | "
+                        f"close={close_price:.0f} | high={df.loc[closed_ts, 'High']:.0f} | "
+                        f"low={df.loc[closed_ts, 'Low']:.0f} | volume={df.loc[closed_ts, 'Volume']:.2f}"
+                    )
+                    _confirmed_fetch_consecutive_failures[ticker] = 0
+                    return df.loc[closed_ts]
+                else:
+                    # 무거래 봉: NO_TRADE 표지 (가짜 봉 합성 없음, 실패 아님)
+                    logger.info(
+                        f"[RECONCILE] 무거래 봉 감지 (NO_TRADE, 건너뜀) | "
+                        f"ts={format_kst(closed_ts)} | df_range={format_kst(df.index[0])}~{format_kst(df.index[-1])}"
+                    )
+                    _confirmed_fetch_consecutive_failures[ticker] = 0  # 실패 계수 리셋 (정상 흐름)
+                    return NO_TRADE
+
+            # 케이스 C: latest_ts < closed_ts → API 지연, 재시도
             elif latest_ts < closed_ts:
+                _case_b_state.pop(state_key, None)  # 상태 정리
                 wait = WAIT_SCHEDULE[attempt] if attempt < len(WAIT_SCHEDULE) else 12
                 logger.warning(
                     f"[RECONCILE] 봉 미반영 | 기대={format_kst(closed_ts)} "
@@ -532,28 +702,63 @@ def fetch_confirmed_candle(
                 )
                 time.sleep(wait)
 
-            # 케이스 3: latest_ts > closed_ts → df에서 closed_ts 추출
+            # 케이스 B: latest_ts == closed_ts → 다음 봉 미존재, 5초 안정화 1회
             else:
-                if closed_ts in df.index:
-                    close_price = df.loc[closed_ts, "Close"]
+                current_close = float(df.iloc[-1]["Close"])
+                now_ts = datetime.now(timezone.utc)
+
+                if state_key not in _case_b_state:
+                    # 첫 진입: 5초 뒤 재조회 예약 (안정화 대기)
+                    _case_b_state[state_key] = (now_ts, current_close)
                     logger.info(
-                        f"[RECONCILE] 과거 확정 봉 추출 ✅ | ts={format_kst(closed_ts)} | "
-                        f"close={close_price:.0f}"
+                        f"[RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | "
+                        f"ts={format_kst(closed_ts)} | close={current_close:.0f}"
                     )
-                    return df.loc[closed_ts]
+                    time.sleep(_CASE_B_STABILIZATION_SEC)
+                    continue
+
+                first_ts, first_close = _case_b_state[state_key]
+                if current_close == first_close:
+                    # 안정화 확인 → 확정 (5초간 종가 불변)
+                    _case_b_state.pop(state_key, None)
+                    logger.info(
+                        f"[RECONCILE] 케이스 B 안정화 확정 ✅ | ts={format_kst(closed_ts)} | "
+                        f"close={current_close:.0f} | 안정화 대기={_CASE_B_STABILIZATION_SEC}s"
+                    )
+                    _confirmed_fetch_consecutive_failures[ticker] = 0
+                    return df.iloc[-1]
                 else:
-                    logger.error(
-                        f"[RECONCILE] 봉 유실 | ts={format_kst(closed_ts)} | "
-                        f"df_range={format_kst(df.index[0])} ~ {format_kst(df.index[-1])}"
+                    # 종가 변경 → 다음 조회의 케이스로 재판정 (한 번만 더 대기)
+                    _case_b_state[state_key] = (now_ts, current_close)
+                    logger.info(
+                        f"[RECONCILE] 케이스 B 종가 변경 (재판정 대기) | ts={format_kst(closed_ts)} | "
+                        f"old_close={first_close:.0f} → new_close={current_close:.0f}"
                     )
-                    return None
+                    time.sleep(_CASE_B_STABILIZATION_SEC)
+                    continue
 
         except Exception as e:
+            # ✅ WO-6: 예외 발생 시에도 상태 정리 (재시도 흐름을 초기화)
+            _case_b_state.pop(state_key, None)
             wait = WAIT_SCHEDULE[attempt] if attempt < len(WAIT_SCHEDULE) else 12
             logger.error(
                 f"[RECONCILE] 예외 발생 | {e} | 재시도 {attempt+1}/{max_retry} | {wait}초 대기"
             )
             time.sleep(wait)
+
+    # 재시도 초과 → 상태 정리
+    _case_b_state.pop(state_key, None)
+
+    # ✅ WO-6 보완 F1 (2026-08-26): 재시도 소진 후 무거래 여부 최종 판별.
+    # 무거래 봉이 확인되면 NO_TRADE 반환 (실패 계수 미가산, 거짓 CRITICAL 방지).
+    _verdict = _classify_no_trade_after_exhaustion(ticker, timeframe, closed_ts)
+    if _verdict is NO_TRADE:
+        logger.info(
+            f"[RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | "
+            f"ts={format_kst(closed_ts)} — 실패 계수 미가산"
+        )
+        _confirmed_fetch_consecutive_failures[ticker] = 0  # 실패 계수 리셋
+        return NO_TRADE
 
     # ❌ 최대 재시도 초과 → BACKFILL fallback (정상 설계 흐름이므로 INFO 레벨)
     total_wait = sum(WAIT_SCHEDULE[:max_retry])

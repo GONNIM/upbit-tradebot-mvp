@@ -132,9 +132,19 @@ def send(
 
     Returns:
         True  — sendMessage 200 응답
-        False — 자격증명 없음 / dedupe로 스킵 / 네트워크 오류 등
+        False — 자격증명 없음 / dedupe로 스킵 / 네트워크 오류 등 / dry-run 억제
     """
     try:
+        # ✅ WO-6 보완 F2 (2026-08-26): dry-run 모드에서는 실제 발송 억제.
+        # scripts/live_dry_run.py 가 os.environ['WO6_DRY_RUN']='1' 을 세팅한다.
+        # 운영 채널이 검증 소음으로 오염되어 진짜 경보를 놓치는 것을 방지.
+        if os.environ.get("WO6_DRY_RUN") == "1":
+            logger.info(
+                f"[NOTIFY-DRY-RUN] 실 발송 억제 | level={level} title={title!r} "
+                f"body_len={len(body or '')}"
+            )
+            return False
+
         if _should_skip_by_dedupe(dedupe_key, dedupe_ttl):
             return False
         # ✅ [Phase 3-C] level 기반 채널 라우팅

@@ -21,7 +21,7 @@ from core.strategy_engine import StrategyEngine
 
 # 🚀 REST Reconcile 모듈
 from core.candle_clock import CandleClock
-from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle, verify_past_candles_with_upbit
+from core.rest_reconcile import safe_fetch_rest, reconcile_series, fetch_confirmed_candle, verify_past_candles_with_upbit, NO_TRADE
 from core.time_utils import now_utc, format_kst, floor_to_interval
 from core.candle_validator import CandleValidator
 
@@ -962,8 +962,20 @@ def run_live_loop(
                             total_count=RECONCILE_LOOKBACK_BARS
                         )
 
-                        # ✅ 확정 봉 검증 성공 시 rest_df 업데이트 (미확정 종가 덮어쓰기)
-                        if confirmed_row is not None and rest_df is not None:
+                        # ✅ WO-6 (2026-08-25): 확정 봉 결과 분기
+                        # - NO_TRADE 표지: 대상 봉 자체가 무거래. rest_df 그대로 유지, 지표 미반영, BACKFILL 위임 없음.
+                        # - pd.Series: 정상 확정. rest_df 덮어쓰기.
+                        # - None: 재시도 초과. Reconcile 계속 진행 (기존 흐름).
+                        # ✅ WO-6 보완 F1 (2026-08-26): NO_TRADE 시 후속 RETRY 스킵 플래그.
+                        no_trade_this_bar = False
+                        if confirmed_row is NO_TRADE:
+                            logger.info(
+                                f"⏭ [CONFIRMED-NO-TRADE] closed_ts={format_kst(closed_ts)} "
+                                f"무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)"
+                            )
+                            no_trade_this_bar = True
+                            # rest_df 그대로 유지. 무거래 봉은 지표에 넣지 않음.
+                        elif confirmed_row is not None and rest_df is not None:
                             if closed_ts in rest_df.index:
                                 # rest_df의 closed_ts 봉을 fetch_confirmed_candle 결과로 덮어쓰기
                                 original_close = rest_df.loc[closed_ts, 'Close']
@@ -1254,6 +1266,14 @@ def run_live_loop(
 
                         logger.info(f"✅ [CONFIRMED] 봉 처리 완료 | ts={format_kst(closed_ts)} | close={bar.close}")
                     else:
+                        # ✅ WO-6 보완 F1 (2026-08-26): NO_TRADE 확정 봉은 RETRY 무의미 → 스킵.
+                        if no_trade_this_bar:
+                            logger.info(
+                                f"⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts={format_kst(closed_ts)} "
+                                f"무거래 확정 → RETRY 스킵, 다음 봉 대기"
+                            )
+                            continue
+
                         # ✅ Medium-Risk Fix: closed_ts 누락 시 재조회 (Progressive Retry)
                         logger.warning(f"⚠️ [CLOCK-CLOSE] closed_ts={format_kst(closed_ts)}가 local_series에 없음")
 

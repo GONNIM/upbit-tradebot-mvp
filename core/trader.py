@@ -223,11 +223,15 @@ class UpbitTrader:
         *,
         strategy_type: Optional[str] = None,  # ✅ P1 — 거래 → settings_history 라벨링용
         params_file: Optional[str] = None,    # ✅ RATIO-HR: order_ratio hot-reload용 params JSON 경로
+        dry_run: bool = False,                # ✅ WO-6 (2026-08-25): 병행 검증 dry-run 모드
     ):
         self.user_id = user_id
         self.risk_pct = risk_pct
         self.test_mode = test_mode
+        self.dry_run = dry_run  # ✅ WO-6: True 면 매매 판단은 실행하되 실 주문만 억제
         self.strategy_type = strategy_type
+        # dry_run 모드에서도 Upbit 조회 API (잔고, 시세) 는 필요하므로 upbit 객체는 초기화.
+        # 다만 주문 메서드는 dry_run 분기에서 조기 반환.
         self.upbit = None if test_mode else pyupbit.Upbit(ACCESS, SECRET)
         # 마지막 LIVE 주문 실패의 정확한 사유(B안) — UI 노출용
         self.last_buy_error: Optional[str] = None
@@ -450,7 +454,22 @@ class UpbitTrader:
         - TEST 모드: 즉시 체결 + DB에 completed 기록
         - LIVE 모드 : Upbit에 KRW 금액 기준 시장가 주문 → orders에는 'REQUESTED' + uuid만 기록
                       실제 체결 결과는 OrderReconciler가 update_order_*()로 업데이트
+        - DRY-RUN 모드 (WO-6): 실 주문 억제. 매매 판단 로직 검증용.
         """
+        # ✅ WO-6 (2026-08-25): dry-run 모드는 실 주문을 억제하고 로그만 남김
+        if self.dry_run:
+            logger.info(
+                f"[DRY-RUN] buy_market 실 주문 억제 | ticker={ticker} price={price:.2f} ts={ts} "
+                f"meta={meta}"
+            )
+            return {
+                "time": ts,
+                "side": "BUY",
+                "qty": 0.0,
+                "price": float(price),
+                "uuid": "DRY_RUN",
+                "raw": {"dry_run": True},
+            }
         avail = self._krw_balance()
         if avail <= 0:
             logger.warning(f"[BUY] 주문 불가: 잔고={avail:.4f}")
@@ -803,6 +822,23 @@ class UpbitTrader:
           체결 확정 전이므로 position.open_position 을 호출하지 않고
           pending_order=True 만 유지한다.
         """
+        # ✅ WO-6 (2026-08-25): dry-run 모드는 실 주문을 억제하고 로그만 남김
+        if self.dry_run:
+            logger.info(
+                f"[DRY-RUN] buy_limit 실 주문 억제 | ticker={ticker} price={price:.2f} ts={ts} "
+                f"interval_sec={interval_sec} meta={meta}"
+            )
+            return {
+                "time": ts,
+                "side": "BUY",
+                "qty": 0.0,
+                "price": float(price),
+                "uuid": "DRY_RUN",
+                "raw": {"dry_run": True},
+                "ord_type": "limit",
+                "limit_pending": True,
+            }
+
         # ✅ 사용자 결정사항: 고정가 매수는 LIVE 모드 한정. TEST 모드는 시장가로 폴백.
         if self.test_mode:
             logger.info("[BUY-LIMIT] TEST 모드 — buy_market으로 폴백")
@@ -1054,7 +1090,22 @@ class UpbitTrader:
         - TEST: 즉시 체결
         - LIVE: Upbit에 수량 기준 시장가 주문 → orders에는 'REQUESTED' + uuid 기록
                 실제 체결 결과(최종 수량/평단/수수료)는 OrderReconciler가 update_order_*()로 채움
+        - DRY-RUN 모드 (WO-6): 실 주문 억제.
         """
+        # ✅ WO-6 (2026-08-25): dry-run 모드는 실 주문을 억제하고 로그만 남김
+        if self.dry_run:
+            logger.info(
+                f"[DRY-RUN] sell_market 실 주문 억제 | ticker={ticker} qty={qty:.8f} price={price:.2f} "
+                f"ts={ts} meta={meta}"
+            )
+            return {
+                "time": ts,
+                "side": "SELL",
+                "qty": float(qty),
+                "price": float(price),
+                "uuid": "DRY_RUN",
+                "raw": {"dry_run": True},
+            }
         # 🔧 FIX: position.qty가 0일 때 실제 지갑 잔고 확인
         if qty <= 0:
             actual_balance = self._coin_balance(ticker)
