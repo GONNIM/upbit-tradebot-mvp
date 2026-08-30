@@ -579,8 +579,21 @@ class StrategyEngine:
         # Issue #9: BACKFILL은 이미 처리된 봉을 재평가하여 audit 로그를 UPDATE하므로
         # 중복 체크를 우회해야 함
         backfill_mode = diff_summary.get("backfill_mode", False)
+
+        # ✅ WO-6 감사 누락 수정 (2026-08-30): 엔진 입구 진단 로그.
+        # last_bar_ts 갱신 순서와 조기 반환 지점을 관측·재발 감지용으로 남긴다.
+        logger.info(
+            f"[ENGINE-ENTRY] on_new_bar_confirmed | bar.ts={bar.ts} | "
+            f"last_bar_ts={self.last_bar_ts} | backfill_mode={backfill_mode}"
+        )
+
         if not backfill_mode and not self.is_new_bar(bar):
-            logger.debug(f"[ENGINE] 중복 봉 무시 | {bar.ts}")
+            # ✅ WO-6 감사 누락 수정 (2026-08-30): debug → info 승격.
+            # 이 조기 반환이 실측에서 얼마나 자주 발생하는지 관측.
+            logger.info(
+                f"[ENGINE-SKIP-DUP] 중복 봉 무시 (is_new_bar False) | "
+                f"bar.ts={bar.ts} == last_bar_ts={self.last_bar_ts}"
+            )
             return
 
         # ✅ [Phase 1-C/P1-2] Position-Wallet 동기화를 execution_lock 안으로 이동
@@ -590,9 +603,10 @@ class StrategyEngine:
 
         # 1. 버퍼 추가 (BACKFILL 모드는 제외)
         # Issue #9: BACKFILL은 과거 봉 재평가이므로 버퍼 추가/bar_count 증가 불필요
+        # ✅ WO-6 감사 누락 수정 (2026-08-30): last_bar_ts 갱신은 판단·감사 완료
+        # 이후로 이동 (아래 라인 720 부근). 여기서는 버퍼 추가와 bar_count 증가만.
         if not backfill_mode:
             self.buffer.append(bar)
-            self.last_bar_ts = bar.ts
             self.bar_count += 1
             # ✅ 봉 경계 통과 시 고정가 매수 미체결 pending 자동 해제 (Reconciler가 cancel 처리)
             self._maybe_release_limit_pending()
@@ -716,6 +730,12 @@ class StrategyEngine:
             # BACKFILL 은 등록하지 않음 (순서 꼬여도 실시간 평가가 차단되지 않도록).
             if not backfill_mode:
                 self._register_evaluated_bar(bar.ts)
+                # ✅ WO-6 감사 누락 수정 (2026-08-30): last_bar_ts 는 판단·감사·주문
+                # 실행이 모두 완료된 후에만 갱신한다. 이전에는 라인 595(버퍼 추가 직후)
+                # 와 live_loop.py:1265(엔진 반환 뒤) 두 곳에서 갱신되어, 케이스 B 안정화
+                # 확정 봉이 두 번 진입할 때 두 번째 진입에서 is_new_bar=False 로 조기
+                # 반환되고 audit 저장이 스킵되는 결함이 있었다.
+                self.last_bar_ts = bar.ts
 
     # ✅ WO-6 (2026-08-25): 봉당 매매 판단 1회 이력 관리 헬퍼
     _EVAL_HISTORY_MAX = 1000  # 최근 1000봉 (분봉 기준 약 16시간 분량)

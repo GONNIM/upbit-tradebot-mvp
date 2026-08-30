@@ -1261,8 +1261,10 @@ def run_live_loop(
                         # 엔진에 확정 봉 전달
                         engine.on_new_bar_confirmed(bar, local_series, diff_summary)
 
-                        # ✅ Critical Fix: engine.last_bar_ts 업데이트 (중복 방지)
-                        engine.last_bar_ts = closed_ts
+                        # ✅ WO-6 감사 누락 수정 (2026-08-30): last_bar_ts 갱신은
+                        # strategy_engine 안의 판단·감사·주문 완료 직후에만 실행한다.
+                        # 여기서 갱신하지 않아야 케이스 B 안정화 확정 봉의 audit 누락이
+                        # 봉쇄된다. 중복 방지는 _evaluated_bar_ts 봉당 1회 검사가 담당.
 
                         logger.info(f"✅ [CONFIRMED] 봉 처리 완료 | ts={format_kst(closed_ts)} | close={bar.close}")
                     else:
@@ -1314,7 +1316,9 @@ def run_live_loop(
                                 )
 
                                 engine.on_new_bar_confirmed(bar, local_series, diff_summary)
-                                engine.last_bar_ts = closed_ts
+                                # ✅ WO-6 감사 누락 수정 (2026-08-30): last_bar_ts 갱신
+                                # 은 strategy_engine 안의 판단·감사·주문 완료 직후에만.
+                                # RETRY 경로도 동일하게 여기서 제거.
                                 logger.info(f"✅ [CONFIRMED] 재조회 후 봉 처리 완료 | ts={format_kst(closed_ts)} | retry={retry_num}")
                                 retry_success = True
                                 break  # 성공 시 retry 루프 탈출
