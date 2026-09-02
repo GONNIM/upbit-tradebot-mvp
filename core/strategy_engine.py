@@ -95,6 +95,11 @@ class StrategyEngine:
         # OrderedDict 로 등록 순서를 유지하고, 상한 초과 시 popitem(last=False)로 정리.
         self._evaluated_bar_ts: "OrderedDict[datetime, None]" = OrderedDict()
 
+        # ✅ WO-2 (2026-09-02): 매수 지연 발주 큐. 매도 경로는 이 큐를 우회한다.
+        # 한 번에 1건만 유지 (동시성 정책). 새 매수 결정이 오면 SUPERSEDED 로 교체.
+        from core.pending_order import PendingOrderQueue
+        self._pending_orders = PendingOrderQueue()
+
         # ✅ 고정가 매수(Limit) 미체결 추적 — 봉 경계 통과 시 pending 자동 해제용.
         # Reconciler가 봉 간격 초과 미체결을 cancel 처리하므로 다음 봉에서 풀어준다.
         self._pending_buy_uuid: Optional[str] = None
@@ -699,6 +704,13 @@ class StrategyEngine:
             # 감사 로그 (BACKFILL 재평가 경로면 checks.via_backfill=True로 기록)
             self._record_audit_log(bar, ind_snapshot, action, is_backfill=backfill_mode)
 
+            # ✅ WO-2 (2026-09-02): 매수 지연 재판정 훅.
+            # 이전 봉에서 등록된 매수 대기 항목이 있으면, 이 봉이 새 확정 정보를
+            # 제공하는 시점에 유효성 확인을 수행한다. 이 훅은 판단이 아니므로
+            # _register_evaluated_bar 를 호출하지 않고 봉당 감사 판단 1회 원칙을
+            # 유지한다. 재판정은 backfill_mode 와 무관하게 실행 (감사 기록도 UPDATE).
+            self._resolve_pending_buy(bar)
+
             # 4. 주문 실행
             # ✅ Backfill 모드일 때는 감사 로그만 기록하고 실제 주문은 건너뜀
             backfill_mode = diff_summary.get("backfill_mode", False)
@@ -757,21 +769,29 @@ class StrategyEngine:
             action: 전략이 반환한 액션
             bar: 현재 봉
             indicators: 지표 스냅샷
+
+        ✅ WO-2 (2026-09-02) execute 검사 순서 재정비:
+          - PAUSE-1 게이트는 매수·매도 모두 차단이 원 의도이므로 최상단 유지.
+            근거: docs/plans/2026-07-16-trading-pause/plan.md 라인 13, 41.
+          - position.pending_order 검사는 매수 분기 안으로만 이동. 이전에는
+            공용 위치에서 매도까지 차단되어 부분 체결 포지션에서 급락 손절이
+            막히는 구조였다. 매도 앞에는 매도를 멈출 수 있는 공용 검사가 없다.
         """
         if action == Action.HOLD or action == Action.NOOP:
             return
 
         # PAUSE-1: 매매 일시중지 게이트 (BUY + SELL 모두 스킵, 감사로그·지표는 유지)
+        # 근거: docs/plans/2026-07-16-trading-pause/plan.md ("BUY + SELL 모두 중지")
         if get_trading_paused(self.user_id):
             logger.info(f"⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action={action.value}")
             return
 
-        # 주문 진행 중이면 대기
-        if self.position.pending_order:
-            logger.warning("⏳ 주문 진행 중 → 신규 액션 대기")
-            return
-
         if action == Action.BUY:
+            # ✅ WO-2: 매수 경로에서만 pending_order 검사. 매도는 이 검사를 건너뛴다.
+            if self.position.pending_order:
+                logger.warning("⏳ 주문 진행 중 → 매수 액션 대기 (매도 경로는 별도 검사 없음)")
+                return
+
             # ✅ WO-1 선행 1: state_polluted 게이트 — 신규 매수만 차단, 매도 경로는 계속 실행
             # Issue #11 백업/복원 실패로 지표 오염 상태(state_polluted=True)에서는
             # 크로스 판정 자체를 신뢰할 수 없으므로 신규 매수를 차단한다.
@@ -792,10 +812,234 @@ class StrategyEngine:
                     )
                 except Exception as _annotate_exc:
                     logger.warning(f"[POLLUTED] audit annotate 예외 무시: {_annotate_exc}")
-                return  # 매수 미실행. pending 은 execute 진입 조건(라인 713)으로 이미 False 확정
-            self._execute_buy(bar, indicators)
+                return  # 매수 미실행
+            self._execute_buy_or_defer(bar, indicators)
         elif action == Action.SELL or action == Action.CLOSE:
+            # ✅ WO-2: 보호성 매도는 PendingOrderQueue 를 우회. 즉시 집행.
+            # 매도 앞에는 매도를 멈출 수 있는 공용 검사가 없어야 한다 (급락 손절 보장).
             self._execute_sell(bar, indicators)
+
+    def _execute_buy_or_defer(self, bar: Bar, indicators: Dict[str, Any]):
+        """
+        WO-2 재적용: 확정 여부에 따라 즉시 발주 또는 지연 큐 등록.
+
+        - bar.is_confirmed=True: 즉시 _execute_buy 위임 (기존 경로).
+        - bar.is_confirmed=False: PendingOrderQueue 에 등록하고 다음 봉 재판정
+          시점까지 대기. 최대 지연 60초.
+
+        유효성 확인 재계산은 매수용 지표 쌍(fast_buy, slow_buy)만 사용한다.
+        use_separate_ema=False 인 경우 공통 EMA 로 폴백.
+        """
+        if getattr(bar, 'is_confirmed', False):
+            self._execute_buy(bar, indicators)
+            return
+
+        from core.pending_order import PendingOrder
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo
+
+        prev_ema_fast = indicators.get('prev_ema_fast')
+        prev_ema_slow = indicators.get('prev_ema_slow')
+        if prev_ema_fast is None or prev_ema_slow is None:
+            logger.warning(
+                f"[PENDING-REGISTER] 매수용 직전 EMA 값 없음 → 지연 등록 스킵, 즉시 발주 위임 | "
+                f"bar.ts={bar.ts}"
+            )
+            self._execute_buy(bar, indicators)
+            return
+
+        # 매수용 alpha 계수: use_separate_ema 이면 매수용 쌍, 아니면 공통.
+        if getattr(self.indicators, 'use_separate_ema', False):
+            alpha_fast = self.indicators.alpha_ema_fast_buy
+            alpha_slow = self.indicators.alpha_ema_slow_buy
+        else:
+            alpha_fast = self.indicators.alpha_ema_fast
+            alpha_slow = self.indicators.alpha_ema_slow
+
+        signal_condition = 'EMA_GC' if self.strategy_type == 'EMA' else 'EMA_GC'
+        now = _dt.now(ZoneInfo("Asia/Seoul"))
+        pending = PendingOrder(
+            bar_ts=bar.ts,
+            decision='BUY',
+            signal_condition=signal_condition,
+            tentative_close=float(bar.close),
+            ema_fast_prev=float(prev_ema_fast),
+            ema_slow_prev=float(prev_ema_slow),
+            ema_fast_alpha=float(alpha_fast),
+            ema_slow_alpha=float(alpha_slow),
+            context={
+                'bar_count': self.bar_count,
+                'ind_ema_fast': indicators.get('ema_fast'),
+                'ind_ema_slow': indicators.get('ema_slow'),
+            },
+            created_at=now,
+        )
+        superseded = self._pending_orders.register(pending)
+        if superseded is not None:
+            logger.info(
+                f"[PENDING-SUPERSEDE] 기존 대기 매수 취소 (새 결정으로 교체) | "
+                f"old_bar_ts={superseded.bar_ts} → new_bar_ts={bar.ts}"
+            )
+            self._audit_wo2_resolution(
+                bar_ts=superseded.bar_ts,
+                validation_passed=0,
+                validation_reason='SUPERSEDED',
+                confirmed_close=None,
+                resolved_at=now,
+            )
+        logger.info(
+            f"[PENDING-REGISTER] 매수 지연 등록 | bar.ts={bar.ts} | "
+            f"tentative_close={bar.close} | max_wait={pending.max_wait_sec}s"
+        )
+
+    def _resolve_pending_buy(self, bar: Bar) -> None:
+        """
+        WO-2 재적용: 이전 봉의 대기 매수 항목을 확정 재판정한다.
+
+        이 훅은 새 봉의 실시간 평가 흐름과 별개다. 봉당 판단 1회 원칙을 지키기
+        위해 _register_evaluated_bar 를 호출하지 않고 감사도 UPDATE 만 한다.
+        """
+        pending = self._pending_orders.current
+        if pending is None:
+            return
+
+        from datetime import datetime as _dt
+        from zoneinfo import ZoneInfo
+        now = _dt.now(ZoneInfo("Asia/Seoul"))
+
+        # 대기 대상은 이전 봉이어야 한다. 같은 봉이면 아직 재판정 대상이 아니다.
+        if pending.bar_ts == bar.ts:
+            return
+
+        # 지연 상한 확인. 초과 시 즉시 취소.
+        if pending.is_expired(now):
+            logger.warning(
+                f"[PENDING-EXPIRE] 지연 상한 초과 → 취소 | pending_bar_ts={pending.bar_ts} | "
+                f"created_at={pending.created_at} | max_wait={pending.max_wait_sec}s"
+            )
+            self._pending_orders.cancel_current(reason='MAX_WAIT_EXCEEDED', at=now)
+            self._audit_wo2_resolution(
+                bar_ts=pending.bar_ts,
+                validation_passed=0,
+                validation_reason='MAX_WAIT_EXCEEDED',
+                confirmed_close=None,
+                resolved_at=now,
+            )
+            return
+
+        # 확정 종가 조회. 지금 봉이 pending 봉 다음 봉이면 pending 봉이 확정된 것으로
+        # 간주하고, 그 확정 종가는 이전 봉의 종가로 삼는다. 실제 확정 종가는
+        # rest_reconcile.fetch_confirmed_candle 로 재조회하는 것이 더 안전하나,
+        # 여기서는 이미 이 봉 처리 흐름에서 확정된 정보를 활용한다.
+        confirmed_close = self._lookup_confirmed_close(pending.bar_ts)
+        if confirmed_close is None:
+            logger.warning(
+                f"[PENDING-RESOLVE] 확정 종가 조회 실패 → 다음 봉까지 재대기 | "
+                f"pending_bar_ts={pending.bar_ts}"
+            )
+            return
+
+        try:
+            passed = pending.revalidate(confirmed_close)
+        except Exception as e:
+            logger.error(
+                f"[PENDING-RESOLVE] 유효성 확인 예외 → 취소 | {e}", exc_info=True
+            )
+            self._pending_orders.cancel_current(reason='SIGNAL_INVERTED', at=now)
+            self._audit_wo2_resolution(
+                bar_ts=pending.bar_ts,
+                validation_passed=0,
+                validation_reason='SIGNAL_INVERTED',
+                confirmed_close=confirmed_close,
+                resolved_at=now,
+            )
+            return
+
+        if not passed:
+            logger.info(
+                f"[PENDING-RESOLVE] 유효성 불성립 → 취소 | pending_bar_ts={pending.bar_ts} | "
+                f"confirmed_close={confirmed_close}"
+            )
+            self._pending_orders.cancel_current(reason='SIGNAL_INVERTED', at=now)
+            self._audit_wo2_resolution(
+                bar_ts=pending.bar_ts,
+                validation_passed=0,
+                validation_reason='SIGNAL_INVERTED',
+                confirmed_close=confirmed_close,
+                resolved_at=now,
+            )
+            return
+
+        # 유효성 성립 → 발주. 발주 후 큐 비우고 감사 UPDATE.
+        logger.info(
+            f"[PENDING-RESOLVE] 유효성 통과 → 발주 진행 | pending_bar_ts={pending.bar_ts} | "
+            f"confirmed_close={confirmed_close}"
+        )
+        # 발주는 원래 판단 봉(pending.bar_ts)의 종가로 진행하는 것이 원칙이나,
+        # 발주 인터페이스는 현재 봉 객체를 요구하므로 confirmed_close 를 포함한
+        # 임시 Bar 로 재구성한다.
+        _confirmed_bar = Bar(
+            ts=pending.bar_ts,
+            open=confirmed_close,
+            high=confirmed_close,
+            low=confirmed_close,
+            close=confirmed_close,
+            volume=0.0,
+            is_closed=True,
+            is_confirmed=True,
+            source='WO2_PENDING_RESOLVE',
+        )
+        _resolved_indicators = {
+            'ema_fast': pending.context.get('ind_ema_fast'),
+            'ema_slow': pending.context.get('ind_ema_slow'),
+            'macd': None,
+            'signal': None,
+        }
+        self._pending_orders.clear()
+        self._audit_wo2_resolution(
+            bar_ts=pending.bar_ts,
+            validation_passed=1,
+            validation_reason=None,
+            confirmed_close=confirmed_close,
+            resolved_at=now,
+        )
+        self._execute_buy(_confirmed_bar, _resolved_indicators)
+
+    def _lookup_confirmed_close(self, bar_ts) -> Optional[float]:
+        """대상 봉의 확정 종가를 buffer 에서 조회. 없으면 None."""
+        for _bar in reversed(self.buffer):
+            if _bar.ts == bar_ts:
+                return float(_bar.close)
+        return None
+
+    def _audit_wo2_resolution(
+        self,
+        bar_ts,
+        validation_passed: Optional[int],
+        validation_reason: Optional[str],
+        confirmed_close: Optional[float],
+        resolved_at,
+    ) -> None:
+        """WO-2 재판정 결과를 audit_buy_eval 에 UPDATE 반영."""
+        try:
+            from zoneinfo import ZoneInfo
+            from services.db import update_buy_eval_wo2_resolution
+            bar_ts_kst = bar_ts.astimezone(ZoneInfo("Asia/Seoul"))
+            resolved_at_str = (
+                resolved_at.astimezone(ZoneInfo("Asia/Seoul")).isoformat()
+                if hasattr(resolved_at, 'astimezone') else str(resolved_at)
+            )
+            update_buy_eval_wo2_resolution(
+                user_id=self.user_id,
+                ticker=self.ticker,
+                bar_time=bar_ts_kst.isoformat(),
+                validation_passed=validation_passed,
+                validation_reason=validation_reason,
+                confirmed_close=confirmed_close,
+                resolved_at=resolved_at_str,
+            )
+        except Exception as e:
+            logger.warning(f"[AUDIT-UPDATE] WO-2 resolution 예외 무시: {e}")
 
     def _execute_buy(self, bar: Bar, indicators: Dict[str, Any]):
         """

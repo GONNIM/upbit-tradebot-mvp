@@ -822,6 +822,32 @@ def ensure_audit_backfill_columns(user_id: str):
     conn.close()
 
 
+def ensure_wo2_audit_columns(user_id: str):
+    """
+    WO-2 재적용: audit_buy_eval 에 매수 지연 발주와 유효성 확인 결과를 남기는
+    컬럼 6종을 멱등 추가한다. audit_sell_eval 은 매도 즉시 집행이므로 대상이
+    아니다. 기존 행에는 NULL 이 채워진다.
+
+    신설 컬럼:
+      - pending_created_at TEXT:   대기 등록 시각 (ISO 8601 KST)
+      - pending_resolved_at TEXT:  확정 재판정 완료 시각
+      - validation_passed INTEGER: 유효성 확인 결과 (1=통과, 0=실패, NULL=즉시 발주)
+      - validation_reason TEXT:    실패 사유 ('SIGNAL_INVERTED', 'MAX_WAIT_EXCEEDED',
+                                              'SUPERSEDED')
+      - tentative_close REAL:      평가 시점 종가 (미확정 가능)
+      - confirmed_close REAL:      확정 종가 (유효성 확인 입력)
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE audit_buy_eval ADD COLUMN pending_created_at TEXT")
+    _safe_alter(conn, "ALTER TABLE audit_buy_eval ADD COLUMN pending_resolved_at TEXT")
+    _safe_alter(conn, "ALTER TABLE audit_buy_eval ADD COLUMN validation_passed INTEGER")
+    _safe_alter(conn, "ALTER TABLE audit_buy_eval ADD COLUMN validation_reason TEXT")
+    _safe_alter(conn, "ALTER TABLE audit_buy_eval ADD COLUMN tentative_close REAL")
+    _safe_alter(conn, "ALTER TABLE audit_buy_eval ADD COLUMN confirmed_close REAL")
+    conn.commit()
+    conn.close()
+
+
 def ensure_accounts_locked(user_id: str):
     """
     accounts 테이블에 virtual_krw_locked 컬럼 추가:
@@ -902,6 +928,7 @@ def ensure_all_schemas(user_id: str):
     ensure_account_positions_entry_price(user_id)  # ✅ account_positions entry_price 추가
     ensure_engine_status_last_mode(user_id)        # ✅ engine_status last_mode 추가 (재시작 자동 재개)
     ensure_users_trading_paused(user_id)           # ✅ PAUSE-1: users trading_paused 추가
+    ensure_wo2_audit_columns(user_id)              # ✅ WO-2: audit_buy_eval 지연 발주·유효성 확인 컬럼 6종
 
 
 def init_db_if_needed(user_id):

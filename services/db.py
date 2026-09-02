@@ -1009,6 +1009,8 @@ def insert_buy_eval(
     notes: str = "",
     bar_time: str | None = None,  # ✅ 봉 시각 파라미터 (필수)
     is_backfill: bool = False,    # ✅ WO-1: BACKFILL 재평가 경로 여부
+    pending_created_at: str | None = None,  # ✅ WO-2: 매수 지연 등록 시각 (ISO 8601 KST)
+    tentative_close: float | None = None,   # ✅ WO-2: 지연 등록 시점의 미확정 종가
 ):
     """
     BUY 평가 감사로그 기록.
@@ -1148,8 +1150,9 @@ def insert_buy_eval(
                     """
                     INSERT INTO audit_buy_eval
                     (timestamp, bar_time, ticker, interval_sec, bar, price, macd, signal,
-                     have_position, overall_ok, failed_keys, checks, notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     have_position, overall_ok, failed_keys, checks, notes,
+                     pending_created_at, tentative_close)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         timestamp_now, bar_time, ticker, interval_sec, bar, price, macd, signal,
@@ -1157,10 +1160,68 @@ def insert_buy_eval(
                         json.dumps(failed_keys, ensure_ascii=False) if failed_keys else None,
                         json.dumps(checks, ensure_ascii=False) if checks else None,
                         notes,
+                        pending_created_at, tentative_close,
                     ),
                 )
 
         conn.commit()
+
+
+def update_buy_eval_wo2_resolution(
+    user_id: str,
+    ticker: str,
+    bar_time: str,
+    validation_passed: int | None,
+    validation_reason: str | None,
+    confirmed_close: float | None,
+    resolved_at: str,
+) -> bool:
+    """
+    WO-2 재적용: 매수 지연 재판정 결과를 기존 audit_buy_eval 행에 반영한다.
+
+    호출 시나리오:
+      - 확정 재판정 통과 → validation_passed=1, validation_reason=None,
+        confirmed_close=확정가.
+      - 확정 재판정 불성립 → validation_passed=0, validation_reason='SIGNAL_INVERTED',
+        confirmed_close=확정가.
+      - 지연 상한 초과 → validation_passed=0, validation_reason='MAX_WAIT_EXCEEDED',
+        confirmed_close=None (확정을 못 받았으므로).
+      - 새 결정으로 교체 → validation_passed=0, validation_reason='SUPERSEDED',
+        confirmed_close=None.
+
+    반환값: 실제 UPDATE 된 행이 있으면 True, 매칭 행이 없으면 False (감사 저장
+    실패 상황). 봉당 감사 판단 1회 원칙을 지키기 위해 새 행은 만들지 않는다.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT id FROM audit_buy_eval WHERE ticker=? AND bar_time=?",
+            (ticker, bar_time),
+        )
+        row = cur.fetchone()
+        if row is None:
+            logger.warning(
+                f"[AUDIT-UPDATE] WO-2 resolution 실패 (원 행 없음) | "
+                f"ticker={ticker} | bar_time={bar_time} | reason={validation_reason}"
+            )
+            return False
+        cur.execute(
+            """
+            UPDATE audit_buy_eval
+            SET validation_passed=?, validation_reason=?, confirmed_close=?,
+                pending_resolved_at=?
+            WHERE id=?
+            """,
+            (validation_passed, validation_reason, confirmed_close, resolved_at, row[0]),
+        )
+        conn.commit()
+        logger.info(
+            f"[AUDIT-UPDATE] WO-2 resolution | ticker={ticker} | bar_time={bar_time} | "
+            f"passed={validation_passed} | reason={validation_reason} | close={confirmed_close}"
+        )
+        return True
 
 
 def insert_sell_eval(
