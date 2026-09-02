@@ -226,37 +226,66 @@ Upbit 봉 수)로 계산되어야 정확한 비교가 가능하나, 실측 시�
   실시간 판단에서 새 신호가 나올 수 있으므로 오래된 지연 주문은 취소하고 새
   판단에 위임하는 것이 안전.
 
-### 2.3 흐름 (기 승인 §6 유지)
+### 2.3 흐름 (기 승인 §6 유지 + 2026-09-02 보정 반영)
 
 1. `[CLOCK-CLOSE]` → 실시간 평가 실행 (봉당 1회).
-2. 평가 결과 매매 결정이 나오면 `fetch_confirmed_candle` 호출.
-3. 확정이면 즉시 유효성 확인 → 발주.
-4. 미확정이면 `_pending_orders`에 등록 후 대기.
-5. 다음 CLOCK-CLOSE 시각에 확정 재판정 (다음 봉의 실시간 판단과는 별개).
-6. 확정되면 유효성 확인 → 발주. 여전히 미확정이면 지연 상한 확인.
-7. 지연 상한(60초) 초과 시 발주 취소, 로그와 감사 기록.
+2. 평가 결과 매매 결정이 나오면 `execute(action, bar, indicators)` 진입.
+3. `execute` 검사 순서 (**2026-09-02 보정 1**):
+   - `PAUSE-1` 게이트는 매수·매도 모두 차단이 원 의도이므로 최상단 유지
+     (근거: `docs/plans/2026-07-16-trading-pause/plan.md`).
+   - `pending_order` 존재 검사는 매수 분기 안으로만 위치. 매도 앞에는 매도를
+     멈추는 공용 검사가 없다. 부분 체결 포지션에서 급락 손절이 보장된다.
+4. 매수 결정이면 `_execute_buy_or_defer`가 확정 여부를 판별한다.
+   - 확정 봉이면 즉시 유효성 확인 → 기존 `_execute_buy` 로 발주.
+   - 미확정 봉이면 `_pending_orders.register`로 대기 등록.
+5. 매도·청산 결정이면 `_execute_sell`이 지연 큐를 우회해 즉시 집행.
+6. 다음 `CLOCK-CLOSE` 시점에 `_resolve_pending_buy` 훅이 이전 봉의 대기 항목을
+   확정 재판정한다 (다음 봉의 실시간 판단과 별개).
+7. 확정되면 유효성 확인 → 발주 또는 취소(감사 UPDATE). 여전히 미확정이면
+   지연 상한 확인. 상한(60초) 초과 시 취소.
 
-### 2.4 데이터 구조
+### 2.4 데이터 구조 (2026-09-02 보정 반영)
 
 ```python
+@dataclass
 class PendingOrder:
     bar_ts: datetime           # 대상 봉
-    decision: str              # 'BUY' or 'SELL'
-    context: dict              # 관문 통과 시점의 스냅샷
-    tentative_close: float     # 평가 시점 close (유효성 확인용)
-    signal_condition: str      # 유효성 재확인할 조건 이름 (EMA_GC 등)
+    decision: str              # 항상 'BUY' (SELL 은 큐를 우회, register 에서 ValueError)
+    signal_condition: str      # 재확인할 조건 이름 (예: 'EMA_GC')
+    tentative_close: float     # 평가 시점 close (미확정 가능)
+    # ✅ 보정 3: 매수용 지표 쌍만 저장. use_separate_ema=True 이면 fast_buy/slow_buy
+    #    기간의 값과 계수. use_separate_ema=False 이면 공통 값. 매도용 쌍은
+    #    저장하지 않으며 유효성 확인 재계산도 매수용 쌍으로만 한다.
+    ema_fast_prev: float       # 직전 봉의 매수용 fast EMA 값
+    ema_slow_prev: float       # 직전 봉의 매수용 slow EMA 값
+    ema_fast_alpha: float      # 2 / (fast_buy + 1)
+    ema_slow_alpha: float      # 2 / (slow_buy + 1)
+    context: dict              # 관문 스냅샷 (참고용)
     created_at: datetime       # 등록 시각
     max_wait_sec: int = 60     # 지연 상한
 ```
 
-`strategy_engine` 안에 `_pending_orders: List[PendingOrder]` 필드 신설.
+`strategy_engine` 안에 `_pending_orders: PendingOrderQueue` 필드 신설.
 
-### 2.5 유효성 확인 (재판정 아님)
+**동시성 정책 (보정 2)**:
+- 대기 매수는 한 번에 1건만 유지한다.
+- 대기 중 다음 봉에서 새 매수 결정이 나오면 기존 항목을 취소
+  (`validation_reason='SUPERSEDED'`, 감사 UPDATE)하고 새 결정으로 교체한다.
+- 근거: 더 최신 정보로 내린 결정이 우선. 오래된 결정이 확정 대기 중이라는
+  이유만으로 새 결정을 미루면 시장 변화를 놓친다.
+- `PendingOrderQueue.register(order)`가 이 정책을 강제한다. 기존 항목이
+  있으면 `CancelReport(reason='SUPERSEDED')`를 반환한다.
+
+### 2.5 유효성 확인 (재판정 아님, 2026-09-02 보정 반영)
 
 - 대상: 대기 중이던 주문이 확정 조건을 충족한 시점.
 - 방식: 확정된 종가로 원 신호 조건(예: EMA fast > EMA slow) **한 번만** 재계산.
 - 관문(오염 차단, 재사용 대기, 포지션 제한, 필터)은 재실행하지 않음.
 - 성립 → 발주. 불성립 → 발주 취소 + 감사 기록.
+- **보정 3**: 유효성 확인 재계산은 매수용 지표 쌍(fast_buy, slow_buy)만 사용
+  한다. `use_separate_ema=True` 환경에서 매도용 쌍(fast_sell, slow_sell)을
+  섞어 쓰지 않는다. `PendingOrder.revalidate(confirmed_close)`가 이 규칙을
+  강제한다.
 - 근거 사례: 2026-08-20 04:34 봉의 평가 종가 777원, 확정 종가 779원. 유효성
   확인은 779원 기준 EMA 재계산.
 
@@ -291,6 +320,10 @@ class PendingOrder:
   - 케이스 C 재시도 중 매수 결정이 나온 경우.
   - 유효성 확인이 성립하여 발주된 사례 또는 불성립하여 취소된 사례.
   - 위 세 유형 중 최소 1건.
+- **검증 예외 절차 (2026-09-02 신설)**: 활성 시간대 30봉 안에 지연 사례가
+  자연 발생하지 않으면 저유동성 시간대(예: 심야)로 관측을 연장한다. 그래도
+  확보가 어려우면 그 시점에 보고하고 판단을 요청한다. 모의 조작으로 사례를
+  만드는 것은 금지. 회귀 테스트 7건이 이미 그 역할을 담당한다.
 
 **배포 직후 30분 확인**
 
