@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.04.1733")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.04.1931")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -922,6 +922,7 @@ if orders:
             errors='coerce'
         ).fillna(0)
         df_orders["_가격_숫자"] = pd.to_numeric(df_orders["가격"], errors='coerce').fillna(0)
+        df_orders["_수량_숫자"] = pd.to_numeric(df_orders["수량"], errors='coerce').fillna(0)
 
         # -------------------------------
         # 손익 / 수익률 계산 (정확히 동작)
@@ -936,15 +937,17 @@ if orders:
         df_orders["_buy_price_tmp"] = df_orders["_가격_숫자"].where(df_orders["매매"] == "BUY")  # ★ 추가
         df_orders["_last_buy_price"] = df_orders.groupby("코인")["_buy_price_tmp"].ffill()      # ★ 추가
 
-        # SELL 행에서만 손익/수익률 계산, 그 외는 NaN
-        df_orders["손익"] = np.where(
+        # SELL 행 단가차 (수익률 계산용, per-coin)
+        df_orders["_price_diff"] = np.where(
             (df_orders["매매"] == "SELL") & df_orders["_last_buy_price"].notna(),
             df_orders["_가격_숫자"] - df_orders["_last_buy_price"],
             np.nan,
-        )  # ★ 추가
+        )
+        # 손익: 수량 × 단가차 (총 실현 손익)
+        df_orders["손익"] = df_orders["_price_diff"] * df_orders["_수량_숫자"]
         df_orders["수익률(%)"] = np.where(
-            df_orders["손익"].notna(),
-            (df_orders["손익"] / df_orders["_last_buy_price"]) * 100,
+            df_orders["_price_diff"].notna(),
+            (df_orders["_price_diff"] / df_orders["_last_buy_price"]) * 100,
             np.nan,
         )  # ★ 추가
 
@@ -959,14 +962,14 @@ if orders:
         df_orders["현재금액"] = df_orders["_현재금액_숫자"].map(lambda x: f"{x:,.0f} KRW")
         df_orders["보유코인"] = pd.to_numeric(df_orders["보유코인"], errors='coerce').fillna(0).map(lambda x: f"{x:.6f}")
         df_orders["손익"] = df_orders["손익"].apply(
-            lambda x: f"{x:,.0f} KRW" if pd.notna(x) else "-"
+            lambda x: f"{x:+,.0f} KRW" if pd.notna(x) else "-"
         )
         df_orders["수익률(%)"] = df_orders["수익률(%)"].apply(
             lambda x: f"{x:.2f}%" if pd.notna(x) else "-"
         )
 
         # 불필요 컬럼 제거
-        df_orders = df_orders.drop(columns=["_가격_숫자", "_현재금액_숫자", "_buy_price_tmp", "_last_buy_price", "시간_dt"])
+        df_orders = df_orders.drop(columns=["_가격_숫자", "_수량_숫자", "_현재금액_숫자", "_buy_price_tmp", "_last_buy_price", "_price_diff", "시간_dt"])
 
         # ▶ 컬럼 순서 조정(모바일 가독성): 상태, 현재금액, 보유코인을 맨 뒤로
         cols_to_tail = ["상태", "현재금액", "보유코인"]
