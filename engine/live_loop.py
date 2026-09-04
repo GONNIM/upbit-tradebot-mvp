@@ -11,6 +11,9 @@ import json
 import pandas as pd
 from pathlib import Path
 from typing import Optional, Tuple, Dict, Any
+# ✅ WO-2 옵션 C (2026-09-02): 모듈 스코프 datetime/timedelta/ZoneInfo — 회귀 patch 대응
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # 새로운 증분 처리 모듈
 from core.candle_buffer import CandleBuffer, Bar
@@ -88,6 +91,92 @@ WARMUP_LEN_BY_INTERVAL_EMA: Dict[str, int] = {
     "minute60": 200,
     "day": 200,
 }
+
+
+def _lookup_tentative_close(
+    ticker: str,
+    local_series: 'pd.DataFrame',
+    closed_ts,
+    max_ws_age_sec: int = 10,
+) -> Optional[Tuple[float, str, 'pd.Timestamp']]:
+    """
+    WO-2 옵션 C: 잠정 종가 우선순위 조회.
+
+    우선순위:
+      1) `pyupbit.get_current_price(verbose=True)` 응답의 `trade_timestamp`.
+         체결 시각이 대상 봉 구간 `[closed_ts, closed_ts+1min)` 안이거나
+         봉 마감 후 `max_ws_age_sec` 초 이내일 때만 채택.
+      2) `local_series` 의 직전 봉 close (인덱스 순회 fallback).
+      3) 실패 시 None.
+
+    반환: `(close, source, source_ts_kst)` 또는 `None`.
+    source: `'WS_FRESH'` | `'PREV_CLOSE'`.
+    """
+    KST = ZoneInfo("Asia/Seoul")
+    now = datetime.now(KST)
+
+    # closed_ts 정규화
+    if hasattr(closed_ts, 'tzinfo') and closed_ts.tzinfo is not None:
+        closed_ts_kst = closed_ts.astimezone(KST)
+    else:
+        closed_ts_kst = pd.Timestamp(closed_ts).tz_localize(KST)
+
+    # 1순위: pyupbit ticker (신선도 조건)
+    try:
+        import pyupbit
+        r = pyupbit.get_current_price(ticker, verbose=True)
+        if isinstance(r, list) and r:
+            r = r[0]
+        if isinstance(r, dict):
+            trade_ts_ms = r.get('trade_timestamp')
+            trade_price = r.get('trade_price')
+            if trade_ts_ms is not None and trade_price is not None:
+                trade_ts_kst = pd.Timestamp(trade_ts_ms, unit='ms', tz='UTC').tz_convert(KST)
+                bar_end = closed_ts_kst + timedelta(minutes=1)
+                age_from_close = (now - closed_ts_kst).total_seconds()
+                in_bar_window = closed_ts_kst <= trade_ts_kst < bar_end
+                within_grace = 0 <= age_from_close <= max_ws_age_sec
+                if in_bar_window or within_grace:
+                    logger.info(
+                        f"[WO2-C-TENTATIVE-SOURCE] ts={format_kst(closed_ts)} "
+                        f"close={float(trade_price)} source=WS_FRESH "
+                        f"trade_ts={trade_ts_kst.isoformat()} "
+                        f"(in_window={in_bar_window}, age_from_close={age_from_close:.0f}s)"
+                    )
+                    return float(trade_price), 'WS_FRESH', trade_ts_kst
+                else:
+                    logger.info(
+                        f"[WO2-C-TENTATIVE-SOURCE] WS 스킵 (신선도 조건 불충족) | "
+                        f"trade_ts={trade_ts_kst.isoformat()} closed_ts={closed_ts_kst.isoformat()} "
+                        f"age_from_close={age_from_close:.0f}s > {max_ws_age_sec}s"
+                    )
+    except Exception as _e:
+        logger.warning(f"[WO2-C-TENTATIVE-SOURCE] WS 조회 예외 무시: {_e}")
+
+    # 2순위: local_series 직전 봉 close
+    try:
+        for offset in range(1, 5):
+            candidate = closed_ts_kst - timedelta(minutes=offset)
+            for idx in local_series.index:
+                idx_ts = pd.Timestamp(idx)
+                if idx_ts.tzinfo is None:
+                    idx_kst = idx_ts.tz_localize(KST)
+                else:
+                    idx_kst = idx_ts.tz_convert(KST)
+                if idx_kst == candidate:
+                    close_val = float(local_series.loc[idx, 'Close'])
+                    logger.info(
+                        f"[WO2-C-TENTATIVE-SOURCE] ts={format_kst(closed_ts)} "
+                        f"close={close_val} source=PREV_CLOSE prev_ts={candidate.isoformat()}"
+                    )
+                    return close_val, 'PREV_CLOSE', candidate
+    except Exception as _e:
+        logger.warning(f"[WO2-C-TENTATIVE-SOURCE] PREV_CLOSE 조회 예외 무시: {_e}")
+
+    logger.error(
+        f"[WO2-C-TENTATIVE-SOURCE] ts={format_kst(closed_ts)} source=NONE — 잠정 종가 확보 실패"
+    )
+    return None
 
 
 def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
@@ -1327,8 +1416,53 @@ def run_live_loop(
 
                         # 모든 재시도 실패 시 처리
                         if not retry_success:
+                            # ✅ WO-2 옵션 C (2026-09-02): 미확정 봉 진입 배선.
+                            # 잠정 종가를 확보할 수 있으면 미확정 Bar 로 엔진에 전달하여
+                            # 평가·감사·매수 지연·보호성 매도 즉시 집행 흐름을 진행한다.
+                            # 확보 실패 시 기존 동작(봉 스킵)을 유지한다.
+                            tentative_result = _lookup_tentative_close(
+                                ticker=params.upbit_ticker,
+                                local_series=local_series,
+                                closed_ts=closed_ts,
+                                max_ws_age_sec=10,
+                            )
+                            if tentative_result is not None:
+                                tentative_close, source, source_ts_kst = tentative_result
+                                logger.warning(
+                                    f"⚠️ [RETRY-EXHAUSTED-TENTATIVE] closed_ts={format_kst(closed_ts)} "
+                                    f"→ 미확정 봉 평가 진입 (WO-2 옵션 C) | source={source} "
+                                    f"tentative_close={tentative_close} source_ts={source_ts_kst.isoformat()}"
+                                )
+                                tentative_bar = Bar(
+                                    ts=closed_ts,
+                                    open=tentative_close,
+                                    high=tentative_close,
+                                    low=tentative_close,
+                                    close=tentative_close,
+                                    volume=0.0,
+                                    is_closed=True,
+                                    is_confirmed=False,
+                                    source=f"WO2_OPTION_C_TENTATIVE:{source}",
+                                )
+                                try:
+                                    engine.on_new_bar_confirmed(tentative_bar, local_series, diff_summary)
+                                    logger.info(
+                                        f"✅ [WO2-OPTION-C] 미확정 봉 평가 진입 완료 | "
+                                        f"ts={format_kst(closed_ts)} tentative_close={tentative_close} "
+                                        f"source={source}"
+                                    )
+                                except Exception as _wo2c_exc:
+                                    logger.error(
+                                        f"❌ [WO2-OPTION-C] 미확정 봉 평가 실패 (예외 → 봉 스킵 fallback) | "
+                                        f"{_wo2c_exc}",
+                                        exc_info=True,
+                                    )
+                                # 옵션 C 처리 성공 여부와 무관하게 기존 재시도 실패 알림은
+                                # 억제 (미확정 진입은 이미 상세 로그로 남긴다).
+                                continue
+
                             logger.error(f"❌ [RETRY] 모든 재조회 실패 ({len(retry_waits)}회) → 봉 스킵 | closed_ts={format_kst(closed_ts)}")
-                            logger.error(f"💡 [FALLBACK] Upbit REST API 지연 ({sum(retry_waits)}초 대기했으나 데이터 미수신) → 다음 봉 대기")
+                            logger.error(f"💡 [FALLBACK] Upbit REST API 지연 ({sum(retry_waits)}초 대기했으나 데이터 미수신, 잠정 종가 확보도 실패) → 다음 봉 대기")
                             # 중요 #10 알림: REST 연속 실패 (v2 — ticker + 영향 명시)
                             try:
                                 from services.notifier import send as _notify, LEVEL_WARNING

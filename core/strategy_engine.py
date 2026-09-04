@@ -1404,6 +1404,9 @@ class StrategyEngine:
                     "price": float(current_price) if current_price is not None else None,
                     "strategy_mode": "MACD",  # ✅ MACD 전략
                     "via_backfill": bool(is_backfill),  # BACKFILL 재평가 경로 여부 (실주문 미실행 케이스 구분)
+                    # ✅ WO-2 옵션 C (2026-09-02): 미확정 봉 평가 표식.
+                    # bar.is_confirmed=False 인 잠정 봉을 감사에서 구분할 수 있게 한다.
+                    "via_tentative": not bool(getattr(bar, 'is_confirmed', True)),
                 }
             else:  # EMA
                 # EMA 전략: macd 컬럼에 ema_fast, signal 컬럼에 ema_slow 저장
@@ -1432,6 +1435,8 @@ class StrategyEngine:
                     "ema_fast_sell": float(ema_fast_sell) if ema_fast_sell is not None else None,
                     "ema_slow_sell": float(ema_slow_sell) if ema_slow_sell is not None else None,
                     "via_backfill": bool(is_backfill),  # BACKFILL 재평가 경로 여부 (실주문 미실행 케이스 구분)
+                    # ✅ WO-2 옵션 C (2026-09-02): 미확정 봉 평가 표식.
+                    "via_tentative": not bool(getattr(bar, 'is_confirmed', True)),
                 }
 
                 # ✅ Base EMA GAP 전략 모드 감지 (enable_base_ema_gap 속성 우선 확인)
