@@ -374,18 +374,36 @@ TEST 모드로 실행:
 
 ---
 
-## 9. 완료 기준 (Definition of Done)
+## 9. 완료 기준 (Definition of Done, 2026-09-12 재정의)
 
-- [ ] `services/trading_control.py` `force_buy_in` 지정가 분기 추가 (V-B 확정 라인 인용)
-- [ ] `pages/dashboard.py` UI 안내 문구 추가 (§3.4)
-- [ ] py_compile 통과 (§6.1)
-- [ ] TEST 모드 케이스 A/B/C 시나리오 통과 (§6.2)
-- [ ] 배포 후 30분 확인 통과 (§6.3)
-- [ ] 배포 후 24h `[POSITION-SYNC]` 로그 부재 확인 (§6.3 필수 항목)
-- [ ] 7일 커버리지 100% 유지 (§6.4)
-- [ ] dashboard.py 버전 갱신 (`v1.2026.MM.DD.HHMM`)
-- [ ] docs/issues 관련 라인 참조 갱신 (필요 시)
-- [ ] 배포 커밋 메시지에 롤백 트리거 명시
+**핵심 원칙 (2026-09-12 승인)**: WO-8 완결 조건은 **다음 자연 발생 강제 매수 1건**의 로그가 검증 4항목을 통과하는 것으로 재정의된다. 인위적 실발주는 금지. 상시 감시 프로세스는 신설하지 않으며, 다음 세션 개시 시 `journalctl`에서 `reason=force_buy` 발생 여부를 조회하는 절차로 갈음한다.
+
+### 구현 완료 (2026-09-12 배포 시점에 확정)
+
+- [x] `services/trading_control.py` `force_buy_in` 지정가 분기 추가 (V-B 확정 라인 인용)
+- [x] `pages/dashboard.py` UI 안내 문구 추가 (§3.4)
+- [x] py_compile 통과 (§6.1)
+- [x] TEST 모드 케이스 A/B/C 시나리오 통과 (§6.2)
+- [x] 배포 후 30분 확인 통과 (§6.3) — 결함 태그 6종 전부 0건, Bar# 정상 진행
+- [x] dashboard.py 버전 갱신 (`v1.2026.09.12.1715`)
+- [x] 배포 커밋 메시지에 롤백 트리거 명시 (`de28fea`)
+- [x] 검증 가이드 신설 (`docs/operations/wo8-force-buy-verification-guide.md`)
+
+### 자연 발생 관측 대기 (다음 세션 개시 시 조회)
+
+- [ ] 다음 자연 발생 강제 매수 1건 감지 (`reason=force_buy`)
+- [ ] **(a)** `[FIXED-PRICE][FORCE] 고정가 강제 매수 진입` + **`interval_sec=1500`** 로그 확인
+- [ ] **(b)** 체결 시: `[LIMIT-FILL] apply_entry 완료` + 이후 첫 봉 SELL 평가에서 **`[POSITION-SYNC] 자동 복구` 로그 부재**
+- [ ] **(c)** 미체결 시: **`[FORCE]` prefix 취소 알림 발송** 확인 (텔레그램/대시보드 dedupe_key=`fixed_buy_timeout:{uuid}` TTL 60s)
+- [ ] **(d)** `audit_trades.reason='force_buy'` 행의 **`entry_price` 정상 기재** (NULL/0 아닌 정상 값, `orders.avg_price`와 대조)
+
+**완결 판정**: (a) + (b 또는 c) + (d) 3항목 모두 통과.
+
+### 24시간 무결성 (2026-09-13 17:24 KST 기준)
+
+- [ ] 24h 결함 태그 6종 카운트 (§6.3 항목)
+- [ ] 7일 커버리지 100% 유지 (§6.4, `docs/plans/2026-09-12-post-check/coverage-and-critical.md` 산식 동일)
+- [ ] `pos_desync_promoted` 오탐 여부 (승격 가드가 정상 매매 봉에서 잘못 발화하지 않는지)
 
 ---
 

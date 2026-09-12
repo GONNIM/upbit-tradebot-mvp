@@ -88,32 +88,66 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ---
 
-## 확인 4 · 강제 매수 1회 실 발주 (운영자 협조 필요)
+## 확인 4 · 자연 발생 강제 매수 1건의 로그 검증 (인위 실행 금지)
 
-**대시보드 → 🛑 강제매수하기 클릭 1회**로 다음을 순차 실측한다.
+**운영자는 강제 매수를 대신 실행할 수 없다. 인위적 실발주는 하지 않는다.** WO-8 완결 조건은 **다음 자연 발생 강제 매수 1건**의 로그가 아래 4항목을 통과하는 것으로 재정의된다 (2026-09-12 승인).
 
-### 4-1. 발주 로그
+### 확인 절차 (세션 개시 시 실행)
+
+**다음 세션 개시 때** 먼저 `journalctl`에서 `reason=force_buy` 발생 여부를 조회하는 것으로 갈음한다. 상시 감시 프로세스는 신설하지 않는다.
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  # 자연 발생 강제 매수 감지 (2026-09-12 17:24 배포 이후 전체 창)
+  journalctl -u tradebot --since '2026-09-12 17:24:07' --no-pager 2>/dev/null \
+  | grep -E '\[FIXED-PRICE\]\[FORCE\]|reason.*force_buy|force_buy_in' \
+  | head -20
+"
+```
+
+- **발생 0건**: WO-8 자연 발생 관측 대기 상태 유지. 검증 미완결. 다음 세션에서 다시 조회.
+- **발생 1건 이상**: 아래 §4-a ~ §4-d 4항목을 그 이벤트의 uuid·시각으로 실측 후 완결 판정.
+
+### 검증 항목 4종
+
+#### (a) 발주 로그 확인
 ```
 [FIXED-PRICE][FORCE] 고정가 강제 매수 진입 | price=... ticker=KRW-JTO wait_bars=5 effective_timeout≈1495s
 [UPBIT-ORDER] → POST /v1/orders payload={..., 'ord_type': 'limit', ...}
 ```
-- `wait_bars=5`, `effective_interval_sec = 300 * 5 = 1500`, `timeout = max(5, 1500-5) = 1495`초
-- 대시보드에 `ℹ️ 지정가 매수 활성 상태. 강제 매수도 지정가로 발주되며 최대 5봉 내 미체결 시 자동 취소됩니다.` 안내 caption 표시
+- `wait_bars=5`, `effective_interval_sec = 300 × 5 = 1500`, `timeout = max(5, 1500-5) = 1495`초
+- **`interval_sec=1500` 확인 필수** (이 값이 60·180·900 등 다른 값이면 봉 간격 출처 결함, 즉시 롤백)
 
-### 4-2. 체결 케이스 (지정가 즉시 체결)
+#### (b) 체결 케이스: `[LIMIT-FILL] apply_entry` + 이후 첫 봉 `[POSITION-SYNC]` 부재
 ```
 [LIMIT-FILL] apply_entry 완료 | uuid=... qty=... price=... entry_bar=N ts=...
 ```
 - 이후 첫 봉 SELL 평가에서 **`[POSITION-SYNC] 자동 복구` 로그 부재** = WO-8 정상 (`apply_entry` 정상 관문 경유)
-- `[POSITION-SYNC] 자동 복구` 발화 시 = **즉시 롤백** (강제 매수 지정가가 `apply_entry` 우회)
+- `[POSITION-SYNC] 자동 복구` 1건 이상 발화 시 = **즉시 롤백** (강제 매수 지정가가 `apply_entry` 우회)
 
-### 4-3. 미체결 취소 케이스 (지정가 미체결로 봉 경계 취소)
+#### (c) 미체결 취소 케이스: `[FORCE]` prefix 알림 발송
 ```
 ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=... elapsed=... timeout=1495s
 [OR] cancel_order resp uuid=...
 ```
 - 텔레그램/대시보드 알림: **`⏱ [FORCE] 강제 매수 지정가 미체결 → 자동 취소 — KRW-JTO`** (`meta.reason=force_buy` 감지로 [FORCE] prefix 붙음)
 - 안내 문구: `→ 사용자 강제 매수 요청 취소됨. 필요 시 재발주`
+
+#### (d) audit_trades `reason=force_buy` 행 `entry_price` 정상 기재
+```sql
+-- SSH: sqlite3 /tmp/tradebot_ro_$(date +%s).db (사본 조회, 잠금 회피)
+SELECT id, timestamp, ticker, type, reason, price, entry_price, bars_held
+  FROM audit_trades
+ WHERE reason = 'force_buy'
+   AND timestamp >= '2026-09-12T17:24:07'
+ ORDER BY timestamp DESC;
+```
+- `entry_price` 컬럼이 **NULL/0 아닌 정상 값** (체결가와 근접) 확인
+- 체결 uuid의 `orders.avg_price`와 대조 검증
+
+### 완결 판정
+
+**(a) + (b 또는 c) + (d)** 3항목 모두 통과 시 WO-8 검증 완결. 하나라도 실패 시 결과 인용 후 §7.2 롤백 트리거 대상 여부 판단·사용자 재판정 대기.
 
 ---
 
