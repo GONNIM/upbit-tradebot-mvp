@@ -317,5 +317,46 @@ deploy-tradebot
 
 ---
 
-**마지막 업데이트**: 2026-05-14
-**버전**: 2.3 (커밋 전 필수 체크리스트 + 과거 실수 4종 추가)
+## 🛑 세션 재개 표준 정지선 (2026-09-12 신설)
+
+**세션 유실·압축 이후 재개할 때는 어떤 계획서보다 먼저 로컬 git log 와 서버 HEAD·기동 시각·로그 표식을 대조해 현재 상태를 확정한다.**
+
+**근거 사례 (2026-09-12)**: FV1~FV3 조사 후 WO-6 구현 계획서 초안이 §1.1 필수 목록 12개 항목을 "구현 지시"로 나열했다. 사용자 승인을 받고 착수 직전에 실행한 사실 확인에서 이 항목 전부가 이미 `bc582a6` (2026-08-29 배포)에 반영되어 있었고 서버는 이 코드로 8일간 무사고 가동 중이었다. 확인 없이 착수했다면 이미 배포된 코드를 재구현하거나 최악의 경우 WO-2 재적용(`da871da` + `57d290e`)까지 되돌릴 뻔했다. 이 확인 절차로 사고를 막았다.
+
+**표준 정지선 절차 (착수 전 필수)**:
+
+1. **로컬 상태 스냅샷**
+   ```
+   git log --oneline -10
+   git rev-parse HEAD
+   ```
+
+2. **서버 상태 스냅샷** (SSH 읽기 전용)
+   ```
+   ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp log --oneline -10"
+   ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp rev-parse HEAD"
+   ssh root@orionhunter7.cafe24.com "systemctl show tradebot -p ExecMainStartTimestamp"
+   ssh root@orionhunter7.cafe24.com "grep -n 'v1.2026' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1"
+   ```
+
+3. **실 가동 코드 표식 확인** (계획서·문서 내용을 로그로 교차 확증)
+   - 제거되었어야 할 태그 부재 확인 (예: `[SKIP-BAR]`, `upbit_ts` 잔재)
+   - 반영되었어야 할 태그 존재 확인 (예: `[PENDING-REGISTER]`, `[LIMIT-FILL]`, `[POSITION-SYNC]`)
+   - 실측 로그는 코드 배포보다 신뢰도 높음
+
+4. **불일치 시 정지**
+   - 계획서가 "미구현"으로 나열한 항목이 실측에서 존재 → 계획서를 "현실 대조표"로 전환
+   - 계획서가 "구현 완료"로 나열한 항목이 실측에서 부재 → 실 배포 이력 재조사
+   - 이 정지 없이 진행하면 재구현 · 잘못된 revert · 무사고 코드 파괴 위험
+
+**금지 사항**:
+- 로컬 `git log`만 보고 "배포됐다"고 단정 금지 → 서버 SSH 대조 필수
+- 계획서 문구("확정판 승인 완료")를 근거로 착수 금지 → 계획서 승인 시점과 실 배포 시점이 다를 수 있음
+- FV 조사 등 사후 분석 문서의 "서버 HEAD" 기재를 신뢰 금지 → 사후 분석 시점 이후 재배포가 있을 수 있음
+
+**표준 정지선 사례 인용**: `docs/plans/2026-09-12-post-check/coverage-and-critical.md`, `docs/plans/2026-09-12-wo6-implementation-plan/plan.md` 상단 재분류 절.
+
+---
+
+**마지막 업데이트**: 2026-09-12
+**버전**: 2.4 (세션 재개 표준 정지선 추가)
