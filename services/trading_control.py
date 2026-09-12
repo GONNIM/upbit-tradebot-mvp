@@ -1,10 +1,44 @@
 from services.db import fetch_logs, insert_log, fetch_latest_log_signal, fetch_latest_log_signal_ema, fetch_latest_sell_eval, fetch_latest_buy_eval
 from datetime import datetime
+from typing import Optional
 from core.trader import UpbitTrader
 from engine.reconciler_singleton import get_reconciler
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================
+# WO-8 (2026-09-12): 강제 매수 지정가 이식 헬퍼
+# 정상 크로스 매수 경로(core/strategy_engine.py:1080-1102)의 판정식·조건 조회를
+# 글자 그대로 재사용한다. dashboard 안내 문구도 이 헬퍼로 조회한다.
+# ============================================================
+def _load_force_buy_conditions(user_id: str, strategy_type: Optional[str]) -> dict:
+    """
+    강제 매수용 buy_sell_conditions 로드. strategy_type이 None이면 빈 dict.
+    engine.live_loop._load_trade_conditions와 동일 로직을 재사용한다.
+    """
+    if not strategy_type:
+        return {}
+    try:
+        from engine.live_loop import _load_trade_conditions
+        return _load_trade_conditions(user_id, strategy_type) or {}
+    except Exception as e:
+        logger.warning(f"[FORCE-BUY] conditions 로드 실패: {e}")
+        return {}
+
+
+def is_force_buy_fixed_price_active(user_id: str, strategy_type: Optional[str]) -> tuple[bool, int]:
+    """
+    강제 매수 시 지정가가 적용될지 판단 (대시보드 안내 문구용).
+    Returns: (활성 여부, 대기 봉 수)
+    """
+    conds = _load_force_buy_conditions(user_id, strategy_type)
+    buy = (conds.get("buy") or {})
+    enabled = bool(buy.get("fixed_price_buy_enabled", False))
+    wait_bars = int(buy.get("fixed_price_buy_wait_bars", 3) or 3)
+    wait_bars = max(1, min(5, wait_bars))
+    return enabled, wait_bars
 
 
 def get_current_price_from_upbit(ticker: str) -> float | None:
@@ -144,12 +178,22 @@ def force_liquidate(user_id: str, trader: UpbitTrader, ticker: str, interval_sec
     return f"[LIVE] {ticker} 강제청산 요청 완료 (uuid={uuid})"
 
 
-def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: int = 60) -> str:
+def force_buy_in(
+    user_id: str,
+    trader: UpbitTrader,
+    ticker: str,
+    interval_sec: int = 60,
+    strategy_type: Optional[str] = None,
+) -> str:
     """
-    강제매수 (시장가).
-    - TEST: 즉시 체결
-    - LIVE: 주문만 보내고, 실제 체결/수량/평단은 Reconciler가 orders 테이블에 반영
+    강제매수. 정상 크로스 매수 경로의 지정가 정책(fixed_price_buy)에 순응한다.
+
+    - TEST: 즉시 체결 (buy_limit 내부에서 buy_market으로 자동 폴백)
+    - LIVE:
+        · fixed_price_buy_enabled=True → trader.buy_limit() (WO-8 이식)
+        · 그 외 → trader.buy_market() (기존 동작)
     - 실제 주문금액은 UpbitTrader.risk_pct * 현재 KRW 잔고
+    - strategy_type: buy_sell_conditions 로드용. None이면 시장가 폴백.
     """
     krw = trader._krw_balance()
     if krw <= 0:
@@ -239,7 +283,31 @@ def force_buy_in(user_id: str, trader: UpbitTrader, ticker: str, interval_sec: i
         "bar": current_bar,  # ✅ bars_held 추적용
     }
 
-    result = trader.buy_market(price, ticker, ts=ts, meta=meta)
+    # ✅ WO-8 (2026-09-12): 정상 크로스 경로(strategy_engine.py:1080-1102) 판정식 글자 그대로 재사용
+    _conds = _load_force_buy_conditions(user_id, strategy_type)
+    _buy_cond = (_conds.get("buy") or {})
+    fixed_price_mode = (
+        (not trader.test_mode)
+        and bool(_buy_cond.get("fixed_price_buy_enabled", False))
+    )
+
+    if fixed_price_mode:
+        meta["fixed_price_buy"] = True
+        wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
+        wait_bars = max(1, min(5, wait_bars))
+        effective_interval_sec = interval_sec * wait_bars
+        logger.info(
+            f"🎯 [FIXED-PRICE][FORCE] 고정가 강제 매수 진입 | "
+            f"price={price:.2f} ticker={ticker} "
+            f"wait_bars={wait_bars} effective_timeout≈{effective_interval_sec-5}s"
+        )
+        result = trader.buy_limit(
+            price, ticker,
+            ts=ts, meta=meta,
+            interval_sec=effective_interval_sec,
+        )
+    else:
+        result = trader.buy_market(price, ticker, ts=ts, meta=meta)
     if not result:
         reason = getattr(trader, "last_buy_error", None)
         if reason:

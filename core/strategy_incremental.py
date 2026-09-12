@@ -704,6 +704,11 @@ class IncrementalEMAStrategy:
         # ✅ interval_min 저장 (live_loop에서 전달)
         self.interval_min: int = 1  # 기본값
 
+        # ✅ WO-8 (2026-09-12) 절충안 승격 가드: hts_buy + bars_held=0 연속 카운터
+        # 1봉 → WARN 강등, 2봉 연속 → CRITICAL 승격 (자동 복구 실패 증거)
+        # 정상 SELL 평가 재개(bars_held > 0) 또는 audit fallback 성공 시 리셋
+        self._pos_desync_streak: int = 0
+
         # ✅ 필터 시스템 초기화
         self.buy_filter_manager = BuyFilterManager()
         self.sell_filter_manager = SellFilterManager()
@@ -1119,6 +1124,13 @@ class IncrementalEMAStrategy:
             # 최소 보유 기간 체크
             bars_held = position.get_bars_held(current_bar_idx)
 
+            # ✅ WO-8 절충안 승격 가드: bars_held > 0 진입 정상 통과 시 streak 리셋
+            if bars_held > 0 and self._pos_desync_streak > 0:
+                logger.info(
+                    f"[POS-DESYNC] streak 리셋: {self._pos_desync_streak} → 0 (bars_held={bars_held} 정상 통과)"
+                )
+                self._pos_desync_streak = 0
+
             # ✅ SP-PI-4: bars_held ≤ 0 감지 시 audit_trades 실측으로 fallback.
             #   과거에는 이 지점에서 SELL 을 통째 차단해 SL/TP/Stale/Trailing 전부 무력화
             #   되는 결함이 있었다 (F4). SP-PI-1 통합 진입 API 도입으로 근본이 봉쇄되었으나,
@@ -1141,6 +1153,12 @@ class IncrementalEMAStrategy:
                     )
                     position.entry_bar = new_entry_bar
                     bars_held = audit_bh
+                    # ✅ WO-8 절충안 승격 가드: audit fallback 성공 → streak 리셋
+                    if self._pos_desync_streak > 0:
+                        logger.info(
+                            f"[POS-DESYNC] streak 리셋: {self._pos_desync_streak} → 0 (audit fallback 성공)"
+                        )
+                        self._pos_desync_streak = 0
                 else:
                     # audit 도 없으면 진짜 결손 → CRITICAL 알림 + SELL 차단 유지
                     err_msg = (
@@ -1155,18 +1173,56 @@ class IncrementalEMAStrategy:
                     except Exception:
                         pass
                     try:
-                        from services.notifier import send as _notify_send, LEVEL_CRITICAL
-                        _notify_send(
-                            LEVEL_CRITICAL,
-                            f"🚨 포지션 무결성 결손 — {self.ticker}",
-                            (
-                                f"in-memory bars_held={bars_held}, audit_trades 실측도 없음.\n"
-                                f"봇 매도 필터 스킵 상태. 사용자 개입 필요.\n"
-                                f"entry_bar={position.entry_bar} current_bar={current_bar_idx}"
-                            ),
-                            dedupe_key=f"pos_desync:{self.ticker}",
-                            dedupe_ttl=300,
-                        )
+                        from services.notifier import send as _notify_send, LEVEL_CRITICAL, LEVEL_WARNING
+                        # ✅ WO-8 (2026-09-12): notifier 등급 매핑 절충안
+                        # 강등 조건: 외부 매수 감지 후 첫 봉 (자동 복구 예상 상황)
+                        # · position.metadata.hts_buy == True
+                        # · bars_held == 0
+                        # 승격 가드: 같은 조건이 2봉 연속 발생 → CRITICAL 승격 (자동 복구 실패 증거)
+                        _hts_buy = bool(getattr(position, "metadata", {}).get("hts_buy", False))
+                        _first_bar = (bars_held == 0)
+                        _downgrade_cond = _hts_buy and _first_bar
+
+                        if _downgrade_cond:
+                            self._pos_desync_streak += 1
+                            if self._pos_desync_streak >= 2:
+                                _notify_send(
+                                    LEVEL_CRITICAL,
+                                    f"🚨 외부 매수 감지 후 자동 복구 실패 ({self._pos_desync_streak}봉 연속) — {self.ticker}",
+                                    (
+                                        f"HTS 감지 후 자동 복구가 {self._pos_desync_streak}봉 연속 실패.\n"
+                                        f"in-memory bars_held={bars_held}, audit_trades 실측도 없음.\n"
+                                        f"봇 매도 필터 스킵 상태. 사용자 개입 필요.\n"
+                                        f"entry_bar={position.entry_bar} current_bar={current_bar_idx}"
+                                    ),
+                                    dedupe_key=f"pos_desync_promoted:{self.ticker}:{position.entry_bar}",
+                                    dedupe_ttl=300,
+                                )
+                            else:
+                                _notify_send(
+                                    LEVEL_WARNING,
+                                    f"⏳ 외부 매수 감지 후 첫 봉 방어 — {self.ticker}",
+                                    (
+                                        f"HTS 감지된 신규 진입 봉에서 audit 미기록 상태.\n"
+                                        f"자동 복구 대기 중 (다음 봉에서 [POSITION-SYNC] 예상).\n"
+                                        f"entry_bar={position.entry_bar} current_bar={current_bar_idx}"
+                                    ),
+                                    dedupe_key=f"pos_desync_warn:{self.ticker}:{position.entry_bar}",
+                                    dedupe_ttl=600,  # 10분: 같은 entry_bar 내 반복 강등 억제
+                                )
+                        else:
+                            # hts_buy=False 인 진짜 결손. streak 유지, CRITICAL 그대로.
+                            _notify_send(
+                                LEVEL_CRITICAL,
+                                f"🚨 포지션 무결성 결손 — {self.ticker}",
+                                (
+                                    f"in-memory bars_held={bars_held}, audit_trades 실측도 없음.\n"
+                                    f"봇 매도 필터 스킵 상태. 사용자 개입 필요.\n"
+                                    f"entry_bar={position.entry_bar} current_bar={current_bar_idx}"
+                                ),
+                                dedupe_key=f"pos_desync:{self.ticker}",
+                                dedupe_ttl=300,
+                            )
                     except Exception:
                         pass
                     return Action.HOLD

@@ -456,16 +456,21 @@ class OrderReconciler:
             logger.error(f"[OR] cancel_order 실패 uuid={uuid}: {e}")
             return
 
+        # ✅ WO-8 (2026-09-12): reason=force_buy 구분 표기
+        _is_force = (meta.get("reason") == "force_buy")
+        _title_prefix = "⏱ [FORCE] 강제 매수 지정가 미체결 → 자동 취소" if _is_force else "⏱ 고정가 매수 미체결 → 자동 취소"
+        _next_action = "→ 사용자 강제 매수 요청 취소됨. 필요 시 재발주" if _is_force else "→ 다음 봉 시그널에서 재평가"
+
         # 중요 알림: 미체결 취소 (v2 — 친화 표현)
         try:
             from services.notifier import send as _notify, LEVEL_WARNING
             _notify(
                 LEVEL_WARNING,
-                f"⏱ 고정가 매수 미체결 → 자동 취소 — {ticker}",
+                f"{_title_prefix} — {ticker}",
                 (
                     f"지정가: {meta.get('limit_price', 'n/a')}\n"
                     f"경과: {elapsed:.1f}초 (봉 간격 도달)\n\n"
-                    f"→ 다음 봉 시그널에서 재평가\n"
+                    f"{_next_action}\n"
                     f"─────\n"
                     f"uuid: {uuid}"
                 ),
@@ -478,10 +483,11 @@ class OrderReconciler:
         # 사용자 로그
         try:
             from services.db import insert_log
+            _log_prefix = "[FORCE] " if _is_force else ""
             insert_log(
                 user_id,
                 "INFO",
-                f"⏱ 고정가 매수 미체결 취소 ({ticker}): elapsed={elapsed:.1f}s uuid={uuid}",
+                f"⏱ {_log_prefix}고정가 매수 미체결 취소 ({ticker}): elapsed={elapsed:.1f}s uuid={uuid}",
             )
         except Exception:
             pass

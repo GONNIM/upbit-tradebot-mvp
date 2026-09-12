@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.04.1931")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.12.1715")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -2326,6 +2326,19 @@ btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([1, 1, 1, 1])
 
 with btn_col1:
     force_buy_clicked = st.button("🛑 강제매수하기", key="btn_force_buy", use_container_width=True)
+
+    # ✅ WO-8 (2026-09-12): 지정가 매수 활성 시 안내 문구
+    try:
+        from services.trading_control import is_force_buy_fixed_price_active
+        _fixed_active, _wait_bars = is_force_buy_fixed_price_active(user_id, params_obj.strategy_type)
+        if is_live and _fixed_active:
+            st.caption(
+                f"ℹ️ 지정가 매수 활성 상태. 강제 매수도 지정가로 발주되며 최대 {_wait_bars}봉 내 미체결 시 자동 취소됩니다. "
+                f"즉시 시장가 매수를 원하면 '매수/매도 조건' 페이지에서 지정가 매수를 끄세요."
+            )
+    except Exception:
+        pass
+
     if force_buy_clicked:
         # ✅ 코인이 거의 없을 때 (5000원 이하는 무시)
         coin_value = coin_balance * last_price if last_price else 0
@@ -2333,7 +2346,11 @@ with btn_col1:
             trader = UpbitTrader(
                 user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
             )
-            msg = force_buy_in(user_id, trader, params_obj.upbit_ticker, interval_sec=params_obj.interval_sec)
+            msg = force_buy_in(
+                user_id, trader, params_obj.upbit_ticker,
+                interval_sec=params_obj.interval_sec,
+                strategy_type=params_obj.strategy_type,  # ✅ WO-8: fixed_price_buy 조회용
+            )
             if msg.startswith("❌"):
                 st.error(msg, icon="⚠️")
             elif msg.startswith("[TEST]"):
