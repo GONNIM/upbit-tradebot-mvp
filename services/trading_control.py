@@ -301,11 +301,23 @@ def force_buy_in(
             f"price={price:.2f} ticker={ticker} "
             f"wait_bars={wait_bars} effective_timeout≈{effective_interval_sec-5}s"
         )
-        result = trader.buy_limit(
-            price, ticker,
-            ts=ts, meta=meta,
-            interval_sec=effective_interval_sec,
-        )
+        # ✅ WO-8b 원자화 (2026-09-18): 발주-등록 경합 봉쇄.
+        # buy_limit + _pending_buy_uuid 등록을 engine._execution_lock 아래에서 원자적으로 수행.
+        # reconciler 순회의 fill callback 은 이 락 획득까지 대기 → uuid 매칭 성공 보장.
+        try:
+            from core.strategy_engine import execute_force_buy_limit_atomic
+            result = execute_force_buy_limit_atomic(
+                user_id=user_id, ticker=ticker, trader=trader,
+                price=price, ts=ts, meta=meta,
+                interval_sec=effective_interval_sec, wait_bars=wait_bars,
+            )
+        except Exception as e:
+            logger.warning(f"[FORCE-BUY-ATOMIC] 원자화 헬퍼 실패 → 폴백 buy_limit: {e}")
+            result = trader.buy_limit(
+                price, ticker,
+                ts=ts, meta=meta,
+                interval_sec=effective_interval_sec,
+            )
     else:
         result = trader.buy_market(price, ticker, ts=ts, meta=meta)
     if not result:

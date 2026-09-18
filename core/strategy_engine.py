@@ -19,6 +19,130 @@ import threading  # ✅ Issue #10: 스레드 락 추가
 logger = logging.getLogger(__name__)
 
 
+# ============================================================
+# ✅ WO-8b (2026-09-18): 활성 엔진 레지스트리 + force_buy uuid 등록 헬퍼
+# 강제 매수 지정가 발주 후 반환 uuid를 StrategyEngine._pending_buy_uuid 에 등록해
+# _on_limit_fill 콜백의 uuid 매칭이 성공하도록 한다. 등록 없으면 apply_entry 가
+# skip되어 [POSITION-SYNC] 자동 복구 방어망에 의존하게 된다 (관문 우회).
+# ============================================================
+_active_engines: "Dict[tuple, 'StrategyEngine']" = {}
+_active_engines_lock = threading.Lock()
+
+
+def register_pending_buy_uuid(user_id: str, ticker: str, uuid: str, wait_bars: int) -> bool:
+    """
+    force_buy 지정가 발주 후 uuid를 StrategyEngine._pending_buy_uuid 에 등록 (비원자적).
+
+    ⚠️ Race condition 주의:
+        buy_limit 반환 후 이 함수 호출 사이에 reconciler 순회로 fill callback 이
+        먼저 발동될 수 있다. 발주-등록 원자화가 필요하면 execute_force_buy_limit_atomic
+        를 사용하라. 본 함수는 TEST 및 하위 호환용으로만 유지한다.
+
+    Thread safety:
+        - _active_engines_lock: 엔진 인스턴스 조회 원자성
+        - engine._execution_lock: pending 상태 세팅 원자성 (기존 봉 처리 스레드와 배타)
+
+    Returns:
+        True: 엔진 인스턴스 발견 + 등록 성공
+        False: 엔진 미가동 or 미등록 (TEST/dry-run) — 무해 skip
+    """
+    with _active_engines_lock:
+        engine = _active_engines.get((user_id, ticker))
+    if engine is None:
+        logger.debug(
+            f"[FORCE-BUY-PENDING] 엔진 미가동 or 미등록 — skip | "
+            f"user={user_id} ticker={ticker}"
+        )
+        return False
+    wait_bars_clamped = int(max(1, min(5, wait_bars)))
+    with engine._execution_lock:
+        engine._pending_buy_uuid = uuid
+        engine._pending_buy_bar = engine.bar_count
+        engine._pending_buy_wait_bars = wait_bars_clamped
+        try:
+            engine.position.set_pending(True)
+        except Exception:
+            pass
+    logger.info(
+        f"🎯 [FORCE-BUY-PENDING] uuid 등록 완료 | user={user_id} ticker={ticker} "
+        f"uuid={uuid} bar={engine.bar_count} wait_bars={wait_bars_clamped}"
+    )
+    return True
+
+
+def execute_force_buy_limit_atomic(
+    *,
+    user_id: str,
+    ticker: str,
+    trader,
+    price: float,
+    ts,
+    meta: "Dict[str, Any]",
+    interval_sec: int,
+    wait_bars: int,
+) -> "Optional[Dict[str, Any]]":
+    """
+    ✅ WO-8b 원자화 (2026-09-18): 발주-등록 경합 봉쇄.
+
+    engine._execution_lock 아래에서 trader.buy_limit 호출 + uuid 등록을 원자적으로 수행.
+    reconciler 스레드가 발생시키는 fill callback 은 이 락 획득까지 대기하므로
+    등록 완료 후에만 _on_limit_fill 이 진입해 uuid 매칭이 성공한다.
+
+    엔진 미가동 (TEST/dry-run) 시에는 fill callback 이 애초에 등록되지 않으므로
+    락 없이 buy_limit 만 호출한다 (경합 대상 부재).
+
+    Race 시나리오 (수정 전):
+        T=x   trader.buy_limit → reconciler.enqueue(uuid)  (락 밖)
+        T=x+ε reconciler 스레드가 이 uuid 로 get_order 시작
+        T=x+δ _on_limit_fill 이 engine._execution_lock 획득 → _pending_buy_uuid=None mismatch
+        T=x+τ register_pending_buy_uuid 뒤늦게 락 획득 → 이미 apply_entry skip
+
+    본 함수 (수정 후):
+        with engine._execution_lock:
+            trader.buy_limit → reconciler.enqueue        (락 안)
+            _pending_buy_uuid = uuid, _pending_buy_bar = bar_count
+        (락 해제 후) _on_limit_fill 락 획득 → uuid 매칭 성공
+
+    Returns:
+        trader.buy_limit 의 반환 dict (limit_pending=True 시 apply_entry 는
+        후속 fill callback 에서 처리)
+    """
+    with _active_engines_lock:
+        engine = _active_engines.get((user_id, ticker))
+
+    if engine is None:
+        # 엔진 미가동: fill callback 미등록이라 경합 대상 자체 없음.
+        logger.debug(
+            f"[FORCE-BUY-ATOMIC] 엔진 미가동 — 락 없이 buy_limit 실행 | "
+            f"user={user_id} ticker={ticker}"
+        )
+        return trader.buy_limit(
+            price, ticker, ts=ts, meta=meta, interval_sec=interval_sec
+        )
+
+    wait_bars_clamped = int(max(1, min(5, wait_bars)))
+    with engine._execution_lock:
+        # buy_limit 내부의 reconciler.enqueue 도 이 락 아래에서 발생.
+        # 이후 fill callback (_on_limit_fill) 은 이 락 획득까지 대기.
+        result = trader.buy_limit(
+            price, ticker, ts=ts, meta=meta, interval_sec=interval_sec
+        )
+        if result and result.get("limit_pending") and result.get("uuid"):
+            engine._pending_buy_uuid = result["uuid"]
+            engine._pending_buy_bar = engine.bar_count
+            engine._pending_buy_wait_bars = wait_bars_clamped
+            try:
+                engine.position.set_pending(True)
+            except Exception:
+                pass
+            logger.info(
+                f"🎯 [FORCE-BUY-ATOMIC] uuid 원자 등록 완료 | user={user_id} "
+                f"ticker={ticker} uuid={result['uuid']} bar={engine.bar_count} "
+                f"wait_bars={wait_bars_clamped}"
+            )
+    return result
+
+
 class StrategyEngine:
     """
     증분 기반 전략 엔진 (Backtest 없음)
@@ -88,6 +212,10 @@ class StrategyEngine:
 
         # ✅ Issue #10: 스레드 락 (audit 로깅 ~ execution 원자적 보장)
         self._execution_lock = threading.Lock()
+
+        # ✅ WO-8b (2026-09-18): 활성 엔진 레지스트리 등록 (force_buy uuid 등록용)
+        with _active_engines_lock:
+            _active_engines[(self.user_id, self.ticker)] = self
 
         # ✅ WO-6 (2026-08-25): 봉당 매매 판단 1회 강제.
         # 실시간 평가(backfill_mode=False)가 매매 판단을 실행한 봉의 ts 이력.

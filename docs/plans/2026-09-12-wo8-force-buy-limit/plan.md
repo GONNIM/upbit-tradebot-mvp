@@ -374,11 +374,25 @@ TEST 모드로 실행:
 
 ---
 
-## 9. 완료 기준 (Definition of Done, 2026-09-12 재정의)
+## 9. 완료 기준 (Definition of Done, WO-8b 라운드 재정의)
 
-**핵심 원칙 (2026-09-12 승인)**: WO-8 완결 조건은 **다음 자연 발생 강제 매수 1건**의 로그가 검증 4항목을 통과하는 것으로 재정의된다. 인위적 실발주는 금지. 상시 감시 프로세스는 신설하지 않으며, 다음 세션 개시 시 `journalctl`에서 `reason=force_buy` 발생 여부를 조회하는 절차로 갈음한다.
+**핵심 원칙 (2026-09-18 재승인)**: 사용자의 강제 매수는 HTS 경유가 대부분이라 봇 버튼 사용 시점을 예측할 수 없다. 자연 발생 관측을 기다리며 완결을 무기한 유보하는 대신 다음 3항목 통과로 완결을 선언한다.
 
-### 구현 완료 (2026-09-12 배포 시점에 확정)
+### WO-8 완결 조건 (3항목)
+
+- [ ] **1. WO-8b 구현**: `services/trading_control.py`가 `trader.buy_limit()` 반환 uuid를 `StrategyEngine._pending_buy_uuid`에 등록. `_execution_lock` 아래 원자적 수행.
+- [ ] **2. 왕복 TEST 통과**: 발주 → uuid 등록 → 모의 체결 → `_on_limit_fill` 콜백 → `apply_entry(source='bot_limit_fill')` 발화 → `[POSITION-SYNC] 자동 복구` 미발화. 회귀 161건 통과.
+- [ ] **3. 배포 후 30분 무결성**: 결함 태그 6종 부재 (SKIP-BAR/POLLUTED/CRITICAL 엔진/pos_desync_promoted/Traceback 엔진).
+
+### 사후 승인 사항 (2026-09-18)
+
+**활성 엔진 레지스트리(`_active_engines`) 신설은 사후 승인**한다. 근거: Streamlit 대시보드 스레드에서 봉 처리 스레드가 소유한 `StrategyEngine` 인스턴스에 도달할 통로가 부재. 기존 구조는 `strategy_engine` 참조를 `engine/live_loop.py` 스코프 내로 한정하며 대시보드 관점에서는 접근 API가 없다. 레지스트리는 이 통로를 최소 침습으로 신설하며 스레드 안전성은 `_active_engines_lock` + `engine._execution_lock` 이중으로 보장한다.
+
+### 원자화 사후 수정 (2026-09-18)
+
+WO-8b 배포 전 확답에서 buy_limit 반환 → register_pending_buy_uuid 사이 경합 위험 확인됨(체결 감지 = 2초 주기 poll이지만 첫 순회가 등록 이후임을 구조적으로 100% 보장 못 함). `execute_force_buy_limit_atomic` 헬퍼 신설: `engine._execution_lock` 아래에서 `trader.buy_limit` 호출 + uuid 등록을 원자적으로 수행. fill callback은 이 락 획득까지 대기 → 등록 완료 후에만 매칭 검사에 진입. 원자화 왕복 TEST 통과 (fill callback 92.6ms 락 대기 후 `apply_entry(source='bot_limit_fill')` 정상 발화).
+
+### WO-8 초기 배포 (2026-09-12 `de28fea`) 완료 사항
 
 - [x] `services/trading_control.py` `force_buy_in` 지정가 분기 추가 (V-B 확정 라인 인용)
 - [x] `pages/dashboard.py` UI 안내 문구 추가 (§3.4)
@@ -388,22 +402,23 @@ TEST 모드로 실행:
 - [x] dashboard.py 버전 갱신 (`v1.2026.09.12.1715`)
 - [x] 배포 커밋 메시지에 롤백 트리거 명시 (`de28fea`)
 - [x] 검증 가이드 신설 (`docs/operations/wo8-force-buy-verification-guide.md`)
+- [x] 24h 무결성 (2026-09-13 17:24 KST 기준): 커버리지 100%, 결함 6종 0
 
-### 자연 발생 관측 대기 (다음 세션 개시 시 조회)
+### 사후 확증 (기한 없이 세션 개시 정기 점검 편입)
 
-- [ ] 다음 자연 발생 강제 매수 1건 감지 (`reason=force_buy`)
-- [ ] **(a)** `[FIXED-PRICE][FORCE] 고정가 강제 매수 진입` + **`interval_sec=1500`** 로그 확인
-- [ ] **(b)** 체결 시: `[LIMIT-FILL] apply_entry 완료` + 이후 첫 봉 SELL 평가에서 **`[POSITION-SYNC] 자동 복구` 로그 부재**
-- [ ] **(c)** 미체결 시: **`[FORCE]` prefix 취소 알림 발송** 확인 (텔레그램/대시보드 dedupe_key=`fixed_buy_timeout:{uuid}` TTL 60s)
-- [ ] **(d)** `audit_trades.reason='force_buy'` 행의 **`entry_price` 정상 기재** (NULL/0 아닌 정상 값, `orders.avg_price`와 대조)
+WO-8 완결 선언 후에도 다음 2건은 세션 개시 시 정기 점검한다. 기한·강제 실행 요구 없음.
 
-**완결 판정**: (a) + (b 또는 c) + (d) 3항목 모두 통과.
+**사후 확증 1 — 자연 발생 강제 매수 로그**:
+- [ ] `[FIXED-PRICE][FORCE]` + `interval_sec=1500` 로그
+- [ ] `[LIMIT-FILL] apply_entry(source='bot_limit_fill')` 발화 (WO-8b 이식 검증)
+- [ ] 이후 첫 봉 SELL 평가에서 `[POSITION-SYNC] 자동 복구` 부재
+- [ ] 미체결 시 `[FORCE]` 취소 알림 발송
+- [ ] `audit_trades.reason='force_buy'` 행 `entry_price` (기존 관례상 빈값 허용)
 
-### 24시간 무결성 (2026-09-13 17:24 KST 기준)
-
-- [ ] 24h 결함 태그 6종 카운트 (§6.3 항목)
-- [ ] 7일 커버리지 100% 유지 (§6.4, `docs/plans/2026-09-12-post-check/coverage-and-critical.md` 산식 동일)
-- [ ] `pos_desync_promoted` 오탐 여부 (승격 가드가 정상 매매 봉에서 잘못 발화하지 않는지)
+**사후 확증 2 — 승격 가드 실전 관측 (HTS 매수 발생 시)**:
+- [ ] HTS_BUY 감지 후 첫 봉: `pos_desync_warn` (WARN 강등) 발화 정확성
+- [ ] 2봉 연속 시: `pos_desync_promoted` (CRITICAL 승격) 발화 정확성
+- [ ] 오탐 여부 (정상 매매 봉에서 잘못 발화 방지)
 
 ---
 

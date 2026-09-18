@@ -88,13 +88,49 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ---
 
-## 확인 4 · 자연 발생 강제 매수 1건의 로그 검증 (인위 실행 금지)
+## 확인 4 · WO-8 완결 기준 (재정의) + 사후 확증
 
-**운영자는 강제 매수를 대신 실행할 수 없다. 인위적 실발주는 하지 않는다.** WO-8 완결 조건은 **다음 자연 발생 강제 매수 1건**의 로그가 아래 4항목을 통과하는 것으로 재정의된다 (2026-09-12 승인).
+**완결 기준 재정의 (WO-8b 라운드 승인)**: 사용자의 강제 매수는 HTS 경유가 대부분이라 봇 버튼 사용 시점을 예측할 수 없다. 따라서 완결 조건을 다음과 같이 재정의한다.
 
-### 확인 절차 (세션 개시 시 실행)
+**WO-8 완결 조건** = 다음 3항목 모두 통과:
+1. **WO-8b 구현 (uuid 등록)** — `services/trading_control.py`가 `trader.buy_limit()` 반환 uuid를 `StrategyEngine._pending_buy_uuid`에 등록.
+2. **왕복 TEST 통과** — 발주 → 등록 → 모의 체결 → `_on_limit_fill` 콜백 → `apply_entry` 발화 → `[POSITION-SYNC] 자동 복구` 미발화.
+3. **배포 후 30분 무결성** — 결함 태그 6종 부재.
 
-**다음 세션 개시 때** 먼저 `journalctl`에서 `reason=force_buy` 발생 여부를 조회하는 것으로 갈음한다. 상시 감시 프로세스는 신설하지 않는다.
+### 사후 확증 (기한 없이 정기 점검 편입)
+
+**다음 실발주 1건의 로그 확증**은 "사후 확증" 항목으로 격하되며 **세션 개시 정기 점검에 편입**된다. 강제 실행 요구·마감 없음.
+
+**사후 확증 대상 2건**:
+
+1. **자연 발생 강제 매수 로그**: `[FIXED-PRICE][FORCE]` 발주 이후:
+   - `[LIMIT-FILL] apply_entry(source='bot_limit_fill')` 발화 ✓
+   - 이후 첫 봉 SELL 평가에서 `[POSITION-SYNC] 자동 복구` 로그 부재 ✓
+   - `audit_trades.reason='force_buy'` 행 `entry_price` 정상 기재 (기존 관례상 빈값 허용, WO-8b 이식과 별개)
+
+2. **HTS 매수 후 승격 가드 실전 관측**: HTS_BUY 감지 후 첫 봉 방어 상황 발생 시:
+   - `pos_desync_warn` (첫 봉) → 자동 복구 → 리셋 정상 흐름 확인
+   - 2봉 연속 발생 시 `pos_desync_promoted` 승격 정확성 확인 (오탐 여부)
+
+### 세션 개시 정기 점검 조회 명령
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-09-12 17:24:07'
+  # (1) 자연 발생 강제 매수 로그
+  echo '-- [LIMIT-FILL] apply_entry (WO-8b 이식 후 발화 예상) --'
+  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep '\[LIMIT-FILL\] apply_entry' | tail -3
+  echo '-- 이후 [POSITION-SYNC] 자동 복구 (부재 예상) --'
+  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'POSITION-SYNC.*자동 복구' | wc -l
+  # (2) 승격 가드
+  echo '-- pos_desync_warn (외부 매수 첫 봉 방어) --'
+  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'pos_desync_warn' | wc -l
+  echo '-- pos_desync_promoted (2봉 연속 승격) --'
+  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'pos_desync_promoted' | wc -l
+"
+```
+
+발생 시 §확인 4-a 이하의 항목별 상세 검증을 진행한다. 기한 없음.
 
 ```bash
 ssh root@orionhunter7.cafe24.com "
