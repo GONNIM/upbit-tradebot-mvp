@@ -2494,6 +2494,59 @@ def get_position_qty(user_id: str, ticker: str) -> float:
         return 0.0
 
 
+def get_position_entry_source(user_id: str, ticker: str) -> str:
+    """
+    ✅ WO-7 (2026-09-18): 현재 포지션의 진입가 출처 표시 헬퍼.
+
+    audit_trades 최근 BUY row 의 reason 값 + account_positions.meta 기반으로
+    사용자에게 표시할 출처 배지 문자열을 반환한다. avg 계산 로직은 건드리지 않는다.
+
+    Returns:
+        "🤖 봇 매수"        — reason ∈ {"EMA_GC", "MACD_GC", "GC", ...}
+        "👤 외부 매수 (HTS)" — reason ∈ {"HTS_BUY", "HTS_BUY_ADD"}
+        "🛑 강제 매수"       — reason == "force_buy"
+        "👤 외부 매수 (감지)" — 최근 BUY 없음 + meta.hts_buy=True (예외 처리)
+        ""                   — 판정 불가 (표시 안 함)
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT reason
+                FROM audit_trades
+                WHERE ticker = ? AND type = 'BUY'
+                ORDER BY id DESC LIMIT 1
+                """,
+                (ticker,)
+            )
+            row = cur.fetchone()
+            reason = (row[0] if row and row[0] else "").strip()
+    except Exception as e:
+        logger.warning(f"[ENTRY-SOURCE] audit_trades 조회 실패: {e}")
+        reason = ""
+
+    if reason == "force_buy":
+        return "🛑 강제 매수"
+    if reason in ("HTS_BUY", "HTS_BUY_ADD"):
+        return "👤 외부 매수 (HTS)"
+    if reason and ("GC" in reason.upper() or reason.upper().startswith("BOT_")):
+        return "🤖 봇 매수"
+
+    # 예외: audit 미확보이나 meta.hts_buy 로 감지된 상태
+    try:
+        meta = get_position_meta(user_id, ticker) or {}
+        if meta.get("hts_buy") is True:
+            return "👤 외부 매수 (감지)"
+    except Exception:
+        pass
+
+    # 판정 불가 (audit reason 미확인 · hts_buy 플래그 없음)
+    if reason:
+        return f"🤖 봇 매수"  # 기타 reason (LIVE 매수 등)이 있으면 봇 매수로 기본 분류
+    return ""
+
+
 def get_position_meta(user_id: str, ticker: str) -> Dict[str, Any]:
     """
     특정 ticker의 포지션 메타데이터 조회

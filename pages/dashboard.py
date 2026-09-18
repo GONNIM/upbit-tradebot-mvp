@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.12.1715")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.18.1600")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -813,6 +813,15 @@ with col_coin:
     else:
         coin_delta = f"평가 {coin_val:,.0f} KRW"
     st.metric(f"{_ticker} 보유량", f"{qty:,.6f}", delta=coin_delta, delta_color="off")
+    # ✅ WO-7 (2026-09-18): 진입가 출처 표시 배지 (avg 계산 무변경)
+    if qty > 0:
+        try:
+            from services.db import get_position_entry_source
+            _entry_source = get_position_entry_source(user_id, _ticker)
+            if _entry_source:
+                st.caption(f"진입 경로: {_entry_source}")
+        except Exception:
+            pass
 with col_pnl:
     # ✅ 포지션 보유 여부에 따라 분기
     if qty > 0:
