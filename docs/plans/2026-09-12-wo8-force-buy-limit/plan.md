@@ -1,7 +1,51 @@
 # WO-8 · 강제 매수 지정가 이식 (구현 계획서)
 
 **작성일**: 2026-09-12
-**상태**: 초안 · 사용자 승인 대기
+**상태**: **완결 (2026-09-18)** · WO-8b 원자화 포함 배포 · 3항목 통과 확정
+
+---
+
+## ✅ 완결 선언 (2026-09-18)
+
+**WO-8 완결 선언 (2026-09-18)**
+
+**배포 커밋 (본 라운드)**:
+- WO-8b: `8982d27f9edbc2078145df08395f4f4e0cbe679c` (short `8982d27`, 강제 매수 uuid 등록 + 발주-등록 원자화)
+- WO-7:  `ad093773fe1f0e099ab0815c75607bf79cbed679` (short `ad09377`, 진입가 출처 배지 + 외부 매수 안내)
+- 배포 시각: 2026-09-18 16:40:32 KST (ExecMainStart), 대시보드 버전 `v1.2026.09.18.1600`
+
+**3항목 충족**:
+
+1. **WO-8b 원자화 포함 구현** (`8982d27`): `services/trading_control.py` `force_buy_in` 지정가 분기 이식 + `core/strategy_engine.py` `execute_force_buy_limit_atomic` 헬퍼 신설. 활성 엔진 레지스트리(`_active_engines` + `_active_engines_lock`)로 대시보드 스레드에서 엔진 도달 통로 확보(사후 승인). `engine._execution_lock` 아래에서 `trader.buy_limit` 호출 + `_pending_buy_uuid` 등록을 원자적 수행.
+
+2. **왕복 TEST v2 극단 경합 통과**: buy_limit 100ms 지연 중 10ms 시점에 fill callback을 다른 스레드에서 발동 → fill callback이 `engine._execution_lock` 획득까지 **92.6ms 락 대기** → 등록 완료 후 uuid 매칭 → `apply_entry(source='bot_limit_fill')` 정상 발화 · `[POSITION-SYNC] 자동 복구` 미발화. 회귀 게이트 161/161 통과.
+
+3. **배포 후 30분 무결성**: 엔진 시작 기준 창(2026-09-18 17:26:34 ~ 17:56:34) 결함 태그 6종(`SKIP-BAR`/`POLLUTED`/`CRITICAL 엔진`/`pos_desync_promoted`/`pos_desync_warn`/`Traceback 엔진`) 전부 **0건**. 첫 `[CONFIRMED]` 2026-09-18 17:35:11(ts=17:30:00 close=623.0) 이후 5분봉 경계마다 순차 증가 5봉 이상 확인(17:30/17:35/17:40/17:45/17:50). WARMUP 200봉 REST 로드 완료(17:26:34, 마지막 봉=17:20:00 KST). 재시작~첫 봉 공백 = 54분 39초(대시보드 접속 지연 포함), 엔진 시작~첫 봉 공백 = 8분 37초.
+
+**WO-7 동일 배포 포함** (`ad09377`): 진입가 출처 배지(🤖 봇 매수 / 👤 외부 매수(HTS) / 🛑 강제 매수) + 설정 페이지 외부(HTS) 매수 안내. avg 계산 로직 diff 0건 grep 확증. 30분 창에 대시보드 감시 티커(KRW-JTO) 포지션 부재로 배지 비표시(정상), 설정 페이지 안내 `st.info` 렌더 정상(UI Traceback 0건으로 간접 확증).
+
+**경합 결론 한 줄**: reconciler 체결 감지 = 2초 주기 poll (`engine/order_reconciler.py:200-222 _run()`), 첫 순회가 register 이후임의 구조적 보장 불가 → **`execute_force_buy_limit_atomic`의 `engine._execution_lock` 아래 발주+등록 원자화로 봉쇄**.
+
+**사후 확증 2건 정기 점검 편입** (세션 개시 시 `docs/operations/wo8-force-buy-verification-guide.md` §확인 4 조회):
+
+1. **자연 발생 강제 매수의 `[FORCE-BUY-ATOMIC]` uuid 원자 등록 → `[LIMIT-FILL] apply_entry(source='bot_limit_fill')` 확증**: 다음 자연 발생 강제 매수 1건 감지 시 발주(interval_sec=1500) + 체결 시 `apply_entry` + 이후 첫 봉 `[POSITION-SYNC]` 부재 + `audit_trades.reason='force_buy'` 행 `entry_price` 기재 확인.
+2. **HTS 매수 시 승격 가드 실전 관측**: HTS_BUY 감지 후 첫 봉 `pos_desync_warn` 발화 정확성 · 2봉 연속 시 `pos_desync_promoted` CRITICAL 승격 정확성 · 오탐 여부.
+
+**후속 개선 백로그**: 락 보유 실측이 유의미하게 길게 관측(평균 >1초, p95 >2초)되면 client-generated UUID(idempotency key) 또는 reconciler pre-register 방식의 **선등록 도입 검토**. 이번 라운드 구현 대상 아님. 실측 지표: `[UPBIT-ORDER] → POST /v1/orders` ↔ `[UPBIT-ORDER] ← status=201` 타임스탬프 간격 + ε(≈5~10ms).
+
+**롤백 트리거 (기한 없이 유효)**:
+- `[FORCE-BUY-ATOMIC]` 발화 후 `apply_entry(source='bot_limit_fill')` 부재 · `[POSITION-SYNC] 자동 복구` 1건 이상 (원자화 실패 증거)
+- 강제 매수가 지정가 활성 상태에서 시장가 발주 (분기 실패)
+- WO-7 배지 렌더 오류로 대시보드 Traceback 발생
+- 지정가 매수 활성 시 강제 매수 예상외 시장가 발주
+
+**롤백 실행** (각 커밋 독립 revert, 파일 겹침 없음):
+```bash
+git revert 8982d27f9edbc2078145df08395f4f4e0cbe679c   # WO-8b 단독
+git revert ad093773fe1f0e099ab0815c75607bf79cbed679   # WO-7 단독
+```
+
+---
 **전제**:
 - WO-6 완결 (커버리지 100%, 8일+ 무사고). `docs/plans/2026-09-12-wo6-implementation-plan/plan.md`
 - WO-2 재적용 검증 통과. `docs/plans/2026-09-12-post-check/coverage-and-critical.md`
