@@ -546,7 +546,7 @@ def fetch_latest_trade_audit(user_id: str, ticker: str) -> dict | None:
     query = """
         SELECT timestamp, ticker, interval_sec, bar, type, reason, price,
                macd, signal, entry_price, entry_bar, bars_held,
-               tp, sl, highest, ts_pct, ts_armed
+               tp, sl, highest, ts_pct, ts_armed, {note_col}
         FROM audit_trades
         WHERE ticker = ?
         ORDER BY timestamp DESC
@@ -555,7 +555,11 @@ def fetch_latest_trade_audit(user_id: str, ticker: str) -> dict | None:
     try:
         with get_db(user_id) as conn:
             cursor = conn.cursor()
-            cursor.execute(query, (ticker,))
+            try:
+                cursor.execute(query.format(note_col="note"), (ticker,))
+            except sqlite3.OperationalError:
+                # ✅ WO-9 (e): note 컬럼 마이그레이션 전 DB
+                cursor.execute(query.format(note_col="NULL"), (ticker,))
             row = cursor.fetchone()
             if row:
                 return {
@@ -576,6 +580,7 @@ def fetch_latest_trade_audit(user_id: str, ticker: str) -> dict | None:
                     "highest": row[14],
                     "ts_pct": row[15],
                     "ts_armed": row[16],
+                    "note": row[17],  # ✅ WO-9 (e): 거절 행 한글 설명
                 }
             return None
     except Exception as e:
@@ -1453,25 +1458,33 @@ def insert_trade_audit(
     timestamp: str | None = None,  # ✅ 체결 발생 시각 (실시간 현재 시각)
     bar_time: str | None = None,   # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
     settings_history_id: int | None = None,  # ✅ P1 — 거래 → 설정 라벨링
+    qty: float | None = None,      # ✅ WO-9 (e): 시도 수량 (거절 행)
+    note: str | None = None,       # ✅ WO-9 (e): 사용자용 한글 설명 (거절 행)
+    meta: str | None = None,       # ✅ WO-9 (e): 거절 코드·응답 요지 JSON 문자열
 ):
+    cols = [
+        "timestamp", "bar_time", "ticker", "interval_sec", "bar", "type", "reason", "price",
+        "macd", "signal", "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest",
+        "ts_pct", "ts_armed", "settings_history_id",
+    ]
+    vals = [
+        timestamp if timestamp is not None else now_kst(),  # ✅ 실시간 체결 시각
+        bar_time,  # ✅ 봉 시각 (None 가능)
+        ticker, interval_sec, bar, kind, reason, price, macd, signal,
+        entry_price, entry_bar, bars_held, tp, sl, highest,
+        ts_pct, (int(ts_armed) if ts_armed is not None else None),
+        settings_history_id,  # ✅ P1
+    ]
+    # ✅ WO-9 (e): 값이 있을 때만 신규 컬럼 포함 → 기존 호출·미마이그레이션 DB 영향 없음
+    for _c, _v in (("qty", qty), ("note", note), ("meta", meta)):
+        if _v is not None:
+            cols.append(_c)
+            vals.append(_v)
     with get_db(user_id) as conn:
         cur = conn.cursor()
         cur.execute(
-            """
-            INSERT INTO audit_trades
-            (timestamp, bar_time, ticker, interval_sec, bar, type, reason, price, macd, signal,
-             entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed,
-             settings_history_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                timestamp if timestamp is not None else now_kst(),  # ✅ 실시간 체결 시각
-                bar_time,  # ✅ 봉 시각 (None 가능)
-                ticker, interval_sec, bar, kind, reason, price, macd, signal,
-                entry_price, entry_bar, bars_held, tp, sl, highest,
-                ts_pct, (int(ts_armed) if ts_armed is not None else None),
-                settings_history_id,  # ✅ P1
-            )
+            f"INSERT INTO audit_trades ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+            vals,
         )
         conn.commit()
 
@@ -1601,23 +1614,62 @@ def fetch_buy_eval(user_id: str, ticker: str | None = None, only_failed=False, l
         return cur.fetchall()
 
 
+# ✅ WO-9 (e): fetch_trades_audit 반환 열 순서 (pages/audit_viewer.py 가 이 상수를 사용 — 순서 어긋남 방지)
+TRADES_AUDIT_COLUMNS = [
+    "timestamp", "bar_time", "ticker", "interval_sec", "bar", "type", "reason", "price",
+    "macd", "signal", "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed",
+    "qty", "note", "meta",
+]
+
+
+REJECT_TYPES = ("SELL_REJECTED", "BUY_REJECTED")
+_TRADE_TYPE_DISPLAY = {
+    "SELL_REJECTED": "⛔ 매도 거절",
+    "BUY_REJECTED": "⛔ 매수 거절",
+}
+
+
+def is_reject_type(trade_type: str | None) -> bool:
+    """✅ WO-9 (e): 발주 거절 행 여부 (체결 아님 — 손익·체결 집계 제외 대상)."""
+    return str(trade_type or "").upper().endswith("_REJECTED")
+
+
+def trade_kind(trade_type: str | None) -> str:
+    """✅ WO-9 (e): 감사 로그 페이지 유형 필터 분류 — "매수" / "매도" / "거절" / "기타"."""
+    t = str(trade_type or "").upper()
+    if t.endswith("_REJECTED"):
+        return "거절"
+    if t == "BUY":
+        return "매수"
+    if t == "SELL":
+        return "매도"
+    return "기타"
+
+
+def trade_type_display(trade_type: str | None) -> str:
+    """✅ WO-9 (e): 화면 표시용 유형 문자열 — 거절은 ⛔ 아이콘 + 한글."""
+    return _TRADE_TYPE_DISPLAY.get(str(trade_type or "").upper(), trade_type or "-")
+
+
 def fetch_trades_audit(user_id: str, ticker: str | None = None, limit=500):
+    """audit_trades 조회. 반환 튜플 열 순서 = TRADES_AUDIT_COLUMNS."""
+    where = " WHERE 1=1"
+    params: list = []
+    if ticker:
+        where += " AND ticker = ?"
+        params.append(ticker)
+    tail = " ORDER BY timestamp DESC LIMIT ?"
+    params.append(limit)
+    base_cols = ", ".join(TRADES_AUDIT_COLUMNS[:18])
     with get_db(user_id) as conn:
         cur = conn.cursor()
-        q = """
-            SELECT timestamp, bar_time, ticker, interval_sec, bar, type, reason, price,
-                   macd, signal, entry_price, entry_bar, bars_held, tp, sl, highest, ts_pct, ts_armed
-            FROM audit_trades
-            WHERE 1=1
-        """
-        params = []
-        if ticker:
-            q += " AND ticker = ?"
-            params.append(ticker)
-        q += " ORDER BY timestamp DESC LIMIT ?"
-        params.append(limit)
-        cur.execute(q, params)
-        return cur.fetchall()
+        try:
+            cur.execute(f"SELECT {base_cols}, qty, note, meta FROM audit_trades{where}{tail}", params)
+            return cur.fetchall()
+        except sqlite3.OperationalError:
+            # 마이그레이션(ensure_audit_trades_reject_columns) 전 DB — 신규 3열은 None 으로 채움
+            cur.execute(f"SELECT {base_cols}, NULL, NULL, NULL FROM audit_trades{where}{tail}", params)
+            return cur.fetchall()
 
 
 def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:

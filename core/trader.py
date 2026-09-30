@@ -445,6 +445,69 @@ class UpbitTrader:
         except Exception as e:
             logger.error(f"[AUDIT] insert_trade_audit failed: {e} | side={side} meta={meta}")
 
+    def _audit_reject(
+        self,
+        *,
+        side: str,
+        ticker: str,
+        price: Optional[float],
+        qty: Optional[float],
+        err_summary: Optional[str],
+        call: Optional[Dict[str, Any]] = None,
+        meta: Optional[Dict[str, Any]] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        ✅ WO-9 (e) (2026-09-30): 거래소 발주 거절을 audit_trades 에 기록.
+
+        - type = 'SELL_REJECTED' / 'BUY_REJECTED' (BUY/SELL 과 구분 → 손익·체결 집계 제외)
+        - reason = 신호 사유 (EMA_DC, STOP_LOSS, EMA_GC, force_buy 등)
+        - note = 사용자용 한글 설명 (감사 로그 페이지에 그대로 표시)
+        - meta = 거절 코드·업비트 응답 요지 JSON
+        기록 실패는 삼킨다 — 발주 흐름을 막지 않는다.
+        """
+        try:
+            import json as _json
+            from services.error_messages import reject_note, error_code_of
+
+            m = meta or {}
+            call = call or {}
+            err_meta = {
+                "error_name": call.get("error_name") or error_code_of(err_summary),
+                "http_status": call.get("status"),
+                "error_message": call.get("error_message"),
+                "err_summary": (err_summary or "")[:300],
+            }
+            if extra:
+                err_meta.update(extra)
+            insert_trade_audit(
+                self.user_id,
+                ticker,
+                m.get("interval", m.get("interval_sec", 60)),
+                m.get("bar", 0),
+                f"{side.upper()}_REJECTED",
+                m.get("reason") or "UNKNOWN",
+                float(price) if price is not None else None,
+                m.get("macd"),
+                m.get("signal"),
+                m.get("entry_price"),
+                m.get("entry_bar"),
+                m.get("bars_held"),
+                None, None, None, None, None,
+                timestamp=None,
+                bar_time=m.get("bar_time"),
+                settings_history_id=self._get_settings_history_id(),
+                qty=float(qty) if qty is not None else None,
+                note=reject_note(err_summary),
+                meta=_json.dumps(err_meta, ensure_ascii=False, default=str),
+            )
+            logger.warning(
+                f"[AUDIT-REJECT] {side.upper()}_REJECTED 기록 | ticker={ticker} "
+                f"reason={m.get('reason')} price={price} qty={qty} code={err_meta['error_name']}"
+            )
+        except Exception as e:
+            logger.error(f"[AUDIT-REJECT] 기록 실패: {e} | side={side} ticker={ticker}")
+
     # ---------------------------
     # 매수 / 매도
     # ---------------------------
@@ -543,6 +606,7 @@ class UpbitTrader:
         res = None
         last_err: Optional[str] = None
         non_retriable = False
+        last_call: Optional[Dict[str, Any]] = None  # ✅ WO-9 (e): 거절 기록용 마지막 응답
 
         for attempt in range(1, LIVE_BUY_MAX_RETRIES + 1):
             # ✅ B15: 매 시도 직전 활성 KRW 재확인 (사용자 동시 거래 대응)
@@ -574,6 +638,7 @@ class UpbitTrader:
 
             # B안: pyupbit swallow 우회 — 직접 호출 helper 사용
             call = _upbit_buy_market(ticker, krw_to_use)
+            last_call = call
             logger.info(
                 f"[BUY-LIVE] attempt #{attempt}/{LIVE_BUY_MAX_RETRIES} "
                 f"ok={call['ok']} status={call['status']} "
@@ -624,20 +689,25 @@ class UpbitTrader:
             # Critical #3 + #6 알림: 매수 실패 + API 인증 실패 분리 (v2 — 한국어 라벨)
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
-                from services.error_messages import format_error_block
+                from services.error_messages import (
+                    format_error_block, guidance_for_upbit_error, error_code_of,
+                )
                 _label, _raw = format_error_block(err_summary)
+                # ✅ WO-9 (a): 거절 코드별 안내 + dedupe 거절 코드 단위·300s
+                _guide = guidance_for_upbit_error(err_summary, default="KRW 잔고 또는 risk_pct 점검")
                 _notify(
                     LEVEL_CRITICAL,
-                    f"❌ 매수 실패 — {ticker}",
+                    f"❌ 매수 거절 — {ticker}",
                     (
                         f"사유: {_label}\n"
+                        f"신호: {(meta or {}).get('reason') or '-'}\n"
                         f"재시도: {attempts_used}회 모두 실패\n\n"
-                        f"💡 KRW 잔고 또는 risk_pct 점검\n"
+                        f"💡 {_guide}\n"
                         f"─────\n"
                         f"err: {_raw}"
                     ),
-                    dedupe_key=f"buy_fail:{ticker}:{err_summary}",
-                    dedupe_ttl=60,
+                    dedupe_key=f"buy_reject:{ticker}:{error_code_of(err_summary)}",
+                    dedupe_ttl=300,
                 )
                 _low = (err_summary or "").lower()
                 if any(k in _low for k in (
@@ -671,32 +741,14 @@ class UpbitTrader:
                 ),
             )
             # audit_trades에 실패도 명시 기록 (사용자 추적용)
-            try:
-                bal_after_krw = self._krw_balance()
-            except Exception:
-                bal_after_krw = None
-            try:
-                bal_after_coin = self._coin_balance(ticker)
-            except Exception:
-                bal_after_coin = None
-            try:
-                self._audit_trade(
-                    side="BUY",
-                    ticker=ticker,
-                    price=price,
-                    qty=None,
-                    status_note=f"market buy(FAILED: {err_summary})",
-                    ts=ts,
-                    meta={**(meta or {}), "reason": "BUY_FAILED_API",
-                          "last_err": err_summary, "attempts": attempts_used,
-                          "non_retriable": non_retriable},
-                    balances_before=(bal_after_krw, bal_after_coin),
-                    balances_after=(bal_after_krw, bal_after_coin),
-                    fee_ratio=MIN_FEE_RATIO,
-                    risk_pct=self.risk_pct,
-                )
-            except Exception as e:
-                logger.warning(f"[BUY-LIVE] _audit_trade(FAILED) 실패: {e}")
+            # ✅ WO-9 (e)/A7: type='BUY'(reason=BUY_FAILED_API) → type='BUY_REJECTED' (reason=신호 사유).
+            #   type='BUY' 로 남기면 has_recent_bot_buy·스냅샷 손익 등 BUY 집계에 섞임. 과거 4건은 유지.
+            self._audit_reject(
+                side="BUY", ticker=ticker, price=price, qty=None,
+                err_summary=err_summary, call=last_call, meta=meta,
+                extra={"krw_requested": krw_to_use, "attempts": attempts_used,
+                       "non_retriable": non_retriable, "order_type": "market"},
+            )
             # orders 테이블에 FAILED 상태로 기록
             try:
                 _entry_bar = (meta or {}).get("bar") if meta else None
@@ -965,20 +1017,25 @@ class UpbitTrader:
             logger.error(f"[BUY-LIMIT] FAILURE → {err_summary}")
             try:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
-                from services.error_messages import format_error_block
+                from services.error_messages import (
+                    format_error_block, guidance_for_upbit_error, error_code_of,
+                )
                 _label, _raw = format_error_block(err_summary)
+                # ✅ WO-9 (a): 거절 코드별 안내 + dedupe 거절 코드 단위·300s
+                _guide = guidance_for_upbit_error(err_summary, default="Upbit 응답 코드 확인")
                 _notify(
                     LEVEL_CRITICAL,
                     f"❌ 고정가 매수 거부 — {ticker}",
                     (
                         f"사유: {_label}\n"
+                        f"신호: {(meta or {}).get('reason') or '-'}\n"
                         f"가격: {rounded_price:,.2f}  수량: {qty}\n\n"
-                        f"💡 Upbit 응답 코드 확인\n"
+                        f"💡 {_guide}\n"
                         f"─────\n"
                         f"err: {_raw}"
                     ),
-                    dedupe_key=f"fixed_buy_fail:{ticker}:{err_summary[:80]}",
-                    dedupe_ttl=60,
+                    dedupe_key=f"buy_reject:{ticker}:{error_code_of(err_summary)}",
+                    dedupe_ttl=300,
                 )
             except Exception:
                 pass
@@ -986,6 +1043,12 @@ class UpbitTrader:
                 self.user_id,
                 "ERROR",
                 f"❌ 고정가 매수 실패 ({ticker}): {err_summary}",
+            )
+            # ✅ WO-9 (e): 거절을 audit_trades(BUY_REJECTED)에 기록 (uuid 등록 이전 분기 — WO-8b 경로와 무관)
+            self._audit_reject(
+                side="BUY", ticker=ticker, price=rounded_price, qty=qty,
+                err_summary=err_summary, call=call, meta=meta,
+                extra={"order_type": "limit"},
             )
             try:
                 insert_order(
@@ -1196,23 +1259,34 @@ class UpbitTrader:
                     "ERROR",
                     f"❌ 업비트 시장가 매도 실패: {err_summary}",
                 )
+                # ✅ WO-9 (e): 거절을 audit_trades(SELL_REJECTED)에 기록 → 감사 로그 페이지 노출
+                self._audit_reject(
+                    side="SELL", ticker=ticker, price=price, qty=qty,
+                    err_summary=err_summary, call=call, meta=meta,
+                )
                 # Critical #3 + #6 알림: 매도 실패 + API 인증 실패 분리 (v2 — 한국어 라벨)
                 try:
                     from services.notifier import send as _notify, LEVEL_CRITICAL
-                    from services.error_messages import format_error_block
+                    from services.error_messages import (
+                        format_error_block, guidance_for_upbit_error, error_code_of,
+                    )
                     _label, _raw = format_error_block(err_summary)
+                    # ✅ WO-9 (a): 거절 코드별 안내 + dedupe 를 거절 코드 단위·300s(5분봉 1개)로
+                    _guide = guidance_for_upbit_error(err_summary, default="보유 수량 또는 API 권한 점검")
+                    _reason = (meta or {}).get("reason")
                     _notify(
                         LEVEL_CRITICAL,
-                        f"❌ 매도 실패 — {ticker}",
+                        f"❌ 매도 거절 — {ticker}",
                         (
                             f"사유: {_label}\n"
+                            f"신호: {_reason or '-'}\n"
                             f"수량: {qty:.6f}\n\n"
-                            f"💡 보유 수량 또는 API 권한 점검\n"
+                            f"💡 {_guide}\n"
                             f"─────\n"
                             f"err: {_raw}"
                         ),
-                        dedupe_key=f"sell_fail:{ticker}:{err_summary}",
-                        dedupe_ttl=60,
+                        dedupe_key=f"sell_reject:{ticker}:{error_code_of(err_summary)}",
+                        dedupe_ttl=300,
                     )
                     _low = (err_summary or "").lower()
                     if any(k in _low for k in (

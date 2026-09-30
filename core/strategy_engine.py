@@ -1726,8 +1726,19 @@ class StrategyEngine:
             # 포지션 있을 때: SELL 평가 로그
             else:
                 entry_price = self.position.avg_price
-                tp_price = entry_price * (1 + self.take_profit) if entry_price else None
-                sl_price = entry_price * (1 - self.stop_loss) if entry_price else None
+                # ✅ WO-9 (d) (2026-09-30): 감사 기록 임계값은 실제 필터가 쓰는 strategy 값에서 읽는다.
+                #   self.stop_loss/take_profit 는 엔진 생성 시 params 로 한 번만 정해지고, 조건 파일
+                #   hot reload(engine/live_loop.py:365-392)는 strategy·필터만 갱신 → 감사 행이 옛 임계
+                #   (예: 1.5%)로 남던 결함 (2026-09-30 KRW-JTO: 실제 필터 3.0%, 감사 sl_price 755.495).
+                #   기록 전용 — 매매 판정은 이 값을 쓰지 않는다.
+                _audit_tp = getattr(self.strategy, "take_profit", None)
+                _audit_sl = getattr(self.strategy, "stop_loss", None)
+                if not isinstance(_audit_tp, (int, float)):
+                    _audit_tp = self.take_profit
+                if not isinstance(_audit_sl, (int, float)):
+                    _audit_sl = self.stop_loss
+                tp_price = entry_price * (1 + _audit_tp) if entry_price else None
+                sl_price = entry_price * (1 - _audit_sl) if entry_price else None
                 bars_held = self.position.get_bars_held(self.bar_count)
 
                 # ✅ bars_held가 0 이하일 때 대안: SELL 평가 개수 세기 (간단!)
@@ -1841,7 +1852,12 @@ class StrategyEngine:
                 elif action == Action.SELL or action == Action.CLOSE:
                     # SELL 신호 발생 - 구체적인 트리거 원인 판단
                     trigger_reason = "STRATEGY_SIGNAL"
-                    if sl_hit:
+                    # ✅ WO-9 (d): 전략이 실제로 정한 사유(발주 meta 와 동일)를 우선 기록.
+                    #   없을 때만 기존 추정(sl_hit → tp_hit → cross → stale) 사용.
+                    _actual_reason = getattr(self.strategy, "last_sell_reason", None)
+                    if isinstance(_actual_reason, str) and _actual_reason:
+                        trigger_reason = _actual_reason
+                    elif sl_hit:
                         trigger_reason = "STOP_LOSS"
                     elif tp_hit:
                         trigger_reason = "TAKE_PROFIT"

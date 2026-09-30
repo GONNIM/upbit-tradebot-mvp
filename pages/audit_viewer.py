@@ -7,6 +7,7 @@ from services.init_db import get_db_path
 from services.db import fetch_buy_eval, fetch_trades_audit  # 기존 제공 함수 재사용
 
 from services.db import fetch_buy_eval, fetch_trades_audit, get_account
+from services.db import TRADES_AUDIT_COLUMNS, trade_kind, trade_type_display  # ✅ WO-9 (e)
 from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-3
 from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
@@ -793,15 +794,28 @@ elif section == "sell":
 # -------------------
 elif section == "trades":
     st.subheader(f"💹 체결 (audit_trades) - {INDICATOR_DISPLAY_NAME} 전략")
+    # ✅ WO-9 (e): 유형 필터 — 매수 / 매도 / 거절(발주 거절, 체결 아님)
+    _kind_options = ["매수", "매도", "거절"]
+    _kind_sel = st.multiselect(
+        "유형 필터", _kind_options, default=_kind_options, key="trades_kind_filter",
+        help="거절 = 거래소가 봇 주문을 받지 않은 건 (체결 아님, 손익 집계 제외)",
+    )
     df_tr = fetch_trades_audit(user_id, ticker=ticker or None, limit=rows) or []
     if df_tr:
         if isinstance(df_tr, list):
-            df_tr = pd.DataFrame(
-                df_tr,
-                columns=["timestamp","bar_time","ticker","interval_sec","bar","type","reason","price",
-                         "macd","signal","entry_price","entry_bar","bars_held","tp","sl",
-                         "highest","ts_pct","ts_armed"]
+            df_tr = pd.DataFrame(df_tr, columns=TRADES_AUDIT_COLUMNS)
+
+        # ✅ WO-9 (e): 거절 행 식별 → 필터 적용 → ⛔ 표시
+        df_tr["_kind"] = df_tr["type"].apply(trade_kind)
+        _show_kinds = set(_kind_sel) | {"기타"}
+        df_tr = df_tr[df_tr["_kind"].isin(_show_kinds)].reset_index(drop=True)
+        _n_reject = int((df_tr["_kind"] == "거절").sum())
+        if _n_reject:
+            st.warning(
+                f"⛔ 발주 거절 {_n_reject}건 — 거래소가 봇 주문을 받지 않았습니다 (체결 아님). "
+                f"'거절 사유' 열을 확인하세요."
             )
+        df_tr["type"] = df_tr["type"].apply(trade_type_display)
 
         # ✅ bar_time이 NULL인 경우에만 계산 (하위 호환성)
         if "bar_time" in df_tr.columns and df_tr["bar_time"].isna().any():
@@ -843,7 +857,7 @@ elif section == "trades":
 
             # ✅ Base EMA GAP 전용 컬럼 순서 (delta 제거, 핵심 정보만)
             column_order = [
-                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "price",
+                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "price", "qty",
                 "entry_price", "bars_held", "tp", "sl", "highest"
             ]
             column_order = [col for col in column_order if col in df_tr_display.columns]
@@ -857,7 +871,9 @@ elif section == "trades":
                 "bar": "BAR",
                 "type": "유형",
                 "reason": "사유",
+                "note": "거절 사유",
                 "price": "체결가",
+                "qty": "시도수량",
                 "entry_price": "진입가",
                 "bars_held": "보유봉",
                 "tp": "목표가",
@@ -869,23 +885,38 @@ elif section == "trades":
         else:
             # ✅ 일반 EMA/MACD 전략: 기존 로직
             # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
-            df_tr["delta"] = df_tr["macd"] - df_tr["signal"]
+            # ✅ WO-9 (e): 거절 행은 macd/signal 이 None — 숫자 변환 후 계산 (전부 None 이어도 안전)
+            df_tr["delta"] = pd.to_numeric(df_tr["macd"], errors="coerce") - pd.to_numeric(df_tr["signal"], errors="coerce")
 
             # 전략별 칼럼명 변경
             df_tr_display = df_tr.rename(columns=INDICATOR_COL_RENAME)
 
             # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
             column_order = [
-                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "price", "delta",
+                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "price", "qty", "delta",
                 "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                 "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                 "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed", "interval_sec"
             ]
             # 존재하는 컬럼만 필터링
             column_order = [col for col in column_order if col in df_tr_display.columns]
-            df_tr_display = df_tr_display[column_order]
+            df_tr_display = df_tr_display[column_order].rename(
+                columns={"note": "거절 사유", "qty": "시도수량"}
+            )
 
-        st.dataframe(df_tr_display, use_container_width=True, hide_index=True)
+        # ✅ WO-9 (e): 거절 행 옅은 붉은 배경 (아이콘 ⛔ + 글자와 함께 — 색만으로 구분하지 않음)
+        _reject_mask = (df_tr["_kind"] == "거절").tolist()
+
+        def _style_reject_rows(row):
+            _bg = "background-color: rgba(229, 57, 53, 0.15)" if _reject_mask[row.name] else ""
+            return [_bg] * len(row)
+
+        st.dataframe(
+            df_tr_display.style.apply(_style_reject_rows, axis=1),
+            use_container_width=True,
+            hide_index=True,
+            column_config={"거절 사유": st.column_config.TextColumn("거절 사유", width="large")},
+        )
     else:
         st.info("데이터가 없습니다.")
 

@@ -909,6 +909,22 @@ def ensure_users_trading_paused(user_id: str):
     conn.close()
 
 
+def ensure_audit_trades_reject_columns(user_id: str):
+    """
+    ✅ WO-9 (e) (2026-09-30): audit_trades 에 발주 거절 기록용 컬럼 추가
+      - qty:  시도 수량 (SELL_REJECTED / BUY_REJECTED)
+      - note: 사용자용 한글 설명 (예: "주문 가능 수량 부족 — ...")
+      - meta: 거절 코드·업비트 응답 요지 JSON (error_name, http_status, error_message 등)
+    열 추가만 하므로 revert 후 구 코드는 이 열을 무시하고 정상 동작.
+    """
+    conn = _connect(user_id)
+    _safe_alter(conn, "ALTER TABLE audit_trades ADD COLUMN qty REAL")
+    _safe_alter(conn, "ALTER TABLE audit_trades ADD COLUMN note TEXT")
+    _safe_alter(conn, "ALTER TABLE audit_trades ADD COLUMN meta TEXT")
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -929,6 +945,7 @@ def ensure_all_schemas(user_id: str):
     ensure_engine_status_last_mode(user_id)        # ✅ engine_status last_mode 추가 (재시작 자동 재개)
     ensure_users_trading_paused(user_id)           # ✅ PAUSE-1: users trading_paused 추가
     ensure_wo2_audit_columns(user_id)              # ✅ WO-2: audit_buy_eval 지연 발주·유효성 확인 컬럼 6종
+    ensure_audit_trades_reject_columns(user_id)    # ✅ WO-9 (e): audit_trades qty/note/meta (발주 거절 기록)
 
 
 def init_db_if_needed(user_id):

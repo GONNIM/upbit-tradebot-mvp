@@ -19,6 +19,12 @@
 
 set -e  # 어떤 명령이든 실패하면 즉시 종료
 
+# ✅ 2026-09-30 WO-9: 테스트 중 실 Telegram 발송 차단 (.env 격리)
+# config.py 의 load_dotenv() 는 이미 존재하는 환경변수를 덮어쓰지 않으므로, 빈 값을 먼저
+# export 하면 .env 의 자격증명이 로드되지 않는다. (2026-09-30 테스트 경고 실발송 사고)
+export TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID=""
+export TELEGRAM_CHAT_ID_CRITICAL="" TELEGRAM_CHAT_ID_WARNING="" TELEGRAM_CHAT_ID_INFO=""
+
 # 프로젝트 루트
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

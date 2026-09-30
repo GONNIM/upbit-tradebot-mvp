@@ -464,7 +464,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.30.1526")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.30.1536")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -813,8 +813,16 @@ with col_coin:
     else:
         coin_delta = f"평가 {coin_val:,.0f} KRW"
     st.metric(f"{_ticker} 보유량", f"{qty:,.6f}", delta=coin_delta, delta_color="off")
+    # ✅ WO-9 (b) (2026-09-30): 가용 0 + 묶임 > 0 → 매도 불가 배지 (묶임 수량 병기 — 평가액 0원 혼란 방지)
+    #   표시 순서: metric → (b) 매도 불가 배지 → WO-7 진입 경로 배지
+    if qty <= 0 and locked_qty > 0:
+        st.caption(
+            f"⛔ 매도 불가 — 앱 지정가 매도 주문으로 수량 묶임 ({locked_qty:,.6f}개). "
+            f"평가액은 가용 수량 기준이라 0원으로 보입니다."
+        )
     # ✅ WO-7 (2026-09-18): 진입가 출처 표시 배지 (avg 계산 무변경)
-    if qty > 0:
+    # ✅ WO-9 A4: 표시 조건을 가용 단독 → 가용+묶임 합계로 확장 (전량 묶임 시 배지 소실 방지)
+    if (qty + locked_qty) > 0:
         try:
             from services.db import get_position_entry_source
             _entry_source = get_position_entry_source(user_id, _ticker)
@@ -1300,8 +1308,9 @@ def get_latest_any_signal(user_id: str, ticker: str, strategy_tag: str = "MACD")
             "timestamp": latest_row["timestamp"],
             "ticker": latest_row["ticker"],
             "bar": latest_row["bar"],
-            "type": latest_row["type"],  # BUY / SELL
+            "type": latest_row["type"],  # BUY / SELL / SELL_REJECTED / BUY_REJECTED
             "reason": latest_row["reason"],
+            "note": latest_row.get("note"),  # ✅ WO-9 (e): 거절 행 한글 설명
             "price": latest_row["price"],
             "macd": macd,  # EMA 전략: ema_fast
             "signal": signal,  # EMA 전략: ema_slow
@@ -1750,6 +1759,14 @@ def _render_latest_signal_section():
             # 체결 정보
             trade_type = latest.get('type', '-')
             reason = latest.get('reason', '-')
+            # ✅ WO-9 (e)/A3: 발주 거절 행은 ⛔ 표시 + 한글 설명 (체결이 아님을 명시)
+            try:
+                from services.db import is_reject_type, trade_type_display
+                if is_reject_type(trade_type):
+                    st.error(f"⛔ 발주 거절 (체결 아님) — {latest.get('note') or reason}")
+                trade_type = trade_type_display(trade_type)
+            except Exception:
+                pass
             entry_price = latest.get('entry_price', '-')
             bars_held = latest.get('bars_held', '-')
             tp_val = latest.get('tp', '-')

@@ -492,6 +492,70 @@ class OrderReconciler:
         except Exception:
             pass
 
+    def _has_pending_sell(self, user_id: str, ticker: str) -> bool:
+        """봇 자신의 매도 주문이 추적 중인지 (봇 매도 체결 대기 중 묶임은 경고 대상 아님)."""
+        with self._lock:
+            return any(
+                p.get("user_id") == user_id and p.get("ticker") == ticker
+                and str(p.get("side", "")).upper() == "SELL"
+                for p in self._pending.values()
+            )
+
+    def _check_locked_state(self, user_id: str, ticker: str, avail: float, locked: float) -> None:
+        """
+        ✅ WO-9 (b) (2026-09-30): 매도 불가 상태(가용 0 + 묶임 > 0) 전환 시 WARNING 1회.
+
+        2026-09-30 KRW-JTO: 외부 지정가 매도 주문이 전량을 묶어 봇 매도가 거절될 상태였으나
+        사용자에게 알릴 경로가 없었다. 판정·발주 로직은 건드리지 않는다 (알림·표시만).
+
+        - 대상: 봇 엔진이 감시 중인 종목 (hts-detect 콜백 등록 종목)만 — 외부 전용 코인 소음 방지
+        - 1회 보장: account_positions.meta.locked_warned (재시작 후에도 유지), 해제 시 삭제
+        - 봇 자신의 매도 주문 체결 대기 중인 순간 묶임은 제외
+        """
+        try:
+            cbs = getattr(self, "_hts_callbacks", None) or {}
+            if (user_id, ticker) not in cbs:
+                return
+            from services.db import get_position_meta, update_position_meta
+            meta = get_position_meta(user_id, ticker) or {}
+            is_locked_only = avail <= 1e-12 and locked > 1e-12
+            if is_locked_only:
+                if meta.get("locked_warned"):
+                    return
+                if self._has_pending_sell(user_id, ticker):
+                    return
+                logger.warning(
+                    f"⛔ [LOCKED-QTY] 매도 불가 — 앱 지정가 매도 주문으로 수량 묶임 | "
+                    f"ticker={ticker} 가용={avail:.6f} 묶임={locked:.6f}"
+                )
+                try:
+                    from services.notifier import send as _notify, LEVEL_WARNING
+                    _notify(
+                        LEVEL_WARNING,
+                        f"⛔ 매도 불가 — {ticker} 앱 지정가 매도 주문으로 수량 묶임 ({locked:,.6f}개)",
+                        (
+                            f"묶임: {locked:,.6f}\n"
+                            f"가용: {avail:,.6f}\n\n"
+                            f"봇 매도 신호가 나도 거래소가 거절합니다.\n"
+                            f"💡 업비트 앱에서 직접 넣은 지정가 매도 주문이 있는지 확인하세요."
+                        ),
+                        dedupe_key=f"locked_qty:{ticker}",
+                        dedupe_ttl=3600,
+                    )
+                except Exception:
+                    pass
+                meta["locked_warned"] = True
+                update_position_meta(user_id, ticker, meta)
+            elif meta.get("locked_warned") and avail > 1e-12:
+                logger.info(
+                    f"✅ [LOCKED-QTY] 묶임 해제 — 가용 회복 | ticker={ticker} "
+                    f"가용={avail:.6f} 묶임={locked:.6f}"
+                )
+                meta.pop("locked_warned", None)
+                update_position_meta(user_id, ticker, meta)
+        except Exception as e:
+            logger.warning(f"[LOCKED-QTY] 상태 점검 실패 (무시): {e}")
+
     def _periodic_balance_sync(self):
         """
         주기적 잔고 동기화 (기본 1분마다) - Issue #17
@@ -612,6 +676,14 @@ class OrderReconciler:
                                             qty=curr_qty,
                                             reason=reason_str,
                                         )
+
+                            # ✅ WO-9 (b): 봇 감시 종목이 "가용 0 + 묶임 > 0" 으로 바뀌면 WARNING 1회
+                            #   (bal 에서 직접 읽음 — WO-9c 커밋의 지역 변수에 의존하지 않아 각 커밋 단독 revert 가능)
+                            self._check_locked_state(
+                                user_id, ticker,
+                                float(bal.get("balance", 0.0) or 0.0),
+                                float(bal.get("locked", 0.0) or 0.0),
+                            )
 
                             update_position_from_balances(user_id, ticker, balances)
 
