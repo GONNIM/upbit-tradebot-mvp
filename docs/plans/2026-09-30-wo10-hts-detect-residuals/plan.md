@@ -133,3 +133,38 @@ B1 진행(테스트 1건 후 종결) · B2 진행(5,000원) · B3 종결 · B4 �
   - 변경 전 코드로 실행 시 13건 중 13건 실패·오류 (B1 은 07-03 수정 봉쇄용이라 원래 통과 대상이며, 이번 실행의 오류는 새 기준가 함수 patch 대상 부재 때문)
 - 회귀 게이트 (.env 격리) 200/200 통과 (기존 187 + WO-10 13)
 
+
+## 8. 배포와 완결 (2026-09-30)
+
+### 8.1 배포
+
+| 항목 | 값 |
+|---|---|
+| 커밋 | `d41e943` (규칙 v2.8·가이드 0번 확증 조건 amend 포함) |
+| 서버 HEAD | `e22ca0c` → `d41e943` (로컬과 일치) |
+| 버전 | v1.2026.09.30.1621 → v1.2026.09.30.1746 |
+| 서비스 재시작 | 17:55:43 KST |
+| 엔진 시작 | 18:02:04 `[AUTO-RESUME]` → 18:02:06 `[BOOT] run_live_loop start` (재시작 뒤 약 6분, 운영자 접속) |
+| 첫 `[CONFIRMED]` | 18:10:33 (18:05 봉) |
+
+### 8.2 30분 관측 (18:02:06 ~ 18:32:06) — 통과
+
+| 항목 | 결과 | 기준 |
+|---|---|---|
+| `[migrate] <함수명> OK (user_id=mcmax33)` | 14개 함수 각 1회 (18:02:04 5개, 18:02:07~08 9개) | 14개 |
+| `class=pos_desync_promoted` / `class=integrity_gap` | 0 / 0 | 0 (통과 조건) |
+| `class=first_bar_guard` | 0 | 참고 |
+| SKIP-BAR / POLLUTED / Traceback | 0 / 0 / 0 | 0 |
+| Bar# | 201(18:05) → 202(18:10) → 203(18:15) → 204(18:20) → 205(18:25) | 5봉 이상 |
+| 1분 잔고 동기화 | 29회 | — |
+| HTS 5,000원 미만 증가 | 미발생 (창 내 `[HTS-DETECT] HTS_BUY` 0건, audit_trades HTS 행 0건). journal 에 DEBUG 로그가 기록되지 않아(`logger.debug` 문자열 `[OR] polling uuid` 0건) "DEBUG 로만 남음"은 journal 로 확인할 수 없음 | — |
+| `[NOTIFY]` 발송 실패 | 0 | — |
+| JTO (관측만, 개입 없음) | `trading_paused=1`, 가용 0·묶임 1,340.436268, 손절 신호 실봉 스킵 `[PAUSE] 실주문 스킵 action=SELL` 5건, `SELL_REJECTED` 0건 | — |
+
+**관측 중 확인한 사항 (통과 조건 밖, 이번 WO 원인 아님)**
+- 18:02:07 레벨 CRITICAL 1건: `❌ 지갑에 코인(1340.436268) 있으나 DB 진입가 seed 실패 → has_position=False 유지`. 부팅 복원(`engine/live_loop.py` `_seed_entry_price_from_db` → `get_last_open_buy_order`)이 봇 주문(`orders`)만 읽는데, JTO 는 16:47 앱에서 산 포지션이라 봇 주문이 없습니다(`[SEED] raw_last_open=None`). 18:10:11 첫 봉에서 `[POSITION-SYNC] 자동 복구 성공 (source=upbit_avg_buy_price) entry_price=761.00` 로 복구됐습니다. 07-03 SP-PI-5 로직이며 journal 보존분(08-30~) 첫 발생입니다. 외부 매수 포지션을 들고 재시작한 적이 없었기 때문입니다. 복구 전 약 8분간 매도 평가가 없었습니다(이번에는 일시정지 중이라 실질 차이 없음).
+- 18:10:11 `[BACKFILL] 97개 누락 봉 평가` — 전날 16:30 이후 봉을 재평가하며 `Sell triggered` 71건이 찍혔으나 모두 `backfill_mode=True`(발주 억제)이고 발주 시도 0건입니다. WO-13 과 같은 BACKFILL 계열로 기록합니다.
+
+### 8.3 완결 문안
+
+**WO-10 완결**: HTS 감지 최소 금액 임계(5,000원, 기준가 avg_buy_price → 현재가), 알림·도움말 대기 시간 분 단위 표기, 첫 봉 방어 로그의 "CRITICAL" 단어 제거와 `[POS-DESYNC] class=` 분류 로그, 마이그레이션 성공 로그를 2026-09-30 17:55 배포했습니다. 30분 관측에서 통과 조건(promoted·integrity_gap·SKIP-BAR·POLLUTED·Traceback 0건, Bar# 5봉)을 모두 만족했고 마이그레이션 로그 14건이 함수별 1회씩 남았습니다. B1(봇 매수 HTS 오기록)·B3(id 990)은 조사로 종결했습니다. 5,000원 미만 증가는 창 안에서 발생하지 않아 자연 발생 관측으로 넘깁니다.
