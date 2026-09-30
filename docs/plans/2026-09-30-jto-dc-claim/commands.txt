@@ -1,0 +1,189 @@
+# JTO DC 클레임 조사 — 실행 명령 원문 (2026-09-30)
+# 모든 명령은 읽기 전용이다. 운영 DB 는 sqlite3 "file:...?mode=ro" 로만 열었다.
+# 원격 명령은 ssh -o ConnectTimeout=15 -o LogLevel=ERROR root@orionhunter7.cafe24.com '<CMD>' 로 실행했다.
+# 아래에서 DB='file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' 이다.
+
+## 0. 착수 전 정지선
+$ git log --oneline -10; git rev-parse HEAD; grep -n 'v1.2026' pages/dashboard.py | head -1
+$ ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp log --oneline -10; git -C /root/upbit-tradebot-mvp rev-parse HEAD; systemctl show tradebot -p ExecMainStartTimestamp; grep -n 'v1.2026' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1; git -C /root/upbit-tradebot-mvp status --short | head"
+
+## 7.1 파라미터·DB 위치
+$ ssh ... 'cd /root/upbit-tradebot-mvp; ls -la --time-style=full-iso mcmax33_latest_params_EMA.json mcmax33_EMA_buy_sell_conditions.json; cat mcmax33_latest_params_EMA.json; cat mcmax33_EMA_buy_sell_conditions.json; ls -la --time-style=full-iso /root/tradebot_mcmax33.db; sqlite3 "file:/root/tradebot_mcmax33.db?mode=ro" ".tables"'
+  → /root/tradebot_mcmax33.db 없음 (안내 경로와 다름)
+$ ssh ... 'ls -la --time-style=full-iso /root/*.db /root/upbit-tradebot-mvp/*.db /root/upbit-tradebot-mvp/data/*.db; grep -rn "tradebot_.*\.db\|DB_PATH\|db_path *=" /root/upbit-tradebot-mvp/services/db.py /root/upbit-tradebot-mvp/config.py | head -20'
+$ ssh ... 'cd /root/upbit-tradebot-mvp; grep -rn "def get_db_path" -A8 --include=*.py . | head -20; grep -n "DB_DIR\|DB_PREFIX" config.py | head'
+$ ssh ... 'cd /root/upbit-tradebot-mvp; grep -rn "^DB_DIR\|DB_DIR *=" --include=*.py services config.py | head; find / -name "tradebot_mcmax33.db" -size +0 2>/dev/null | head'
+  → 실제 운영 DB: /root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db
+$ ssh ... 'sqlite3 "$DB" ".tables"; for t in audit_sell_eval audit_buy_eval audit_trades orders settings_history account_positions; do sqlite3 "$DB" "PRAGMA table_info($t);"; done'
+$ ssh ... 'sqlite3 -header "$DB" "SELECT id,saved_at,applied_at,source_page,strategy_type,app_version,note,
+     json_extract(params_json,\"$.interval\"), json_extract(params_json,\"$.fast_period\"), json_extract(params_json,\"$.slow_period\"),
+     json_extract(params_json,\"$.fast_sell\"), json_extract(params_json,\"$.slow_sell\"),
+     json_extract(conditions_json,\"$.sell.ema_dc\"), json_extract(conditions_json,\"$.sell.stop_loss\"), json_extract(conditions_json,\"$.sell.stop_loss_pct\"),
+     json_extract(conditions_json,\"$.sell.take_profit\"), json_extract(conditions_json,\"$.sell.trailing_stop\"), json_extract(conditions_json,\"$.sell.trailing_stop_threshold_pct\")
+     FROM settings_history WHERE saved_at >= \"2026-09-25\" ORDER BY id;"'
+
+## 7.2 거래 재구성
+$ ssh ... 'sqlite3 -header "$DB" "SELECT id,timestamp,bar_time,ticker,type,reason,price,entry_price,entry_bar,bars_held,sl,highest,ts_pct,settings_history_id FROM audit_trades WHERE timestamp >= \"2026-09-29T12:00\" ORDER BY id;";
+           sqlite3 -header "$DB" "SELECT id,timestamp,ticker,side,price,volume,status,state,executed_volume,avg_price,paid_fee,requested_at,executed_at,entry_bar,meta,settings_history_id FROM orders WHERE timestamp >= \"2026-09-29T12:00\" ORDER BY id;";
+           sqlite3 -header "$DB" "SELECT * FROM account_positions WHERE user_id=\"mcmax33\";"'
+$ ssh ... 'journalctl -u tradebot --since "2026-09-29 19:25:00" --until "2026-09-30 07:25:00" --no-pager -o short-iso | grep -E "4a848702|885ed81b|JTO" | grep -vE "AUDIT-INSERT|REST|RECONCILE|VERIFY|CLOCK|INDICATORS|Bar#|DEBUG|SELL_BLOCK|MIN_HOLDING|Dead Cross|Sell triggered"'
+$ ssh ... 'sqlite3 "$DB" "PRAGMA table_info(position_history);"; sqlite3 -header "$DB" "SELECT * FROM position_history WHERE ticker=\"KRW-JTO\" AND timestamp BETWEEN \"2026-09-29T19:00\" AND \"2026-09-30T07:30\" ORDER BY rowid;"'
+$ ssh ... 'sqlite3 "$DB" "SELECT timestamp, virtual_coin FROM position_history WHERE ticker=\"KRW-JTO\" AND timestamp BETWEEN \"2026-09-29T19:00\" AND \"2026-09-30T07:40\" ORDER BY id;"' | awk -F'|' '$2!=p{print prevline; print; p=$2} {prevline=$0}'
+$ ssh ... 'journalctl -u tradebot --since "2026-09-29 22:30:00" --until "2026-09-29 22:32:00" --no-pager -o short-iso | grep -iE "JTO|locked|HTS|SELL"; journalctl -u tradebot --since "2026-09-30 06:21:00" --until "2026-09-30 06:24:00" --no-pager -o short-iso | grep -iE "JTO|locked|HTS|cancel"'
+$ ssh ... 'cd /root/upbit-tradebot-mvp; venv/bin/python -' < closed_orders.py
+  → 업비트 GET /v1/orders/closed (market=KRW-JTO, states[]=cancel / done, 2026-09-29T18:00 ~ 2026-09-30T08:00). 1차 시도는 .env 미로딩으로 KeyError, .env 직접 파싱으로 고친 뒤 재실행. 스크립트 원문은 부록.
+$ ssh ... 'journalctl -u tradebot --since "2026-09-29 18:00" --until "2026-09-30 08:00" --no-pager | grep -c 72bc7993;
+           journalctl -u tradebot --since "2026-09-29 22:29:30" --until "2026-09-29 22:31:00" --no-pager | grep -c "UPBIT-ORDER";
+           sqlite3 "$DB" "SELECT count(*) FROM orders WHERE provider_uuid LIKE \"72bc7993%\";"; sqlite3 "$DB" "SELECT provider_uuid FROM orders WHERE id IN (546,547);"'
+$ ssh ... 'cd /root/upbit-tradebot-mvp; ls -a | grep -E "^\.env|^\.streamlit|venv"; cut -d= -f1 .env; systemctl show tradebot -p ExecStart -p WorkingDirectory -p EnvironmentFiles'   # 변수 이름만 출력, 값은 출력하지 않음
+
+## 7.3 봉별 매도 평가
+$ ssh ... 'sqlite3 -header "$DB" "SELECT count(*), min(bar_time), max(bar_time) FROM audit_sell_eval WHERE ticker=\"KRW-JTO\" AND bar_time BETWEEN \"2026-09-29T19:00\" AND \"2026-09-30T07:30\";"'
+$ ssh ... 'sqlite3 -csv -header "$DB" "SELECT id, timestamp, bar_time, bar, price,
+     json_extract(checks,\"$.ema_fast_sell\") ema_fast, json_extract(checks,\"$.ema_slow_sell\") ema_slow, json_extract(checks,\"$.cross_status\") cross_status,
+     json_extract(checks,\"$.ema_dc_detected\") ema_dc_detected, json_extract(checks,\"$.reason\") reason, json_extract(checks,\"$.trigger_reason\") trigger_reason,
+     json_extract(checks,\"$.filter_reason\") filter_reason, bars_held, json_extract(checks,\"$.via_backfill\") via_backfill, json_extract(checks,\"$.via_tentative\") via_tentative,
+     backfill_type, backfill_reason, backfill_close, backfill_at, json_extract(checks,\"$.pnl_pct\") pnl_pct, json_extract(checks,\"$.sl_hit\") sl_hit, sl_price, triggered, trigger_key
+     FROM audit_sell_eval WHERE ticker=\"KRW-JTO\" AND bar_time BETWEEN \"2026-09-29T19:20\" AND \"2026-09-30T07:30\" ORDER BY bar_time, id;"' > sell_raw.csv
+$ ssh ... 'sqlite3 -header "$DB" "SELECT id,timestamp,bar_time,bar,price,sl_price,bars_held,checks,triggered,trigger_key,notes,backfill_type FROM audit_sell_eval WHERE ticker=\"KRW-JTO\" AND bar_time IN (\"2026-09-30T01:05:00+09:00\",\"2026-09-30T02:55:00+09:00\");";
+           journalctl -u tradebot --since "2026-09-30 01:09:50" --until "2026-09-30 01:10:40" --no-pager -o short-iso | grep -v "KRW-\(EDGE\|PYUSD\|LINEA\|ARK\|ZRO\|CTC\|TOKAMAK\)" | head -150'
+$ ssh ... 'journalctl -u tradebot --since "2026-09-29 19:20:00" --until "2026-09-30 07:25:00" --no-pager -o short-iso | grep -E "JTO" | grep -E "HTS|SYNC|LIMIT|FILL|locked|PENDING|insufficient|SELL-LIVE|SELL 실패|BUY-LIVE|UPBIT-ORDER|DESYNC|desync|balance|잔고|cancel|취소|wait|WAIT"'
+$ ssh ... 'for w in "2026-09-30 01:10:05|2026-09-30 01:11:30" "2026-09-30 03:00:00|2026-09-30 03:01:30"; do journalctl -u tradebot --since "${w%|*}" --until "${w#*|}" --no-pager -o short-iso | grep -iE "notif|telegram|알림|desync|SELL 실패|pending|HOLD"; done'
+$ ssh ... 'journalctl -u tradebot --since "2026-09-29 19:20" --until "2026-09-30 07:25" --no-pager | grep -cE "SELL 차단 \(HOLD 유지\)|pos_desync";
+           journalctl -u tradebot --since "2026-09-30 01:09:50" --until "2026-09-30 01:10:40" --no-pager | grep -cE "BACKFILL|backfill_mode=True"'
+$ ssh ... 'sqlite3 -header "$DB" "SELECT bar_time, price, have_position, overall_ok, backfill_type, timestamp FROM audit_buy_eval WHERE ticker=\"KRW-JTO\" AND bar_time BETWEEN \"2026-09-29T19:20\" AND \"2026-09-30T07:30\" ORDER BY bar_time;"'
+
+## 7.4 독립 재계산 (로컬)
+$ python3 fetch_candles.py candles.json   # GET https://api.upbit.com/v1/candles/minutes/5?market=KRW-JTO&count=200&to=... (2026-09-27T00:00 ~ 2026-09-30T07:55 KST, 919봉)
+$ python3 recalc.py <scratch>             # EMA60/200 4가지 변형과 봇 audit 값 비교
+$ python3 dc_events.py <scratch>          # 60/200, 20/60 GC/DC 사건 목록 → recalc_dc_events.csv
+
+## 로컬 명령 (코드 확인, 읽기 전용)
+$ grep -n "HTS-DETECT\] HTS_BUY 감지\|def _detect_hts\|..." engine/order_reconciler.py ; sed -n 520,600p engine/order_reconciler.py
+$ grep -n "def sync_all_positions" -A60 services/db.py | grep -n "locked\|balance\|cleared\|virtual_coin"
+$ grep -n "def get_position_qty" -A15 services/db.py
+$ grep -n "def seed_from_closes" -A45 core/indicator_state.py
+$ grep -rn "UPBIT_ACCESS\|ACCESS_KEY" services engine core config.py
+$ sed -n 640,660p core/trader.py
+$ ssh root@orionhunter7.cafe24.com 'cd /root/upbit-tradebot-mvp; ls -a | grep -E "^\.env|^\.streamlit|venv"; cut -d= -f1 .env; systemctl show tradebot -p ExecStart -p WorkingDirectory -p EnvironmentFiles'   # 변수 이름만 출력, 값 미출력
+$ ssh root@orionhunter7.cafe24.com 'cd /root/upbit-tradebot-mvp; venv/bin/python -' < closed_orders.py   # 1차 시도는 dotenv 미로딩으로 KeyError, .env 직접 파싱으로 수정 후 재실행
+$ python3 dc_events.py <scratch>   # 60/200, 20/60 GC/DC 사건 목록 → recalc_dc_events.csv
+
+## 부록: closed_orders.py
+```python
+# 조회 전용: GET /v1/orders/closed (주문 생성·취소 없음)
+import os, sys, uuid, hashlib, jwt, requests
+from urllib.parse import urlencode, unquote
+sys.path.insert(0, "/root/upbit-tradebot-mvp")
+os.chdir("/root/upbit-tradebot-mvp")
+for line in open(".env", encoding="utf-8"):
+    line=line.strip()
+    if line and not line.startswith("#") and "=" in line:
+        k,v=line.split("=",1); os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+ak, sk = os.getenv("UPBIT_ACCESS"), os.getenv("UPBIT_SECRET")
+if not ak:
+    import tomllib
+    s = tomllib.load(open(".streamlit/secrets.toml", "rb")); ak, sk = s["UPBIT_ACCESS"], s["UPBIT_SECRET"]
+def get(path, params):
+    q = unquote(urlencode(params, doseq=True)).encode()
+    payload = {"access_key": ak, "nonce": str(uuid.uuid4()), "query_hash": hashlib.sha512(q).hexdigest(), "query_hash_alg": "SHA512"}
+    tok = jwt.encode(payload, sk)
+    r = requests.get("https://api.upbit.com" + path, params=params, headers={"Authorization": f"Bearer {tok}"}, timeout=10)
+    return r.status_code, r.json()
+for st in (["cancel"], ["done"]):
+    code, data = get("/v1/orders/closed", {"market": "KRW-JTO", "states[]": st, "start_time": "2026-09-29T18:00:00+09:00", "end_time": "2026-09-30T08:00:00+09:00", "limit": 100, "order_by": "asc"})
+    print("== state", st, "http", code)
+    if isinstance(data, list):
+        for o in data:
+            print(o.get("created_at"), o.get("side"), o.get("ord_type"), o.get("price"), o.get("volume"), o.get("executed_volume"), o.get("state"), o.get("uuid"))
+    else:
+        print(data)
+```
+
+## 부록: fetch_candles.py
+```python
+# Upbit 공개 REST minute5 KRW-JTO 수집 (조회 전용, 인증 불필요)
+import requests, time, json, sys
+out = []; to = "2026-09-30T08:00:00+09:00"; start = "2026-09-27T00:00:00"
+while True:
+    r = requests.get("https://api.upbit.com/v1/candles/minutes/5", params={"market": "KRW-JTO", "to": to, "count": 200}, timeout=10)
+    r.raise_for_status(); d = r.json()
+    if not d: break
+    out += d
+    oldest = d[-1]["candle_date_time_kst"]
+    if oldest <= start: break
+    to = oldest + "+09:00"; time.sleep(0.2)
+out = sorted({c["candle_date_time_kst"]: c for c in out}.values(), key=lambda c: c["candle_date_time_kst"])
+out = [c for c in out if c["candle_date_time_kst"] >= start]
+json.dump(out, open(sys.argv[1], "w"))
+print(len(out), out[0]["candle_date_time_kst"], out[-1]["candle_date_time_kst"])
+```
+
+## 부록: recalc.py
+```python
+# core/indicator_state.py seed_from_closes 절차 재현: 앞쪽 slow개 SMA 시드 → alpha=2/(N+1) 증분
+import json, csv, sys
+from datetime import datetime, timedelta
+S = sys.argv[1]
+c = json.load(open(f"{S}/candles.json"))
+raw = [(x["candle_date_time_kst"][:16], float(x["trade_price"])) for x in c]
+def ffill(rows):
+    d = dict(rows); t = datetime.fromisoformat(rows[0][0]); end = datetime.fromisoformat(rows[-1][0]); out=[]; last=None
+    while t <= end:
+        k = t.strftime("%Y-%m-%dT%H:%M")
+        if k in d: last = d[k]; out.append((k, last, 0))
+        else: out.append((k, last, 1))
+        t += timedelta(minutes=5)
+    return out
+def run(rows, fast, slow, start):
+    rows = [r for r in rows if r[0] >= start]
+    closes = [r[1] for r in rows]
+    af, as_ = 2/(fast+1), 2/(slow+1)
+    seed = closes[:slow]
+    ef = sum(seed[-fast:])/fast; es = sum(seed)/slow
+    res = {}
+    for i in range(slow, len(rows)):
+        p = closes[i]; ef += af*(p-ef); es += as_*(p-es)
+        res[rows[i][0]] = (p, ef, es, rows[i][2] if len(rows[i])>2 else 0)
+    return res
+bot = {r["bar_time"][:16]: r for r in csv.DictReader(open(f"{S}/sell_raw.csv"))}
+A_rows = [(k, p, 0) for k, p in raw]
+B_rows = ffill(raw)
+variants = {
+ "A_skip_27": run(A_rows, 60, 200, "2026-09-27T00:00"),
+ "B_ffill_27": run(B_rows, 60, 200, "2026-09-27T00:00"),
+ "B_ffill_28_18": run(B_rows, 60, 200, "2026-09-28T18:00"),
+ "A_skip_28_18": run(A_rows, 60, 200, "2026-09-28T18:00"),
+}
+for name, v in variants.items():
+    df = [abs(v[k][1]-float(b["ema_fast"])) for k, b in bot.items() if k in v]
+    ds = [abs(v[k][2]-float(b["ema_slow"])) for k, b in bot.items() if k in v]
+    print(f"{name}: matched={len(df)} max|dFast|={max(df):.4f} mean={sum(df)/len(df):.4f} max|dSlow|={max(ds):.4f} mean={sum(ds)/len(ds):.4f}")
+json.dump({n: v for n, v in variants.items()}, open(f"{S}/variants.json", "w"))
+```
+
+## 부록: dc_events.py
+```python
+import json, csv, sys
+S = sys.argv[1]; exec(open(f"{S}/recalc.py").read().split("bot = {")[0].replace("S = sys.argv[1]", ""))
+bot = {r["bar_time"][:16]: r for r in csv.DictReader(open(f"{S}/sell_raw.csv"))}
+A_rows = [(k, p, 0) for k, p in raw]
+out = []
+for fast, slow in ((60, 200), (20, 60)):
+    v = run(A_rows, fast, slow, "2026-09-27T00:00")
+    keys = sorted(v); prev = None
+    for k in keys:
+        p, ef, es, _ = v[k]
+        if prev and k >= "2026-09-29T18:00" and k <= "2026-09-30T08:00":
+            pf, ps = v[prev][1], v[prev][2]
+            ev = "DC" if (pf >= ps and ef < es) else ("GC" if (pf < ps and ef >= es) else None)
+            if ev:
+                b = bot.get(k, {})
+                row = dict(pair=f"{fast}/{slow}", event=ev, bar_time_kst=k, close=p, recalc_ema_fast=round(ef,4), recalc_ema_slow=round(es,4),
+                    bot_ema_fast=b.get("ema_fast",""), bot_ema_slow=b.get("ema_slow",""),
+                    diff_fast=round(ef-float(b["ema_fast"]),4) if b else "", diff_slow=round(es-float(b["ema_slow"]),4) if b else "",
+                    bot_cross_status=b.get("cross_status",""), bot_ema_dc_detected=b.get("ema_dc_detected",""), bot_reason=b.get("reason",""))
+                out.append(row); print(row)
+        prev = k
+w = csv.DictWriter(open(f"{S}/recalc_dc_events.csv", "w", newline=""), fieldnames=list(out[0].keys())); w.writeheader(); w.writerows(out)
+```

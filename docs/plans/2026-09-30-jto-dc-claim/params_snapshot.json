@@ -1,0 +1,33 @@
+{
+  "captured_at_kst": "2026-09-30 (조사 세션 중)",
+  "server": "root@orionhunter7.cafe24.com:/root/upbit-tradebot-mvp",
+  "files": {
+    "mcmax33_latest_params_EMA.json": {
+      "mtime_kst": "2026-09-30 10:30:01.138 +0900",
+      "note": "조사 창(09-29 18:00 ~ 09-30 04:00) 이후 저장됨. 저장 전후 값은 settings_history id 171 → 172 로 동일",
+      "ticker": "JTO", "interval": "minute5", "fast_period": 60, "slow_period": 200,
+      "use_separate_ema": true, "fast_buy": 60, "slow_buy": 200, "fast_sell": 60, "slow_sell": 200,
+      "take_profit": 0.05, "stop_loss": 0.03, "min_holding_period": 1, "order_ratio": 0.1, "ma_type": "EMA",
+      "engine_exec_mode": "BACKTEST", "enable_trading_hours": false
+    },
+    "mcmax33_EMA_buy_sell_conditions.json": {
+      "mtime_kst": "2026-09-30 10:30:06.342 +0900",
+      "buy": {"ema_gc": true, "fixed_price_buy_enabled": true, "fixed_price_buy_wait_bars": 5},
+      "sell": {"stop_loss": true, "stop_loss_pct": 3.0, "take_profit": false, "take_profit_pct": 5.0,
+               "trailing_stop": true, "trailing_stop_threshold_pct": 30.0, "use_fixed_trailing": true,
+               "ema_dc": true, "stale_position_check": false}
+    }
+  },
+  "settings_history": [
+    {"id": 168, "saved_at": "2026-09-25T12:38:41+09:00", "applied_at": "2026-09-25T12:41:06+09:00", "source": "set_buy_sell_conditions", "fast/slow": "60/200", "ema_dc": 1, "sl_pct": 1.5, "tp": 0, "ts": 1, "ts_pct": 30.0},
+    {"id": 169, "saved_at": "2026-09-25T12:40:11+09:00", "applied_at": "2026-09-25T12:41:06+09:00", "source": "set_buy_sell_conditions", "fast/slow": "60/200", "ema_dc": 0, "sl_pct": 1.5, "tp": 0, "ts": 1, "ts_pct": 30.0},
+    {"id": 170, "saved_at": "2026-09-25T12:41:06+09:00", "applied_at": "2026-09-25T12:41:06+09:00", "source": "strategy_init", "fast/slow": "60/200", "ema_dc": 0, "sl_pct": 1.5, "tp": 0, "ts": 1, "ts_pct": 30.0},
+    {"id": 171, "saved_at": "2026-09-28T05:16:47+09:00", "applied_at": null, "source": "set_buy_sell_conditions", "fast/slow": "60/200", "ema_dc": 1, "sl_pct": 3.0, "tp": 0, "ts": 1, "ts_pct": 30.0},
+    {"id": 172, "saved_at": "2026-09-30T10:30:06+09:00", "applied_at": null, "source": "set_buy_sell_conditions", "fast/slow": "60/200", "ema_dc": 1, "sl_pct": 3.0, "tp": 0, "ts": 1, "ts_pct": 30.0}
+  ],
+  "effective_during_window": {
+    "basis": "조사 창의 orders.settings_history_id=171, journal [COND] loaded (봉마다 조건 파일 재로드), DEAD_CROSS_CHECK enable_dead_cross=True, STOP_LOSS_CHECK threshold=-3.00%",
+    "interval": "minute5", "ema_sell": "60/200", "ema_dc": true, "stop_loss_pct": 3.0, "take_profit": false, "trailing_stop": true, "trailing_stop_pct": 30.0
+  },
+  "user_chart_vs_bot": "사용자 차트 EMA 20/60/200 중 봇이 쓰는 선은 60과 200. 20/60 크로스는 봇 판정에 쓰이지 않음"
+}
