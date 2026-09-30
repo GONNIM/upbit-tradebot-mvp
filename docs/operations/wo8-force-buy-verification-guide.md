@@ -149,6 +149,31 @@ ssh root@orionhunter7.cafe24.com "
 
 발생 시 §확인 4-a 이하의 항목별 상세 검증을 진행한다. 기한 없음.
 
+### 사후 확증 3건 (2026-09-30 WO-9·WO-11 완결 시 편입)
+
+세션을 시작할 때마다 아래 세 항목을 봅니다. 기한은 없습니다. 기준 시각은 WO-9·WO-11 엔진 시작 시각 `2026-09-30 16:33:05` 입니다.
+
+| 번호 | 항목 | 확인 내용 | 2026-09-30 관측 창 상태 |
+|---|---|---|---|
+| 1 | 강제 매수 원자 경로 (WO-8b) | `[FIXED-PRICE][FORCE]` 발주 → `[LIMIT-FILL] apply_entry` 발화 → 첫 봉 `[POSITION-SYNC] 자동 복구` 부재 | 미발생 (대기) |
+| 2 | HTS 승격 가드 (WO-8) | 외부 매수 첫 봉 `bars_held=0 … SELL 차단` 1회 → 다음 봉 `[POS-DESYNC] streak 리셋` → `pos_desync_promoted` 부재. 2봉 연속이면 승격이 맞는지 확인 | 16:50:05 차단 1회 → 16:50:07 streak 리셋, 승격 0 (정상 흐름 1회 관측) |
+| 3 | WO-9 (c)(b)(e) 실전 | ① 다음 HTS 매수가 `total(가용+묶임)` 기준으로 정상 감지 ② 다음 앱 지정가 매도 주문 묶임 시 `⛔ [LOCKED-QTY]` 경고 1회 + 대시보드 ⛔ 배지 ③ 묶인 상태에서 봇 매도 신호가 나면 `[AUDIT-REJECT] SELL_REJECTED` 기록 + 감사 로그 페이지 ⛔ 행 + 텔레그램 "매도 거절" 안내 | ① 16:47:09 KRW-JTO, 16:56:13 KRW-MON 정상 감지 ② 16:49:10 경고 발화 (배지는 운영자 육안 확인 대기) ③ 미발생 (대기) |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-09-30 16:33:05'
+  J(){ journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null; }
+  echo '-- (1) 강제 매수 원자 경로 --'
+  J | grep -E '\[FIXED-PRICE\]\[FORCE\]|\[LIMIT-FILL\] apply_entry' | tail -3
+  J | grep -c 'POSITION-SYNC.*자동 복구'
+  echo '-- (2) 승격 가드 --'
+  J | grep -E 'SELL 차단 \(HOLD 유지\)|POS-DESYNC\] streak|pos_desync_promoted' | tail -5
+  echo '-- (3) WO-9 실전 --'
+  J | grep -E 'HTS-DETECT\] HTS_BUY|LOCKED-QTY|AUDIT-REJECT' | tail -8
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id,timestamp,ticker,type,reason,note FROM audit_trades WHERE type LIKE '%REJECTED' ORDER BY id DESC LIMIT 5;\"
+"
+```
+
 ```bash
 ssh root@orionhunter7.cafe24.com "
   # 자연 발생 강제 매수 감지 (2026-09-12 17:24 배포 이후 전체 창)

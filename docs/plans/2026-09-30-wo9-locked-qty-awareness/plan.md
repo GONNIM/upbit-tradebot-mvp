@@ -353,3 +353,45 @@ TTL 300초는 5분봉 한 개 길이입니다. 봉마다 거절이 반복되면 
 
 원자료: `a6/a6_rows.csv` (624행, 열: id, timestamp, ticker, reason, prev_qty, new_qty, class, evidence, cancel_order_uuid_if_found, buy_order_uuid, buy_order_is_bot, match_type, reset_logged, next_sell_id, harm_judgement)
 
+
+## 11. 배포와 완결 (2026-09-30)
+
+### 11.1 배포
+
+| 항목 | 값 |
+|---|---|
+| 배포 커밋 | `4347e7f` (WO-9 c) · `f288832` (WO-9 본체) · `0b50cb7` (문서) · `202a8bf` (WO-11 용어 통일) |
+| 서버 HEAD | `2a3dcd7` → `202a8bf` (로컬과 일치) |
+| 버전 | v1.2026.09.18.1600 → v1.2026.09.30.1621 (WO-11 fixup 으로 1612 → 1621 흡수) |
+| 서비스 재시작 | 2026-09-30 16:28:08 KST |
+| 엔진 시작 | 16:33:04 `[AUTO-RESUME]` → 16:33:05 `[BOOT] run_live_loop start` (첫 대시보드 접속 시점, 재시작 뒤 약 5분 정지 — WO-12 백로그) |
+| 첫 `[CONFIRMED]` | 16:40:31 (16:35 봉), 엔진 시작 뒤 약 7분 |
+| 단독 revert | 세 커밋 모두 가능. `4347e7f`·`f288832` 는 `pages/dashboard.py` 버전 줄만 충돌 (현재 버전 유지로 해결) |
+
+### 11.2 30분 관측 (16:33:05 ~ 17:03:05) — 통과
+
+| 항목 | 결과 |
+|---|---|
+| 마이그레이션 | `PRAGMA table_info(audit_trades)` 에 `qty REAL`, `note TEXT`, `meta TEXT` (20~22번) 생성 |
+| SKIP-BAR / POLLUTED | 0 / 0 |
+| 레벨 CRITICAL 로그 / pos_desync_promoted | 0 / 0 |
+| Traceback (엔진·UI) | 0 (전체 0) |
+| `[NOTIFY]` 발송 실패 | 0 |
+| Bar# | 201(16:35) → 202(16:40) → 203(16:45) → 204(16:50) → 205(16:55), 5봉 정상 증가 |
+| 1분 잔고 동기화 | `[OR] periodic sync completed` 29회 |
+
+**관측 창 안의 자연 발생 (사후 확증 대상이 실제로 일어남)**
+- 16:47:09 `[HTS-DETECT] HTS_BUY 감지 | ticker=KRW-JTO | total(가용+묶임): 0.000000 → 1340.436268` — (c) 합계 기준 감지 정상.
+- 16:49:10 `⛔ [LOCKED-QTY] 매도 불가 — 앱 지정가 매도 주문으로 수량 묶임 | 가용=0.000000 묶임=1340.436268` — (b) 경고 1회 발화, `meta.locked_warned=true`.
+- 16:50:05 `bars_held=0 AND audit 실측 없음 … SELL 차단 (HOLD 유지)` (ERROR 레벨, 메시지에 "CRITICAL" 단어 포함) → 16:50:07 `[POS-DESYNC] streak 리셋: 1 → 0 (bars_held=1 정상 통과)`. WO-8 의 외부 매수 첫 봉 방어가 설계대로 1봉만 막고 풀렸습니다. 승격(`pos_desync_promoted`)은 없었습니다.
+- 16:56:13 KRW-MON HTS_BUY 합계 기준 감지.
+
+### 11.3 완결 문안
+
+- **WO-9 완결**: 외부 주문 공존 시 발주 실패 가시화(거절 감사 기록·감사 로그 페이지 표시·묶임 배지와 경고·거절 코드별 알림 안내·감사 임계 기록 정정)와 HTS 감지 합계 기준 정정을 2026-09-30 16:28 배포했습니다. 30분 관측에서 결함 태그 0건이고, 관측 창 안에서 합계 기준 HTS 감지와 묶임 경고가 실제로 발화했습니다. 남은 확인(다음 발주 거절 시 SELL_REJECTED 기록·페이지 표시)은 세션 개시 정기 점검(`docs/operations/wo8-force-buy-verification-guide.md` §확인 4)으로 넘깁니다.
+- **WO-11 완결**: 사용자 노출 용어를 시장가 매수·현재가 매수·시장가 매도·앱 지정가 주문으로 통일해 같은 시각 배포했습니다. 사용자 노출 문자열의 폐기 용어는 26건에서 0건이 됐고, 설정 페이지·감사 로그 페이지 렌더에서도 0건입니다. 화면 육안 확인은 운영자 확인 항목으로 남깁니다.
+
+### 11.4 관측 중 기록한 사항 (결함 태그 아님, 이번 WO 원인 아님)
+
+- 16:50:05 REST 조정이 아직 닫히지 않은 16:50 봉(거래량 18.49)을 "최신 확정 봉"으로 받아 BACKFILL 누락 봉으로 평가했습니다(`SELL BACKFILL only (missing_bar)` 기록, Bar#202 가 두 번 찍힘). 이번 배포 전부터 있던 동작이며, 2026-09-30 조사 보고서의 `missing_bar` 행과 같은 유형입니다. 별도 조사 후보로 기록만 합니다.
+- 손절 임계가 -0.70% 로 표시된 것은 사용자가 15:37 에 설정을 바꾼 결과입니다(settings_history id 173, 16:33 strategy_init id 174 로 적용).
