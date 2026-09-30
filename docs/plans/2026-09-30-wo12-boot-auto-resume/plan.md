@@ -215,3 +215,47 @@ unit 파일 본문은 고치지 않고 **drop-in 파일**로 `ExecStart` 만 바
   - `systemctl daemon-reload` → `systemctl show tradebot -p ExecStart` (원래 `venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0` 확인)
   - `systemctl restart tradebot` → `systemctl is-active tradebot`
 - 코드까지 되돌리기: 로컬 `git revert <WO-12 커밋>` → push → 서버 pull → restart
+
+## 10. 1단계 배포와 완결 (2026-09-30) — 코드만, 기동 방식 유지
+
+운영자 지시로 배포를 두 단계로 나눴습니다. 1단계는 코드만 배포하고 기동 방식은 기존 `streamlit run` 을 유지했습니다. 2단계(기동 방식 전환)는 운영자가 지정하는 시각에 `docs/operations/wo8-force-buy-verification-guide.md` §확인 4-W12 로 실행합니다.
+
+### 10.1 배포
+
+| 항목 | 값 |
+|---|---|
+| 커밋 | `0c8e729` (구현 `d12f47b` 에 규칙 v2.9·가이드 §확인 4-W12 를 amend) — 되돌릴 대상 |
+| 서버 HEAD | `a3e3a2d` → `0c8e729` (로컬과 일치) |
+| 버전 | v1.2026.09.30.1746 → v1.2026.09.30.1917 |
+| 백업 | `/root/backup/tradebot.service.20260930`, `/root/backup/tradebot.service.d.20260930/`, `/root/backup/tradebot.ExecStart.before.20260930` |
+| ExecStart | `argv[]=/root/upbit-tradebot-mvp/venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0` (변경 없음, drop-in 미생성) |
+| 서비스 재시작 | 19:26:30 KST |
+| 엔진 시작 | 19:44:26 `[AUTO-RESUME] LIVE 자동 재개 시도` → 19:44:27 성공 → 19:44:28 `[BOOT] run_live_loop start` (운영자 새로고침) |
+
+**엔진 정지 약 18분 (19:26:30 ~ 19:44:28)**: 재시작 전부터 열려 있던 브라우저 탭이 새 서버에 다시 붙었지만, 자동 새로고침 조각(fragment)만 호출했습니다(`The fragment with id … does not exist anymore`, 19:27:08 부터 10초마다 89건). 페이지 전체 스크립트가 다시 돌지 않아 `[AUTO-RESUME]` 이 실행되지 않았습니다. 운영자가 새로고침한 뒤에야 엔진이 시작됐습니다. "사람이 접속해 있어도 엔진이 멈춰 있을 수 있다"는 사례로, 2단계(기동 방식 전환)의 근거에 더합니다.
+
+### 10.2 30분 관측 (19:44:28 ~ 20:14:28) — 통과
+
+| 항목 | 결과 | 기준 |
+|---|---|---|
+| (1) 부팅 복원 | 19:44:29 `[SEED] raw_last_open=None` → `[BOOT-SEED] 봇 주문 기준 진입가 없음 (외부 매수 가능) → 워밍업 뒤 지갑 기준 복원 시도` → 19:44:40 **`[BOOT-SEED] source=upbit_avg_buy_price entry=761.0 qty=1340.436268 entry_bar=200`** | 인용 |
+| (1) seed 실패 CRITICAL / 레벨 CRITICAL | 0 / 0 (18:02 에는 1건) | 0 |
+| (2) 첫 봉 | 19:50:10 `[POSITION-SYNC] 이미 일치 → 스킵 (boot_seed source=upbit_avg_buy_price) \| qty=1340.436268 entry=761.0` 1건 | 1회 |
+| (3) 시작 경로 | `[AUTO-RESUME] … 자동 재개 성공` 1 · `[BOOT] run_live_loop start` 1 · `[BOOT-RESUME]` 0 (기존 방식이라 정상) · `start_engine skip` 0 (겹친 시작 요청 없음) | — |
+| (4) `class=pos_desync_promoted` / `integrity_gap` / `first_bar_guard` | 0 / 0 / 0 | 0 |
+| (4) SKIP-BAR / POLLUTED / Traceback | 0 / 0 / 0 | 0 |
+| (4) Bar# | 201(19:45 봉) → 202 → 203 → 204 → 205(20:05 봉) | 5봉 |
+| JTO (관측만, 개입 없음) | `trading_paused=1`, 가용 0·묶임 1,340.436268·entry 761.0, 손절 신호 스킵 5건, `SELL_REJECTED` 0건 | — |
+| `[NOTIFY]` 발송 실패 / fragment 경고(창 내) | 0 / 0 | — |
+
+`[POSITION-SYNC] 자동 복구 성공` 1건(19:44:40)은 첫 봉 재복구가 아니라 부팅 복원이 같은 함수를 부른 기록입니다. 순서가 `Buffer seeded`(19:44:39) → `[POSITION-SYNC] 자동 복구`(19:44:39~40) → `[BOOT-SEED]`(19:44:40) 입니다.
+
+**관측 중 확인한 사항 (통과 조건 밖)**
+- 19:44:33, 19:44:37 `ERROR core.strategy_engine | ❌ WARMUP 로그 기록 실패: database is locked` 2건. `record_warmup_log()` 가 워밍업 200봉의 감사 행을 쓰다 SQLite 잠금 대기(`busy_timeout=3000ms`)를 넘긴 것입니다. 워밍업은 정상 완료(`Buffer seeded | bar_count=200`)했고 영향은 워밍업 감사 행 2건 누락입니다. journal 보존분(08-30~) 첫 발생이며, 운영자 새로고침으로 페이지 로드(마이그레이션·동기화)와 워밍업 기록이 같은 시각에 겹쳤습니다. WO-12 변경과의 인과는 확인하지 못했습니다(부팅 복원 호출은 워밍업 뒤 19:44:39~40 이라 시각이 다릅니다).
+- 20:10:05 Bar#204 가 한 번 더 찍힘 — WO-13(미확정 봉 BACKFILL 평가)과 같은 유형.
+
+### 10.3 1단계 완결 문안
+
+**WO-12 1단계 완결**: 세션 비의존 엔진 시작(`start_engine(mode=)`)·사용자별 시작 잠금·기동 재개 모듈·부팅 복원 보강(C7)을 2026-09-30 19:26 배포했습니다. 기동 방식은 기존대로 두었습니다. 30분 관측에서 통과 조건을 모두 만족했고, 앱에서 산 JTO 포지션이 부팅 직후 업비트 평균가(761.0)로 복원되어 18:02 형 CRITICAL 과 8분 공백이 사라졌습니다.
+
+**2단계 대기 상태**: 기동 방식 전환(`wo12-boot.conf` drop-in)은 운영자가 시각을 지정할 때까지 실행하지 않습니다. 절차·통과 조건 8개·되돌리기는 검증 가이드 §확인 4-W12 에 있습니다. 백업은 `/root/backup/` 에 준비돼 있습니다.
