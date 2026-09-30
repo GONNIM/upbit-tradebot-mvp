@@ -120,7 +120,7 @@ MACD_BUY_STRATEGY = {
 }
 
 MACD_BUY_FILTERS = {
-    "fixed_price_buy_enabled": "🎯 고정가 매수 (LIVE 전용 · 봉 종가 지정가 주문)",
+    "fixed_price_buy_enabled": "🎯 현재가 매수 (LIVE 전용 · 끄면 시장가 매수)",
 }
 
 MACD_SELL_STRATEGY = {
@@ -143,7 +143,7 @@ EMA_BUY_STRATEGY = {
 
 EMA_BUY_FILTERS = {
     "surge_filter_enabled": "🚫 급등 차단 필터 (Slow EMA 대비 급등 시 매수 차단)",
-    "fixed_price_buy_enabled": "🎯 고정가 매수 (LIVE 전용 · 봉 종가 지정가 주문)",
+    "fixed_price_buy_enabled": "🎯 현재가 매수 (LIVE 전용 · 끄면 시장가 매수)",
 }
 
 EMA_SELL_STRATEGY = {
@@ -592,6 +592,16 @@ if len(BUY_FILTERS) > 0:
                 key=f"toggle_{strategy_tag}_buy_filter_{key}",
             )
 
+        # ✅ WO-11 (2026-09-30): 매수 방식 두 가지 설명 병기 (용어: docs/operations/terminology.md)
+        if "fixed_price_buy_enabled" in BUY_FILTERS:
+            _wb = int(st.session_state.get("fixed_price_buy_wait_bars", 3))
+            st.caption(
+                "**매수 방식** — "
+                "**시장가 매수** (위 토글 끔): 신호가 나면 시장가로 바로 삽니다. · "
+                f"**현재가 매수** (위 토글 켬): 신호 봉의 마감가로 주문을 걸고 {_wb}봉 기다립니다. "
+                "미체결이면 자동 취소됩니다."
+            )
+
         # ✅ Surge Filter 파라미터 입력 UI (EMA 전략 + 활성화 시)
         if strategy_tag == "EMA" and st.session_state.get("surge_filter_enabled", False):
             st.markdown("#### ⚙️ 급등 차단 필터 파라미터")
@@ -614,11 +624,11 @@ if len(BUY_FILTERS) > 0:
 
         # ✅ Fixed Price Buy 안내 UI (전략 공통 · 활성화 시)
         if st.session_state.get("fixed_price_buy_enabled", False):
-            st.markdown("#### ⚙️ 고정가 매수 동작 안내")
+            st.markdown("#### ⚙️ 현재가 매수 동작 안내")
 
             # ✅ SP6 — 대기 봉 수 입력 (1~5 봉, 기본 3)
             wait_bars = st.number_input(
-                "지정가 매수 대기 봉 수 (1~5 봉)",
+                "현재가 매수 대기 봉 수 (1~5 봉)",
                 min_value=1, max_value=5,
                 value=int(st.session_state.get("fixed_price_buy_wait_bars", 3)),
                 step=1,
@@ -633,13 +643,14 @@ if len(BUY_FILTERS) > 0:
 
             if mode != "LIVE":
                 st.warning(
-                    f"⚠️ 현재 모드: **{mode}** — 고정가 매수는 **LIVE 모드 한정** 기능입니다. "
-                    "TEST 모드에서는 자동으로 시장가 매수로 폴백됩니다."
+                    f"⚠️ 현재 모드: **{mode}** — 현재가 매수는 **LIVE 모드 한정** 기능입니다. "
+                    "TEST 모드에서는 자동으로 시장가 매수로 동작합니다."
                 )
             else:
                 st.info(
-                    f"🎯 매수 시그널 발생 봉의 **종가**로 Upbit **지정가(Limit) 주문**을 등록합니다.\n"
-                    f"- 가격 자동: 봉 종가를 Upbit 호가 단위에 맞춰 라운딩 후 사용\n"
+                    f"🎯 **현재가 매수**: 신호 봉의 마감가로 주문을 걸고 **{int(wait_bars)}봉** 기다립니다. "
+                    f"미체결이면 자동 취소됩니다.\n"
+                    f"- 가격 자동: 신호 봉 마감가를 Upbit 호가 단위에 맞춰 라운딩 후 사용\n"
                     f"- **Timeout: {int(wait_bars)}봉 대기 후 미체결 시 자동 취소** → 다음 봉 시그널 재평가\n"
                     f"- 알림: 주문 등록 / 미체결 취소 / API 거부 / 잔고 부족 시 Telegram 전송"
                 )
@@ -658,6 +669,8 @@ st.divider()
 # 📉 매도 설정
 # ============================================================
 st.markdown("## 📉 매도 설정")
+# ✅ WO-11 (2026-09-30): 매도 방식은 옵션 없음 — 항상 시장가 매도
+st.info("ℹ️ **매도는 항상 시장가로 체결됩니다.** (매도 방식 옵션은 없습니다. 아래 조건은 '언제 팔지'만 정합니다.)")
 
 # --- 매도: 핵심 전략 조건 ---
 with st.expander("⭐ 핵심 전략 조건", expanded=True):
@@ -843,10 +856,21 @@ with col1:
             if key == "surge_filter_enabled" and st.session_state.get(key, False):
                 surge_pct = st.session_state.get("surge_threshold_pct", 0.01) * 100
                 st.caption(f"   └─ 임계값: {surge_pct:.1f}%")
-            # ✅ 2026-08-05: 고정가 매수 대기 봉수 표시 (요약 섹션 누락 봉쇄)
+            # ✅ 2026-08-05: 현재가 매수 대기 봉수 표시 (요약 섹션 누락 봉쇄)
+            # ✅ WO-11 fixup (2026-09-30): 대기 시간 = 봉 수 × 실제 봉 간격 (1분봉 가정 ×60 제거).
+            #   interval_sec 출처는 WO-8 과 동일 — engine/params.py interval_sec 속성.
             if key == "fixed_price_buy_enabled" and st.session_state.get(key, False):
                 wait_bars = int(st.session_state.get("fixed_price_buy_wait_bars", 3))
-                st.caption(f"   └─ 대기 봉수: {wait_bars}봉 (약 {wait_bars * 60}초)")
+                try:
+                    _p = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_tag)
+                    _interval_sec = int(_p.interval_sec) if _p else None
+                except Exception:
+                    _interval_sec = None
+                if _interval_sec:
+                    _wait_min = wait_bars * _interval_sec / 60
+                    st.caption(f"   └─ 대기 봉수: {wait_bars}봉 (약 {_wait_min:g}분)")
+                else:
+                    st.caption(f"   └─ 대기 봉수: {wait_bars}봉")
 
 with col2:
     st.markdown("**📉 매도 설정**")

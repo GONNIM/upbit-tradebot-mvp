@@ -88,19 +88,19 @@
 |---|---|---|---|---|
 | 1 | 🟢 `매수 요청 — {ticker}` | 가격 + 금액 + 체결 안내 + uuid | `buy_req:{uuid}` / 60s | trader.py:637 |
 | 2 | 🔴 `매도 요청 — {ticker}` | 가격 + 수량 + 체결 안내 + uuid | `sell_req:{uuid}` / 60s | trader.py:1088 |
-| 3 | ❌ `매수 실패 — {ticker}` | 사유(한글)+재시도+가이드+raw err | `buy_fail:{ticker}:{err}` / 60s | trader.py:512 |
-| 4 | ❌ `매도 실패 — {ticker}` | 사유(한글)+수량+가이드+raw err | `sell_fail:{ticker}:{err}` / 60s | trader.py:1005 |
+| 3 | ❌ `매수 거절 — {ticker}` | 사유(한글)+신호+재시도+거절 코드별 안내+raw err | `buy_reject:{ticker}:{code}` / 300s | trader.py:700 |
+| 4 | ❌ `매도 거절 — {ticker}` | 사유(한글)+신호+수량+거절 코드별 안내+raw err | `sell_reject:{ticker}:{code}` / 300s | trader.py:1279 |
 | 5 | 🔑 `Upbit API 인증 실패` | 사유(한글)+3단계 액션+raw err | `api_auth:{err}` / 600s | trader.py:525, 1019 |
-| 6 | ❌ `고정가 매수 거부 — {ticker}` (호가) | 사유(호가 단위 이탈) + 원가→조정가 + 가이드 | `fixed_buy_tick:{ticker}` / 60s | trader.py:703 |
-| 7 | ❌ `고정가 매수 거부 — {ticker}` (주문) | 사유(한글) + 가격/수량 + 가이드 + raw err | `fixed_buy_fail:{ticker}:{err[:80]}` / 60s | trader.py:798 |
-| 8 | 🎯 `고정가 매수 요청 — {ticker}` | 지정가 + 수량 + 자동 취소 안내 + uuid | `fixed_buy_req:{uuid}` / 60s | trader.py:862 |
+| 6 | ❌ `현재가 매수 거부 — {ticker}` (호가) | 사유(호가 단위 이탈) + 원가→조정가 + 가이드 | `fixed_buy_tick:{ticker}` / 60s | trader.py:914 |
+| 7 | ❌ `현재가 매수 거부 — {ticker}` (주문) | 사유(한글) + 신호 + 가격/수량 + 거절 코드별 안내 + raw err | `buy_reject:{ticker}:{code}` / 300s | trader.py:1028 |
+| 8 | 🎯 `현재가 매수 주문 — {ticker}` | 주문가(신호 봉 마감가) + 수량 + 자동 취소 안내 + uuid | `fixed_buy_req:{uuid}` / 60s | trader.py:1107 |
 
 ### 2.2 거래 이벤트 — WARNING (`core/trader.py`)
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
-| 9 | ⚠️ `고정가 매수 보류 — {ticker}` | 사유(잔고 0) + 가이드 | `fixed_buy_balance_zero:{ticker}` / 60s | trader.py:728 |
-| 10 | ⚠️ `고정가 매수 보류 — {ticker}` | 사유(잔고 부족) + 가용(comma) + 가이드 | `fixed_buy_balance:{ticker}` / 60s | trader.py:751 |
+| 9 | ⚠️ `현재가 매수 보류 — {ticker}` | 사유(잔고 0) + 가이드 | `fixed_buy_balance_zero:{ticker}` / 60s | trader.py:942 |
+| 10 | ⚠️ `현재가 매수 보류 — {ticker}` | 사유(잔고 부족) + 가용(comma) + 가이드 | `fixed_buy_balance:{ticker}` / 60s | trader.py:970 |
 
 ### 2.3 전략 신호 — WARNING (`core/strategy_incremental.py`)
 
@@ -114,7 +114,8 @@
 
 | # | 제목 | 본문 키 | dedupe | 위치 |
 |---|---|---|---|---|
-| 14 | ⏱ `고정가 매수 미체결 → 자동 취소 — {ticker}` | 지정가 + 경과(초) + 재평가 안내 + uuid | `fixed_buy_timeout:{uuid}` / 60s | order_reconciler.py:355 |
+| 14 | ⏱ `현재가 매수 미체결 → 자동 취소 — {ticker}` (강제 매수: `[FORCE] 강제 매수(현재가) 미체결 → 자동 취소`) | 주문가 + 경과(초) + 재평가 안내 + uuid | `fixed_buy_timeout:{uuid}` / 60s | order_reconciler.py:461 |
+| 15 | ⛔ `매도 불가 — {ticker} 앱 지정가 매도 주문으로 수량 묶임 (N개)` (WARNING) | 묶임·가용 수량 + 앱 지정가 주문 확인 안내 | `locked_qty:{ticker}` / 3600s + meta.locked_warned 1회 | order_reconciler.py:535 |
 | 15 | ⚠️ `Upbit REST API 응답 지연 — {ticker}` | 시점/재시도(분해)/조치/dedupe 안내 | `rest_retry_exhausted` / 300s | live_loop.py:1126 |
 
 ### 2.5 엔진 운영 — CRITICAL (`pages/`)
@@ -203,8 +204,8 @@
 | 🟢 BUY 요청 / 🔴 SELL 요청 | 정상 거래 흐름 — Dashboard `LIVE` 모드 + 최근 시그널 일치? | 무조치 (수분 내 체결 reconciler 처리) |
 | ❌ BUY/SELL 실패 | err_summary의 Upbit 에러 코드 확인 | 5분 내 자동 재시도. 3회 후 FAILURE 시 운영자 개입 |
 | 🔑 API 인증 실패 | JWT/IP 화이트리스트 확인 | Upbit 콘솔에서 API 키·IP 재확인 (Issue #6 참조) |
-| ❌ 고정가 잔고 부족 | KRW 잔고 > 5,000원? | 입금 또는 risk_pct 조정 |
-| 🎯 고정가 매수 요청 | 지정가 = 봉 종가? | timeout(다음 봉) 내 체결 대기 |
+| ❌ 현재가 매수 잔고 부족 | KRW 잔고 > 5,000원? | 입금 또는 risk_pct 조정 |
+| 🎯 현재가 매수 주문 | 주문가 = 신호 봉 마감가? | 대기 봉 수 안에 체결 대기 |
 
 ### 4.2 시스템 알림 (#14~#15, #22~#26)
 
@@ -215,7 +216,7 @@
 | ✅ RECOVERED tradebot 엔진 (#24) | — | 무조치 (정상화 확인) |
 | ⚠️ MEMORY 임계값 초과 (#25) | `🔄 [SYSTEM] tradebot 재시작` 후속 알림 도착? | 도착 시 정상 자동 복구. 미도착 시 systemctl 수동 개입 |
 | 🔄 tradebot 재시작 (#26) | 메모리 사용량 정상화 확인 | Dashboard 새로고침으로 엔진 재개 확인 |
-| ⏱ 고정가 미체결 취소 (#14) | 봉 간격 내 미체결 → 자연 취소 | 무조치 (다음 봉 재평가) |
+| ⏱ 현재가 매수 미체결 취소 (#14) | 대기 봉 수 안에 미체결 → 자동 취소 | 무조치 (다음 봉 재평가) |
 | ⚠️ REST API 연속 실패 (#15) | Upbit API status 확인 | 5분 dedupe — 1회 알림이 봉 다수 스킵 의미 |
 
 ### 4.3 엔진 운영 알림 (#16~#21)

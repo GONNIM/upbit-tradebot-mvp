@@ -100,7 +100,7 @@ ssh root@orionhunter7.cafe24.com "
 
 WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(SL/TS)는 회귀 없어야 함.
 
-- 크로스 발생 시 `EMA Golden Cross detected` → `action=BUY` → `LIMIT-FILL apply_entry 완료` (지정가 활성일 때) 또는 `BUY 체결` (시장가일 때) 로그 관측
+- 크로스 발생 시 `EMA Golden Cross detected` → `action=BUY` → `LIMIT-FILL apply_entry 완료` (현재가 매수 활성일 때) 또는 `BUY 체결` (시장가 매수일 때) 로그 관측
 - 30분 창 내 크로스 미발생은 정상 (자연 발생 없음), 회귀 아님
 
 ---
@@ -176,14 +176,14 @@ ssh root@orionhunter7.cafe24.com "
 [LIMIT-FILL] apply_entry 완료 | uuid=... qty=... price=... entry_bar=N ts=...
 ```
 - 이후 첫 봉 SELL 평가에서 **`[POSITION-SYNC] 자동 복구` 로그 부재** = WO-8 정상 (`apply_entry` 정상 관문 경유)
-- `[POSITION-SYNC] 자동 복구` 1건 이상 발화 시 = **즉시 롤백** (강제 매수 지정가가 `apply_entry` 우회)
+- `[POSITION-SYNC] 자동 복구` 1건 이상 발화 시 = **즉시 롤백** (강제 매수(현재가) 체결이 `apply_entry` 우회)
 
 #### (c) 미체결 취소 케이스: `[FORCE]` prefix 알림 발송
 ```
 ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=... elapsed=... timeout=1495s
 [OR] cancel_order resp uuid=...
 ```
-- 텔레그램/대시보드 알림: **`⏱ [FORCE] 강제 매수 지정가 미체결 → 자동 취소 — KRW-JTO`** (`meta.reason=force_buy` 감지로 [FORCE] prefix 붙음)
+- 텔레그램/대시보드 알림: **`⏱ [FORCE] 강제 매수(현재가) 미체결 → 자동 취소 — KRW-JTO`** (WO-11 이전 배포본 문구: `강제 매수 지정가 미체결`) (`meta.reason=force_buy` 감지로 [FORCE] prefix 붙음)
 - 안내 문구: `→ 사용자 강제 매수 요청 취소됨. 필요 시 재발주`
 
 #### (d) audit_trades `reason=force_buy` 행 `entry_price` 정상 기재
@@ -222,8 +222,8 @@ SELECT id, timestamp, ticker, type, reason, price, entry_price, bars_held
 ## 롤백 트리거 (§7.2)
 
 1. 배포 30분 내 엔진 계열 Traceback 1건 이상
-2. 강제 매수 지정가 체결 직후 첫 봉 SELL 평가에서 `[POSITION-SYNC] 자동 복구` 로그 1건 이상
-3. 강제 매수가 지정가 활성 상태인데 `buy_market` 발주 (분기 실패)
+2. 강제 매수(현재가) 체결 직후 첫 봉 SELL 평가에서 `[POSITION-SYNC] 자동 복구` 로그 1건 이상
+3. 강제 매수가 현재가 매수 활성 상태인데 `buy_market` 발주 (분기 실패)
 4. `#14 fixed_buy_timeout` 알림 발송 실패
 5. 커버리지 회귀 (`docs/plans/2026-09-12-post-check/coverage-and-critical.md` 산식 <95%)
 6. `pos_desync_promoted` 알림이 정상 매매 봉에 반복 발화 (승격 가드 오탐)

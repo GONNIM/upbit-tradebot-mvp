@@ -11,6 +11,7 @@ from services.db import TRADES_AUDIT_COLUMNS, trade_kind, trade_type_display  # 
 from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-3
 from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
+from services.terminology import display_df as _term_display_df  # ✅ WO-11: 옛 용어 표시층 변환
 from pathlib import Path
 
 from config import REFRESH_INTERVAL, CONDITIONS_JSON_FILENAME
@@ -551,7 +552,7 @@ if section == "buy":
                 "**기록시각** = 판정 최초 기록 또는 BACKFILL 재평가 UPDATE 시각  ·  "
                 "💰 **실주문 시각/가격**은 [Trades 탭] 참조 (재평가는 실주문 실행 안 함)"
             )
-            st.dataframe(df_buy_display, use_container_width=True, hide_index=True)
+            st.dataframe(_term_display_df(df_buy_display), use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
 
@@ -785,7 +786,7 @@ elif section == "sell":
                 "**기록시각** = 판정 최초 기록 또는 BACKFILL 재평가 UPDATE 시각  ·  "
                 "💰 **실주문 시각/가격**은 [Trades 탭] 참조 (재평가는 실주문 실행 안 함)"
             )
-            st.dataframe(df_sell_display, use_container_width=True, hide_index=True)
+            st.dataframe(_term_display_df(df_sell_display), use_container_width=True, hide_index=True)
     else:
         st.info("데이터가 없습니다.")
 
@@ -848,6 +849,8 @@ elif section == "trades":
         # ✅ bar_time 포맷팅 (DB에서 온 ISO 형식 → 읽기 쉬운 형식)
         if "bar_time" in df_tr.columns:
             df_tr["bar_time"] = df_tr["bar_time"].apply(_format_timestamp)
+
+        df_tr = _term_display_df(df_tr)  # ✅ WO-11: 옛 용어 → 새 용어 (표시만, DB 무변경)
 
         # ✅ params.base_ema_gap_enabled로 판단 (dashboard 차트와 동일한 조건 사용)
         if is_gap_mode:

@@ -41,6 +41,15 @@ from config import (
 )
 from ui.style import style_main
 
+# ✅ WO-11 (2026-09-30): logs 표시층 용어 변환 — 과거 행("고정가/지정가 매수")은 DB 그대로, 화면만 새 용어
+from services.terminology import display_rows as _term_display_rows
+_fetch_logs_raw = fetch_logs
+
+
+def fetch_logs(*args, **kwargs):
+    return _term_display_rows(_fetch_logs_raw(*args, **kwargs))
+
+
 from core.trader import UpbitTrader
 from services.trading_control import force_liquidate, force_buy_in
 
@@ -464,7 +473,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.30.1536")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.30.1621")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -2359,8 +2368,8 @@ with btn_col1:
         _fixed_active, _wait_bars = is_force_buy_fixed_price_active(user_id, params_obj.strategy_type)
         if is_live and _fixed_active:
             st.caption(
-                f"ℹ️ 지정가 매수 활성 상태. 강제 매수도 지정가로 발주되며 최대 {_wait_bars}봉 내 미체결 시 자동 취소됩니다. "
-                f"즉시 시장가 매수를 원하면 '매수/매도 조건' 페이지에서 지정가 매수를 끄세요."
+                f"ℹ️ 현재가 매수 활성 상태. 강제 매수도 현재가로 발주되며 최대 {_wait_bars}봉 내 미체결 시 자동 취소됩니다. "
+                f"즉시 시장가 매수를 원하면 '매수/매도 조건' 페이지에서 현재가 매수를 끄세요."
             )
     except Exception:
         pass
@@ -2631,8 +2640,8 @@ with st.expander(f"📈 매수 설정 (Strategy: {strategy_tag})", expanded=Fals
     if buy_state.get("fixed_price_buy_enabled", False):
         _wait_bars = int(buy_state.get("fixed_price_buy_wait_bars", 3))
         st.info(
-            f"🎯 **고정가 매수**: 봉 종가 지정가 주문 → **{_wait_bars}봉** "
-            f"(약 {_wait_bars * 60}초) 내 미체결 시 자동 취소"
+            f"🎯 **현재가 매수**: 신호 봉의 마감가로 주문을 걸고 **{_wait_bars}봉** 기다립니다. "
+            f"미체결이면 자동 취소됩니다."
         )
 
 # 매도 설정 — 디폴트 접기 (사용자 요청)

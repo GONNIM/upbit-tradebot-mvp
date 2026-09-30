@@ -911,7 +911,7 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
                 _notify(
                     LEVEL_CRITICAL,
-                    f"❌ 고정가 매수 거부 — {ticker}",
+                    f"❌ 현재가 매수 거부 — {ticker}",
                     (
                         f"사유: 호가 단위 이탈 (0.5% 초과)\n"
                         f"요청가: {price:,.4f} → 조정가: {rounded_price:,.2f}\n\n"
@@ -925,21 +925,21 @@ class UpbitTrader:
             insert_log(
                 self.user_id,
                 "ERROR",
-                f"❌ 고정가 매수 거부 ({ticker}): {err}",
+                f"❌ 현재가 매수 거부 ({ticker}): {err}",
             )
             return {}
 
         # KRW 잔고 + 금액 계산 (buy_market 과 동일 공식)
         avail = self._krw_balance()
         if avail <= 0:
-            err = "활성 KRW 잔고 0 — 고정가 매수 불가"
+            err = "활성 KRW 잔고 0 — 현재가 매수 불가"
             logger.warning(f"[BUY-LIMIT] {err}")
             self.last_buy_error = err
             try:
                 from services.notifier import send as _notify, LEVEL_WARNING
                 _notify(
                     LEVEL_WARNING,
-                    f"고정가 매수 보류 — {ticker}",
+                    f"현재가 매수 보류 — {ticker}",
                     (
                         "사유: KRW 잔고 0원\n\n"
                         "💡 입금 또는 risk_pct 조정"
@@ -952,7 +952,7 @@ class UpbitTrader:
             insert_log(
                 self.user_id,
                 "WARNING",
-                f"❌ 고정가 매수 잔고 부족 ({ticker}): 가용 KRW=0",
+                f"❌ 현재가 매수 잔고 부족 ({ticker}): 가용 KRW=0",
             )
             return {}
 
@@ -967,7 +967,7 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_WARNING
                 _notify(
                     LEVEL_WARNING,
-                    f"고정가 매수 보류 — {ticker}",
+                    f"현재가 매수 보류 — {ticker}",
                     (
                         f"사유: KRW 잔고 부족\n"
                         f"가용: {avail:,.0f} KRW (최소 5,000 필요)\n\n"
@@ -981,7 +981,7 @@ class UpbitTrader:
             insert_log(
                 self.user_id,
                 "WARNING",
-                f"❌ 고정가 매수 잔고 부족 ({ticker}): {err}",
+                f"❌ 현재가 매수 잔고 부족 ({ticker}): {err}",
             )
             return {}
 
@@ -1025,7 +1025,7 @@ class UpbitTrader:
                 _guide = guidance_for_upbit_error(err_summary, default="Upbit 응답 코드 확인")
                 _notify(
                     LEVEL_CRITICAL,
-                    f"❌ 고정가 매수 거부 — {ticker}",
+                    f"❌ 현재가 매수 거부 — {ticker}",
                     (
                         f"사유: {_label}\n"
                         f"신호: {(meta or {}).get('reason') or '-'}\n"
@@ -1042,7 +1042,7 @@ class UpbitTrader:
             insert_log(
                 self.user_id,
                 "ERROR",
-                f"❌ 고정가 매수 실패 ({ticker}): {err_summary}",
+                f"❌ 현재가 매수 실패 ({ticker}): {err_summary}",
             )
             # ✅ WO-9 (e): 거절을 audit_trades(BUY_REJECTED)에 기록 (uuid 등록 이전 분기 — WO-8b 경로와 무관)
             self._audit_reject(
@@ -1094,7 +1094,7 @@ class UpbitTrader:
                 self.user_id,
                 "INFO",
                 (
-                    f"🎯 [LIVE 고정가] 지정가 매수 요청: {ticker} "
+                    f"🎯 [LIVE] 현재가 매수 주문 요청: {ticker} "
                     f"price={rounded_price} qty={qty} uuid={uuid}"
                 ),
             )
@@ -1104,9 +1104,9 @@ class UpbitTrader:
                 from services.notifier import send as _notify, LEVEL_CRITICAL
                 _notify(
                     LEVEL_CRITICAL,
-                    f"🎯 고정가 매수 요청 — {ticker}",
+                    f"🎯 현재가 매수 주문 — {ticker}",
                     (
-                        f"지정가: {rounded_price:,.4f} KRW\n"
+                        f"주문가(신호 봉 마감가): {rounded_price:,.4f} KRW\n"
                         f"수량: {qty}\n"
                         f"미체결 시 자동 취소: 다음 봉 (~{interval_sec}초)\n"
                         f"─────\n"
@@ -1144,7 +1144,7 @@ class UpbitTrader:
             }
         except Exception as e:
             logger.error(f"[BUY-LIMIT] 주문 후처리 실패: {e}")
-            insert_log(self.user_id, "ERROR", f"❌ 고정가 매수 후처리 예외: {e}")
+            insert_log(self.user_id, "ERROR", f"❌ 현재가 매수 후처리 예외: {e}")
             return {}
 
     def sell_market(self, qty: float, ticker: str, price: float, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
