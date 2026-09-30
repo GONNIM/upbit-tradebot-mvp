@@ -260,6 +260,45 @@ SELECT id, timestamp, ticker, type, reason, price, entry_price, bars_held
 
 ---
 
+## 확인 4-W12 · WO-12 2단계 — 기동 방식 전환 (운영자 지정 시각에만 실행)
+
+2026-09-30 1단계에서 코드(`d12f47b` 계열)만 배포했습니다. 기동 방식은 기존 `streamlit run` 그대로입니다. 2단계는 **운영자가 시각을 따로 지정했을 때만** 실행합니다. 지시 전에는 실행하지 않습니다.
+
+**사전 조건**: 1단계 백업이 `/root/backup/` 에 있어야 합니다 (`tradebot.service.20260930`, `tradebot.service.d.20260930/`, `tradebot.ExecStart.before.20260930`). 없으면 먼저 만듭니다.
+
+**절차 (서버, 순서대로)**
+
+1. drop-in 생성 — 파일 `/etc/systemd/system/tradebot.service.d/wo12-boot.conf`, 내용 3줄. 여러 줄 파일은 heredoc 을 쓰지 않고 `printf` 한 줄로 만듭니다(규칙 v2.9).
+   - `printf '[Service]\nExecStart=\nExecStart=/root/upbit-tradebot-mvp/venv/bin/python /root/upbit-tradebot-mvp/scripts/tradebot_boot.py\n' > /etc/systemd/system/tradebot.service.d/wo12-boot.conf`
+   - `cat /etc/systemd/system/tradebot.service.d/wo12-boot.conf` 로 3줄 확인
+2. `systemctl daemon-reload`
+3. `systemctl show tradebot -p ExecStart` — `argv[]=/root/upbit-tradebot-mvp/venv/bin/python /root/upbit-tradebot-mvp/scripts/tradebot_boot.py` 인지 인용
+4. `systemctl restart tradebot` → `systemctl is-active tradebot` → `systemctl show tradebot -p ExecMainStartTimestamp` → `ss -ltnp | grep 8501`
+5. **대시보드에 접속하지 않고** 관측합니다. 기준 시각 `S` = `systemctl show tradebot -p ExecMainStartTimestamp --value`, 조회는 `journalctl -u tradebot --since "$S" --no-pager` 에 `grep -F` 고정 문자열.
+
+**통과 조건 (접속 없이)**
+
+| 순서 | 확인 | 기대 |
+|---|---|---|
+| 1 | 재시작 1분 안 `[BOOT-RESUME] success user=mcmax33 mode=LIVE` | 1줄 |
+| 2 | `[migrate] … OK (user_id=mcmax33)` (`ensure_settings_history_schema` 제외) | 14줄 |
+| 3 | `[BOOT] run_live_loop start` | 1줄 |
+| 4 | JTO 포지션 보유 시 `[BOOT-SEED] source=upbit_avg_buy_price entry=… qty=…` · seed 실패 CRITICAL | 1줄 · 0건 |
+| 5 | 사람 접속 없이 첫 `[CONFIRMED] 봉 처리 완료` · 그때까지 `[AUTO-RESUME]` | 발생 · 0건 |
+| 6 | 30분: `[POS-DESYNC] class=pos_desync_promoted` · `class=integrity_gap` · `[SKIP-BAR]` · `POLLUTED` · 엔진 Traceback | 모두 0건 |
+| 7 | 30분: Bar# | 5봉 이상 |
+| 8 | 그 뒤 운영자 접속 1회: `[AUTO-RESUME] skip (boot-resume 로 이미 실행 중)` · 새 `[BOOT] run_live_loop start` | 1줄 · 추가 0건 (엔진 스레드 1개) |
+
+**이상 시 되돌리기 (코드는 유지)**
+
+1. `rm -f /etc/systemd/system/tradebot.service.d/wo12-boot.conf`
+2. `systemctl daemon-reload`
+3. `systemctl show tradebot -p ExecStart` — 원래 `argv[]=/root/upbit-tradebot-mvp/venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0` 확인
+4. `systemctl restart tradebot` → `systemctl is-active tradebot`
+5. 기존 방식이므로 운영자 대시보드 접속으로 엔진을 시작합니다.
+
+---
+
 ## 확인 5 · CRITICAL 알림 등급 재조정 (실전 관측)
 
 **24시간 실측 창** (2026-09-12 17:24:07 ~ 2026-09-13 17:24:07) 관측 대상:

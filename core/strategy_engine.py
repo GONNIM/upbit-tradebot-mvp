@@ -474,13 +474,16 @@ class StrategyEngine:
             # 무해 (관찰 계층은 절대 매매 흐름 방해 X)
             logger.debug(f"[ENGINE] invariant snapshot 기록 실패 (무해): {e}")
 
-    def _reconcile_position_with_wallet(self) -> None:
+    def _reconcile_position_with_wallet(self) -> Optional[str]:
         """
         지갑 잔고 기반 PositionState 동기화
 
         - 지갑과 메모리 상태 불일치 감지 시 강제 동기화
         - force_liquidate, 수동 거래 등 외부 요인에 대응
         - 매 봉마다 호출되어 방어적으로 상태 일관성 유지
+
+        Returns (WO-12 C7): 외부 매수 복구 성공 시 진입가 출처("upbit_avg_buy_price" / "last_open_buy"),
+            그 외 None. 기존 호출부는 반환값을 쓰지 않는다 (동작 무변경).
         """
         try:
             # 1. 실제 지갑 잔고 조회
@@ -489,6 +492,15 @@ class StrategyEngine:
 
             # 2. 메모리 상태
             memory_has_position = self.position.has_position
+
+            # ✅ WO-12 C7: 부팅 복원([BOOT-SEED])으로 이미 맞춘 상태면 첫 봉에서 1회 "이미 일치 → 스킵" 기록
+            _bsv = getattr(self, "_boot_seed_verify", None)
+            if _bsv and has_coins_in_wallet == memory_has_position:
+                logger.info(
+                    f"[POSITION-SYNC] 이미 일치 → 스킵 (boot_seed source={_bsv.get('source')}) | "
+                    f"qty={self.position.qty:.6f} entry={self.position.avg_price} wallet={actual_balance:.6f}"
+                )
+                self._boot_seed_verify = None
 
             # 3. 불일치 감지 및 처리
             if has_coins_in_wallet != memory_has_position:
@@ -567,6 +579,7 @@ class StrategyEngine:
                                 f"qty={actual_balance:.6f}, entry_price={entry_price:.2f}, "
                                 f"entry_bar={self.position.entry_bar}, entry_ts={_p2_entry_ts.isoformat()}"
                             )
+                            return source
                         else:
                             # 신뢰 가능한 진입가 없음 → SELL 발동 금지 (HOLD 유지). 봇 의사결정 차단.
                             logger.error(

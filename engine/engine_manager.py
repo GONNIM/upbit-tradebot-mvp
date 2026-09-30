@@ -76,6 +76,16 @@ class EngineManager:
         self._live_engine_count = 0
         # user_key(_user_key) → 마지막으로 실행된 모드(TEST/LIVE)
         self._engine_mode: dict[str, str] = {}
+        # ✅ WO-12 (2026-09-30): 사용자별 "시작" 잠금 — 기동 재개(boot_resume)와 대시보드 [AUTO-RESUME]
+        #   두 경로가 동시에 start_engine 을 불러도 Reconciler 카운트·DB 상태·스레드가 한 번만 만들어지게 한다.
+        self._start_locks: dict[str, threading.Lock] = {}
+
+    def _start_lock(self, user_id: str) -> threading.Lock:
+        key = _user_key(user_id, "")
+        with self._global_lock:
+            if key not in self._start_locks:
+                self._start_locks[key] = threading.Lock()
+            return self._start_locks[key]
 
     def _ensure_user_resources(self, user_id, captured_mode: str):
         key = _user_key(user_id, captured_mode)
@@ -117,6 +127,8 @@ class EngineManager:
         user_id: str,
         test_mode: bool | None = None,
         restart_count: int = 0,
+        *,
+        mode: str | None = None,
     ) -> bool:
         """
         UI에서 설정된 모드를 캡처해서 엔진을 시작한다.
@@ -126,8 +138,34 @@ class EngineManager:
             * 명시되면 그 값 우선
             * None이면 captured_mode가 LIVE면 False, 그 외에는 True
         """
-        captured_mode = current_mode()
+        # ✅ WO-12: mode 가 주어지면 세션(current_mode) 대신 그 값을 쓴다 — 서비스 기동 재개(세션 없음)용.
+        if mode is not None:
+            captured_mode = str(mode).upper()
+            if captured_mode not in (MODE_TEST, MODE_LIVE):
+                captured_mode = MODE_TEST
+        else:
+            captured_mode = current_mode()
         tm = (test_mode if test_mode is not None else (captured_mode != MODE_LIVE))
+
+        # ✅ WO-12: 사용자별 시작 잠금 — 잠금 안에서 "이미 실행 중"을 다시 확인한다.
+        #   이미 같은 모드로 돌고 있으면 Reconciler 카운트·DB 상태를 건드리지 않고 False (기존 반환 의미 유지).
+        with self._start_lock(user_id):
+            _already = self.get_running_mode(user_id)
+            if _already == captured_mode:
+                logger.info(
+                    f"[ENGINE-MANAGER] start_engine skip — 이미 실행 중: user_id={user_id}, mode={_already}"
+                )
+                return False
+            return self._start_engine_locked(user_id, tm, restart_count, captured_mode)
+
+    def _start_engine_locked(
+        self,
+        user_id: str,
+        tm: bool,
+        restart_count: int,
+        captured_mode: str,
+    ) -> bool:
+        """start_engine 본문 (사용자별 시작 잠금 안에서만 호출)."""
 
         # ✅ [Mode Lock Guard] 이미 다른 mode 로 실행 중이면 명시 거부.
         #   순서 중요: LIVE Reconciler 기동(_live_engine_count 증가) 및

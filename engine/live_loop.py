@@ -262,6 +262,52 @@ def _wallet_balance(trader: UpbitTrader, ticker: str) -> float:
         return 0.0
 
 
+def _boot_seed_recover_from_wallet(engine, ticker: str, user_id: str, wallet_qty: float) -> bool:
+    """
+    ✅ WO-12 C7 (2026-09-30): 부팅 복원이 봇 주문을 못 찾았을 때(앱에서 산 외부 매수 포지션),
+    첫 봉 [POSITION-SYNC] 와 **같은 함수**(StrategyEngine._reconcile_position_with_wallet)·같은 출처
+    (account_positions.entry_price = 업비트 avg_buy_price 캐시 → 봇 미청산 BUY)로 워밍업 직후 즉시 복원한다.
+    새 판정 논리 없음. 실패 시 기존 CRITICAL + 알림 유지.
+
+    근거: 2026-09-30 18:02:07 KRW-JTO 1,340.436268 — [SEED] raw_last_open=None → CRITICAL,
+          18:10:11 첫 봉에서야 복구 (약 8분 매도 평가 공백).
+    """
+    source = None
+    try:
+        source = engine._reconcile_position_with_wallet()
+    except Exception as e:
+        logger.error(f"[BOOT-SEED] 지갑 기준 복원 호출 실패: {e}")
+    if source and engine.position.has_position:
+        logger.info(
+            f"[BOOT-SEED] source={source} entry={engine.position.avg_price} "
+            f"qty={engine.position.qty:.6f} entry_bar={engine.position.entry_bar}"
+        )
+        engine._boot_seed_verify = {"source": source}
+        return True
+
+    logger.critical(
+        f"❌ 지갑에 코인({wallet_qty:.6f}) 있으나 DB 진입가 seed 실패 "
+        f"→ has_position=False 유지 (봇 매매 스킵). "
+        f"수동 정리 또는 force_liquidate 필요."
+    )
+    try:
+        from services.notifier import send as _notify_send, LEVEL_CRITICAL
+        _notify_send(
+            LEVEL_CRITICAL,
+            f"🚨 포지션 seed 실패 — {ticker}",
+            (
+                f"봇 부팅 시 지갑에 코인({wallet_qty:.6f}) 있으나 진입가 복원 불가.\n"
+                f"봇 매매 정지 상태 유지 (잘못된 매도 방지).\n"
+                f"HTS 수동 매도 or force_liquidate 필요."
+            ),
+            dedupe_key=f"boot_seed_fail:{ticker}",
+            dedupe_ttl=600,
+        )
+    except Exception:
+        pass
+    return False
+
+
 def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[Dict[str, Any]]:
     """DB에서 최근 completed BUY의 체결가·entry_bar·entry_ts를 복구.
 
@@ -521,6 +567,8 @@ def run_live_loop(
     position = PositionState(trader=trader, ticker=params.upbit_ticker)
 
     # 기존 포지션 복구 (지갑 기준)
+    # ✅ WO-12 C7: 봇 주문 기준 seed 실패 시 워밍업 뒤 지갑 기준 복원할 수량 (None = 해당 없음)
+    boot_seed_recover_qty = None
     # ✅ sync_from_wallet()로 실제 잔고 동기화
     position.sync_from_wallet()
     has_pos = position.has_position
@@ -571,26 +619,13 @@ def run_live_loop(
             #   진입가·시각이 신뢰 가능하지 않은 상태로 has_position=True 를 유지하면
             #   SL/TP/Stale 계산 불가 (avg_price None 시 division 실패)·잘못된 매도 위험.
             #   → has_position=False 유지 + Telegram CRITICAL. 사용자 수동 개입 요청.
-            logger.critical(
-                f"❌ 지갑에 코인({actual_qty:.6f}) 있으나 DB 진입가 seed 실패 "
-                f"→ has_position=False 유지 (봇 매매 스킵). "
-                f"수동 정리 또는 force_liquidate 필요."
+            # ✅ WO-12 C7: 봇 주문이 없을 뿐(외부 매수)일 수 있으므로 CRITICAL 은 워밍업 뒤
+            #   _boot_seed_recover_from_wallet() 이 지갑 기준 복원까지 실패했을 때만 낸다.
+            boot_seed_recover_qty = actual_qty
+            logger.warning(
+                f"[BOOT-SEED] 봇 주문 기준 진입가 없음 (외부 매수 가능) → 워밍업 뒤 지갑 기준 복원 시도 | "
+                f"wallet={actual_qty:.6f}"
             )
-            try:
-                from services.notifier import send as _notify_send, LEVEL_CRITICAL
-                _notify_send(
-                    LEVEL_CRITICAL,
-                    f"🚨 포지션 seed 실패 — {params.upbit_ticker}",
-                    (
-                        f"봇 부팅 시 지갑에 코인({actual_qty:.6f}) 있으나 진입가 복원 불가.\n"
-                        f"봇 매매 정지 상태 유지 (잘못된 매도 방지).\n"
-                        f"HTS 수동 매도 or force_liquidate 필요."
-                    ),
-                    dedupe_key=f"boot_seed_fail:{params.upbit_ticker}",
-                    dedupe_ttl=600,
-                )
-            except Exception:
-                pass
             # ✅ [Phase 1-E/P1-4] sync_from_wallet 가 이미 True 세팅했을 수 있으므로 명시적 False 리셋.
             # 감사 결과: 이전엔 has_position + qty 만 리셋했으나 avg_price/entry_ts/entry_bar 는 잔존 →
             # 다음 sync_from_wallet 이 wallet 감지 시 Fix 1 조건 (avg_price is None) False 로 스킵되어
@@ -976,6 +1011,10 @@ def run_live_loop(
                 local_series = initial_df.copy()
 
                 logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count}")
+                # ✅ WO-12 C7: 워밍업(bar_count 확정) 직후 지갑 기준 즉시 복원 — 첫 봉 [POSITION-SYNC] 와 같은 시점 조건
+                if boot_seed_recover_qty is not None:
+                    _boot_seed_recover_from_wallet(engine, params.upbit_ticker, user_id, boot_seed_recover_qty)
+                    boot_seed_recover_qty = None
             else:
                 logger.error("❌ [WARMUP] Indicator seed 실패")
                 raise RuntimeError("Indicator warmup failed")
@@ -1588,6 +1627,10 @@ def run_live_loop(
                             last_processed_ts = df.index[-1]
 
                             logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count} | warmup_baseline={df.index[-1]}")
+                            # ✅ WO-12 C7: 워밍업 직후 지갑 기준 즉시 복원 (위 CLOCK 경로와 동일)
+                            if boot_seed_recover_qty is not None:
+                                _boot_seed_recover_from_wallet(engine, params.upbit_ticker, user_id, boot_seed_recover_qty)
+                                boot_seed_recover_qty = None
                             logger.info(f"✅ 중복 방지 초기화 | processed_timestamps={len(processed_bar_timestamps)}개 | last_processed={last_processed_ts}")
                     else:
                         # WARMUP 진행 중 - 새로 추가된 봉들에 대해 로그 기록

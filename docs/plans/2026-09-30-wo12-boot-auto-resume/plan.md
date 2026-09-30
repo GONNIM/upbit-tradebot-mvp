@@ -1,7 +1,7 @@
 # WO-12 계획서 — 서비스 기동 시 엔진 자동 재개 + 마이그레이션 기동 시점 실행 (초안)
 
 - 작성일: 2026-09-30
-- 상태: **초안, 사용자 승인 대기** (코드 수정 착수 전)
+- 상태: **승인 완료 (C1~C7), 로컬 구현·검증 완료, 배포 승인 대기** — 결과는 8절, 배포 절차는 9절
 - 근거: `docs/plans/backlog.md` WO-12 항목
 - 기준 코드: 서버·로컬 HEAD `d41e943` (v1.2026.09.30.1746)
 
@@ -142,3 +142,76 @@
 | C5 | 재개 결과 알림 등급: 성공 INFO / 실패 CRITICAL | 진행 |
 | C6 | 배포 시점 (서비스 재시작 필요) | 로컬 검증 보고 뒤 별도 지시 |
 | C7 | 6-A 부팅 복원 보강(봇 주문이 없으면 업비트 평균가로 즉시 복원)을 WO-12 에 포함할지, 별도 WO 로 나눌지 | WO-12 에 포함 (기동 재개와 같은 시점의 문제이고, 첫 봉 복구와 같은 방식을 앞당기는 것) |
+
+## 8. 구현 결과 (2026-09-30)
+
+### 8.1 변경
+
+| 파일 | 내용 |
+|---|---|
+| `scripts/tradebot_boot.py` (신설) | `streamlit run` 과 같은 순서(`_config._main_script_path` → `bootstrap.load_config_options` → `bootstrap.run`)로 서버를 띄웁니다. 그 전에 기동 재개 스레드(`boot_resume`, 3초 지연)를 시작합니다. `TRADEBOT_BOOT_RESUME=0` 이면 재개를 끕니다. |
+| `engine/boot_resume.py` (신설) | `boot_resume_all()` — 알려진 사용자 마이그레이션(`ensure_all_schemas`) → 대상(engine_status=실행 중 + last_mode=LIVE) → 안전 조건(키 조회 + 운용자산>0) → `start_engine(mode="LIVE")` → 결과 알림(성공 INFO / 실패 CRITICAL, dedupe 600초). 실패 시 DB 무변경, `trading_paused` 무접촉 |
+| `engine/engine_manager.py` | `start_engine(..., *, mode=None)` — mode 가 있으면 세션 대신 사용합니다. 사용자별 시작 잠금 안에서 "이미 실행 중"을 다시 확인합니다(같은 모드면 Reconciler 카운트·DB 무변경, False 반환 — 기존 반환 의미 유지). |
+| `pages/dashboard.py` | 기동 재개 성공 뒤 첫 접속 시 `[AUTO-RESUME] skip (boot-resume 로 이미 실행 중)` 1회. 동시 진입으로 `start_engine=False` 인데 LIVE 가 실제로 돌면 DB 를 "정지"로 정정하지 않습니다. 버전 갱신 |
+| `engine/live_loop.py` (C7) | 봇 주문 기준 seed 실패 시 CRITICAL 을 바로 내지 않습니다. 워밍업 직후 `_boot_seed_recover_from_wallet()` 이 첫 봉과 같은 `StrategyEngine._reconcile_position_with_wallet()` 을 호출해 복원합니다. 성공 `[BOOT-SEED] source=… entry=… qty=… entry_bar=…`, 실패 시 기존 CRITICAL·알림 |
+| `core/strategy_engine.py` (C7) | `_reconcile_position_with_wallet()` 이 복구 출처를 반환합니다(기존 호출부 무영향). 부팅 복원 뒤 첫 봉에서 `[POSITION-SYNC] 이미 일치 → 스킵 (boot_seed source=…)` 1회 |
+
+### 8.2 계획과 달라진 점
+
+- **대시보드 경쟁 경로 보호를 추가했습니다.** 기존 `[AUTO-RESUME]` 은 `start_engine` 이 False 면 "재개 실패"로 보고 DB 엔진 상태를 "정지"로 정정합니다. 기동 재개와 대시보드 접속이 겹치면 엔진은 도는데 DB 는 정지로 남을 수 있었습니다. False 일 때 실제 실행 모드를 다시 확인하도록 했습니다.
+- **`start_engine` 의 기존 누수도 함께 막혔습니다.** 예전에는 이미 실행 중일 때 "시작"을 누르면 Reconciler 카운트(`_live_engine_count`)가 1 늘고 False 가 반환됐습니다. 잠금 안 재확인으로 카운트가 늘지 않습니다.
+
+### 8.3 검증
+
+- `py_compile` 변경 파일 전부 통과
+- 재현 테스트 `tests/regressions/test_r_2026_09_30_wo12_boot_resume.py` 14건 통과
+  - §4-1: ① LIVE 실행 중 사용자 세션 없이 재개·INFO 1건 (+ 기본 경로가 `start_engine(U, test_mode=False, mode="LIVE")` 호출) ② 키 실패·운용자산 0 → 미재개·CRITICAL·DB 무변경 ③ TEST·미실행 제외 ④ 두 번째 경로 skip·카운트 1 ⑤ 동시 2경로 → 1회 시작 ⑥ `trading_paused=1` 유지하며 재개. 추가: 기동 시 마이그레이션 호출, 세션 모드 미참조
+  - C7: 봇 주문 없음 → `[BOOT-SEED] source=upbit_avg_buy_price entry=761.0 qty=1340.436268`, 첫 봉 `이미 일치 → 스킵` 1회, 두 번째 봉 로그 없음 / 잔고 0 → has_position=False·CRITICAL / 출처 없음 → 기존 CRITICAL
+  - 변경 전 코드로 실행 시 7건 실패·오류 (신설 `boot_resume` 단위 테스트는 새 모듈이라 통과)
+- 회귀 게이트 (.env 격리) 214/214
+- **로컬 실기동 (AppTest 아님)** — 리포 사본(`services/data` 제외 → 알려진 사용자 0명, 로컬 실거래 엔진 기동 위험 차단), Telegram 변수 비움, 서버와 같은 `streamlit==1.46.0` + `streamlit-authenticator==0.4.2`
+
+| 항목 | A: `streamlit run app.py` (8611) | B: `scripts/tradebot_boot.py` (8612) |
+|---|---|---|
+| `/_stcore/health` · `/` · `/_stcore/host-config` | ok · 200 · 200 | ok · 200 · 200 |
+| 헤드리스 Chrome(CDP) 렌더 화면 | 로그인 화면 84자 | 동일 (텍스트 일치, 페이지 링크 일치) |
+| 서버 로그 Traceback / ERROR | 0 / 0 | 0 / 0 |
+| 기동 재개 스레드 | — | `2026-09-30 19:16:00 INFO engine.boot_resume \| [BOOT-RESUME] start \| known=[] targets=[]` |
+
+- 실제 LIVE 재개 성공 경로는 로컬에서 실행하지 않았습니다(로컬 `.env` 에 실거래 키). 서버 배포 후 관측이 이 경로의 확증입니다.
+
+## 9. 배포 절차 초안 (실행은 별도 지시)
+
+unit 파일 본문은 고치지 않고 **drop-in 파일**로 `ExecStart` 만 바꿉니다. 롤백은 그 파일을 지우면 됩니다. 기존 drop-in `override.conf`(`EnvironmentFile=.env`)는 그대로 둡니다. 2026-09-30 확인 기준 `/etc/systemd/system/tradebot.service.d/` 에는 `override.conf`, `override.conf.bak-wo2-20260823` 두 파일이 있습니다.
+
+1. 로컬 push: `git push origin main` (코드 커밋 1건)
+2. 서버 백업
+   - `mkdir -p /root/backup`
+   - `cp /etc/systemd/system/tradebot.service /root/backup/tradebot.service.20260930`
+   - `cp -r /etc/systemd/system/tradebot.service.d /root/backup/tradebot.service.d.20260930`
+   - `systemctl show tradebot -p ExecStart > /root/backup/tradebot.ExecStart.before.20260930`
+3. 서버 코드 pull: `cd /root/upbit-tradebot-mvp && git pull --ff-only && git rev-parse --short HEAD`
+4. ExecStart 교체 (drop-in `/etc/systemd/system/tradebot.service.d/wo12-boot.conf`, 내용 3줄)
+   - `[Service]`
+   - `ExecStart=`
+   - `ExecStart=/root/upbit-tradebot-mvp/venv/bin/python /root/upbit-tradebot-mvp/scripts/tradebot_boot.py`
+   - 이어서 `systemctl daemon-reload` → `systemctl show tradebot -p ExecStart` 로 교체 확인
+5. 재시작·상태 (대시보드 접속하지 않음): `systemctl restart tradebot` → `systemctl is-active tradebot` → `systemctl show tradebot -p ExecMainStartTimestamp` → `ss -ltnp | grep 8501`
+
+**배포 후 관측 (대시보드 접속 없이 — 통과 조건의 핵심)**
+
+기준 시각 `S` = `systemctl show tradebot -p ExecMainStartTimestamp --value`, 조회는 `journalctl -u tradebot --since "$S"` 에 `grep -F` 고정 문자열로 합니다.
+
+1. 재시작 1분 안에 `[BOOT-RESUME] success user=mcmax33 mode=LIVE`, `[migrate] … OK (user_id=mcmax33)` 14줄, `[BOOT] run_live_loop start`
+2. JTO 포지션 보유 시 `[BOOT-SEED] source=upbit_avg_buy_price entry=761.0 qty=1340.436268` (seed CRITICAL 없음), 첫 봉 `[POSITION-SYNC] 이미 일치 → 스킵`
+3. 사람 접속 없이 첫 `[CONFIRMED] 봉 처리 완료` 발생, 그때까지 `[AUTO-RESUME]` 0건
+4. 그 뒤 운영자 접속 1회: `[AUTO-RESUME] skip (boot-resume 로 이미 실행 중)`, 엔진 스레드 1개 (새 `[BOOT] run_live_loop start` 가 더 찍히지 않는지로 확인)
+5. 30분: `class=pos_desync_promoted`·`class=integrity_gap`·SKIP-BAR·POLLUTED·엔진 Traceback 0건, Bar# 5봉 이상. JTO 는 관측만(개입 없음)
+
+**롤백**
+
+- 기동 방식만 되돌리기 (코드는 두어도 무해 — 기동 스크립트를 쓰지 않으면 기존 첫 접속 재개와 같음)
+  - `rm -f /etc/systemd/system/tradebot.service.d/wo12-boot.conf`
+  - `systemctl daemon-reload` → `systemctl show tradebot -p ExecStart` (원래 `venv/bin/streamlit run app.py --server.port=8501 --server.address=0.0.0.0` 확인)
+  - `systemctl restart tradebot` → `systemctl is-active tradebot`
+- 코드까지 되돌리기: 로컬 `git revert <WO-12 커밋>` → push → 서버 pull → restart

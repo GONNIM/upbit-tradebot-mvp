@@ -395,6 +395,20 @@ engine_status_db = get_engine_status(user_id)
 # 3) ✅ AUTO-RESUME: 재시작으로 thread 사라졌으나 DB는 실행 중이었던 경우 자동 재개 시도
 #    (cleanup_tradebot_db.sh 또는 monitor_tradebot_memory.sh가 systemctl restart 후
 #     봇 엔진은 streamlit 세션 thread라 사라짐. last_mode 기준 자동 재개.)
+# ✅ WO-12 (2026-09-30): 서비스 기동 재개(engine/boot_resume.py)가 이미 엔진을 켰으면 이 경로는 건너뛴다.
+if engine_status_thread and engine_status_db:
+    try:
+        from engine.boot_resume import get_boot_resume_state
+        _boot = get_boot_resume_state(user_id)
+        if _boot and _boot.get("result") == "success" and not st.session_state.get("_auto_resume_skip_logged"):
+            st.session_state["_auto_resume_skip_logged"] = True
+            logger.info(
+                f"[AUTO-RESUME] skip (boot-resume 로 이미 실행 중): {user_id} "
+                f"| boot_resume_at={_boot.get('at')} mode={engine_manager.get_running_mode(user_id)}"
+            )
+    except Exception as _be:
+        logger.debug(f"[AUTO-RESUME] boot-resume 상태 조회 실패 (무시): {_be}")
+
 if not engine_status_thread and engine_status_db:
     try:
         from services.db import get_last_engine_mode
@@ -414,6 +428,11 @@ if not engine_status_thread and engine_status_db:
                         "🔄 **자동 재개됨** — 시스템 재시작 후 LIVE 엔진이 자동으로 재개되었습니다 "
                         f"(마지막 활성 모드: {_last_mode})"
                     )
+                elif engine_manager.get_running_mode(user_id) == "LIVE":
+                    # ✅ WO-12: 기동 재개와 동시에 들어와 잠금에서 밀린 경우 — 이미 실행 중이므로 DB 정정 금지
+                    engine_status_thread = True
+                    _resumed = True
+                    logger.info(f"[AUTO-RESUME] skip (boot-resume 로 이미 실행 중, 동시 진입): {user_id}")
             else:
                 logger.warning(
                     f"[AUTO-RESUME] LIVE 자동 재개 불가 (verified={_upbit_ok}, capital_set={_capital_ok}) "
@@ -473,7 +492,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.30.1746")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.09.30.1917")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
