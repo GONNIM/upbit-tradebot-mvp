@@ -78,3 +78,6 @@ WO-2026-001_IMPLEMENTATION_REPORT.md
 # 새 문서 구조는 추적 (docs/, README.md, DOCS_REORGANIZATION_*.md 제외)
 # *.md를 전역 무시하지 않음 (위에서 제거)
 # 대신 개별 파일만 무시
+
+# 검산용 번들 zip (커밋 제외)
+docs/plans/*/*.zip
