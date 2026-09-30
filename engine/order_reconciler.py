@@ -13,6 +13,11 @@ from services.db import (
 
 logger = logging.getLogger(__name__)
 
+# ✅ WO-10 (b) (2026-09-30): HTS 매수 감지 최소 금액 (업비트 최소 주문 금액과 같음).
+#   이보다 작은 잔고 증가(소수점 잔량 변화 등)는 사람이 넣은 주문일 수 없다 → 감지하지 않는다.
+#   (2026-09-11 id 990: Δ=9e-8개 가 HTS_BUY_ADD 로 기록되어 Trailing 리셋 경로 진입)
+HTS_DETECT_MIN_KRW = 5000.0
+
 
 class OrderReconciler:
     def __init__(self, upbit: pyupbit.Upbit, *, poll_interval=2.0, balance_sync_interval=60.0):
@@ -492,6 +497,29 @@ class OrderReconciler:
         except Exception:
             pass
 
+    @staticmethod
+    def _current_price(ticker: str) -> Optional[float]:
+        """최근 체결가 (공개 시세). 실패 시 None."""
+        try:
+            p = pyupbit.get_current_price(ticker)
+            return float(p) if p else None
+        except Exception:
+            return None
+
+    def _hts_delta_krw(self, ticker: str, qty_delta: float, avg_buy_price: float):
+        """
+        ✅ WO-10 (b): HTS 감지 후보 증가량의 원화 환산값과 기준가 출처.
+
+        기준가 순서: ① 업비트 잔고 응답 avg_buy_price → ② 현재가(최근 체결가) → ③ 없음.
+        ③ 이면 (None, "unknown") — 호출부는 기존대로 감지한다 (실제 매수를 놓치지 않음).
+        """
+        if avg_buy_price and avg_buy_price > 0:
+            return qty_delta * avg_buy_price, "avg_buy_price"
+        cur = self._current_price(ticker)
+        if cur and cur > 0:
+            return qty_delta * cur, "current_price"
+        return None, "unknown"
+
     def _has_pending_sell(self, user_id: str, ticker: str) -> bool:
         """봇 자신의 매도 주문이 추적 중인지 (봇 매도 체결 대기 중 묶임은 경고 대상 아님)."""
         with self._lock:
@@ -618,8 +646,16 @@ class OrderReconciler:
                             if qty_delta > 1e-8:
                                 avg_buy_price = float(bal.get("avg_buy_price", 0.0))
 
+                                # ✅ WO-10 (b): 증가량의 원화 환산이 최소 금액 미만이면 감지하지 않음
+                                _delta_krw, _basis = self._hts_delta_krw(ticker, qty_delta, avg_buy_price)
+                                if _delta_krw is not None and _delta_krw < HTS_DETECT_MIN_KRW:
+                                    logger.debug(
+                                        f"[HTS-DETECT] 최소 금액 미만 증가 → 감지 제외 | ticker={ticker} "
+                                        f"Δ={qty_delta:.8f} ≈ {_delta_krw:,.2f} KRW (기준가={_basis}) "
+                                        f"< {HTS_DETECT_MIN_KRW:,.0f}"
+                                    )
                                 # 봇 BUY 직후 자연 증가인지 식별
-                                if has_recent_bot_buy_for_ticker(user_id, ticker, within_seconds=30):
+                                elif has_recent_bot_buy_for_ticker(user_id, ticker, within_seconds=30):
                                     logger.debug(
                                         f"[HTS-DETECT] 잔고 증가 감지되었으나 최근 봇 BUY 기록 존재 → "
                                         f"봇 BUY로 간주, HTS 마킹 스킵 | ticker={ticker} "

@@ -626,6 +626,20 @@ if len(BUY_FILTERS) > 0:
         if st.session_state.get("fixed_price_buy_enabled", False):
             st.markdown("#### ⚙️ 현재가 매수 동작 안내")
 
+            # ✅ WO-10 (d): 도움말 예시를 실제 봉 간격으로 계산 (출처: engine/params.py interval_sec — WO-8·WO-11 과 동일)
+            try:
+                _hp = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_tag)
+                _h_interval = int(_hp.interval_sec) if _hp else None
+            except Exception:
+                _h_interval = None
+            if _h_interval:
+                _h_min = _h_interval / 60
+                _wait_example = (
+                    f"현재 {_h_min:g}분봉 기준: 3봉 ≈ {3 * _h_min:g}분, 5봉 ≈ {5 * _h_min:g}분.\n"
+                )
+            else:
+                _wait_example = "대기 시간 = 봉 수 × 봉 간격 (전략 파라미터의 interval).\n"
+
             # ✅ SP6 — 대기 봉 수 입력 (1~5 봉, 기본 3)
             wait_bars = st.number_input(
                 "현재가 매수 대기 봉 수 (1~5 봉)",
@@ -635,7 +649,7 @@ if len(BUY_FILTERS) > 0:
                 key=f"input_fixed_price_buy_wait_bars_{strategy_tag}",
                 help=(
                     "설정한 봉 수 만큼 체결을 기다린 후 자동 취소합니다.\n"
-                    "1분봉 기준: 3봉 ≈ 3분, 5봉 ≈ 5분.\n"
+                    + _wait_example +
                     "변동성 큰 시장에서는 더 많은 봉을 기다리는 것이 체결률이 높습니다."
                 ),
             )

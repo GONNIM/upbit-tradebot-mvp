@@ -1162,7 +1162,9 @@ class IncrementalEMAStrategy:
                 else:
                     # audit 도 없으면 진짜 결손 → CRITICAL 알림 + SELL 차단 유지
                     err_msg = (
-                        f"❌ [EMA] bars_held={bars_held} AND audit 실측 없음 — 데이터 무결성 결손 CRITICAL. "
+                        # ✅ WO-10 (d): 메시지에서 "CRITICAL" 단어 제거 (레벨은 ERROR 유지) — grep 집계 오탐 방지.
+                        #   분류(첫 봉 방어 / 승격 / 진짜 결손)는 아래 [POS-DESYNC] class= 로그로 남긴다.
+                        f"❌ [EMA] bars_held={bars_held} AND audit 실측 없음 — 데이터 무결성 결손. "
                         f"SELL 차단 (HOLD 유지). entry_bar={position.entry_bar}, "
                         f"current_bar={current_bar_idx}"
                     )
@@ -1186,6 +1188,10 @@ class IncrementalEMAStrategy:
                         if _downgrade_cond:
                             self._pos_desync_streak += 1
                             if self._pos_desync_streak >= 2:
+                                logger.error(
+                                    f"[POS-DESYNC] class=pos_desync_promoted | streak={self._pos_desync_streak} "
+                                    f"| ticker={self.ticker} entry_bar={position.entry_bar} current_bar={current_bar_idx}"
+                                )
                                 _notify_send(
                                     LEVEL_CRITICAL,
                                     f"🚨 외부 매수 감지 후 자동 복구 실패 ({self._pos_desync_streak}봉 연속) — {self.ticker}",
@@ -1199,6 +1205,10 @@ class IncrementalEMAStrategy:
                                     dedupe_ttl=300,
                                 )
                             else:
+                                logger.warning(
+                                    f"[POS-DESYNC] class=first_bar_guard | streak={self._pos_desync_streak} "
+                                    f"| ticker={self.ticker} entry_bar={position.entry_bar} current_bar={current_bar_idx}"
+                                )
                                 _notify_send(
                                     LEVEL_WARNING,
                                     f"⏳ 외부 매수 감지 후 첫 봉 방어 — {self.ticker}",
@@ -1212,6 +1222,10 @@ class IncrementalEMAStrategy:
                                 )
                         else:
                             # hts_buy=False 인 진짜 결손. streak 유지, CRITICAL 그대로.
+                            logger.error(
+                                f"[POS-DESYNC] class=integrity_gap | hts_buy={_hts_buy} bars_held={bars_held} "
+                                f"| ticker={self.ticker} entry_bar={position.entry_bar} current_bar={current_bar_idx}"
+                            )
                             _notify_send(
                                 LEVEL_CRITICAL,
                                 f"🚨 포지션 무결성 결손 — {self.ticker}",

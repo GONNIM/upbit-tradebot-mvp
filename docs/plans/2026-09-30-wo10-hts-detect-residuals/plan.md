@@ -1,7 +1,7 @@
 # WO-10 계획서 — HTS 감지 잔여 결함 정리 + 표시 문구 2곳 정정 (초안)
 
 - 작성일: 2026-09-30
-- 상태: **초안, 사용자 승인 대기** (코드 수정 착수 전)
+- 상태: **승인 완료 (B1~B4), 로컬 구현·검증 완료, 배포 승인 대기 (B5)** — 결과는 7절
 - 근거: WO-9 부록 A (A6 측정, `docs/plans/2026-09-30-wo9-locked-qty-awareness/plan.md`), WO-11 보고의 "고치지 않고 기록한 문구 2곳"
 - 기준 코드: 서버·로컬 HEAD `202a8bf` (v1.2026.09.30.1621)
 
@@ -98,3 +98,38 @@ A6 측정에서 따로 드러난 세 가지를 확인한 결과, (a)는 이미 0
 | B3 | (c) id 990 을 "실피해 없음"으로 종결 | 진행 |
 | B4 | (d) 문구 2곳 교체안 | 진행 |
 | B5 | 배포 시점 | 로컬 검증 보고 뒤 별도 지시 |
+
+## 7. 승인 결과와 구현 결과 (2026-09-30)
+
+### 7.1 승인
+
+B1 진행(테스트 1건 후 종결) · B2 진행(5,000원) · B3 종결 · B4 진행 · B5 배포는 로컬 검증 보고 뒤 별도 지시.
+
+추가 지시: (B2 보완) 원화 환산 기준가 순서 명시와 테스트 · (d) 첫 봉 방어 로그의 "CRITICAL" 단어 제거와 검증 가이드 집계 명령 정정 · (d) `_safe_alter` 마이그레이션 성공 로그 · WO-13 백로그 등록 · 세션 개시 점검 0번(JTO 묶인 포지션) 추가.
+
+### 7.2 구현
+
+| 항목 | 파일 | 내용 |
+|---|---|---|
+| B1 | 테스트만 | `orders` 에 REQUESTED 봇 BUY 가 있을 때 잔고가 먼저 늘어도 HTS 미기록 |
+| B2 | `engine/order_reconciler.py` | `HTS_DETECT_MIN_KRW = 5000.0`. 증가량 원화 환산 기준가: ① 잔고 응답 `avg_buy_price` → ② 현재가(`pyupbit.get_current_price`, 최근 체결가) → ③ 둘 다 없으면 기존대로 감지. 미만이면 DEBUG 로그만 남기고 기록·콜백 없음 |
+| B4-1 | `core/trader.py` | 현재가 매수 주문 알림 "미체결 시 자동 취소: 다음 봉 (~1500초)" → "약 25분 뒤 (설정한 대기 봉 수 기준)" |
+| B4-2 | `pages/set_buy_sell_conditions.py` | 대기 봉 수 도움말 "1분봉 기준: 3봉 ≈ 3분, 5봉 ≈ 5분" → "현재 5분봉 기준: 3봉 ≈ 15분, 5봉 ≈ 25분" (`engine/params.py` `interval_sec`) |
+| (d) 로그 | `core/strategy_incremental.py` | 첫 봉 방어 ERROR 메시지에서 "CRITICAL" 제거(레벨 ERROR 유지) + `[POS-DESYNC] class=first_bar_guard / pos_desync_promoted / integrity_gap` 분류 로그 |
+| (d) 마이그레이션 | `services/init_db.py` | `_safe_alter` 사용 함수 14개에 `@_log_migrate_ok` — 정상 반환 시 `[migrate] <함수명> OK (user_id=…)`. 예외 시 기존 동작 |
+| 문서 | `docs/operations/wo8-force-buy-verification-guide.md`, `docs/plans/backlog.md` | 집계 명령 정정, 세션 개시 점검 0번, WO-13 등록 |
+
+### 7.3 계획과 달라진 점
+
+- **B4-1 알림은 "N봉 뒤" 대신 "약 M분 뒤"만 표기합니다.** `buy_limit()` 은 `interval_sec`(= 봉 간격 × 대기 봉 수)만 받고 N 은 받지 않습니다. N 을 넘기려면 `core/strategy_engine.py`, `services/trading_control.py` 호출부를 고쳐야 해 §3 범위 밖입니다.
+- **(d) 집계 명령 정정 중 기존 결함 1건을 함께 고쳤습니다.** 검증 가이드는 `pos_desync_warn`·`pos_desync_promoted` 를 journal 에서 셌습니다. 이 두 문자열은 알림 dedupe 키에만 있고 로그에는 찍히지 않아 **항상 0** 이었습니다. 세 경우를 구분하는 `[POS-DESYNC] class=` 로그를 추가하고 명령을 이 로그 기준으로 바꿨습니다(로그 추가만, 판정 무변경).
+- **마이그레이션 성공 로그는 프로세스당 (함수, user_id) 첫 1회만 남깁니다.** `ensure_schema()` 가 DB 호출마다 불려, 모든 성공을 남기면 30분에 약 1,300줄이 늘어납니다(기존 `ensure_settings_history_schema OK` 가 09-30 관측 30분에 261줄).
+
+### 7.4 검증
+
+- `py_compile` 변경 파일 전부 통과
+- 재현 테스트 `tests/regressions/test_r_2026_09_30_wo10_hts_residuals.py` 13건 통과
+  - B1 1건, B2 7건(먼지 Δ=9e-8 + Trailing 유지 / 4,999원 / 5,000원 / 첫 감지 avg 기준 / avg=0 → 현재가 / 기준가 없음 → 감지 / 기준가 순서 단위), 마이그레이션 로그 1건, 문구·가이드 3건, 설정 페이지 AppTest 렌더 1건
+  - 변경 전 코드로 실행 시 13건 중 13건 실패·오류 (B1 은 07-03 수정 봉쇄용이라 원래 통과 대상이며, 이번 실행의 오류는 새 기준가 함수 patch 대상 부재 때문)
+- 회귀 게이트 (.env 격리) 200/200 통과 (기존 187 + WO-10 13)
+

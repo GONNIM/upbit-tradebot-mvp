@@ -391,6 +391,31 @@ def _safe_alter(conn, sql: str):
         pass
 
 
+_MIGRATE_OK_LOGGED: set = set()
+
+
+def _log_migrate_ok(fn):
+    """
+    ✅ WO-10 (d) (2026-09-30): _safe_alter 방식 마이그레이션 함수가 정상 반환하면
+    "[migrate] <함수명> OK (user_id=...)" 한 줄을 남긴다. 예외 시 기존 동작 그대로(로그 없음·전파).
+    배포 후 관측에서 마이그레이션 실행을 로그로 확인하기 위한 것 — 로직 무관.
+    ensure_schema() 가 DB 호출마다 불리므로(30분에 수백 회) 프로세스당 (함수, user_id) 첫 성공만 남긴다.
+    """
+    import functools
+
+    @functools.wraps(fn)
+    def _wrapper(*args, **kwargs):
+        result = fn(*args, **kwargs)
+        uid = kwargs.get("user_id", args[0] if args else None)
+        key = (fn.__name__, uid)
+        if key not in _MIGRATE_OK_LOGGED:
+            _MIGRATE_OK_LOGGED.add(key)
+            logger.info(f"[migrate] {fn.__name__} OK (user_id={uid})")
+        return result
+
+    return _wrapper
+
+
 def _table_exists(conn, table: str) -> bool:
     cur = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
@@ -422,6 +447,7 @@ def _ensure_column(conn, table: str, column: str, ddl_type: str):
         logger.debug(f"[migrate] skip {table}.{column} (already exists)")
 
 
+@_log_migrate_ok
 def ensure_orders_extended_schema(user_id: str | None):
     """
     orders 테이블에 확장 칼럼/인덱스 보강:
@@ -700,6 +726,7 @@ def ensure_core_tables(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_audit_trades_bar_time(user_id: str):
     """
     audit_trades 테이블에 bar_time 컬럼 추가:
@@ -712,6 +739,7 @@ def ensure_audit_trades_bar_time(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_audit_settings_bar_time(user_id: str):
     """
     audit_settings 테이블에 bar_time 컬럼 추가:
@@ -750,6 +778,7 @@ def ensure_audit_settings_unique(user_id: str):
         conn.close()
 
 
+@_log_migrate_ok
 def ensure_audit_buy_eval_bar_time(user_id: str):
     """
     audit_buy_eval 테이블에 bar_time 컬럼 추가:
@@ -765,6 +794,7 @@ def ensure_audit_buy_eval_bar_time(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_audit_sell_eval_bar_time(user_id: str):
     """
     audit_sell_eval 테이블에 bar_time 컬럼 추가:
@@ -780,6 +810,7 @@ def ensure_audit_sell_eval_bar_time(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_account_positions_meta(user_id: str):
     """
     account_positions 테이블에 meta 컬럼 추가:
@@ -792,6 +823,7 @@ def ensure_account_positions_meta(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_audit_backfill_columns(user_id: str):
     """
     WO-1 (JTO-Claim-20260821-001): audit_buy_eval / audit_sell_eval 에
@@ -822,6 +854,7 @@ def ensure_audit_backfill_columns(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_wo2_audit_columns(user_id: str):
     """
     WO-2 재적용: audit_buy_eval 에 매수 지연 발주와 유효성 확인 결과를 남기는
@@ -848,6 +881,7 @@ def ensure_wo2_audit_columns(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_accounts_locked(user_id: str):
     """
     accounts 테이블에 virtual_krw_locked 컬럼 추가:
@@ -860,6 +894,7 @@ def ensure_accounts_locked(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_account_positions_locked(user_id: str):
     """
     account_positions 테이블에 virtual_coin_locked 컬럼 추가:
@@ -873,6 +908,7 @@ def ensure_account_positions_locked(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_account_positions_entry_price(user_id: str):
     """
     account_positions 테이블에 entry_price 컬럼 추가:
@@ -885,6 +921,7 @@ def ensure_account_positions_entry_price(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_engine_status_last_mode(user_id: str):
     """
     engine_status 테이블에 last_mode 컬럼 추가:
@@ -897,6 +934,7 @@ def ensure_engine_status_last_mode(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_users_trading_paused(user_id: str):
     """
     users 테이블에 trading_paused 컬럼 추가 (PAUSE-1):
@@ -909,6 +947,7 @@ def ensure_users_trading_paused(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
 def ensure_audit_trades_reject_columns(user_id: str):
     """
     ✅ WO-9 (e) (2026-09-30): audit_trades 에 발주 거절 기록용 컬럼 추가

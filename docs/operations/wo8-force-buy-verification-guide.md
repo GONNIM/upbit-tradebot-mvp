@@ -60,8 +60,11 @@ ssh root@orionhunter7.cafe24.com \
 |---|---|---|
 | `⏸ [SKIP-BAR]` | live_loop | **0건** |
 | `POLLUTED` | strategy_engine (state_polluted) | **0건** |
-| `core.strategy_incremental \| ❌ [EMA] ... CRITICAL` | 승격 가드 미포함 (진짜 결손) | **0건** |
-| `pos_desync_promoted` | 승격 가드 CRITICAL 승격 발화 | **0건** (자동 복구 실패 사례) |
+| `[POS-DESYNC] class=integrity_gap` | 진짜 결손 (hts_buy=False) — 엔진 결함 태그 | **0건** |
+| `[POS-DESYNC] class=pos_desync_promoted` | 승격 가드 CRITICAL 승격 발화 | **0건** (자동 복구 실패 사례) |
+| `[POS-DESYNC] class=first_bar_guard` | 외부 매수 첫 봉 방어 (설계된 1봉 차단) | 카운트만 — 결함 아님 |
+
+> 2026-09-30 WO-10 정정: 예전 명령은 `core.strategy_incremental` 줄에서 'CRITICAL' 단어를 셌습니다. 이 단어는 첫 봉 방어(정상)와 진짜 결손에 같이 찍혀 오탐이 났습니다(09-30 16:50:05). 또 `pos_desync_promoted`는 알림 dedupe 키에만 있고 로그에는 찍히지 않아 항상 0이었습니다. WO-10 부터 세 경우를 `[POS-DESYNC] class=…` 로그로 구분합니다. WO-10 배포 전 구간을 볼 때는 `데이터 무결성 결손` 줄 수와 바로 다음 봉의 `[POS-DESYNC] streak 리셋` 여부로 판단합니다.
 | `Traceback` (엔진 계열) | core/engine/services/ 계열 | **0건** |
 | `Traceback` (Streamlit UI) | `issue-18-streamlit-ui-tracebacks.md`로 분리 집계 | 카운트만 |
 
@@ -72,8 +75,9 @@ ssh root@orionhunter7.cafe24.com "
   END='2026-09-12 17:54:07'
   echo 'SKIP-BAR:  ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep -c 'SKIP-BAR')
   echo 'POLLUTED:  ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep -c 'POLLUTED')
-  echo 'CRITICAL:  ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep 'core\.strategy_incremental' | grep -c 'CRITICAL')
-  echo 'promoted:  ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep -c 'pos_desync_promoted')
+  echo 'gap:       ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep -c 'POS-DESYNC\] class=integrity_gap')
+  echo 'promoted:  ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep -c 'POS-DESYNC\] class=pos_desync_promoted')
+  echo 'guard(참고):' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep -c 'POS-DESYNC\] class=first_bar_guard')
   echo 'TB 엔진:   ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep 'Traceback' | grep -cvE 'streamlit/web|streamlit/runtime|memory_media_file|media_file_handler|bootstrap\.py')
   echo 'TB Stlit:  ' \$(journalctl -u tradebot --since \"\$START\" --until \"\$END\" --no-pager 2>/dev/null | grep 'Traceback' | grep -cE 'streamlit')
 "
@@ -140,14 +144,41 @@ ssh root@orionhunter7.cafe24.com "
   echo '-- 이후 [POSITION-SYNC] 자동 복구 (부재 예상) --'
   journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'POSITION-SYNC.*자동 복구' | wc -l
   # (2) 승격 가드
-  echo '-- pos_desync_warn (외부 매수 첫 봉 방어) --'
-  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'pos_desync_warn' | wc -l
-  echo '-- pos_desync_promoted (2봉 연속 승격) --'
-  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'pos_desync_promoted' | wc -l
+  # (WO-10 정정) pos_desync_warn/promoted 는 알림 dedupe 키라 로그에 없음 → class= 로그로 집계
+  echo '-- 외부 매수 첫 봉 방어 (class=first_bar_guard) --'
+  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'POS-DESYNC\] class=first_bar_guard' | wc -l
+  echo '-- 2봉 연속 승격 (class=pos_desync_promoted) --'
+  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep 'POS-DESYNC\] class=pos_desync_promoted' | wc -l
 "
 ```
 
 발생 시 §확인 4-a 이하의 항목별 상세 검증을 진행한다. 기한 없음.
+
+### 세션 개시 점검 0번 (최우선) — 묶인 JTO 포지션의 봇 매도 신호 (WO-9 (e) 실전 확증)
+
+2026-09-30 16:49 부터 KRW-JTO 1,340.436268개가 앱 지정가 매도 주문으로 전량 묶여 있습니다(가용 0). 손절 기준은 -0.7% 입니다. 세션을 시작하면 이 항목을 가장 먼저 봅니다.
+
+**개입 금지**: 사용자는 매수·앱 지정가 매도·매매 일시정지 세 행동으로 "직접 팔겠다"는 의도를 보였습니다. 봇이 아무것도 하지 않는 현재 상태가 올바릅니다. 운영자는 `trading_paused` 해제·앱 주문 취소를 하지 않고 권고도 하지 않습니다. 검증 목적의 거절 유도도 금지합니다.
+
+**확증 조건**: 이 항목은 **사용자가 스스로 일시정지를 풀었고, 앱 지정가 매도 주문이 남아 묶임이 유지된 상태에서, 봇 매도 신호가 났을 때만** WO-9 (e) 실전 확증으로 봅니다. 일시정지 중의 `⏸️ [PAUSE] 실주문 스킵 | action=SELL` 은 확증도 결함도 아닙니다(건수만 기록).
+
+1. `users.trading_paused` 값과, 이 포지션에 봇 매도 신호(손절·트레일링·데드크로스)가 났는지 확인합니다.
+2. 확증 조건이 충족됐다면 다음 세 가지를 확인합니다.
+   - `audit_trades` 에 `type='SELL_REJECTED'` 행이 생겼고 `note` 에 "주문 가능 수량 부족 — 업비트 앱에서 직접 넣은 지정가 매도 주문이 있는지 확인하세요." 가 있는지
+   - 감사 로그 페이지 체결 탭에 ⛔ 행과 거절 사유가 보이는지 (운영자 육안)
+   - 텔레그램 "❌ 매도 거절 — KRW-JTO" 알림 (운영자 수신 확인)
+3. 묶임이 풀렸다면 `✅ [LOCKED-QTY] 묶임 해제` 로그와 HTS 오기록(HTS_BUY) 부재를 확인합니다.
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-09-30 16:49:10'
+  journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep -E 'SELL-LIVE|AUDIT-REJECT|LOCKED-QTY|Sell triggered|action=SELL' | tail -10
+  echo 'PAUSE 스킵(SELL):' \$(journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | grep -c 'PAUSE\] 실주문 스킵.*action=SELL')
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT username, trading_paused FROM users;\"
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id,timestamp,type,reason,price,qty,note FROM audit_trades WHERE ticker='KRW-JTO' AND timestamp>='2026-09-30T16:49' ORDER BY id;\"
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT virtual_coin, virtual_coin_locked, meta FROM account_positions WHERE ticker='KRW-JTO';\"
+"
+```
 
 ### 사후 확증 3건 (2026-09-30 WO-9·WO-11 완결 시 편입)
 
@@ -167,7 +198,7 @@ ssh root@orionhunter7.cafe24.com "
   J | grep -E '\[FIXED-PRICE\]\[FORCE\]|\[LIMIT-FILL\] apply_entry' | tail -3
   J | grep -c 'POSITION-SYNC.*자동 복구'
   echo '-- (2) 승격 가드 --'
-  J | grep -E 'SELL 차단 \(HOLD 유지\)|POS-DESYNC\] streak|pos_desync_promoted' | tail -5
+  J | grep -E 'SELL 차단 \(HOLD 유지\)|POS-DESYNC\] (streak|class=)' | tail -5
   echo '-- (3) WO-9 실전 --'
   J | grep -E 'HTS-DETECT\] HTS_BUY|LOCKED-QTY|AUDIT-REJECT' | tail -8
   sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id,timestamp,ticker,type,reason,note FROM audit_trades WHERE type LIKE '%REJECTED' ORDER BY id DESC LIMIT 5;\"

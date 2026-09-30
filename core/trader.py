@@ -1108,7 +1108,8 @@ class UpbitTrader:
                     (
                         f"주문가(신호 봉 마감가): {rounded_price:,.4f} KRW\n"
                         f"수량: {qty}\n"
-                        f"미체결 시 자동 취소: 다음 봉 (~{interval_sec}초)\n"
+                        # ✅ WO-10 (d): interval_sec = 봉 간격 × 대기 봉 수 (호출부에서 곱해 전달) → 분으로 표기
+                        f"미체결 시 자동 취소: 약 {interval_sec / 60:g}분 뒤 (설정한 대기 봉 수 기준)\n"
                         f"─────\n"
                         f"uuid: {uuid}"
                     ),
