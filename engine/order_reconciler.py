@@ -534,18 +534,23 @@ class OrderReconciler:
                             ticker = f"KRW-{currency}"
 
                             # ✅ Issue #17 + B3-잔여: HTS 매수 감지 (잔고 증가 일반화)
-                            #   - prev_qty == 0  → 신규 HTS 매수 (HTS_BUY)
-                            #   - prev_qty >  0  → 추가 HTS 매수 (HTS_BUY_ADD)
+                            #   - prev_total == 0  → 신규 HTS 매수 (HTS_BUY)
+                            #   - prev_total >  0  → 추가 HTS 매수 (HTS_BUY_ADD)
                             #   - 봇 BUY 직후 자연스러운 잔고 증가는 audit_trades 최근 30초 BUY 기록으로 식별 → 스킵
+                            # ✅ WO-9 (c) (2026-09-30): 비교 기준을 가용 단독 → 가용+묶임 합계로 정정.
+                            #   외부 미체결 매도 주문 취소는 묶임 → 가용 이동일 뿐 합계 불변 → 매수 아님.
+                            #   (KRW-JTO audit_trades id=1158 오기록, HTS_BUY_ADD 오인 시 Trailing 리셋 유발)
                             from services.db import (
-                                get_position_qty, mark_position_as_hts_buy,
+                                get_position_total_qty, mark_position_as_hts_buy,
                                 has_recent_bot_buy_for_ticker,
                             )
-                            prev_qty = get_position_qty(user_id, ticker)
-                            curr_qty = float(bal.get("balance", 0.0))
-                            qty_delta = curr_qty - prev_qty
+                            prev_total = get_position_total_qty(user_id, ticker)
+                            curr_qty = float(bal.get("balance", 0.0) or 0.0)       # 가용 (콜백 전달용, 의미 무변경)
+                            curr_locked = float(bal.get("locked", 0.0) or 0.0)
+                            curr_total = curr_qty + curr_locked
+                            qty_delta = curr_total - prev_total
 
-                            # 잔고 증가 감지 (1e-8 임계 — float 노이즈 회피)
+                            # 합계 증가 감지 (1e-8 임계 — float 노이즈 회피)
                             if qty_delta > 1e-8:
                                 avg_buy_price = float(bal.get("avg_buy_price", 0.0))
 
@@ -554,15 +559,16 @@ class OrderReconciler:
                                     logger.debug(
                                         f"[HTS-DETECT] 잔고 증가 감지되었으나 최근 봇 BUY 기록 존재 → "
                                         f"봇 BUY로 간주, HTS 마킹 스킵 | ticker={ticker} "
-                                        f"prev={prev_qty:.6f} curr={curr_qty:.6f}"
+                                        f"prev_total={prev_total:.6f} curr_total={curr_total:.6f}"
                                     )
                                 else:
-                                    is_add = prev_qty > 0
+                                    is_add = prev_total > 0
                                     reason_str = "HTS_BUY_ADD" if is_add else "HTS_BUY"
                                     logger.warning(
                                         f"🔔 [HTS-DETECT] {reason_str} 감지 | "
-                                        f"ticker={ticker} | qty: {prev_qty:.6f} → {curr_qty:.6f} "
-                                        f"(Δ={qty_delta:.6f}) | avg_price={avg_buy_price}"
+                                        f"ticker={ticker} | total(가용+묶임): {prev_total:.6f} → {curr_total:.6f} "
+                                        f"(Δ={qty_delta:.6f}) | 가용={curr_qty:.6f} 묶임={curr_locked:.6f} "
+                                        f"| avg_price={avg_buy_price}"
                                     )
 
                                     # HTS 매수 플래그 설정 (신규/추가 공통)

@@ -2494,6 +2494,35 @@ def get_position_qty(user_id: str, ticker: str) -> float:
         return 0.0
 
 
+def get_position_total_qty(user_id: str, ticker: str) -> float:
+    """
+    특정 ticker의 보유 수량 합계 (가용 + 묶임) 조회 — WO-9 (c)
+
+    HTS 매수 감지 비교 기준. 외부 미체결 매도 주문의 취소는 묶임 → 가용 이동일 뿐
+    합계는 변하지 않으므로, 합계로 비교해야 묶임 해제를 매수로 오기록하지 않는다.
+    (2026-09-30 KRW-JTO audit_trades id=1158 사례)
+
+    Returns:
+        float: virtual_coin + virtual_coin_locked (미보유 시 0.0)
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                """
+                SELECT COALESCE(virtual_coin, 0.0) + COALESCE(virtual_coin_locked, 0.0)
+                FROM account_positions
+                WHERE user_id = ? AND ticker = ?
+                """,
+                (user_id, ticker)
+            )
+            row = cur.fetchone()
+            return float(row[0]) if row else 0.0
+    except Exception as e:
+        logger.warning(f"[HTS-DETECT] Failed to get position total qty: {e}")
+        return 0.0
+
+
 def get_position_entry_source(user_id: str, ticker: str) -> str:
     """
     ✅ WO-7 (2026-09-18): 현재 포지션의 진입가 출처 표시 헬퍼.
