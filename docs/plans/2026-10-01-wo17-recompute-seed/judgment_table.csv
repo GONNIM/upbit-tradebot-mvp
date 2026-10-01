@@ -1,0 +1,13 @@
+item,criterion,observed,result
+(a),"기동 티커마다 [WARMUP] 시드 방식=long_history bars=800 정확히 1줄","KRW-JTO 1줄 (20:11:02 ema_fast=734.9141 ema_slow=736.1272 마지막 봉=20:05), 기동 티커 1개",PASS
+(b),"긴 이력 시드 실패 0건 (코드 존재 먼저 확인)","engine/live_loop.py:1126 존재 / journal 0, engine_debug.log 0, 시드 방식=sma200 0",PASS
+(c),"⚠️ 지표 시드 폴백 알림 0건","engine/live_loop.py:1132 존재 / 폴백 분기 진입 0, [NOTIFY] 경고 0",PASS
+(d),"로그 시드 vs 1,200봉 기준 EMA60·EMA200 차이 0.1원 이내, fast-slow 부호 같음","차이 EMA60 -0.0000, EMA200 -0.0002 / fast-slow 로그 -1.2131 기준 -1.2129",PASS
+(e),"버퍼·local_series 길이 200","Buffer seeded buffer_len=200 bar_count=200 / local_start=03:15 (= 버퍼 첫 봉)",PASS
+(f),"첫 정합성 검증 로컬 시작 이전 약 200봉 제외, BACKFILL 10건 이상이면 결함","20:15:11 n=199, BACKFILL 0",PASS
+(g),"WO-16 (W) 미확정 봉 시드·버퍼 미포함","total=801 → 형성 중 20:10 봉 제거(62s) → 800, 시드·버퍼 마지막 20:05",PASS
+(h),"WO-18 hts_buy 잔존 0","잔존 SQL 0, 기동 정합 검사 cleared=0",PASS
+(i),"결함 태그 0","ERROR 0, Traceback 0, [POS-DESYNC] class= 0, VERIFY 경고·불일치·실패 0, POLLUTED 0, locked 0, ON CONFLICT 0, CRITICAL 0 / 조정 400 x6, VERIFY 역전 0",PASS
+(j),"Bar# 5 이상","Bar#201→205 (20:25 무거래 봉 NO_TRADE 건너뜀, WO-6 기존 동작)",PASS
+(k),"WO-12 systemd 기동 자동 재개","BOOT-RESUME success 6.4s → run_live_loop start 20:11:02, 관찰 창 AUTO-RESUME 0",PASS
+3,"접속 1회: AUTO-RESUME skip, 엔진 스레드 1개, 화면 버전 1955","20:58:41 skip 1줄, run_live_loop start 1·engine_runner 1, 오류 0, 화면 v1.2026.10.01.1955 (운영자 육안)",PASS

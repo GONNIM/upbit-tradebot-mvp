@@ -1,0 +1,558 @@
+# journalctl -u tradebot 2026-10-01 20:10:55 ~ 20:40:55 (1분 주기 sync_all_positions·migrate·SETTINGS-SNAPSHOT·periodic sync·progress·ScriptRunContext 줄 제외)
+2026-10-01T20:10:55+0900 orionhunter7.cafe24.com systemd[1]: tradebot.service: Deactivated successfully.
+2026-10-01T20:10:55+0900 orionhunter7.cafe24.com systemd[1]: Stopped Upbit Tradebot MVP v1.
+2026-10-01T20:10:55+0900 orionhunter7.cafe24.com systemd[1]: tradebot.service: Consumed 5min 58.832s CPU time.
+2026-10-01T20:10:55+0900 orionhunter7.cafe24.com systemd[1]: Started Upbit Tradebot MVP v1.
+  You can now view your Streamlit app in your browser.
+  URL: http://0.0.0.0:8501
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_trades_bar_time OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_settings_bar_time OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_settings_unique OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_buy_eval_bar_time OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_sell_eval_bar_time OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_backfill_columns OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_account_positions_meta OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_users_trading_paused OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_wo2_audit_columns OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_trades_reject_columns OK (user_id=default)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_trades_bar_time OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_settings_bar_time OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_settings_unique OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_buy_eval_bar_time OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_sell_eval_bar_time OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_backfill_columns OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_account_positions_meta OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_users_trading_paused OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_wo2_audit_columns OK (user_id=gon1972)
+2026-10-01 20:10:58 INFO services.init_db | [migrate] ensure_audit_trades_reject_columns OK (user_id=gon1972)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_audit_trades_bar_time OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_audit_settings_bar_time OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_audit_settings_unique OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_audit_buy_eval_bar_time OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_audit_sell_eval_bar_time OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_audit_backfill_columns OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_account_positions_meta OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_users_trading_paused OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_wo2_audit_columns OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO services.init_db | [migrate] ensure_audit_trades_reject_columns OK (user_id=mcmax33)
+2026-10-01 20:10:59 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-01 20:11:01 WARNING root | ⚠️ [PHASE2] Redis/WebSocket 기능 비활성화: No module named 'redis'
+2026-10-01 20:11:01 INFO engine.order_reconciler | [OR] started
+2026-10-01 20:11:01 INFO engine.reconciler_singleton | ✅ [RECONCILER] Auto-started on first access
+2026-10-01 20:11:01 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=)
+2026-10-01 20:11:01 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=)
+2026-10-01 20:11:01 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=)
+2026-10-01 20:11:01 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=)
+2026-10-01 20:11:01 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=)
+2026-10-01 20:11:01 INFO engine.order_reconciler | [OR] recovered pending: 0
+2026-10-01 20:11:01 INFO engine.engine_manager | [DEBUG] engine_runner 시작 → user_id=mcmax33, mode=LIVE
+2026-10-01 20:11:01 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.4s capital≈2,960,798
+2026-10-01 20:11:01 INFO engine.params | [ActiveStrategy] Loaded active strategy for mcmax33: EMA
+2026-10-01 20:11:01 INFO engine.engine_manager | [ENGINE] Using strategy from active strategy file: EMA
+2026-10-01 20:11:01 INFO engine.engine_manager | [ENGINE] Loaded params: strategy_type=EMA
+2026-10-01 20:11:02 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-01 20:11:02 INFO engine.live_loop | 🚀 ★ 증분 처리 기반 엔진 (Backtest 없음) ★
+2026-10-01 20:11:02 INFO engine.live_loop | [HTS-FLAG] 기동 정합 검사 완료 | user_id=mcmax33 cleared=0
+2026-10-01 20:11:02 INFO services.settings_history | [settings_history] recorded id=184 user_id=mcmax33 source_page=strategy_init strategy_type=EMA params=Y conditions=Y app_version=v1.2026.10.01.1955 note='strategy 객체 재초기화 — 활성 운영 condit
+2026-10-01 20:11:02 INFO services.settings_history | [settings_history] strategy_init id=184 applied_at=2026-10-01T20:11:02 + 이전 0 row 일괄 applied_at 채움
+2026-10-01 20:11:02 INFO engine.order_reconciler | [OR] LIVE user registered for balance monitoring: mcmax33
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ [HTS-DETECT] LIVE user mcmax33 registered for periodic balance sync (interval=60s)
+2026-10-01 20:11:02 INFO engine.live_loop | [전략 초기화] Loaded buy conditions: {'ema_gc': True, 'above_base_ema': False, 'bullish_candle': False, 'surge_filter_enabled': False, 'fixed_price_buy_enabled': True, 'fixed_price_buy_wait_bars': 5}
+2026-10-01 20:11:02 INFO engine.live_loop | [전략 초기화] Loaded sell conditions: {'stop_loss': True, 'take_profit': False, 'trailing_stop': True, 'ema_dc': True, 'stale_position_check': False, 'stop_loss_pct': 1.0, 'take_profit_pct': 1.5, 'trailing_stop_
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ 매도 조건 검증 완료: ['stop_loss', 'take_profit', 'trailing_stop', 'ema_dc', 'stale_position_check', 'stop_loss_pct', 'take_profit_pct', 'trailing_stop_threshold_pct', 'use_fixed_trailing']
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ [EMA] SELL 조건 검증 완료
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] take_profit from buy_sell_conditions.json: 1.50%
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] stop_loss from buy_sell_conditions.json: 1.00%
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] trailing_stop from buy_sell_conditions.json: threshold=30.00%, activation=1.50% (=Take Profit), use_fixed_mode=True
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] Surge Filter from buy_sell_conditions.json
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] Buy conditions: ema_gc=True, above_base_ema=False, bullish_candle=False, base_ema_gap=False (threshold=-0.40%)
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] Surge Filter: enabled=False, threshold=1.00% (Slow EMA 대비)
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] Sell conditions: stop_loss=True, take_profit=False, trailing_stop=True, ema_dc=True, stale_position=False (hours=1.0h, threshold=1.00%)
+2026-10-01 20:11:02 INFO core.filters | ✅ Buy Filter registered: SlowEmaSurgeFilter
+2026-10-01 20:11:02 INFO core.filters | ✅ Sell Filter registered: StopLossFilter (Category: CORE_STRATEGY)
+2026-10-01 20:11:02 INFO core.filters | ✅ Sell Filter registered: TrailingStopFilter (Category: CORE_STRATEGY)
+2026-10-01 20:11:02 INFO core.filters | ✅ Sell Filter registered: TakeProfitFilter (Category: CORE_STRATEGY)
+2026-10-01 20:11:02 INFO core.filters | ✅ Sell Filter registered: DeadCrossFilter (Category: CORE_STRATEGY)
+2026-10-01 20:11:02 INFO core.filters | ✅ Sell Filter registered: StalePositionFilter (Category: SELL_AUXILIARY)
+2026-10-01 20:11:02 INFO engine.live_loop | [EMA 전략] use_base_ema=True
+2026-10-01 20:11:02 INFO core.strategy_incremental | [EMA Strategy] Interval set to 5 minutes
+2026-10-01 20:11:02 INFO engine.live_loop | [EMA Strategy] interval_min=5 전달 완료
+2026-10-01 20:11:02 INFO engine.order_reconciler | [OR] fill callback registered | user=mcmax33 ticker=KRW-JTO
+2026-10-01 20:11:02 INFO engine.order_reconciler | [OR] hts-detect callback registered | user=mcmax33 ticker=KRW-JTO
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ StrategyEngine 초기화 완료 (CandleBuffer + IndicatorState + PositionState)
+2026-10-01 20:11:02 INFO engine.live_loop | [WARMUP] Required bars: 200
+2026-10-01 20:11:02 INFO engine.live_loop | 🚀 [RUN_MODE] UPBIT_MATCH | CANDLE_TRUTH=REST | WS_ROLE=HINT_ONLY
+2026-10-01 20:11:02 INFO engine.live_loop | 🚀 [UPBIT_MATCH] Clock-based REST Reconcile 모드 시작
+2026-10-01 20:11:02 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute5 interval=300sec
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ CandleClock 초기화 | interval=minute5 | interval_sec=300
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ CandleValidator 초기화 | max_spike_ratio=5%
+2026-10-01 20:11:02 INFO engine.live_loop | [WARMUP] REST 초기 데이터 요청 (attempt 1/5) | count=801 (마지막 봉 제거 예정)...
+2026-10-01 20:11:02 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:11:02 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=801 end=None (to 없음, 형성 중 봉 포함 가능)
+2026-10-01 20:11:02 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (형성 중 포함 가능) | ts=2026-10-01 20:10:00 KST | close=733 | high=733 | low=731 | volume=2486.30
+2026-10-01 20:11:02 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=801 batches=5 | 2026-09-28 21:55:00 KST ~ 2026-10-01 20:10:00 KST
+2026-10-01 20:11:02 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=801 bars
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 성공 (attempt 1) | bars=801
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 완료 | bars=801
+2026-10-01 20:11:02 INFO engine.live_loop | [WARMUP] 형성 중 봉 제거 | ts=2026-10-01 20:10:00 KST elapsed=62s | 최종 봉 수=800 | 최종 마지막 봉=2026-10-01 20:05:00 KST
+2026-10-01 20:11:02 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=734.9141 ema_slow=736.1272 ema_base=736.1272 | 마지막 봉=2026-10-01 20:05:00 KST
+2026-10-01 20:11:02 INFO engine.live_loop | ✅ Warmup 완료 | bars=200
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:15:00+09:00 | old_id=74707 | new_price=739
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:20:00+09:00 | old_id=74709 | new_price=736
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:25:00+09:00 | old_id=74710 | new_price=734
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:30:00+09:00 | old_id=74712 | new_price=732
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:35:00+09:00 | old_id=74711 | new_price=729
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:40:00+09:00 | old_id=74713 | new_price=729
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:45:00+09:00 | old_id=74714 | new_price=728
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:50:00+09:00 | old_id=74715 | new_price=729
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T03:55:00+09:00 | old_id=74717 | new_price=730
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:00:00+09:00 | old_id=74716 | new_price=730
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:05:00+09:00 | old_id=74718 | new_price=729
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:10:00+09:00 | old_id=74719 | new_price=726
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:15:00+09:00 | old_id=74720 | new_price=727
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:20:00+09:00 | old_id=74721 | new_price=728
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:30:00+09:00 | old_id=74722 | new_price=729
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:35:00+09:00 | old_id=74723 | new_price=730
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:40:00+09:00 | old_id=74724 | new_price=728
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:50:00+09:00 | old_id=74725 | new_price=726
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T04:55:00+09:00 | old_id=74727 | new_price=722
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:00:00+09:00 | old_id=74726 | new_price=717
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:05:00+09:00 | old_id=74728 | new_price=716
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:10:00+09:00 | old_id=74730 | new_price=717
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:15:00+09:00 | old_id=74729 | new_price=720
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:20:00+09:00 | old_id=74731 | new_price=722
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:25:00+09:00 | old_id=74732 | new_price=720
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:30:00+09:00 | old_id=74733 | new_price=723
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:35:00+09:00 | old_id=74734 | new_price=722
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:40:00+09:00 | old_id=74736 | new_price=718
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:45:00+09:00 | old_id=74735 | new_price=717
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:50:00+09:00 | old_id=74737 | new_price=716
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T05:55:00+09:00 | old_id=74738 | new_price=717
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:00:00+09:00 | old_id=74739 | new_price=719
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:05:00+09:00 | old_id=74741 | new_price=715
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:10:00+09:00 | old_id=74740 | new_price=716
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:15:00+09:00 | old_id=74743 | new_price=715
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:20:00+09:00 | old_id=74742 | new_price=714
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:25:00+09:00 | old_id=74744 | new_price=713
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:30:00+09:00 | old_id=74745 | new_price=717
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:35:00+09:00 | old_id=74747 | new_price=720
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:40:00+09:00 | old_id=74746 | new_price=721
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:45:00+09:00 | old_id=74749 | new_price=720
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:50:00+09:00 | old_id=74748 | new_price=716
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T06:55:00+09:00 | old_id=74750 | new_price=716
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:00:00+09:00 | old_id=74752 | new_price=710
+2026-10-01 20:11:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:05:00+09:00 | old_id=74751 | new_price=712
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:10:00+09:00 | old_id=74753 | new_price=715
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:15:00+09:00 | old_id=74754 | new_price=716
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:20:00+09:00 | old_id=74755 | new_price=717
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:25:00+09:00 | old_id=74756 | new_price=718
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:30:00+09:00 | old_id=74757 | new_price=720
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:35:00+09:00 | old_id=74758 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:40:00+09:00 | old_id=74759 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:45:00+09:00 | old_id=74760 | new_price=718
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:50:00+09:00 | old_id=74761 | new_price=719
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T07:55:00+09:00 | old_id=74762 | new_price=717
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:00:00+09:00 | old_id=74763 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:05:00+09:00 | old_id=74764 | new_price=718
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:10:00+09:00 | old_id=74765 | new_price=717
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:15:00+09:00 | old_id=74767 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:20:00+09:00 | old_id=74766 | new_price=720
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:25:00+09:00 | old_id=74769 | new_price=719
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:30:00+09:00 | old_id=74768 | new_price=719
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:35:00+09:00 | old_id=74770 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:40:00+09:00 | old_id=74772 | new_price=723
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:45:00+09:00 | old_id=74771 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:50:00+09:00 | old_id=74774 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T08:55:00+09:00 | old_id=74773 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:00:00+09:00 | old_id=74775 | new_price=721
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:05:00+09:00 | old_id=74777 | new_price=720
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:10:00+09:00 | old_id=74776 | new_price=722
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:15:00+09:00 | old_id=74779 | new_price=720
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:20:00+09:00 | old_id=74778 | new_price=724
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:25:00+09:00 | old_id=74780 | new_price=725
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:30:00+09:00 | old_id=74781 | new_price=723
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:35:00+09:00 | old_id=74782 | new_price=727
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:40:00+09:00 | old_id=74783 | new_price=727
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:45:00+09:00 | old_id=74785 | new_price=728
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:50:00+09:00 | old_id=74784 | new_price=727
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T09:55:00+09:00 | old_id=74814 | new_price=728
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:00:00+09:00 | old_id=74815 | new_price=727
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:05:00+09:00 | old_id=74816 | new_price=732
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:10:00+09:00 | old_id=74818 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:15:00+09:00 | old_id=74817 | new_price=734
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:20:00+09:00 | old_id=74819 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:25:00+09:00 | old_id=74821 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:30:00+09:00 | old_id=74820 | new_price=729
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:35:00+09:00 | old_id=74822 | new_price=725
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:40:00+09:00 | old_id=74823 | new_price=726
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:45:00+09:00 | old_id=74824 | new_price=725
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:50:00+09:00 | old_id=74825 | new_price=726
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T10:55:00+09:00 | old_id=74827 | new_price=724
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:00:00+09:00 | old_id=74826 | new_price=726
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:05:00+09:00 | old_id=74828 | new_price=726
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:10:00+09:00 | old_id=74830 | new_price=727
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:15:00+09:00 | old_id=74829 | new_price=722
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:20:00+09:00 | old_id=74832 | new_price=723
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:25:00+09:00 | old_id=74831 | new_price=725
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:30:00+09:00 | old_id=74833 | new_price=728
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:35:00+09:00 | old_id=74834 | new_price=729
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:40:00+09:00 | old_id=74835 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:45:00+09:00 | old_id=74836 | new_price=735
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:50:00+09:00 | old_id=74837 | new_price=734
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T11:55:00+09:00 | old_id=74838 | new_price=737
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:00:00+09:00 | old_id=74839 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:05:00+09:00 | old_id=74840 | new_price=736
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:10:00+09:00 | old_id=74841 | new_price=738
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:15:00+09:00 | old_id=74842 | new_price=736
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:20:00+09:00 | old_id=74843 | new_price=735
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:25:00+09:00 | old_id=74844 | new_price=735
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:30:00+09:00 | old_id=74845 | new_price=741
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:35:00+09:00 | old_id=74846 | new_price=740
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:40:00+09:00 | old_id=74847 | new_price=747
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:45:00+09:00 | old_id=74848 | new_price=746
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:50:00+09:00 | old_id=74849 | new_price=746
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T12:55:00+09:00 | old_id=74850 | new_price=746
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:00:00+09:00 | old_id=74851 | new_price=744
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:10:00+09:00 | old_id=74852 | new_price=743
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:15:00+09:00 | old_id=74853 | new_price=749
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:20:00+09:00 | old_id=74854 | new_price=751
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:25:00+09:00 | old_id=74855 | new_price=751
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:30:00+09:00 | old_id=74856 | new_price=750
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:35:00+09:00 | old_id=74857 | new_price=751
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:40:00+09:00 | old_id=74858 | new_price=752
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:45:00+09:00 | old_id=74859 | new_price=754
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:50:00+09:00 | old_id=74860 | new_price=753
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T13:55:00+09:00 | old_id=74861 | new_price=751
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:00:00+09:00 | old_id=74862 | new_price=752
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:05:00+09:00 | old_id=74863 | new_price=752
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:10:00+09:00 | old_id=74864 | new_price=749
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:15:00+09:00 | old_id=74896 | new_price=749
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:20:00+09:00 | old_id=74897 | new_price=750
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:25:00+09:00 | old_id=74898 | new_price=746
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:30:00+09:00 | old_id=74899 | new_price=751
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:35:00+09:00 | old_id=74900 | new_price=751
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:40:00+09:00 | old_id=74901 | new_price=746
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:45:00+09:00 | old_id=74902 | new_price=746
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:50:00+09:00 | old_id=74903 | new_price=747
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:55:00+09:00 | old_id=74904 | new_price=748
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:00:00+09:00 | old_id=74905 | new_price=748
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:05:00+09:00 | old_id=74906 | new_price=745
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:10:00+09:00 | old_id=74907 | new_price=747
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:15:00+09:00 | old_id=74908 | new_price=745
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:20:00+09:00 | old_id=74909 | new_price=744
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:25:00+09:00 | old_id=74910 | new_price=742
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:30:00+09:00 | old_id=74911 | new_price=741
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:35:00+09:00 | old_id=74865 | new_price=740
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:40:00+09:00 | old_id=74866 | new_price=740
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:45:00+09:00 | old_id=74867 | new_price=741
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:50:00+09:00 | old_id=74868 | new_price=742
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T15:55:00+09:00 | old_id=74869 | new_price=741
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:00:00+09:00 | old_id=74870 | new_price=740
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:05:00+09:00 | old_id=74871 | new_price=741
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:10:00+09:00 | old_id=74872 | new_price=738
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:15:00+09:00 | old_id=74873 | new_price=738
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:20:00+09:00 | old_id=74874 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:25:00+09:00 | old_id=74875 | new_price=729
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:30:00+09:00 | old_id=74876 | new_price=735
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:35:00+09:00 | old_id=74877 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:40:00+09:00 | old_id=74878 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:45:00+09:00 | old_id=74879 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:50:00+09:00 | old_id=74880 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T16:55:00+09:00 | old_id=74881 | new_price=730
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:00:00+09:00 | old_id=74882 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:05:00+09:00 | old_id=74883 | new_price=727
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:10:00+09:00 | old_id=74884 | new_price=728
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:15:00+09:00 | old_id=74885 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:20:00+09:00 | old_id=74886 | new_price=730
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:25:00+09:00 | old_id=74887 | new_price=732
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:30:00+09:00 | old_id=74888 | new_price=730
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:35:00+09:00 | old_id=74889 | new_price=732
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:40:00+09:00 | old_id=74890 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:45:00+09:00 | old_id=74891 | new_price=734
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:50:00+09:00 | old_id=74892 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T17:55:00+09:00 | old_id=74893 | new_price=736
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:00:00+09:00 | old_id=74894 | new_price=736
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:05:00+09:00 | old_id=74895 | new_price=738
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:10:00+09:00 | old_id=74912 | new_price=739
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:15:00+09:00 | old_id=74913 | new_price=738
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:20:00+09:00 | old_id=74914 | new_price=739
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:25:00+09:00 | old_id=74915 | new_price=739
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:30:00+09:00 | old_id=74916 | new_price=741
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:35:00+09:00 | old_id=74917 | new_price=737
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:40:00+09:00 | old_id=74918 | new_price=738
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:45:00+09:00 | old_id=74919 | new_price=736
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:50:00+09:00 | old_id=74920 | new_price=734
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T18:55:00+09:00 | old_id=74921 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:00:00+09:00 | old_id=74922 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:05:00+09:00 | old_id=74923 | new_price=728
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:10:00+09:00 | old_id=74924 | new_price=730
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:15:00+09:00 | old_id=74925 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:20:00+09:00 | old_id=74926 | new_price=732
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:25:00+09:00 | old_id=74927 | new_price=730
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:30:00+09:00 | old_id=74928 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:35:00+09:00 | old_id=74929 | new_price=733
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:40:00+09:00 | old_id=74930 | new_price=735
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:45:00+09:00 | old_id=74931 | new_price=734
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:50:00+09:00 | old_id=74932 | new_price=731
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T19:55:00+09:00 | old_id=74933 | new_price=732
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T20:00:00+09:00 | old_id=74934 | new_price=732
+2026-10-01 20:11:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T20:05:00+09:00 | old_id=74935 | new_price=733
+2026-10-01 20:11:03 INFO engine.live_loop | ✅ Buffer seeded | buffer_len=200 | bar_count=200
+2026-10-01 20:11:03 INFO engine.live_loop | 🚀 [CLOCK-LOOP] 시작 - 1초마다 폴링, 봉 확정 시 REST Reconcile
+2026-10-01 20:12:04 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:13:05 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:14:06 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:15:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-01 20:10:00 KST (UTC: 2026-10-01T11:10:00+00:00)
+2026-10-01 20:15:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 20:10:00 KST
+2026-10-01 20:15:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 20:15:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-01 20:10:00 KST | close=734
+2026-10-01 20:15:06 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:15:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-01 20:10:00 KST | close=734 | 안정화 대기=5s
+2026-10-01 20:15:10 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:15:10 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 20:10:00 KST
+2026-10-01 20:15:10 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:10:00 KST | close=734 | high=734 | low=731 | volume=2493.12
+2026-10-01 20:15:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 10:15:00 KST ~ 2026-10-01 20:10:00 KST
+2026-10-01 20:15:11 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=400 bars
+2026-10-01 20:15:11 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=199 local_start=2026-10-01 03:15:00 KST
+2026-10-01 20:15:11 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 20:10:00 KST ~ 2026-10-01 20:10:00 KST
+2026-10-01 20:15:11 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-01 20:15:11 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 20:10:00 KST
+2026-10-01 20:15:11 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-01 03:15:00 KST ~ 2026-10-01 20:05:00 KST
+2026-10-01 20:15:11 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:15:11 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 20:05:00 KST
+2026-10-01 20:15:11 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:05:00 KST | close=733 | high=733 | low=732 | volume=6449.38
+2026-10-01 20:15:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-01 01:35:00 KST ~ 2026-10-01 20:05:00 KST
+2026-10-01 20:15:11 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=220 bars
+2026-10-01 20:15:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 20:15:11 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 20:15:11 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-01 11:10:00+00:00 | last_bar_ts=2026-10-01 11:05:00+00:00 | backfill_mode=False
+2026-10-01 20:15:11 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-01 11:10:00+00:00 ~ 2026-10-01 11:10:00+00:00
+2026-10-01 20:15:11 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-01 20:15:11 INFO core.strategy_engine | 📊 Bar#201 | ts=2026-10-01 11:10:00+00:00 | close=734.00 | ema_fast=734.88 | ema_slow=736.11 | ema_base=736.11 | action=HOLD | pos=False
+2026-10-01 20:15:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 20:10:00 KST | close=734.0
+2026-10-01 20:16:07 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:17:08 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:18:08 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:19:09 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:20:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-01 20:15:00 KST (UTC: 2026-10-01T11:15:00+00:00)
+2026-10-01 20:20:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 20:15:00 KST
+2026-10-01 20:20:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 20:20:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-01 20:15:00 KST | close=730
+2026-10-01 20:20:10 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:20:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-01 20:15:00 KST | close=730 | 안정화 대기=5s
+2026-10-01 20:20:10 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:20:10 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 20:15:00 KST
+2026-10-01 20:20:10 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:15:00 KST | close=730 | high=732 | low=730 | volume=1632.51
+2026-10-01 20:20:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 10:20:00 KST ~ 2026-10-01 20:15:00 KST
+2026-10-01 20:20:11 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=400 bars
+2026-10-01 20:20:11 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=198 local_start=2026-10-01 03:15:00 KST
+2026-10-01 20:20:11 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 20:15:00 KST ~ 2026-10-01 20:15:00 KST
+2026-10-01 20:20:11 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-01 20:20:11 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 20:15:00 KST
+2026-10-01 20:20:11 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-01 03:20:00 KST ~ 2026-10-01 20:10:00 KST
+2026-10-01 20:20:11 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:20:11 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 20:10:00 KST
+2026-10-01 20:20:11 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:10:00 KST | close=734 | high=734 | low=731 | volume=2493.12
+2026-10-01 20:20:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-01 01:40:00 KST ~ 2026-10-01 20:10:00 KST
+2026-10-01 20:20:11 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=220 bars
+2026-10-01 20:20:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 20:20:11 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 20:20:11 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-01 11:15:00+00:00 | last_bar_ts=2026-10-01 11:10:00+00:00 | backfill_mode=False
+2026-10-01 20:20:11 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-01 11:15:00+00:00 ~ 2026-10-01 11:15:00+00:00
+2026-10-01 20:20:11 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-01 20:20:11 INFO core.strategy_engine | 📊 Bar#202 | ts=2026-10-01 11:15:00+00:00 | close=730.00 | ema_fast=734.72 | ema_slow=736.05 | ema_base=736.05 | action=HOLD | pos=False
+2026-10-01 20:20:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 20:15:00 KST | close=730.0
+2026-10-01 20:21:11 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:22:11 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:23:11 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:24:12 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:25:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-01 20:20:00 KST (UTC: 2026-10-01T11:20:00+00:00)
+2026-10-01 20:25:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 20:20:00 KST
+2026-10-01 20:25:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 20:25:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-01 20:20:00 KST | close=732
+2026-10-01 20:25:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-01 20:20:00 KST | close=732 | 안정화 대기=5s
+2026-10-01 20:25:10 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:25:10 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 20:20:00 KST
+2026-10-01 20:25:10 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:20:00 KST | close=732 | high=732 | low=730 | volume=38397.81
+2026-10-01 20:25:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 10:25:00 KST ~ 2026-10-01 20:20:00 KST
+2026-10-01 20:25:11 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=400 bars
+2026-10-01 20:25:11 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=197 local_start=2026-10-01 03:15:00 KST
+2026-10-01 20:25:11 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 20:20:00 KST ~ 2026-10-01 20:20:00 KST
+2026-10-01 20:25:11 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-01 20:25:11 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 20:20:00 KST
+2026-10-01 20:25:11 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-01 03:25:00 KST ~ 2026-10-01 20:15:00 KST
+2026-10-01 20:25:11 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:25:11 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 20:15:00 KST
+2026-10-01 20:25:11 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:15:00 KST | close=730 | high=732 | low=730 | volume=1632.51
+2026-10-01 20:25:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-01 01:45:00 KST ~ 2026-10-01 20:15:00 KST
+2026-10-01 20:25:11 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=220 bars
+2026-10-01 20:25:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 20:25:11 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 20:25:11 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-01 11:20:00+00:00 | last_bar_ts=2026-10-01 11:15:00+00:00 | backfill_mode=False
+2026-10-01 20:25:11 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-01 11:20:00+00:00 ~ 2026-10-01 11:20:00+00:00
+2026-10-01 20:25:12 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-01 20:25:12 INFO core.strategy_engine | 📊 Bar#203 | ts=2026-10-01 11:20:00+00:00 | close=732.00 | ema_fast=734.63 | ema_slow=736.01 | ema_base=736.01 | action=HOLD | pos=False
+2026-10-01 20:25:12 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 20:20:00 KST | close=732.0
+2026-10-01 20:25:13 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:26:14 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:27:14 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:28:15 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:29:15 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:30:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-01 20:25:00 KST (UTC: 2026-10-01T11:25:00+00:00)
+2026-10-01 20:30:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 20:25:00 KST
+2026-10-01 20:30:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 20:30:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 1/29)
+2026-10-01 20:30:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 2/29)
+2026-10-01 20:30:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 3/29)
+2026-10-01 20:30:16 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:30:20 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 4/29)
+2026-10-01 20:30:25 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 5/29)
+2026-10-01 20:30:30 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 6/29)
+2026-10-01 20:30:35 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 7/29)
+2026-10-01 20:30:40 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 8/29)
+2026-10-01 20:30:45 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 9/29)
+2026-10-01 20:30:50 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 10/29)
+2026-10-01 20:30:55 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 11/29)
+2026-10-01 20:31:00 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 12/29)
+2026-10-01 20:31:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 13/29)
+2026-10-01 20:31:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 14/29)
+2026-10-01 20:31:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 15/29)
+2026-10-01 20:31:17 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:31:21 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 16/29)
+2026-10-01 20:31:26 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 17/29)
+2026-10-01 20:31:31 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 18/29)
+2026-10-01 20:31:36 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 19/29)
+2026-10-01 20:31:41 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 20/29)
+2026-10-01 20:31:46 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 21/29)
+2026-10-01 20:31:51 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 22/29)
+2026-10-01 20:31:56 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 23/29)
+2026-10-01 20:32:01 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 24/29)
+2026-10-01 20:32:06 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 25/29)
+2026-10-01 20:32:11 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 26/29)
+2026-10-01 20:32:16 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 27/29)
+2026-10-01 20:32:17 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:32:21 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 28/29)
+2026-10-01 20:32:26 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-01 20:25:00 KST 실제=2026-10-01 20:20:00 KST | 5초 대기 (시도 29/29)
+2026-10-01 20:32:31 INFO core.rest_reconcile | [RECONCILE] F1b ticks 체결 0건 확인 → NO_TRADE | ts=2026-10-01 20:25:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | ts=2026-10-01 20:25:00 KST — 실패 계수 미가산
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 20:25:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:20:00 KST | close=732 | high=732 | low=730 | volume=38397.81
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 10:25:00 KST ~ 2026-10-01 20:20:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=400 bars
+2026-10-01 20:32:31 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-01 20:25:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-01 20:32:31 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=197 local_start=2026-10-01 03:15:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [RECONCILE] 변경 없음 | local=203 rest=203
+2026-10-01 20:32:31 INFO engine.live_loop | ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+2026-10-01 20:32:31 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 20:25:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-01 03:30:00 KST ~ 2026-10-01 20:20:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 20:20:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:20:00 KST | close=732 | high=732 | low=730 | volume=38397.81
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-01 01:50:00 KST ~ 2026-10-01 20:20:00 KST
+2026-10-01 20:32:31 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=220 bars
+2026-10-01 20:32:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 20:32:31 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 20:32:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-01 20:25:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-01 20:33:18 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:34:19 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:35:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-01 20:30:00 KST (UTC: 2026-10-01T11:30:00+00:00)
+2026-10-01 20:35:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 20:30:00 KST
+2026-10-01 20:35:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 20:35:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-01 20:30:00 KST | close=730
+2026-10-01 20:35:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-01 20:30:00 KST | close=730 | 안정화 대기=5s
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 20:30:00 KST
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:30:00 KST | close=730 | high=730 | low=730 | volume=1537.29
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 10:30:00 KST ~ 2026-10-01 20:30:00 KST
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=400 bars
+2026-10-01 20:35:10 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=196 local_start=2026-10-01 03:15:00 KST
+2026-10-01 20:35:10 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 20:30:00 KST ~ 2026-10-01 20:30:00 KST
+2026-10-01 20:35:10 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-01 20:35:10 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 20:30:00 KST
+2026-10-01 20:35:10 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-01 03:30:00 KST ~ 2026-10-01 20:20:00 KST
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 20:20:00 KST
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:20:00 KST | close=732 | high=732 | low=730 | volume=38397.81
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-01 01:50:00 KST ~ 2026-10-01 20:20:00 KST
+2026-10-01 20:35:10 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=220 bars
+2026-10-01 20:35:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 20:35:10 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 20:35:10 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-01 11:30:00+00:00 | last_bar_ts=2026-10-01 11:20:00+00:00 | backfill_mode=False
+2026-10-01 20:35:10 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-01 11:30:00+00:00 ~ 2026-10-01 11:30:00+00:00
+2026-10-01 20:35:10 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-01 20:35:10 INFO core.strategy_engine | 📊 Bar#204 | ts=2026-10-01 11:30:00+00:00 | close=730.00 | ema_fast=734.48 | ema_slow=735.95 | ema_base=735.95 | action=HOLD | pos=False
+2026-10-01 20:35:10 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 20:30:00 KST | close=730.0
+2026-10-01 20:35:20 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:36:20 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:37:21 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:38:22 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:39:22 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-01 20:40:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-01 20:35:00 KST (UTC: 2026-10-01T11:35:00+00:00)
+2026-10-01 20:40:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 20:35:00 KST
+2026-10-01 20:40:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 20:40:05 INFO core.rest_reconcile | [RECONCILE] 확정 종가 (다음 봉 존재) ✅ | ts=2026-10-01 20:35:00 KST | close=733 | high=733 | low=729 | volume=5735.29
+2026-10-01 20:40:05 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:40:05 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 20:35:00 KST
+2026-10-01 20:40:05 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:35:00 KST | close=733 | high=733 | low=729 | volume=5735.29
+2026-10-01 20:40:06 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 10:35:00 KST ~ 2026-10-01 20:35:00 KST
+2026-10-01 20:40:06 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=400 bars
+2026-10-01 20:40:06 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=195 local_start=2026-10-01 03:15:00 KST
+2026-10-01 20:40:06 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 20:35:00 KST ~ 2026-10-01 20:35:00 KST
+2026-10-01 20:40:06 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-01 20:40:06 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 20:35:00 KST
+2026-10-01 20:40:06 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-01 03:35:00 KST ~ 2026-10-01 20:30:00 KST
+2026-10-01 20:40:06 INFO core.rest_reconcile | [REST-SAFE] 시도 #1/3 | market=KRW-JTO timeframe=minute5
+2026-10-01 20:40:06 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 20:30:00 KST
+2026-10-01 20:40:06 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 20:30:00 KST | close=730 | high=730 | low=730 | volume=1537.29
+2026-10-01 20:40:06 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-01 01:55:00 KST ~ 2026-10-01 20:30:00 KST
+2026-10-01 20:40:06 INFO core.rest_reconcile | [REST-SAFE] 성공 #1/3 | received=220 bars
+2026-10-01 20:40:06 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 20:40:06 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 20:40:06 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-01 11:35:00+00:00 | last_bar_ts=2026-10-01 11:30:00+00:00 | backfill_mode=False
+2026-10-01 20:40:06 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-01 11:35:00+00:00 ~ 2026-10-01 11:35:00+00:00
+2026-10-01 20:40:06 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-01 20:40:06 INFO core.strategy_engine | 📊 Bar#205 | ts=2026-10-01 11:35:00+00:00 | close=733.00 | ema_fast=734.43 | ema_slow=735.92 | ema_base=735.92 | action=HOLD | pos=False
+2026-10-01 20:40:06 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 20:35:00 KST | close=733.0
+2026-10-01 20:40:23 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+
+# 접속 확인 구간 20:40:55 ~ 20:59:19 핵심 줄
+2026-10-01 20:45:11 INFO core.strategy_engine | 📊 Bar#206 | ts=2026-10-01 11:40:00+00:00 | close=731.00 | ema_fast=734.32 | ema_slow=735.87 | ema_base=735.87 | action=HOLD | pos=False
+2026-10-01 20:50:11 INFO core.strategy_engine | 📊 Bar#207 | ts=2026-10-01 11:45:00+00:00 | close=732.00 | ema_fast=734.25 | ema_slow=735.83 | ema_base=735.83 | action=HOLD | pos=False
+2026-10-01 20:55:10 INFO core.strategy_engine | 📊 Bar#208 | ts=2026-10-01 11:50:00+00:00 | close=732.00 | ema_fast=734.17 | ema_slow=735.79 | ema_base=735.79 | action=HOLD | pos=False
+2026-10-01 20:58:41 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-01T20:11:01.626053+09:00 mode=LIVE
+
+# /root/upbit-tradebot-mvp/mcmax33_engine_debug.log 같은 구간 (log_to_file 이벤트만 기록되는 파일)
+[2026-10-01T20:11:02.038393] 🚀 엔진 시작: user_id=mcmax33, mode=LIVE
+[2026-10-01T20:15:11.037704] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:15:11.568458] 2026-10-01 11:10:00+00:00 | price=734.00 | cross=Dead | ema_fast=734.88 | ema_slow=736.11 | ema_base=736.11 | bar=201
+[2026-10-01T20:20:11.032596] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:20:11.358248] 2026-10-01 11:15:00+00:00 | price=730.00 | cross=Dead | ema_fast=734.72 | ema_slow=736.05 | ema_base=736.05 | bar=202
+[2026-10-01T20:25:11.372866] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:25:12.188755] 2026-10-01 11:20:00+00:00 | price=732.00 | cross=Dead | ema_fast=734.63 | ema_slow=736.01 | ema_base=736.01 | bar=203
+[2026-10-01T20:32:31.745022] ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+[2026-10-01T20:35:10.258775] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:35:10.597035] 2026-10-01 11:30:00+00:00 | price=730.00 | cross=Dead | ema_fast=734.48 | ema_slow=735.95 | ema_base=735.95 | bar=204
+[2026-10-01T20:40:06.041692] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:40:06.373360] 2026-10-01 11:35:00+00:00 | price=733.00 | cross=Dead | ema_fast=734.43 | ema_slow=735.92 | ema_base=735.92 | bar=205
+[2026-10-01T20:45:10.912041] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:45:11.253948] 2026-10-01 11:40:00+00:00 | price=731.00 | cross=Dead | ema_fast=734.32 | ema_slow=735.87 | ema_base=735.87 | bar=206
+[2026-10-01T20:50:10.798988] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:50:11.137402] 2026-10-01 11:45:00+00:00 | price=732.00 | cross=Dead | ema_fast=734.25 | ema_slow=735.83 | ema_base=735.83 | bar=207
+[2026-10-01T20:55:10.640772] 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+[2026-10-01T20:55:10.974097] 2026-10-01 11:50:00+00:00 | price=732.00 | cross=Dead | ema_fast=734.17 | ema_slow=735.79 | ema_base=735.79 | bar=208

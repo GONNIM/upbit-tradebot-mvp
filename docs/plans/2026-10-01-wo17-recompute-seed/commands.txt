@@ -505,3 +505,77 @@ print(f"마지막 확정 봉 KST: {conf[-1][0].astimezone(KST):%Y-%m-%d %H:%M}  
 print(f"로그        fast={log_fast:.4f} slow={log_slow:.4f}")
 print(f"800 재현    fast={s800[60]:.4f} slow={s800[200]:.4f}  (로그와 차이 {s800[60]-log_fast:+.4f} / {s800[200]-log_slow:+.4f})")
 print(f"{N} 기준  fast={long_[60]:.4f} slow={long_[200]:.4f}  (로그와 차이 {long_[60]-log_fast:+.4f} / {long_[200]-log_slow:+.4f})")
+
+
+########################################################################
+# WO-17 (S) 배포·관찰 — 실행 명령 원문 (2026-10-01 20:0x ~ 21:0x KST)
+########################################################################
+
+## 0. 배포 전 확인 (로컬)
+cd /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp && git status --short; echo "--- version"; grep -n "v1.2026" pages/dashboard.py; echo "--- push targets"; git log --oneline origin/main..HEAD; echo "--- tracked ignored-pattern files in this change"; git ls-files docs/plans/2026-10-01-wo17-recompute-seed/ | grep -E "\.txt$|\.json$"; git diff --stat origin/main..HEAD | tail -3
+git status --short --ignored docs/plans/2026-10-01-wo17-recompute-seed tests/regressions/fixtures tests/regressions/test_r_2026_10_01_wo17s_long_history_seed.py core/indicator_state.py engine/live_loop.py | grep -v __pycache__
+git push       # a7d40b2..962bb46
+
+## 1. 서버 배포
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull 2>&1 | tail -2 && git rev-parse --short HEAD && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1 && systemctl restart tradebot && systemctl status tradebot --no-pager | head -5; systemctl show tradebot -p ExecMainStartTimestamp"
+# 결과: 962bb46, v1.2026.10.01.1955, active (running) since 20:10:55
+
+## 2. 관찰
+sleep 15; ssh root@orionhunter7.cafe24.com "ls -la --time-style=+%F_%T /root/upbit-tradebot-mvp/mcmax33_engine_debug.log 2>&1; tail -c 2000 /root/upbit-tradebot-mvp/mcmax33_engine_debug.log 2>/dev/null | tail -5 | cut -c1-160; echo '--- grep WARMUP in file'; grep -c 'WARMUP' /root/upbit-tradebot-mvp/mcmax33_engine_debug.log 2>/dev/null; grep -n '시드 방식' /root/upbit-tradebot-mvp/mcmax33_engine_debug.log 2>/dev/null | tail -3 | cut -c1-200; echo '--- journal'; journalctl -u tradebot --since '2026-10-01 20:10:55' --no-pager | grep -E '시드 방식|긴 이력|BOOT-RESUME|run_live_loop start|total_count=801|다중 호출 완료 \| total=80|WARMUP\] (형성|마지막)|Buffer seeded|HTS-FLAG\] 기동' | sed -E 's/^.*python\[[0-9]+\]: //' | cut -c1-220"
+# (d) 시드 검증 (로컬, 공개 API)
+python3 $S/wo17s_verify_seed.py "2026-10-01 20:11:02" 734.9141 736.1272 1200 2>&1 | tee $S/wo17s_verify_out.txt
+# 30분 창 집계 (서버 시계 기준 대기)
+ssh -o ServerAliveInterval=30 root@orionhunter7.cafe24.com "T=\$(date -d '2026-10-01 20:41:00' +%s); while [ \$(date +%s) -lt \$T ]; do sleep 15; done; date '+%F %T'"; ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-01 20:40:55'" < $S/wo17s_obs.sh
+# 20:30 주기(20:25 봉) 확인
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 20:29:58' --until '2026-10-01 20:30:40' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -vF 'fragment with id' | grep -vE 'periodic sync|sync_all_positions|SETTINGS-SNAPSHOT|ScriptRunContext' | cut -c1-200 | head -25; curl -s 'https://api.upbit.com/v1/candles/minutes/5?market=KRW-JTO&count=4&to=2026-10-01T11:35:00Z' | python3 -c \"import json,sys; [print(c['candle_date_time_kst'], c['trade_price'], c['candle_acc_trade_volume']) for c in json.load(sys.stdin)]\""
+ssh root@orionhunter7.cafe24.com "J(){ journalctl -u tradebot --since \"\$1\" --until \"\$2\" --no-pager | sed -E 's/^.*python\[[0-9]+\]: //'; }; J '2026-10-01 20:30:35' '2026-10-01 20:35:12' | grep -E 'NO-TRADE|NO_TRADE|무거래|CONFIRMED|봉 미반영 .*29/29|스킵' | cut -c1-180 | head -6; echo '--- migrate 줄 분 단위 분포 (20:10:55~20:40:55)'; J '2026-10-01 20:10:55' '2026-10-01 20:40:55' | grep -F 'ensure_settings_history_schema OK' | cut -c1-16 | uniq -c | head -40; echo '--- 같은 줄, 직전 같은 길이 창(17:40~18:10, WO-18 이전 엔진)'; J '2026-10-01 17:40:00' '2026-10-01 18:10:00' | grep -cF 'ensure_settings_history_schema OK'; echo '--- 창 안 page-load 표식'; J '2026-10-01 20:10:55' '2026-10-01 20:40:55' | grep -cE 'sync_all_positions cleared'; J '2026-10-01 20:10:55' '2026-10-01 20:40:55' | grep -E 'settings_history\] recorded|source_page' | cut -c1-160 | head -5"
+
+## 3. 접속 1회 확인 (운영자 접속 20:58:41)
+ssh root@orionhunter7.cafe24.com "J(){ journalctl -u tradebot --since '2026-10-01 20:40:55' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -vF 'fragment with id'; }; echo \"now \$(date +%T)\"; J | grep -E 'AUTO-RESUME|run_live_loop start|engine_runner 시작' | cut -c1-200; for t in 'database is locked' 'ON CONFLICT clause' 'Traceback' ' ERROR ' 'CRITICAL' '긴 이력 시드 실패' '[POS-DESYNC] class='; do echo \"\$t: \$(J | grep -cF -- \"\$t\")\"; done; echo \"재시작 이후 run_live_loop start: \$(journalctl -u tradebot --since '2026-10-01 20:10:55' --no-pager | grep -cF 'run_live_loop start')  engine_runner 시작: \$(journalctl -u tradebot --since '2026-10-01 20:10:55' --no-pager | grep -cF 'engine_runner 시작')\"; J | grep -F 'Bar#' | awk '{print \$1,\$2,\$7}' | tr '\n' ' '"
+
+## 4. 번들 자료
+git show bc8bbf1 -- tests/regressions/test_r_2026_10_01_wo16w_warmup_forming_trim.py > $S/wo17sdeploy/wo16w_test_diff.txt
+(서버 로그 발췌: journalctl 20:10:55~20:40:55 1분 주기 잡음 줄 제외 + 20:40:55~20:59:19 핵심 줄 + engine_debug.log 같은 구간 → $S/wo17sdeploy/server_log_excerpt.txt)
+git log --oneline -12 > $S/wo17sdeploy/git_log.txt (문서 커밋 뒤 재생성)
+
+# ===== wo17s_obs.sh =====
+#!/bin/bash
+# WO-17 (S) 배포 관측 (읽기 전용). 사용: ssh ... "bash -s -- '<END KST>'" < wo17s_obs.sh
+S0="2026-10-01 20:10:55"; E0="${1:-$(date '+%F %T')}"
+R=/root/upbit-tradebot-mvp
+J() { journalctl -u tradebot --since "$S0" --until "$E0" --no-pager -o short-iso | grep -vF "fragment with id" | sed -E 's/^.*(python|streamlit)\[[0-9]+\]: //'; }
+C() { J | grep -cF -- "$1"; }
+F() { awk -v s="[${S0/ /T}" -v e="[${E0/ /T}" '$1 >= s && $1 <= e' $R/mcmax33_engine_debug.log; }
+D="file:$R/services/data/tradebot_mcmax33.db?mode=ro"
+
+echo "== 창: $S0 ~ $E0 | HEAD=$(git -C $R rev-parse --short HEAD) active=$(systemctl is-active tradebot) start=$(systemctl show tradebot -p ExecMainStartTimestamp --value)"
+echo "== (a) 티커별 '[WARMUP] 시드 방식=long_history bars=800'"
+J | grep -F "[WARMUP] 시드 방식=long_history bars=800" | cut -c1-220
+echo "   journal 건수: $(C '[WARMUP] 시드 방식=long_history bars=800')  | 기동 티커: $(J | grep -oE 'market=KRW-[A-Z0-9]+ timeframe=[a-z0-9]+ total_count=801' | sort -u | tr '\n' ' ')"
+echo "   engine_debug.log 안 건수: $(F | grep -cF '시드 방식')  (이 파일은 log_to_file 이벤트만 기록)"
+echo "== (b) '긴 이력 시드 실패' — 코드 존재 확인 후 건수"
+grep -n "긴 이력 시드 실패" $R/engine/live_loop.py | cut -c1-140
+echo "   journal: $(C '긴 이력 시드 실패')  engine_debug.log: $(F | grep -cF '긴 이력 시드 실패')  '시드 방식=sma200': $(C '시드 방식=sma200')"
+echo "== (c) '지표 시드 폴백' 알림 — 코드 존재 확인 후 건수"
+grep -n "지표 시드 폴백" $R/engine/live_loop.py | cut -c1-140
+echo "   journal '지표 시드 폴백': $(C '지표 시드 폴백')  [NOTIFY] 경고: $(C '[NOTIFY]')  (알림은 폴백 분기에서만 호출, 성공 시 notifier 는 로그를 남기지 않음)"
+echo "== (e) 버퍼·local_series"
+J | grep -F "Buffer seeded" | cut -c1-140
+echo "== (f) 첫 조정 / BACKFILL"
+J | grep -E "로컬 시작 이전 봉 제외" | head -2 | cut -c1-160
+echo "   BACKFILL '누락 봉 평가 시작': $(C '누락 봉 평가 시작')  '누락 봉 평가 |': $(C '누락 봉 평가 |')  '미확정 봉 제외': $(C '미확정 봉 제외')"
+echo "== (g) WO-16 (W)"
+J | grep -E "\[WARMUP\] (형성 중 봉|마지막 봉)|다중 호출 완료 \| total=801" | cut -c1-200
+echo "== (h) WO-18 잔존"
+echo "   잔존 SQL: $(sqlite3 "$D" "SELECT COUNT(*) FROM account_positions WHERE meta LIKE '%\"hts_buy\": true%' AND COALESCE(virtual_coin,0)+COALESCE(virtual_coin_locked,0)=0;")"
+J | grep -F "[HTS-FLAG] 기동 정합 검사" | cut -c1-140
+echo "== (i) 결함 태그"
+for t in " ERROR " "Traceback" "[POS-DESYNC] class=" "Upbit에 없는 timestamp" "불일치 발견" "과거 봉 검증 실패" "POLLUTED" "database is locked" "ON CONFLICT clause" "CRITICAL"; do echo "   '$t': $(C "$t")"; done
+echo "   WO-16 유지 — 조정 400 수신: $(J | awk '/다중 호출 시작/{r=($0 ~ /total_count=400/); next} /다중 호출 완료/{ if(r){match($0,/total=[0-9]+/); print substr($0,RSTART+6,RLENGTH-6)} }' | sort | uniq -c | tr '\n' ' ')  VERIFY 범위 역전: $(J | grep -E 'VERIFY\] 과거 봉 검증 시작 \| count=[0-9]+ \| range' | sed -E 's/.*range=//' | awk -F' ~ ' '$1>=$2' | wc -l)"
+echo "== (j) Bar#"
+J | grep -F "Bar#" | awk '{print $1, $2, $7}' | tr '\n' ' '; echo
+echo "== (k) WO-12"
+J | grep -E "BOOT-RESUME|run_live_loop start|engine_runner 시작|AUTO-RESUME" | cut -c1-170
+echo "   run_live_loop start: $(C 'run_live_loop start')  engine_runner 시작: $(C 'engine_runner 시작')"
+echo "== 매매·주문"
+echo "   UPBIT-ORDER: $(C 'UPBIT-ORDER')  action=BUY: $(C 'action=BUY')  action=SELL: $(C 'action=SELL')  EMA Buy Signal: $(C 'EMA Buy Signal')"
