@@ -179,6 +179,24 @@ def _lookup_tentative_close(
     return None
 
 
+def _warmup_trim_forming(initial_df: pd.DataFrame, interval_sec: int, now: datetime, min_hist: int):
+    """
+    ✅ WO-16 (W) (2026-10-01): 워밍업 마지막 봉이 형성 중(마지막 봉 시각 + 봉 간격 > 지금)이면 제거.
+    기존에는 "받은 봉 수 > min_hist" 일 때만 제거했는데, REST to 결함으로 늘 200(=min_hist)만 받아
+    형성 중 봉이 지표 시드에 들어갔다(WO-15: 13회 중 7회). 확정 봉은 버리지 않는다.
+    안전장치(F2): 제거하면 min_hist 미만이 될 때는 제거하지 않는다(WO-16 (R) 없이도 기동 오류 없음).
+    반환: (df, action, 마지막 봉 시각, 봉 시작 뒤 경과 초)
+      action = "dropped" | "kept_confirmed" | "kept_insufficient"
+    """
+    last_ts = initial_df.index[-1]
+    elapsed = int((pd.Timestamp(now) - pd.Timestamp(last_ts)).total_seconds())
+    if elapsed >= interval_sec:
+        return initial_df, "kept_confirmed", last_ts, elapsed
+    if len(initial_df) - 1 >= min_hist:
+        return initial_df.iloc[:-1], "dropped", last_ts, elapsed
+    return initial_df, "kept_insufficient", last_ts, elapsed
+
+
 def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
     """
     전략 실행/매매를 시작하기 위한 최소 웜업 바 수
@@ -1021,28 +1039,31 @@ def run_live_loop(
 
             # ============================================================
             # WO-2026-001 Task 1-B: 마지막 봉 제거 (현재 진행 중 봉 방지)
-            # ✅ FIX-2026-003-14: 조건부 제거 (데이터 부족 시 유지)
+            # ✅ WO-16 (W): 개수 여유가 아니라 시각으로 판정 — 형성 중일 때만 제거, 확정 봉은 유지
             # ============================================================
-            # ✅ Upbit는 to 파라미터 없어도 현재 진행 중인 봉을 포함할 수 있음
-            # ✅ 안전을 위해 마지막 봉 제거 (단, 여유분이 있을 때만)
-            if len(initial_df) > min_hist:
-                # 여유분이 있으면 마지막 봉 제거 (안전)
-                last_ts_before = initial_df.index[-1]
-                initial_df = initial_df.iloc[:-1]
+            # ✅ 워밍업은 to 없이 조회하므로 현재 진행 중인 봉을 포함할 수 있음
+            initial_df, _wu_action, _wu_last, _wu_elapsed = _warmup_trim_forming(
+                initial_df,
+                CandleClock.TIMEFRAME_SEC.get(params.interval, 60),
+                now_utc(),
+                min_hist,
+            )
+            if _wu_action == "dropped":
                 logger.info(
-                    f"[WARMUP] 마지막 봉 제거 ✅ | "
-                    f"removed_ts={format_kst(last_ts_before)} | "
+                    f"[WARMUP] 형성 중 봉 제거 | ts={format_kst(_wu_last)} elapsed={_wu_elapsed}s | "
                     f"최종 봉 수={len(initial_df)} | "
                     f"최종 마지막 봉={format_kst(initial_df.index[-1])}"
                 )
-            elif len(initial_df) == min_hist:
-                # 정확히 필요한 만큼이면 그대로 사용 (마지막 봉 유지)
-                logger.warning(
-                    f"[WARMUP] 마지막 봉 유지 (여유분 없음) | "
-                    f"bars={len(initial_df)} = min_hist={min_hist} | "
-                    f"마지막 봉={format_kst(initial_df.index[-1])}"
+            elif _wu_action == "kept_confirmed":
+                logger.info(
+                    f"[WARMUP] 마지막 봉 확정 (유지) | ts={format_kst(_wu_last)} | 봉 수={len(initial_df)}"
                 )
             else:
+                logger.warning(
+                    f"[WARMUP] 형성 중 봉 유지 (봉 수 부족) | ts={format_kst(_wu_last)} elapsed={_wu_elapsed}s | "
+                    f"bars={len(initial_df)} min_hist={min_hist}"
+                )
+            if len(initial_df) < min_hist:
                 # 부족하면 에러
                 logger.error(
                     f"❌ [WARMUP] 데이터 부족 | "
