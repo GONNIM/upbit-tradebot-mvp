@@ -1,0 +1,287 @@
+# WO-15 실행 명령 원문 (2026-10-01, 전부 읽기 전용)
+# 서버: ssh root@orionhunter7.cafe24.com  — journal·소스·설정 파일 읽기만. DB 미접속. 재시작·쓰기 없음.
+# 로컬: Upbit 공개 캔들 API(키 불필요) 조회, 계산 스크립트 실행. 스크립트 원문은 이 파일 끝에 붙임.
+
+## 0. 정지선
+git log --oneline -3 ; git status -sb
+ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp log --oneline -3; git -C /root/upbit-tradebot-mvp rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp; systemctl is-active tradebot; grep -o 'v1\.2026\.[0-9.]*' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1; journalctl -u tradebot --since '2026-10-01 12:15:00' --no-pager | grep -cE 'Traceback|pos_desync_promoted|integrity_gap|POLLUTED'"
+git diff --stat 52286af 83cfeb2
+
+## 1. 기동 직후 REST·WARMUP·VERIFY 로그 (11:42:01 ~ 12:00:30), 서버 시간대, pyupbit 버전
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 11:42:01' --until '2026-10-01 12:00:30' --no-pager | grep -E '\[REST\]|REST-SAFE|WARMUP|VERIFY' | sed -E 's/^.*python\[[0-9]+\]: //' | cut -c1-210; timedatectl | grep -i 'time zone'; /root/upbit-tradebot-mvp/venv/bin/pip show pyupbit | head -2"
+
+## 2. pyupbit 0.2.34 get_ohlcv 원문
+ssh root@orionhunter7.cafe24.com "sed -n 81,135p /root/upbit-tradebot-mvp/venv/lib/python3.12/site-packages/pyupbit/quotation_api.py"
+
+## 3. 로컬 코드 읽기
+sed -n 167,400p core/rest_reconcile.py          # fetch_candles_rest_full, safe_fetch_rest
+sed -n 806,900p core/rest_reconcile.py          # verify_past_candles_with_upbit
+sed -n 995,1060p engine/live_loop.py            # 워밍업 조회·마지막 봉 처리·시드
+sed -n 1405,1495p engine/live_loop.py           # VERIFY 호출·실시간 봉 처리
+sed -n 760,800p core/strategy_engine.py         # 부분 재계산 호출
+sed -n 109,300p core/indicator_state.py         # seed_from_closes, recompute_from_changed_ts, update_incremental
+
+## 4. 전략 설정 (서버, 읽기만)
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && python3 -c \"import json
+d=json.load(open('mcmax33_latest_params_EMA.json')); print({k:v for k,v in d.items() if any(s in k for s in ('fast','slow','period','sell','buy'))})\""
+
+## 5. 부분 재계산 로그 (기동 이후) 와 보존 기간 전체 집계
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 11:42:01' --until '2026-10-01 12:21:00' --no-pager | grep -E 'ENGINE\] Reconcile|INDICATORS\]|Not enough data|Indicator seeded' | sed -E 's/^.*python\[[0-9]+\]: //' | cut -c1-200"
+ssh root@orionhunter7.cafe24.com 'bash -s' < wo15_counts.sh     # 원문은 끝에 첨부
+
+## 6. 기동별 워밍업 마지막 봉
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-08-30' --no-pager -g '마지막 봉 유지|마지막 봉 제거|WARMUP\] REST 초기 데이터 요청'"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-08-30' --no-pager -g 'total_count=201|최신 확정 봉 ✅' -o short-iso | sed -E 's/^.*\]: //' | grep -A1 'total_count=201' | grep -v '^--' | cut -c1-200"
+
+## 7. 소규모 건수 재집계 ('-- No entries --' 줄 제외)
+ssh root@orionhunter7.cafe24.com "for p in '과거 봉 검증 실패' 'local_series에 없음' '재조회 성공' 'RETRY-[0-9]/[0-9]\] .*재조회 실패'; do n=\$(journalctl -u tradebot --since 2026-08-30 --no-pager -g \"\$p\" 2>/dev/null | grep -vcE '^-- No entries --'); echo \"\$p: \$n\"; journalctl -u tradebot --since 2026-08-30 --no-pager -g \"\$p\" 2>/dev/null | grep -vE '^-- No entries --' | sed -E 's/^.*\]: //' | cut -c1-160 | tail -3; done; echo '== interval 별 400 요청 결과'; journalctl -u tradebot --since 2026-08-30 --no-pager -g 'total_count=400' 2>/dev/null | grep -oE 'timeframe=minute[0-9]+' | sort | uniq -c"
+# 결과: 과거 봉 검증 실패 0 / local_series에 없음 2 (2026-09-01 09:01:30, 09:02:31) / 재조회 성공 0 / (RETRY 실패 패턴은 로그 형식 불일치로 0, 미사용) / minute1 2982, minute5 8255
+# 주의: wo15_counts.sh 의 소규모 건수(1·2·1)는 '-- No entries --' 줄이 섞여 1씩 부풀었고, 이 재집계 값을 보고에 사용
+
+## 8. 요청 수 → 수신 수 (봉 간격별), 5분봉 400 요청 최소·최대
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since 2026-08-30 --no-pager -g '다중 호출 시작|다중 호출 완료' 2>/dev/null | sed -E 's/^.*\]: //' | awk '/다중 호출 시작/{tf=\"\"; if(match(\$0,/timeframe=minute[0-9]+/)) tf=substr(\$0,RSTART+10,RLENGTH-10); req=\"\"; if(match(\$0,/total_count=[0-9]+/)) req=substr(\$0,RSTART+12,RLENGTH-12); next} /다중 호출 완료/{match(\$0,/total=[0-9]+/); got=substr(\$0,RSTART+6,RLENGTH-6); k=tf\" \"req\"->\"(got==200?\"200\":(got>200?\">200\":\"<200\")); c[k]++} END{for(k in c) print c[k], k}' | sort -k2"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since 2026-08-30 --no-pager -g '다중 호출 시작|다중 호출 완료' 2>/dev/null | sed -E 's/^.*\]: //' | awk '/다중 호출 시작/{ok=(\$0 ~ /minute5/ && \$0 ~ /total_count=400/); next} /다중 호출 완료/{ if(ok){match(\$0,/total=[0-9]+/); g=substr(\$0,RSTART+6,RLENGTH-6)+0; if(min==\"\"||g<min)min=g; if(g>max)max=g; n++}} END{print \"minute5 400: n=\"n\" min=\"min\" max=\"max}'"
+# 결과: 6 minute1 10-><200 / 1 minute1 201->200 / 2 minute1 220->>200 / 2980 minute1 220->200 / 367 minute1 400->>200 / 2615 minute1 400->200 / 12 minute5 201->200 / 8255 minute5 220->200 / 8255 minute5 400->>200
+# 결과: minute5 400: n=8256 min=293 max=337
+
+## 9. 로컬 계산
+python3 wo15_fetch.py     # Upbit 공개 API, to=UTC Z, 200봉×6회 → 1,200봉 중복 0 (wo15_candles.csv)
+python3 wo15_drift.py     # seed_drift.csv 표 1
+python3 wo15_boots.py     # seed_drift.csv 표 2 (확정 종가 공개 API 조회)
+
+########################################################################
+# 첨부: 스크립트 원문
+########################################################################
+
+# ===== wo15_counts.sh =====
+#!/bin/bash
+# WO-15 읽기 전용 집계 (journal 2026-08-30 이후)
+SINCE="2026-08-30"
+G() { journalctl -u tradebot --since "$SINCE" --no-pager -g "$1" 2>/dev/null | grep -vF "fragment with id"; }
+
+echo "== (Q2) 다중 호출 요청 수 → 수신 수 분포"
+journalctl -u tradebot --since "$SINCE" --no-pager -g "다중 호출 시작|다중 호출 완료" 2>/dev/null \
+  | sed -E 's/^.*\]: //' \
+  | awk '/다중 호출 시작/{match($0,/total_count=[0-9]+/); req=substr($0,RSTART+12,RLENGTH-12); next}
+         /다중 호출 완료/{match($0,/total=[0-9]+/); got=substr($0,RSTART+6,RLENGTH-6); match($0,/batches=[0-9]+/); b=substr($0,RSTART+8,RLENGTH-8); print req" -> "got" (batches="b")"}' \
+  | sort | uniq -c | sort -rn | head -15
+
+echo "== (Q3) VERIFY 'Upbit에 없는 timestamp' 경고 건수: $(G 'Upbit에 없는 timestamp' | wc -l)"
+echo "== (Q3) VERIFY 검증 시작 건수: $(G 'VERIFY\] 과거 봉 검증 시작 \| count=.*현재 봉' | wc -l)"
+echo "== (Q3) VERIFY 실패(현재 봉 스킵) 건수: $(G '과거 봉 검증 실패' | wc -l)"
+echo "== (Q3) 재시도 경로 진입(closed_ts 가 local_series 에 없음): $(G 'local_series에 없음' | wc -l)"
+echo "== (Q3) 재시도 성공: $(G '재조회 성공' | wc -l)"
+G '재조회 성공' | sed -E 's/^.*\]: //' | cut -c1-150 | tail -5
+echo "== (Q1) 부분 재계산 시작 중 bars>=200: $(G '부분 재계산 시작' | grep -cE 'bars=([2-9][0-9]{2}|[0-9]{4,})')"
+echo "== (Q1) Not enough data for seed: $(G 'Not enough data for seed' | wc -l)"
+echo "== journal 보존 시작: $(journalctl -u tradebot --no-pager -o short-iso 2>/dev/null | head -1 | cut -c1-25)"
+
+# ===== wo15_fetch.py =====
+"""WO-15: Upbit 공개 캔들 API(키 불필요, 읽기 전용)로 KRW-JTO 5분봉 수집.
+to 는 UTC 'Z' 명시. 결과: wo15_candles.csv (ts_kst, open, high, low, close, volume)
+"""
+import csv
+import json
+import time
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+OUT = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo15_candles.csv"
+
+# 끝: 2026-10-01 13:00 KST (exclusive), 1200봉(약 4일 + 무거래 봉 누락분)
+to = datetime(2026, 10, 1, 13, 0, tzinfo=KST).astimezone(timezone.utc)
+rows = {}
+for _ in range(6):
+    url = (
+        "https://api.upbit.com/v1/candles/minutes/5?market=KRW-JTO&count=200&to="
+        + to.strftime("%Y-%m-%dT%H:%M:%SZ")
+    )
+    req = urllib.request.Request(url, headers={"accept": "application/json"})
+    data = json.load(urllib.request.urlopen(req, timeout=10))
+    if not data:
+        break
+    for c in data:
+        rows[c["candle_date_time_kst"]] = (
+            c["opening_price"], c["high_price"], c["low_price"],
+            c["trade_price"], c["candle_acc_trade_volume"],
+        )
+    oldest_utc = min(datetime.strptime(c["candle_date_time_utc"], "%Y-%m-%dT%H:%M:%S") for c in data)
+    to = oldest_utc.replace(tzinfo=timezone.utc)  # Upbit to 는 exclusive → 가장 오래된 봉 시각 그대로
+    time.sleep(0.2)
+
+with open(OUT, "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["ts_kst", "open", "high", "low", "close", "volume"])
+    for k in sorted(rows):
+        w.writerow([k, *rows[k]])
+print(len(rows), min(rows), max(rows))
+
+# ===== wo15_drift.py =====
+"""WO-15 (1): 워밍업 형성 중 봉 시드 오차 수치화.
+
+엔진 재현 (core/indicator_state.py):
+  seed_from_closes: EMA = 마지막 N개 종가의 SMA (N=60, 200)
+  update_incremental: ema = a*close + (1-a)*ema, a = 2/(N+1)
+  recompute_from_changed_ts: tail < 200 이면 seed 실패 → 상태 변화 없음 (로그로 확인)
+  BACKFILL 11:40 재평가: 지표 백업·복원 → 상태 변화 없음
+
+세 계열 비교:
+  engine   : 2026-10-01 11:42:08 시드 (워밍업 200봉, 마지막 11:40 봉 = 형성 중 종가 729)
+  fixseed  : 같은 200봉이되 11:40 봉을 확정 종가(733)로 시드
+  ref      : 1200봉 장기 이력으로 계산한 EMA (참고: SMA 시드 자체의 구조 오차 비교용)
+"""
+import csv
+
+SCR = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad"
+OUT = "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/docs/plans/2026-10-01-wo15-warmup-seed/seed_drift.csv"
+
+rows = list(csv.DictReader(open(f"{SCR}/wo15_candles.csv")))
+ts = [r["ts_kst"] for r in rows]
+close = {r["ts_kst"]: float(r["close"]) for r in rows}
+
+WARM_START, WARM_END = "2026-09-30T18:55:00", "2026-10-01T11:40:00"
+LAST_RT = "2026-10-01T12:20:00"   # 관측 마지막 실시간 봉 (Bar#207)
+FORMING_CLOSE = 729.0             # 11:42:08 워밍업이 받은 11:40 봉 형성 중 종가 (로그)
+
+warm = [t for t in ts if WARM_START <= t <= WARM_END]
+assert len(warm) == 200, len(warm)
+rt = [t for t in ts if WARM_END < t <= LAST_RT]
+
+def sma(xs, n):
+    return sum(xs[-n:]) / n
+
+def alpha(n):
+    return 2 / (n + 1)
+
+warm_confirmed = [close[t] for t in warm]
+warm_engine = warm_confirmed[:-1] + [FORMING_CLOSE]
+
+# 장기 기준: 1200봉 처음부터 SMA 시드 후 증분 (11:40 까지)
+def long_ema(n):
+    first = ts[:n]
+    e = sma([close[t] for t in first], n)
+    for t in ts[n:]:
+        if t > WARM_END:
+            break
+        e = alpha(n) * close[t] + (1 - alpha(n)) * e
+    return e
+
+state = {
+    "engine": {60: sma(warm_engine, 60), 200: sma(warm_engine, 200)},
+    "fixseed": {60: sma(warm_confirmed, 60), 200: sma(warm_confirmed, 200)},
+    "ref": {60: long_ema(60), 200: long_ema(200)},
+}
+
+header = [
+    "k", "bar_ts_kst", "close",
+    "ema60_engine", "ema60_fixseed", "ema60_ref", "d60_engine_minus_fixseed", "d60_engine_minus_ref",
+    "ema200_engine", "ema200_fixseed", "ema200_ref", "d200_engine_minus_fixseed", "d200_engine_minus_ref",
+    "gap_engine(60-200)", "gap_fixseed(60-200)", "gap_ref(60-200)",
+]
+out = []
+
+def snap(k, t, c):
+    e, f, r = state["engine"], state["fixseed"], state["ref"]
+    out.append([
+        k, t, c,
+        round(e[60], 4), round(f[60], 4), round(r[60], 4), round(e[60] - f[60], 4), round(e[60] - r[60], 4),
+        round(e[200], 4), round(f[200], 4), round(r[200], 4), round(e[200] - f[200], 4), round(e[200] - r[200], 4),
+        round(e[60] - e[200], 4), round(f[60] - f[200], 4), round(r[60] - r[200], 4),
+    ])
+
+snap(0, "seed@11:40 (engine close=729 / confirmed 733)", close[WARM_END])
+for k, t in enumerate(rt, start=1):
+    c = close[t]
+    for s in state.values():
+        for n in (60, 200):
+            s[n] = alpha(n) * c + (1 - alpha(n)) * s[n]
+    snap(k, t, c)
+
+# 형성 중 봉 오차의 이론 감쇠 (잔차 = 초기 오차 × (1-a)^k): 1% 와 0.1% 로 줄어드는 봉 수
+import math
+for n in (60, 200):
+    a = alpha(n)
+    out.append([])
+    out.append([f"# EMA{n}: a={a:.5f}, 초기 시드 오차 = (729-733)/{n} = {(-4)/n:.4f}원, "
+                f"1%로 감쇠 {math.ceil(math.log(0.01)/math.log(1-a))}봉, "
+                f"0.1%로 감쇠 {math.ceil(math.log(0.001)/math.log(1-a))}봉"])
+
+with open(OUT, "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(header)
+    w.writerows(out)
+
+for r in out[:9]:
+    print(r)
+for r in out[-5:]:
+    print(r)
+
+# ===== wo15_boots.py =====
+"""WO-15 (1) 보강: 기동별 워밍업 마지막 봉(형성 중 여부)과 시드 오차.
+형성 중 = 기동 시각 < 마지막 봉 시각 + 봉 간격. 확정 종가는 Upbit 공개 API(to=UTC Z, exclusive).
+결과를 seed_drift.csv 끝에 두 번째 표로 덧붙인다.
+"""
+import csv
+import json
+import time
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+OUT = "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/docs/plans/2026-10-01-wo15-warmup-seed/seed_drift.csv"
+
+# (기동 시 [REST] 최신 확정 봉 로그 시각, 마지막 봉 ts, 봉 간격 분, 워밍업 수신 종가) — journal 원문
+BOOTS = [
+    ("2026-09-02 14:32:56", "2026-09-02 14:21:00", 1, 586),
+    ("2026-09-02 19:04:25", "2026-09-02 19:00:00", 5, 578),
+    ("2026-09-04 17:46:48", "2026-09-04 17:45:00", 5, 589),
+    ("2026-09-04 19:46:56", "2026-09-04 19:40:00", 5, 588),
+    ("2026-09-12 17:36:25", "2026-09-12 17:30:00", 5, 593),
+    ("2026-09-13 17:00:58", "2026-09-13 16:55:00", 5, 581),
+    ("2026-09-18 17:26:34", "2026-09-18 17:20:00", 5, 623),
+    ("2026-09-25 12:41:06", "2026-09-25 12:40:00", 5, 667),
+    ("2026-09-30 16:33:06", "2026-09-30 16:30:00", 5, 755),
+    ("2026-09-30 18:02:09", "2026-09-30 18:00:00", 5, 759),
+    ("2026-09-30 19:44:29", "2026-09-30 19:40:00", 5, 755),
+    ("2026-10-01 09:56:09", "2026-10-01 09:50:00", 5, 727),
+    ("2026-10-01 11:42:08", "2026-10-01 11:40:00", 5, 729),
+]
+
+
+def confirmed_close(bar_kst: datetime, minutes: int) -> float:
+    to = (bar_kst + timedelta(minutes=minutes)).astimezone(timezone.utc)
+    url = (f"https://api.upbit.com/v1/candles/minutes/{minutes}?market=KRW-JTO&count=1&to="
+           + to.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"accept": "application/json"}), timeout=10))
+    assert d and d[0]["candle_date_time_kst"] == bar_kst.strftime("%Y-%m-%dT%H:%M:%S"), d
+    time.sleep(0.15)
+    return float(d[0]["trade_price"])
+
+
+rows = []
+for boot_s, last_s, m, got in BOOTS:
+    boot = datetime.strptime(boot_s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+    last = datetime.strptime(last_s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+    forming = boot < last + timedelta(minutes=m)
+    conf = confirmed_close(last, m)
+    diff = got - conf
+    elapsed = int((boot - last).total_seconds())
+    rows.append([
+        boot_s, last_s, f"minute{m}", "형성 중" if forming else "확정",
+        elapsed if forming else "", got, conf, diff,
+        round(diff / 60, 4), round(diff / 200, 4), round(diff / 60 - diff / 200, 4),
+        round(100 * diff / conf, 3),
+    ])
+
+with open(OUT, "a", newline="") as f:
+    w = csv.writer(f)
+    w.writerow([])
+    w.writerow(["# 표 2. 기동별 워밍업 마지막 봉과 시드 오차 (2026-08-30 이후 journal 의 워밍업 13회, 전부 '마지막 봉 유지')"])
+    w.writerow(["boot_kst", "last_bar_kst", "interval", "last_bar_state", "elapsed_in_bar_sec",
+                "warmup_close", "confirmed_close", "diff",
+                "ema60_seed_err", "ema200_seed_err", "gap_seed_err(60-200)", "diff_pct"])
+    w.writerows(rows)
+
+for r in rows:
+    print(r)
