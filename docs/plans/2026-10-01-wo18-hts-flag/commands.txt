@@ -1,0 +1,136 @@
+# WO-18 · WO-17 (C)(P) — 실행 명령 원문 (2026-10-01 17:2x ~ 17:5x KST)
+# 서버: 읽기 전용(journal·소스·DB mode=ro). 로컬: 코드 수정·테스트·커밋(push 안 함).
+# S = /private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad
+
+## 0. 정지선
+git log --oneline -1 && git status -sb | head -1 && git status --short | grep -v '^??'
+ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp; grep -o 'v1\.2026\.[0-9.]*' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1"
+# 결과: 로컬 b8f2f6b / 서버 dda1ec6, 13:24:41, v1.2026.10.01.1312
+
+## 1. WO-18 (a) 확정 (읽기)
+grep -rn "hts_buy" --include="*.py" core engine services pages app.py scripts | grep -v "_old\|/tests/"
+sed -n 25,130p core/filters/sell_filters.py
+grep -rn "P1-B8\|Policy P-3\|P-3" --include="*.py" --include="*.md" core docs .claude | head -8
+git log --oneline -S "Policy P-3" -- core/filters/sell_filters.py | tail -3      # → a192d31
+git log --all --oneline --grep="P1-B8" | head -3                                 # → 없음
+sed -n 700,715p core/strategy_incremental.py ; sed -n 1160,1240p core/strategy_incremental.py
+sed -n 2580,2730p services/db.py
+sed -n 60,80p core/position_state.py ; sed -n 175,215p core/position_state.py
+sed -n 286,313p core/position_state.py ; grep -n "close_position(" -r core engine services
+sed -n 495,535p core/strategy_engine.py ; sed -n 1350,1366p core/strategy_engine.py ; sed -n 2240,2310p services/db.py ; sed -n 700,730p engine/live_loop.py
+sed -n 625,700p engine/order_reconciler.py
+grep -n "def _coin_balance" -A25 core/trader.py ; sed -n 359,366p core/trader.py      # API 실패 시 0.0 반환 확인
+awk 'NR<=2622 && /^def /{l=NR": "$0} NR==2622{print l}' services/db.py              # get_position_entry_source
+
+## 2. WO-18 구현 검증
+python3 -m py_compile services/db.py core/position_state.py core/strategy_engine.py engine/live_loop.py
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear
+# (첫 실행 4 ERROR: open_position 의 entry_ts 필수 → 테스트 도우미에 진입 시각 _NOW 전달로 수정)
+sed -i '' -E 's/(open_position\([^)]*)ts=None\)/\1ts=_NOW)/' tests/regressions/test_r_2026_10_01_wo18_hts_flag_clear.py   # (이후 _NOW 정의는 파일 도구로 정리)
+# 옛 코드 대조: 4개 파일을 HEAD 로 바꿔 실행 후 복구
+mkdir -p $S/wo18_new && for f in services/db.py core/position_state.py core/strategy_engine.py engine/live_loop.py; do cp $f $S/wo18_new/$(echo $f | tr / _); git show HEAD:$f > $f; done; env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear 2>&1 | grep -E "^(FAIL|ERROR):|AssertionError|AttributeError|Ran|FAILED" | cut -c1-200; for f in services/db.py core/position_state.py core/strategy_engine.py engine/live_loop.py; do cp $S/wo18_new/$(echo $f | tr / _) $f; done; git diff --stat
+V=$(date '+%Y.%m.%d.%H%M') && sed -i '' "495s/v1\.2026\.10\.01\.1312/v1.$V/" pages/dashboard.py && bash scripts/regression_gate.sh 2>&1 | tail -3     # 257/257
+git add services/db.py core/position_state.py core/strategy_engine.py engine/live_loop.py pages/dashboard.py tests/regressions/test_r_2026_10_01_wo18_hts_flag_clear.py && git status --short | grep -v '^??'
+git commit -q -F $S/wo18_msg.txt     # 8bf7944
+
+## 3. WO-17 (C)
+python3 $S/wo17_ast_hash.py          # 정정 전: 2c47d11b… / 6cc132e6…  (원문 첨부)
+(파일 도구로 주석 3줄 정정)
+python3 -m py_compile core/rest_reconcile.py core/data_feed.py && python3 $S/wo17_ast_hash.py     # 정정 후 같은 해시
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo17c_comment_only 2>&1 | tail -2; V=$(date '+%Y.%m.%d.%H%M') && sed -i '' "495s/v1\.2026\.10\.01\.1735/v1.$V/" pages/dashboard.py && grep -n "v1.2026" pages/dashboard.py && bash scripts/regression_gate.sh 2>&1 | tail -3   # 1737, 259/259
+git add core/rest_reconcile.py core/data_feed.py pages/dashboard.py tests/regressions/test_r_2026_10_01_wo17c_comment_only.py ; git commit -q -F $S/wo17c_msg.txt   # 17742cb
+
+## 4. WO-17 (P)
+grep -rn "recompute_from_changed_ts\|부분 재계산" --include="*.py" . | grep -v "_old\|/docs/"
+(파일 도구로 strategy_engine 분기·indicator_state 함수 제거·live_loop 로그·기존 테스트 개정)
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo17p_no_partial_recompute tests.regressions.test_r_2026_09_02_wo2_option_c_indicator_correction tests.regressions.test_r_2026_08_25_wo6_indicator_recompute_isolation 2>&1 | grep -E "^(FAIL|ERROR)|Error|Ran|^OK|FAILED|assert" | cut -c1-220 | head   # 7 OK
+mkdir -p $S/wo17p_new && for f in core/indicator_state.py core/strategy_engine.py engine/live_loop.py; do cp $f $S/wo17p_new/$(echo $f | tr / _); git show HEAD:$f > $f; done; env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo17p_no_partial_recompute 2>&1 | grep -E "^(FAIL|ERROR):|AssertionError|Ran|FAILED" | cut -c1-200; for f in core/indicator_state.py core/strategy_engine.py engine/live_loop.py; do cp $S/wo17p_new/$(echo $f | tr / _) $f; done; git diff --stat   # 3 FAIL (② 731.075 ≠ 730.576)
+V=$(date '+%Y.%m.%d.%H%M') && sed -i '' "495s/v1\.2026\.10\.01\.1737/v1.$V/" pages/dashboard.py && grep -n "v1.2026" pages/dashboard.py && bash scripts/regression_gate.sh 2>&1 | tail -3   # 1740, 263/263
+git add core/indicator_state.py core/strategy_engine.py engine/live_loop.py pages/dashboard.py tests/regressions/test_r_2026_09_02_wo2_option_c_indicator_correction.py tests/regressions/test_r_2026_10_01_wo17p_no_partial_recompute.py ; git commit -q -F $S/wo17p_msg.txt   # 83f48ba
+
+## 5. 단독 revert 실측
+bash $S/wo18_revert_check.sh 2>&1 | grep -vE "^Updated 1 path|절대 우회"    # 257 / 261 / 259 (원문 첨부)
+
+## 6. 서버 잔존 플래그 조회 (읽기 전용)
+ssh root@orionhunter7.cafe24.com "for u in mcmax33 gon1972 default; do D=\"file:/root/upbit-tradebot-mvp/services/data/tradebot_\$u.db?mode=ro\"; echo \"== \$u\"; sqlite3 \"\$D\" \"SELECT ticker, COALESCE(virtual_coin,0), COALESCE(virtual_coin_locked,0), meta FROM account_positions WHERE meta LIKE '%hts_buy%';\" 2>&1 | head -20; done"
+ssh root@orionhunter7.cafe24.com "D='file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro'; sqlite3 \"\$D\" \"SELECT COUNT(*), SUM(CASE WHEN COALESCE(virtual_coin,0)+COALESCE(virtual_coin_locked,0)=0 THEN 1 ELSE 0 END), SUM(CASE WHEN COALESCE(virtual_coin,0)+COALESCE(virtual_coin_locked,0)>0 THEN 1 ELSE 0 END) FROM account_positions WHERE meta LIKE '%\\\"hts_buy\\\": true%';\"; sqlite3 \"\$D\" \"SELECT ticker, virtual_coin, virtual_coin_locked FROM account_positions WHERE meta LIKE '%hts_buy%' AND COALESCE(virtual_coin,0)+COALESCE(virtual_coin_locked,0)>0;\"; sqlite3 \"\$D\" \"SELECT ticker, MAX(timestamp) FROM audit_trades WHERE reason IN ('HTS_BUY','HTS_BUY_ADD') GROUP BY ticker ORDER BY 2 DESC LIMIT 3;\""
+# 결과: 91 | 89 | 2 (KRW-FOLD 117.37, KRW-PYUSD 20.10) / 최근 HTS 감사 KRW-MON 09-30 16:56
+
+## 기록: 작업 중 'python3 - 2>/dev/null' (heredoc 아님, 입력 없음) 1회 무의미 실행 — 무해
+
+########################################################################
+# 첨부: 스크립트 원문
+########################################################################
+
+# ===== wo17_ast_hash.py =====
+"""WO-17 (C): 함수 실행 코드(AST, docstring 제외) 해시 계산. 주석은 AST 에 없으므로 주석 변경은 해시 불변."""
+import ast
+import hashlib
+import sys
+
+TARGETS = [
+    ("core/rest_reconcile.py", "fetch_confirmed_candle"),
+    ("core/data_feed.py", "stream_candles"),
+]
+
+
+def exec_hash(path, name):
+    tree = ast.parse(open(path, encoding="utf-8").read())
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            for n in ast.walk(node):
+                body = getattr(n, "body", None)
+                if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
+                        and isinstance(getattr(body[0], "value", None), ast.Constant) \
+                        and isinstance(body[0].value.value, str):
+                    body.pop(0)
+            return hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest()
+    return None
+
+
+if __name__ == "__main__":
+    for p, n in TARGETS:
+        print(p, n, exec_hash(p, n))
+
+# ===== wo18_revert_check.sh =====
+#!/bin/bash
+# WO-18·17 커밋별 단독 revert 실측 (임시 worktree, main 무변경)
+set -u
+REPO=/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp
+WT=/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo18_wt
+COMMITS=(8bf7944 17742cb 83f48ba)
+
+git -C "$REPO" worktree remove --force "$WT" 2>/dev/null
+git -C "$REPO" worktree add --detach "$WT" HEAD >/dev/null 2>&1 || { echo "worktree 생성 실패"; exit 1; }
+# 게이트가 .env 를 읽지 않도록 worktree 에는 .env 를 두지 않는다 (git 미추적 파일이라 복사되지 않음)
+ls -a "$WT" | grep -c '^\.env$' | sed 's/^/worktree .env 개수: /'
+# git 미추적 .streamlit(secrets) 은 링크, 업비트 키는 더미 환경변수 (실키 미사용)
+ln -s "$REPO/.streamlit" "$WT/.streamlit"
+export UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID=
+
+for c in "${COMMITS[@]}"; do
+  echo "=================== revert $c ($(git -C "$REPO" log --format=%s -1 "$c" | cut -c1-40))"
+  git -C "$WT" reset -q --hard HEAD
+  git -C "$WT" clean -qfd
+  git -C "$WT" revert --no-commit "$c" >/dev/null 2>&1
+  conflicts=$(git -C "$WT" diff --name-only --diff-filter=U)
+  echo "충돌 파일: ${conflicts:-없음}"
+  other=$(echo "$conflicts" | grep -v '^pages/dashboard.py$' | grep -v '^$')
+  if [ -n "$other" ]; then
+    echo "❌ 버전 줄 외 충돌: $other"
+    git -C "$WT" diff "$other" | head -40
+    continue
+  fi
+  if echo "$conflicts" | grep -q '^pages/dashboard.py$'; then
+    git -C "$WT" checkout --ours pages/dashboard.py
+    git -C "$WT" add pages/dashboard.py
+    echo "버전 줄 충돌 → 현재 버전 유지: $(grep -o 'v1\.2026\.[0-9.]*' "$WT/pages/dashboard.py" | head -1)"
+  fi
+  echo "변경 파일:"; git -C "$WT" diff --cached --stat | tail -5
+  (cd "$WT" && python3 -m py_compile core/rest_reconcile.py core/data_feed.py core/indicator_state.py core/strategy_engine.py core/position_state.py services/db.py engine/live_loop.py pages/dashboard.py && echo "py_compile OK")
+  (cd "$WT" && bash scripts/regression_gate.sh 2>&1 | grep -E "회귀 테스트 .*통과|실패|FAILED|❌" | tail -3)
+done
+
+git -C "$WT" reset -q --hard HEAD
+git -C "$REPO" worktree remove --force "$WT"
+echo "worktree 정리 완료"; git -C "$REPO" worktree list

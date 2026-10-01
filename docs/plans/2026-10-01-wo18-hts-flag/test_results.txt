@@ -1,0 +1,41 @@
+# WO-18 + WO-17 (C)(P) 재현 테스트 결과 (2026-10-01 17:43:10 KST, HEAD 83f48ba)
+# 명령: env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest <모듈> -v
+test_reasons_and_boot_hook (tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear.TestCallSites.test_reasons_and_boot_hook) ... ok
+test_1_bot_sell_clears_flag_next_bot_buy_false (tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear.TestHtsFlagClear.test_1_bot_sell_clears_flag_next_bot_buy_false)
+HTS 매수 → 플래그 → 봇 매도 전량(close_position) → 플래그 해제 → 다음 봇 매수 SELL 평가 hts_buy=False. ... ok
+test_2_hts_sell_sync_all_positions_clears_flag (tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear.TestHtsFlagClear.test_2_hts_sell_sync_all_positions_clears_flag)
+HTS 매도 감지 경로: 지갑에서 사라짐 → sync_all_positions cleared → 플래그 해제 + 로그. ... ok
+test_3_wallet_zero_forced_close_clears_flag (tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear.TestHtsFlagClear.test_3_wallet_zero_forced_close_clears_flag)
+지갑 0 강제 청산 경로(POSITION-SYNC Case 1 의 close_position)도 해제. ... ok
+test_4_no_flag_no_log (tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear.TestHtsFlagClear.test_4_no_flag_no_log)
+플래그가 없으면 [HTS-FLAG] 로그 없음 (봇 매수·매도만 있는 평상시). ... ok
+test_5_boot_reconcile_clears_stale_only (tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear.TestHtsFlagClear.test_5_boot_reconcile_clears_stale_only)
+기동 정합 검사: 보유 0 + hts_buy 잔존(오래된 HTS 감사) → 해제, 보유 중 → 유지, 최근 HTS 감지 직후 → 건너뜀. ... ok
+test_1_exec_code_unchanged (tests.regressions.test_r_2026_10_01_wo17c_comment_only.TestCommentOnly.test_1_exec_code_unchanged)
+두 함수의 실행 코드(AST, docstring 제외)가 정정 전과 같음. ... ok
+test_2_wording (tests.regressions.test_r_2026_10_01_wo17c_comment_only.TestCommentOnly.test_2_wording)
+옛 오해 문구 제거, 새 문구 존재, G1 로그 문자열은 유지. ... ok
+test_1_small_tail_single_increment (tests.regressions.test_r_2026_10_01_wo17p_no_partial_recompute.TestNoPartialRecompute.test_1_small_tail_single_increment)
+꼬리 1봉(평상시 매 주기) → 지표 = 증분 1회, 정정 로그. ... ok
+test_2_long_tail_no_reseed_no_double (tests.regressions.test_r_2026_10_01_wo17p_no_partial_recompute.TestNoPartialRecompute.test_2_long_tail_no_reseed_no_double)
+ok
+test_3_old_path_double_application_contrast (tests.regressions.test_r_2026_10_01_wo17p_no_partial_recompute.TestNoPartialRecompute.test_3_old_path_double_application_contrast)
+ok
+test_4_path_removed (tests.regressions.test_r_2026_10_01_wo17p_no_partial_recompute.TestNoPartialRecompute.test_4_path_removed)
+경로·오기 로그 소멸. ... ok
+test_backfill_reentry_triggers_recompute_and_update (tests.regressions.test_r_2026_09_02_wo2_option_c_indicator_correction.TestIndicatorCorrection.test_backfill_reentry_triggers_recompute_and_update)
+ok
+----------------------------------------------------------------------
+Ran 13 tests in 2.421s
+OK
+
+# 옛 코드 대조 (파일만 HEAD~ 로 바꿔 실행, 커밋 전 측정)
+WO-18 테스트 6건: 옛 코드에서 ERROR 4 (close_position reason 인자·clear_stale_hts_flags 없음) + FAIL 2 (sync_all_positions cleared 뒤 플래그 잔존, 호출 위치)
+WO-17 (P) 테스트 4건: 옛 코드에서 FAIL 3 — ② 꼬리 250봉 재시드+이중 반영으로 EMA60 731.075 ≠ 정답 730.576
+WO-17 (C) 해시: 정정 전·후 동일 (fetch_confirmed_candle 2c47d11b…, stream_candles 6cc132e6…)
+
+# 회귀 게이트: bash scripts/regression_gate.sh
+
+==========================================
+✅ 회귀 테스트 263/263 통과 — 배포 진행 가능
+==========================================
