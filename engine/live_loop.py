@@ -374,6 +374,21 @@ def detect_position_and_seed_entry(
     return inpos, entry_price
 
 
+def _trim_rest_before_local_start(local_series: pd.DataFrame, rest_df: Optional[pd.DataFrame]):
+    """
+    ✅ WO-14 (b) (2026-10-01): 조정 조회 결과에서 로컬 시계열 시작보다 이른 봉을 뺀다.
+    기동 때 로컬은 워밍업 200봉뿐인데 조정은 400봉을 요청(298 수신)해, 엔진이 처리한 적 없는
+    과거 봉이 inserted → BACKFILL 로 재평가됐다(기동마다 92~116봉, WO-13 (b)).
+    로컬이 비었거나 REST 가 없으면 그대로 둔다(기존 동작).
+    반환: (rest_df, 뺀 봉 수)
+    """
+    if rest_df is None or local_series is None or local_series.empty:
+        return rest_df, 0
+    local_start = local_series.index[0]
+    kept = rest_df[rest_df.index >= local_start]
+    return kept, len(rest_df) - len(kept)
+
+
 def _strategy_tag(strategy_type: str) -> str:
     """전략 타입 정규화"""
     if not strategy_type:
@@ -1121,6 +1136,14 @@ def run_live_loop(
                                 rest_df = pd.concat([rest_df, confirmed_row.to_frame().T]).sort_index()
                         elif confirmed_row is None:
                             logger.error(f"❌ [CONFIRMED] closed_ts={format_kst(closed_ts)} 조회 실패 → Reconcile 계속 (미확정 종가 사용 가능)")
+
+                        # ✅ WO-14 (b): 로컬 시작 이전 봉은 누락 후보에서 제외
+                        rest_df, _n_before_local = _trim_rest_before_local_start(local_series, rest_df)
+                        if _n_before_local > 0:
+                            logger.info(
+                                f"[RECONCILE] 로컬 시작 이전 봉 제외 | n={_n_before_local} "
+                                f"local_start={format_kst(local_series.index[0])}"
+                            )
 
                         # Reconcile: REST vs Local
                         merged, diff_summary = reconcile_series(local_series, rest_df)
