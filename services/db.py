@@ -2296,6 +2296,8 @@ def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]
             if currency not in real_currencies:
                 update_coin_position(user_id, ticker, 0.0, 0.0, entry_price=0.0)
                 logger.info(f"[DB] sync_all_positions cleared: {ticker} → active=0, locked=0, entry_price=0")
+                # ✅ WO-18: 보유 0 → hts_buy 플래그도 지움 (있을 때만 [HTS-FLAG] 로그)
+                clear_position_hts_flag(user_id, ticker, reason="sync_all_positions_cleared")
 
     except Exception as e:
         logger.warning(f"[DB] sync_all_positions clear stale positions failed: {e}")
@@ -2714,3 +2716,83 @@ def mark_position_as_hts_buy(user_id: str, ticker: str):
         logger.info(f"🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker={ticker}")
     except Exception as e:
         logger.error(f"[HTS-DETECT] Failed to mark position as HTS buy: {e}")
+
+
+def clear_position_hts_flag(user_id: str, ticker: str, reason: str, log: bool = True) -> bool:
+    """
+    ✅ WO-18 (2026-10-01): 보유가 0 이 되면 account_positions.meta.hts_buy 를 지운다.
+    기존에는 HTS 매수 때 켠 플래그가 전량 매도 뒤에도 남아(KRW-JTO 2026-09-30 16:47 설정 → 23:40 매도 뒤 잔존),
+    다음 봇 매수 포지션까지 hts_buy=True 로 읽혔다(2026-10-01 14:20~15:35).
+    반환: 실제로 지웠으면 True (플래그가 없었으면 False, 로그 없음)
+    """
+    try:
+        meta = get_position_meta(user_id, ticker) or {}
+        if "hts_buy" not in meta:
+            return False
+        meta.pop("hts_buy", None)
+        update_position_meta(user_id, ticker, meta)
+        if log:
+            logger.info(f"[HTS-FLAG] cleared | reason={reason} | ticker={ticker}")
+        return True
+    except Exception as e:
+        logger.error(f"[HTS-FLAG] clear failed | reason={reason} | ticker={ticker} | {e}")
+        return False
+
+
+def _has_recent_hts_buy_audit(user_id: str, ticker: str, within_seconds: int) -> bool:
+    """HTS 감지 직후(플래그 설정 → 수량 반영 사이) 의 정상 상태를 잔존으로 오인하지 않기 위한 확인."""
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT timestamp FROM audit_trades WHERE ticker=? AND type='BUY' "
+                "AND reason IN ('HTS_BUY', 'HTS_BUY_ADD') ORDER BY id DESC LIMIT 1",
+                (ticker,),
+            )
+            row = cur.fetchone()
+        if not row or not row[0]:
+            return False
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        ts = datetime.fromisoformat(str(row[0]))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+        return (datetime.now(ZoneInfo("Asia/Seoul")) - ts).total_seconds() <= within_seconds
+    except Exception:
+        return True  # 판단 불가 시 지우지 않는 쪽 (안전)
+
+
+def clear_stale_hts_flags(user_id: str, recent_hts_window_sec: int = 600) -> int:
+    """
+    ✅ WO-18 (c): 기동 시 정합 검사 — 보유 0(가용+묶임) 인데 meta.hts_buy=true 인 행의 플래그를 지운다.
+    최근 recent_hts_window_sec 안에 HTS 매수 감사 행이 있는 종목은 건너뛴다
+    (HTS 감지는 플래그 설정 뒤 다음 동기화에서 수량을 반영하므로 그 사이를 잔존으로 보지 않음).
+    과거 audit 행은 건드리지 않는다. 반환: 지운 행 수
+    """
+    cleared = 0
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT ticker, meta, COALESCE(virtual_coin, 0), COALESCE(virtual_coin_locked, 0) "
+                "FROM account_positions WHERE user_id = ?",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+        for ticker, meta_json, coin, locked in rows:
+            try:
+                meta = json.loads(meta_json) if meta_json else {}
+            except Exception:
+                continue
+            if meta.get("hts_buy") is not True:
+                continue
+            if float(coin) + float(locked) > 0:
+                continue
+            if _has_recent_hts_buy_audit(user_id, ticker, recent_hts_window_sec):
+                logger.info(f"[HTS-FLAG] 기동 정합 검사 건너뜀 (최근 HTS 매수 감사 행) | ticker={ticker}")
+                continue
+            if clear_position_hts_flag(user_id, ticker, reason="boot_reconcile"):
+                cleared += 1
+    except Exception as e:
+        logger.error(f"[HTS-FLAG] 기동 정합 검사 실패 | user_id={user_id} | {e}")
+    return cleared

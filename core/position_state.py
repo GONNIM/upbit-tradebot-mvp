@@ -283,12 +283,13 @@ class PositionState:
             source="bot_market",
         )
 
-    def close_position(self, ts):
+    def close_position(self, ts, reason: str = "position_close"):
         """
         매도 완료 (포지션 청산)
 
         Args:
             ts: 청산 타임스탬프
+            reason: hts_buy 플래그 해제 사유 (WO-18 로그용)
         """
         logger.info(
             f"✅ Position CLOSE | qty={self.qty:.6f} entry={self.avg_price:.2f}"
@@ -310,6 +311,29 @@ class PositionState:
 
         # ✅ Stale Position Check 초기화
         self.highest_since_entry = None
+
+        # ✅ WO-18: 보유 0 → hts_buy 플래그 해제 (메모리 + DB)
+        self._clear_hts_flag(reason)
+
+    def _clear_hts_flag(self, reason: str):
+        """
+        ✅ WO-18 (2026-10-01): position.metadata 와 account_positions.meta 의 hts_buy 를 함께 지운다.
+        둘 중 하나라도 지웠으면 [HTS-FLAG] cleared 1줄.
+        """
+        mem_cleared = self.metadata.pop("hts_buy", None) is not None if isinstance(self.metadata, dict) else False
+        db_cleared = False
+        user_id = getattr(self.trader, "user_id", None) if self.trader is not None else None
+        if user_id and self.ticker:
+            try:
+                from services.db import clear_position_hts_flag
+                db_cleared = clear_position_hts_flag(user_id, self.ticker, reason=reason, log=False)
+            except Exception as e:
+                logger.error(f"[HTS-FLAG] clear failed | reason={reason} | ticker={self.ticker} | {e}")
+        if mem_cleared or db_cleared:
+            logger.info(
+                f"[HTS-FLAG] cleared | reason={reason} | ticker={self.ticker} "
+                f"memory={mem_cleared} db={db_cleared}"
+            )
 
     def set_pending(self, pending: bool):
         """

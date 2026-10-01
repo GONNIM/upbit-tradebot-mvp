@@ -519,7 +519,7 @@ class StrategyEngine:
                         f"but memory shows has_position=True (qty={self.position.qty:.6f})"
                     )
                     # PositionState 강제 리셋 (매도 완료 처리)
-                    self.position.close_position(ts=None)  # ts는 None (정확한 시각 불명)
+                    self.position.close_position(ts=None, reason="position_sync_wallet_zero")  # ts는 None (정확한 시각 불명), WO-18 플래그 해제 사유
                     logger.info(
                         f"✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False"
                     )
@@ -1358,7 +1358,7 @@ class StrategyEngine:
                     indicators.get("signal"),
                 ))
 
-            self.position.close_position(bar.ts)
+            self.position.close_position(bar.ts, reason="bot_sell")  # ✅ WO-18: hts_buy 해제 사유
         else:
             self.position.set_pending(False)
             logger.warning("❌ SELL 실패")

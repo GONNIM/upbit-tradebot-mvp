@@ -612,6 +612,15 @@ def run_live_loop(
     logger.info(f"[BOOT] run_live_loop start | mode={mode_tag} | strategy={strategy_tag}")
     logger.info("🚀 ★ 증분 처리 기반 엔진 (Backtest 없음) ★")
 
+    # ✅ WO-18 (c): 기동 시 정합 검사 — 보유 0 인데 hts_buy 가 남은 행 정리 (LIVE 만, 과거 audit 무변경)
+    if not test_mode:
+        try:
+            from services.db import clear_stale_hts_flags
+            _hts_cleared = clear_stale_hts_flags(user_id)
+            logger.info(f"[HTS-FLAG] 기동 정합 검사 완료 | user_id={user_id} cleared={_hts_cleared}")
+        except Exception as e:
+            logger.warning(f"[HTS-FLAG] 기동 정합 검사 실패 | user_id={user_id} | {e}")
+
     # ✅ P1 — 설정 History 시드 (idempotent). 사용자가 한 번도 명시 저장한 적 없는
     # 새 (user_id, strategy_tag) 조합에 첫 active_settings_id 를 확보.
     try:
