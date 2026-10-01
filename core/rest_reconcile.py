@@ -208,7 +208,9 @@ def fetch_candles_rest_full(
     Args:
         market: "KRW-SUI"
         timeframe: "minute1", "minute3", etc.
-        end_ts: 조회 종료 시각 (UTC) - None이면 to 파라미터 없이 최신 확정 봉만 조회
+        end_ts: 조회 종료 봉 시각 (UTC). 있으면 end_ts 봉까지(포함) 조회하고 그 뒤 봉(형성 중)은 제외.
+                None이면 to 없이 조회 → 지금 형성 중인 봉이 포함될 수 있음 (WO-16 (L))
+                Upbit `to` 는 시간대 없는 UTC, 봉 시작 시각 기준 배타.
         total_count: 조회할 총 캔들 개수 (기본 400)
 
     Returns:
@@ -216,11 +218,11 @@ def fetch_candles_rest_full(
         Index: timestamp (UTC timezone aware)
 
     Example:
-        >>> df = fetch_candles_rest_full("KRW-SUI", "minute1", now_utc(), 400)
+        >>> df = fetch_candles_rest_full("KRW-SUI", "minute1", closed_ts, 400)
         >>> len(df)
-        400  # 200개 제한 우회
+        400  # 200개 제한 우회, 마지막 봉 = closed_ts
         >>> df = fetch_candles_rest_full("KRW-SUI", "minute1", None, 200)
-        >>> # to 파라미터 없음 → 확정 봉만 반환
+        >>> # to 없음 → 형성 중 봉 포함 가능 (워밍업이 시각으로 판정해 제거)
     """
     interval_sec = CandleClock.TIMEFRAME_SEC.get(timeframe)
     if interval_sec is None:
@@ -232,7 +234,7 @@ def fetch_candles_rest_full(
     dfs = []
     batch_num = 0
 
-    end_str = format_kst(end_ts) if end_ts else "None (최신 확정 봉)"
+    end_str = format_kst(end_ts) if end_ts else "None (to 없음, 형성 중 봉 포함 가능)"
     logger.info(
         f"[REST] 다중 호출 시작 | market={market} timeframe={timeframe} "
         f"total_count={total_count} end={end_str}"
@@ -244,12 +246,13 @@ def fetch_candles_rest_full(
 
         try:
             # ============================================================
-            # WO-2026-001 Task 1-A: 최신 batch만 to 없이 조회 (확정 종가 보장)
+            # 첫 batch: end_ts 있으면 to = end_ts + 봉 간격, 없으면 to 없음
             # ============================================================
             if batch_num == 1:
-                # ✅ 첫 번째 batch: to 파라미터 없음 → Upbit 확정 봉만 반환
+                # ✅ WO-16 (L): to 없음 → 형성 중 봉 포함 (Upbit 는 to 이전 봉을 반환,
+                #    pyupbit 는 to=None 을 현재 UTC 로 씀). end_ts 가 있으면 end_ts 봉까지만.
                 logger.debug(
-                    f"[REST] Batch #{batch_num} (최신 확정 봉) | count={batch_size} | to=None"
+                    f"[REST] Batch #{batch_num} (첫 배치) | count={batch_size} | end_ts={end_str}"
                 )
 
                 df = pyupbit.get_ohlcv(
@@ -298,10 +301,12 @@ def fetch_candles_rest_full(
             # WO-2026-001 Task 1-C: 종가 검증 로그 추가
             # ============================================================
             if batch_num == 1:
-                # 최신 봉 상세 로그 (Upbit 차트와 비교 가능)
+                # 첫 배치 마지막 봉 상세 로그 (Upbit 차트와 비교 가능)
+                # ✅ WO-16 (L): "최신 확정 봉" 표시는 형성 중 봉에도 찍혀 사실과 달랐음
                 latest_row = df.iloc[-1]
+                _first_label = "(end_ts 기준)" if end_ts is not None else "(형성 중 포함 가능)"
                 logger.info(
-                    f"[REST] 최신 확정 봉 ✅ | ts={format_kst(df.index[-1])} | "
+                    f"[REST] 첫 배치 마지막 봉 {_first_label} | ts={format_kst(df.index[-1])} | "
                     f"close={latest_row['Close']:.0f} | high={latest_row['High']:.0f} | "
                     f"low={latest_row['Low']:.0f} | volume={latest_row['Volume']:.2f}"
                 )
@@ -368,7 +373,7 @@ def safe_fetch_rest(
     Args:
         market: "KRW-SUI"
         timeframe: "minute1"
-        end_ts: 조회 종료 시각 (UTC) - None이면 to 파라미터 없이 최신 확정 봉만 조회
+        end_ts: 조회 종료 봉 시각 (UTC) - 있으면 end_ts 봉까지(포함), None이면 to 없이 조회(형성 중 봉 포함 가능)
         total_count: 조회할 총 캔들 개수
 
     Returns:
