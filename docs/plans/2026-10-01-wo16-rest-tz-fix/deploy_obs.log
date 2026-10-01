@@ -1,0 +1,128 @@
+===== 창 A: 2026-10-01 13:24:41 ~ 2026-10-01 13:54:41
+조정 400 요청 → 수신 분포:       6 400 
+VERIFY 실행: 6  범위 역전: 0
+  Upbit에 없는 timestamp: 0
+  과거 봉 검증 실패: 0
+  불일치 발견: 0
+  모든 과거 봉 일치: 6
+  최신 확정 봉 ✅: 0
+  미확정 봉 제외: 0
+  누락 봉 평가 시작: 0
+  여유분 없음: 0
+  class=pos_desync_promoted: 0
+  integrity_gap: 0
+  POLLUTED: 0
+  Traceback: 0
+  database is locked: 0
+  ON CONFLICT clause: 0
+  Bar#: 6
+  Not enough data for seed: 6
+  UPBIT-ORDER: 0
+  ERROR/CRITICAL 줄: 0
+===== 창 B: 2026-10-01 13:24:41 ~ 2026-10-01 14:56:00
+조정 400 요청 → 수신 분포:      19 400 
+VERIFY 실행: 19  범위 역전: 0
+  Upbit에 없는 timestamp: 0
+  과거 봉 검증 실패: 0
+  불일치 발견: 0
+  모든 과거 봉 일치: 19
+  최신 확정 봉 ✅: 0
+  미확정 봉 제외: 0
+  누락 봉 평가 시작: 0
+  여유분 없음: 0
+  class=pos_desync_promoted: 0
+  integrity_gap: 0
+  POLLUTED: 0
+  Traceback: 0
+  database is locked: 0
+  ON CONFLICT clause: 0
+  Bar#: 19
+  Not enough data for seed: 19
+  UPBIT-ORDER: 2
+  ERROR/CRITICAL 줄: 0
+
+===== 로그 발췌 (창 A, 기동·워밍업·첫 두 주기 전체 핵심 줄)
+2026-10-01 13:24:45 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-01 13:24:47 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.6s capital≈2,963,292
+2026-10-01 13:24:48 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-01 13:24:48 INFO engine.live_loop | [WARMUP] Required bars: 200
+2026-10-01 13:24:48 INFO engine.live_loop | [WARMUP] REST 초기 데이터 요청 (attempt 1/5) | count=201 (마지막 봉 제거 예정)...
+2026-10-01 13:24:48 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=201 end=None (to 없음, 형성 중 봉 포함 가능)
+2026-10-01 13:24:48 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (형성 중 포함 가능) | ts=2026-10-01 13:20:00 KST | close=751 | high=751 | low=749 | volume=62782.06
+2026-10-01 13:24:48 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=201 batches=2 | 2026-09-30 20:25:00 KST ~ 2026-10-01 13:20:00 KST
+2026-10-01 13:24:48 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 성공 (attempt 1) | bars=201
+2026-10-01 13:24:48 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 완료 | bars=201
+2026-10-01 13:24:48 INFO engine.live_loop | [WARMUP] 형성 중 봉 제거 | ts=2026-10-01 13:20:00 KST elapsed=288s | 최종 봉 수=200 | 최종 마지막 봉=2026-10-01 13:15:00 KST
+2026-10-01 13:24:48 INFO core.indicator_state | ✅ Indicator seeded (separate EMA) | BUY: fast=729.72, slow=734.38 | SELL: fast=729.72, slow=734.38 | base=734.38 | macd=-4.66833, signal=-4.66833
+2026-10-01 13:25:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 13:20:00 KST
+2026-10-01 13:25:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 13:25:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-01 13:20:00 KST | close=751
+2026-10-01 13:25:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-01 13:20:00 KST | close=751 | 안정화 대기=5s
+2026-10-01 13:25:10 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 13:20:00 KST
+2026-10-01 13:25:10 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 13:20:00 KST | close=751 | high=751 | low=749 | volume=62782.06
+2026-10-01 13:25:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 03:00:00 KST ~ 2026-10-01 13:20:00 KST
+2026-10-01 13:25:11 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=199 local_start=2026-09-30 20:25:00 KST
+2026-10-01 13:25:11 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 13:20:00 KST ~ 2026-10-01 13:20:00 KST
+2026-10-01 13:25:11 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 → 부분 재계산
+2026-10-01 13:25:11 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 13:20:00 KST
+2026-10-01 13:25:11 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-09-30 20:25:00 KST ~ 2026-10-01 13:15:00 KST
+2026-10-01 13:25:11 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 13:15:00 KST
+2026-10-01 13:25:11 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 13:15:00 KST | close=749 | high=752 | low=742 | volume=26026.70
+2026-10-01 13:25:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-09-30 18:45:00 KST ~ 2026-10-01 13:15:00 KST
+2026-10-01 13:25:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 13:25:11 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 13:25:11 WARNING core.strategy_engine | [ENGINE] Reconcile 변경 감지 → 부분 재계산 | changed=1 | range: 2026-10-01 04:20:00+00:00 ~ 2026-10-01 04:20:00+00:00
+2026-10-01 13:25:11 WARNING core.indicator_state | ⚠️ Not enough data for seed: 1 < 200
+2026-10-01 13:25:11 INFO core.strategy_engine | 📊 Bar#201 | ts=2026-10-01 04:20:00+00:00 | close=751.00 | ema_fast=730.41 | ema_slow=734.55 | ema_base=734.55 | action=HOLD | pos=False
+2026-10-01 13:25:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 13:20:00 KST | close=751.0
+2026-10-01 13:30:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 13:25:00 KST
+2026-10-01 13:30:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 13:30:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-01 13:25:00 KST | close=751
+2026-10-01 13:30:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-01 13:25:00 KST | close=751 | 안정화 대기=5s
+2026-10-01 13:30:10 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 13:25:00 KST
+2026-10-01 13:30:10 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 13:25:00 KST | close=751 | high=751 | low=748 | volume=43873.72
+2026-10-01 13:30:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 03:05:00 KST ~ 2026-10-01 13:25:00 KST
+2026-10-01 13:30:11 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=198 local_start=2026-09-30 20:25:00 KST
+2026-10-01 13:30:11 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 13:25:00 KST ~ 2026-10-01 13:25:00 KST
+2026-10-01 13:30:11 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 → 부분 재계산
+2026-10-01 13:30:11 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 13:25:00 KST
+2026-10-01 13:30:11 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-09-30 20:30:00 KST ~ 2026-10-01 13:20:00 KST
+2026-10-01 13:30:11 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 13:20:00 KST
+2026-10-01 13:30:11 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 13:20:00 KST | close=751 | high=751 | low=749 | volume=62782.06
+2026-10-01 13:30:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-09-30 18:50:00 KST ~ 2026-10-01 13:20:00 KST
+2026-10-01 13:30:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 13:30:11 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 13:30:11 WARNING core.strategy_engine | [ENGINE] Reconcile 변경 감지 → 부분 재계산 | changed=1 | range: 2026-10-01 04:25:00+00:00 ~ 2026-10-01 04:25:00+00:00
+2026-10-01 13:30:11 WARNING core.indicator_state | ⚠️ Not enough data for seed: 1 < 200
+2026-10-01 13:30:11 INFO core.strategy_engine | 📊 Bar#202 | ts=2026-10-01 04:25:00+00:00 | close=751.00 | ema_fast=731.09 | ema_slow=734.71 | ema_base=734.71 | action=HOLD | pos=False
+2026-10-01 13:30:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 13:25:00 KST | close=751.0
+
+===== 창 C: 13:24:41 ~ 17:20:29 누계 (위 명령 결과)
+조정 400 요청 48회 전부 total=400 / VERIFY 48회 역전 0 / 'Upbit에 없는 timestamp' 0 / 과거 봉 검증 실패 0 / 불일치 0 / 최신 확정 봉 ✅ 0 / 미확정 봉 제외 0 / 누락 봉 평가 시작 0 / run_live_loop start 1 / engine_runner 시작 1 / database is locked 0 / ON CONFLICT 0 / Traceback 0 / ERROR·CRITICAL 0
+
+===== 전환 시점
+2026-10-01 13:20:10 WARNING core.rest_reconcile | [VERIFY] ⚠️ Upbit에 없는 timestamp | ts=2026-09-30 20:20:00 KST (스킵)
+2026-10-01 13:25:11 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-09-30 20:25:00 KST ~ 2026-10-01 13:15:00 KST
+2026-10-01 13:25:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+
+===== 매매 이벤트 (정상 전략 동작) + hts_buy 잔존 플래그 근거
+2026-10-01 14:15:10 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=736.39 slow=736.16
+2026-10-01 14:15:11 INFO core.strategy_engine | 📊 Bar#211 | ts=2026-10-01 05:10:00+00:00 | close=749.00 | ema_fast=736.39 | ema_slow=736.16 | ema_base=736.16 | action=BUY | pos=False
+2026-10-01 14:15:12 INFO core.trader | [UPBIT-ORDER] → POST /v1/orders payload={'market': 'KRW-JTO', 'side': 'bid', 'price': '749.0', 'volume': '308.4559189', 'ord_type': 'limit'}
+2026-10-01 14:15:12 INFO core.trader | [UPBIT-ORDER] ← status=201 body={'uuid': '82b59318-291f-469f-9d96-78356af70318', 'side': 'bid', 'ord_type': 'limit', 'price': '749', 'state': 'wait', 'market': 'KRW-JTO', 'created_at': '202
+2026-10-01 14:16:51 INFO engine.order_reconciler | [OR] final FILLED uuid=82b59318-291f-469f-9d96-78356af70318 user=mcmax33 side=BUY vol=308.4559189 avg=749.0000000000001 fee=0.0 krw=2081503.52824801 coin=308.4559189
+2026-10-01 14:16:52 INFO core.strategy_engine | ✅ [LIMIT-FILL] apply_entry 완료 | uuid=82b59318-291f-469f-9d96-78356af70318 qty=308.455919 price=749.00 entry_bar=211 ts=2026-10-01T14:16:51+09:00
+2026-10-01 15:15:00 INFO engine.live_loop | 🔄 [PARAMS-RELOAD] 조건 파일 변경 반영 완료 | tp=1.50% sl=1.00% ts=0.3 use_fixed=True
+2026-10-01 15:35:11 INFO core.filters.sell_filters | 🛡️ Stop Loss triggered | pnl=-1.07% sl=1.00%
+2026-10-01 15:35:11 INFO core.strategy_engine | 📊 Bar#227 | ts=2026-10-01 06:30:00+00:00 | close=741.00 | ema_fast=740.48 | ema_slow=737.69 | ema_base=737.69 | action=SELL | pos=True
+2026-10-01 15:35:11 INFO core.trader | [UPBIT-ORDER] → POST /v1/orders payload={'market': 'KRW-JTO', 'side': 'ask', 'volume': '308.4559189', 'ord_type': 'market'}
+2026-10-01 15:35:11 INFO core.trader | [UPBIT-ORDER] ← status=201 body={'uuid': 'adfd9f08-3087-48a0-8a91-7b4a565a7993', 'side': 'ask', 'ord_type': 'market', 'state': 'wait', 'market': 'KRW-JTO', 'created_at': '2026-10-01T15:35:1
+2026-10-01 15:35:12 INFO core.strategy_engine | ✅ SELL 체결 | qty=308.455919 price=741.00 pnl=-1.07% bars_held=16
+2026-10-01 15:35:12 INFO core.position_state | ✅ Position CLOSE | qty=308.455919 entry=749.00
+2026-10-01 15:35:13 INFO engine.order_reconciler | [OR] final FILLED uuid=adfd9f08-3087-48a0-8a91-7b4a565a7993 user=mcmax33 side=SELL vol=308.4559189 avg=742.0000000000001 fee=0.0 krw=2310263.3829259 coin=None
+2026-10-01 14:20:11 INFO core.filters.sell_filters | 🔍 DEBUG [STOP_LOSS_CHECK] enable=True, stop_loss_triggered=False, pnl_pct=-0.00%, threshold=-0.70%, current_price=749.0, hts_buy=True
+2026-10-01 15:35:11 INFO core.filters.sell_filters | 🔍 DEBUG [STOP_LOSS_CHECK] enable=True, stop_loss_triggered=True, pnl_pct=-1.07%, threshold=-1.00%, current_price=741.0, hts_buy=True
+Sep 30 16:47:09 orionhunter7.cafe24.com streamlit[2236753]: 2026-09-30 16:47:09 INFO services.db | 🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker=KRW-JTO
+account_positions KRW-JTO (17:2x 조회): 0.0|{"hts_buy": true}
+2026-10-01 15:09:50 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-01T13:24:47.747549+09:00 mode=LIVE
+2026-10-01 15:15:00 INFO engine.live_loop | 🔄 [PARAMS-RELOAD] 조건 파일 변경 반영 완료 | tp=1.50% sl=1.00% ts=0.3 use_fixed=True

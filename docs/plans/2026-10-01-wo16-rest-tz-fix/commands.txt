@@ -501,3 +501,85 @@ done
 git -C "$WT" reset -q --hard HEAD
 git -C "$REPO" worktree remove --force "$WT"
 echo "worktree 정리 완료"; git -C "$REPO" worktree list
+
+
+########################################################################
+# WO-16 배포·관측 — 실행 명령 원문 (2026-10-01 13:2x ~ 17:2x KST)
+########################################################################
+
+## 0. 배포 전 정지선 (읽기)
+git rev-parse --short HEAD && git status -sb | head -1 && git status --short | grep -v '^??'
+ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp rev-parse --short HEAD; git -C /root/upbit-tradebot-mvp status --short | grep -v '^??'; systemctl show tradebot -p ExecMainStartTimestamp; grep -o 'v1\.2026\.[0-9.]*' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1; sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT virtual_coin, entry_price FROM account_positions WHERE ticker='KRW-JTO';\""
+# 결과: 로컬 dda1ec6, 서버 52286af, 11:42:01, v1.2026.10.01.1126, JTO 0.0|0.0
+
+## 1. 배포
+git push
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull --ff-only 2>&1 | tail -2 && git rev-parse --short HEAD && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1 && systemctl restart tradebot; systemctl is-active tradebot; systemctl show tradebot -p ExecMainStartTimestamp"
+# 결과: dda1ec6, v1.2026.10.01.1312, active, 13:24:41
+
+## 2. 관측
+ssh root@orionhunter7.cafe24.com 'bash -s' < $S/wo16_obs.sh                # 13:24:58 1차, 14:55:33 집계 (원문 첨부)
+# Monitor 1차(cut 버퍼링으로 이벤트 미전달 → TaskStop), 2차(awk fflush, SSH 끊김으로 13:30 이후 종료) — 판정에는 journal 직접 집계만 사용
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 13:25:00' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -vF 'fragment with id' | grep -E 'CLOCK|REST|VERIFY|RECONCILE|BACKFILL|Bar#|CONFIRMED|ERROR|WARN' | cut -c1-190 | head -40"
+# 대기: T=$(date -j -f "%Y-%m-%d %H:%M:%S" "2026-10-01 13:54:45" +%s); while [ "$(date +%s)" -lt "$T" ]; do sleep 10; done  → 14:55:33 에 깨어남(시각 변환 착오, 1시간 늦음)
+ssh root@orionhunter7.cafe24.com 'bash -s' < $S/wo16_obs_excerpt.sh > docs/plans/2026-10-01-wo16-rest-tz-fix/deploy_obs.log   # 창 A·B 집계 + 발췌 (원문 첨부)
+
+## 3. 관측 중 매매·플래그 조사 (읽기)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 13:54:41' --until '2026-10-01 14:56:00' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -E 'UPBIT-ORDER|BUY|SELL|HTS|FORCE|action=(BUY|SELL)|체결|PAUSE|REJECT' | grep -v 'Bar#' | cut -c1-220 | head -30"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 15:35:12' --until '2026-10-01 15:40:12' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -vF 'fragment with id' | grep -vE 'periodic sync|sync_all_positions cleared|SETTINGS-SNAPSHOT|progress uuid|ScriptRunContext|^\(5[0-9][0-9],' | cut -c1-230 | head -70"   # 15:35 매도 전후
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 15:35:09' --until '2026-10-01 15:35:13' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -vF 'fragment with id' | grep -E 'STOP|TRAIL|DEAD|EMA_DC|triggered|SELL|매도|reason|hts|Bar#|UPBIT-ORDER' | cut -c1-230 | head -20"
+ssh root@orionhunter7.cafe24.com "sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT virtual_coin, meta, updated_at FROM account_positions WHERE ticker='KRW-JTO';\"; journalctl -u tradebot --since '2026-09-30 00:00' --no-pager -g 'hts_buy.*(True|true|set|설정|해제|clear)|HTS_BUY|HTS-DETECT\] HTS' | grep -vE 'STOP_LOSS_CHECK|^-- No entries' | sed -E 's/^.*\]: //' | cut -c1-200 | tail -8"
+# 결과: 0.0|{"hts_buy": true}, 플래그 설정 2026-09-30 16:47:09
+
+## 4. 재시작 이후 누계 (13:24:41 ~ 17:20:29)
+# (AUTO-RESUME, run_live_loop start, engine_runner 시작, 잠금, ON CONFLICT, Traceback, VERIFY 3값, 문구, BACKFILL, 역전, 400 분포, ERROR) — deploy_obs.log 창 C
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 12:00' --until '2026-10-01 13:24:41' --no-pager -g 'Upbit에 없는 timestamp' | grep -v '^-- No' | tail -2"
+# 결과: 마지막 경고 13:20:10
+
+# ===== wo16_obs.sh =====
+#!/bin/bash
+# WO-16 배포 후 관측 (읽기 전용). 사용: ssh ... 'bash -s' < wo16_obs.sh
+SINCE="2026-10-01 13:24:41"
+J() { journalctl -u tradebot --since "$SINCE" --no-pager -o short-iso | grep -vF "fragment with id" | sed -E 's/^.*(python|streamlit)\[[0-9]+\]: //'; }
+C() { J | grep -cF -- "$1"; }
+
+echo "== now: $(date '+%F %T')  HEAD=$(git -C /root/upbit-tradebot-mvp rev-parse --short HEAD)  active=$(systemctl is-active tradebot)"
+echo "== 기동"
+J | grep -E "\[BOOT-RESUME\]|\[BOOT-SEED\]|\[AUTO-RESUME\]|run_live_loop start" | cut -c1-190
+echo "== (W) 워밍업"
+J | grep -E "total_count=201|다중 호출 완료 \| total=20[01]|\[WARMUP\] (형성 중 봉|마지막 봉)|Indicator seeded" | cut -c1-200
+echo "여유분 없음: $(C '여유분 없음')"
+echo "== (R) 조정 수신 (요청 400)"
+J | awk '/다중 호출 시작/{r=($0 ~ /total_count=400/); next} /다중 호출 완료/{ if(r) print }' | cut -c1-170
+echo "== (R) 첫 배치 마지막 봉 로그 (end_ts 기준) vs CLOCK-CLOSE"
+J | grep -E "CLOCK-CLOSE\] 봉 확정 감지|첫 배치 마지막 봉 \(end_ts 기준\)" | cut -c1-140
+echo "최신 확정 봉 ✅: $(C '최신 확정 봉 ✅')   미확정 봉 제외: $(C '미확정 봉 제외')"
+echo "== (V)/VERIFY"
+J | grep -E "VERIFY\] 과거 봉 검증 시작 \| count=[0-9]+ \| range" | sed -E 's/.*range=//' | awk -F' ~ ' '{s=($1<$2)?"OK":"REVERSED"; print s" | "$0}' | sort | uniq -c | awk '{print}' | tail -8
+echo "Upbit에 없는 timestamp: $(C 'Upbit에 없는 timestamp')"
+echo "과거 봉 검증 실패: $(C '과거 봉 검증 실패')   불일치 발견: $(C '불일치 발견')   모든 과거 봉 일치: $(C '모든 과거 봉 일치')"
+echo "== WO-14 (b)/BACKFILL"
+J | grep -E "로컬 시작 이전 봉 제외|누락 봉 평가 시작" | cut -c1-150
+echo "== 공통"
+for t in "class=pos_desync_promoted" "integrity_gap" "POLLUTED" "Traceback" "database is locked" "ON CONFLICT clause"; do echo "$t: $(C "$t")"; done
+J | grep -F "Bar#" | cut -c1-120
+J | grep -E " ERROR | CRITICAL " | cut -c1-170 | sort | uniq -c | head
+
+# ===== wo16_obs_excerpt.sh =====
+#!/bin/bash
+# WO-16 관측 집계 + 로그 발췌 (읽기 전용). 창 A = 30분(13:24:41~13:54:41), 창 B = 13:24:41~14:56:00
+A0="2026-10-01 13:24:41"; A1="2026-10-01 13:54:41"; B1="2026-10-01 14:56:00"
+J() { journalctl -u tradebot --since "$1" --until "$2" --no-pager -o short-iso | grep -vF "fragment with id" | sed -E 's/^.*python\[[0-9]+\]: //'; }
+for W in "A|$A0|$A1" "B|$A0|$B1"; do
+  IFS='|' read -r N S E <<< "$W"
+  echo "===== 창 $N: $S ~ $E"
+  echo "조정 400 요청 → 수신 분포: $(J "$S" "$E" | awk '/다중 호출 시작/{r=($0 ~ /total_count=400/); next} /다중 호출 완료/{ if(r){match($0,/total=[0-9]+/); print substr($0,RSTART+6,RLENGTH-6)} }' | sort | uniq -c | tr '\n' ' ')"
+  echo "VERIFY 실행: $(J "$S" "$E" | grep -cE 'VERIFY\] 과거 봉 검증 시작 \| count=[0-9]+ \| range')  범위 역전: $(J "$S" "$E" | grep -E 'VERIFY\] 과거 봉 검증 시작 \| count=[0-9]+ \| range' | sed -E 's/.*range=//' | awk -F' ~ ' '$1>=$2' | wc -l)"
+  for t in "Upbit에 없는 timestamp" "과거 봉 검증 실패" "불일치 발견" "모든 과거 봉 일치" "최신 확정 봉 ✅" "미확정 봉 제외" "누락 봉 평가 시작" "여유분 없음" "class=pos_desync_promoted" "integrity_gap" "POLLUTED" "Traceback" "database is locked" "ON CONFLICT clause" "Bar#" "Not enough data for seed" "UPBIT-ORDER"; do
+    echo "  $t: $(J "$S" "$E" | grep -cF -- "$t")"
+  done
+  echo "  ERROR/CRITICAL 줄: $(J "$S" "$E" | grep -cE ' ERROR | CRITICAL ')"
+done
+echo
+echo "===== 로그 발췌 (창 A, 기동·워밍업·첫 두 주기 전체 핵심 줄)"
+J "$A0" "2026-10-01 13:30:15" | grep -E "BOOT-RESUME|run_live_loop start|다중 호출|첫 배치 마지막 봉|WARMUP\]|Indicator seeded|CLOCK-CLOSE|케이스|RECONCILE\]|REST-RECONCILE|VERIFY|ENGINE\] Reconcile|Not enough|Bar#|CONFIRMED\] 봉 처리" | cut -c1-230
