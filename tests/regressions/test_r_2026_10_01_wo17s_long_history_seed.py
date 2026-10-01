@@ -64,7 +64,8 @@ def _long_baseline(closes):
 class TestLongHistorySeed(unittest.TestCase):
 
     def test_1_800_within_0_3pct_of_1200_baseline(self):
-        """(1) 800봉 시드의 EMA200 이 1,200봉 장기 기준과 0.3% 이내 (EMA60·간격도 함께 표기)."""
+        """(1) 800봉 시드가 장기 기준과 가깝다 — 합성 데이터(0.3%) + 실데이터 기동 9(0.1원)."""
+        # [합성 데이터용] 무작위 걸음 1,200봉: 800봉 시드 EMA200 이 1,200봉 기준과 0.3% 이내, EMA60 은 사실상 같음
         closes = _walk(1200)
         s800 = _ind()
         self.assertTrue(s800.seed_long_history(closes[-800:], base_len=200))
@@ -72,6 +73,22 @@ class TestLongHistorySeed(unittest.TestCase):
         rel = abs(s800.ema_slow_buy - base.ema_slow_buy) / base.ema_slow_buy
         self.assertLess(rel, 0.003, rel)
         self.assertLess(abs(s800.ema_fast_buy - base.ema_fast_buy), 1e-6)
+
+        # [실데이터용] ✅ WO-17 (S2): 기동 9(2026-09-30 16:33:06) 직전 확정 800봉 시드 vs 10,011봉 장기 기준(G4 의 C)
+        # 기준값 출처: docs/plans/2026-10-01-wo17-recompute-seed/wo17s_boot9_compare.csv "C G4 장기 기준 (10,011봉)" 행
+        cmp_path = ROOT / "docs" / "plans" / "2026-10-01-wo17-recompute-seed" / "wo17s_boot9_compare.csv"
+        c_row = next(r for r in csv.reader(open(cmp_path, encoding="utf-8")) if r and r[0].startswith("C G4 장기 기준"))
+        c_fast, c_slow = float(c_row[1]), float(c_row[2])
+        fx = ROOT / "tests" / "regressions" / "fixtures" / "wo17s_boot9_m5_800.csv"
+        real = [float(r["close"]) for r in csv.DictReader(open(fx))]
+        ind = _ind()
+        _seed_warmup_indicators(ind, _df(real), LONG_SEED_BARS, 200)
+        self.assertLess(abs(ind.ema_fast_buy - c_fast), 0.1, (ind.ema_fast_buy, c_fast))
+        self.assertLess(abs(ind.ema_slow_buy - c_slow), 0.1, (ind.ema_slow_buy, c_slow))
+        # (대조) 옛 방식(200봉 SMA, seed_from_closes)은 같은 자료에서 0.1원을 넘는다 — 실데이터 단언이 결함을 잡는다는 증거
+        old = _ind()
+        old.seed_from_closes(real[-200:])
+        self.assertGreater(max(abs(old.ema_fast_buy - c_fast), abs(old.ema_slow_buy - c_slow)), 0.1)
 
     def test_2_one_more_bar_equals_incremental(self):
         """(2) 801봉 시드 = 800봉 시드 + 마지막 봉 증분 (같은 시작점) — 시드 계산이 실시간 증분과 같은 식."""

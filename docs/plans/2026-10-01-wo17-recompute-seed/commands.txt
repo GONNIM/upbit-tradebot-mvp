@@ -579,3 +579,146 @@ J | grep -E "BOOT-RESUME|run_live_loop start|engine_runner 시작|AUTO-RESUME" |
 echo "   run_live_loop start: $(C 'run_live_loop start')  engine_runner 시작: $(C 'engine_runner 시작')"
 echo "== 매매·주문"
 echo "   UPBIT-ORDER: $(C 'UPBIT-ORDER')  action=BUY: $(C 'action=BUY')  action=SELL: $(C 'action=SELL')  EMA Buy Signal: $(C 'EMA Buy Signal')"
+
+
+########################################################################
+# WO-17 (S) 완결 뒤 정기 점검 + (S2) — 실행 명령 원문 (2026-10-02 08:1x ~ 08:4x KST)
+########################################################################
+
+## A1·A2 서버 상태·기동 이력 (읽기)
+ssh root@orionhunter7.cafe24.com "date '+%F %T'; systemctl status tradebot --no-pager | head -5; systemctl show tradebot -p ExecMainStartTimestamp; git -C /root/upbit-tradebot-mvp rev-parse --short HEAD; grep -o 'v1\.2026\.[0-9.]*' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1; echo '--- 코드 문자열 확인'; grep -n '긴 이력 시드 실패\|시드 방식=sma200\|시드 방식=long_history' /root/upbit-tradebot-mvp/engine/live_loop.py | cut -c1-120; echo '--- 기동 이력'; journalctl -u tradebot --since '2026-10-01 20:10:55' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -E 'BOOT-RESUME|시드 방식=|긴 이력 시드 실패|Started Upbit|Stopped Upbit|run_live_loop start' | cut -c1-200; echo \"긴 이력 시드 실패: \$(journalctl -u tradebot --since '2026-10-01 20:10:55' --no-pager | grep -cF '긴 이력 시드 실패')  sma200: \$(journalctl -u tradebot --since '2026-10-01 20:10:55' --no-pager | grep -cF '시드 방식=sma200')\""
+
+## A3 야간 운영
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-02 08:14:09'" < $S/s2_night.sh      # 원문 첨부
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 20:40:55' --until '2026-10-02 08:14:09' --no-pager -o short-iso | grep -vF 'fragment with id' | grep -n -B3 -A14 'Traceback' | sed -E 's/^([0-9]+[-:])[^ ]* [^ ]* [^ ]*: /\1 /' | cut -c1-220 | head -80"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-08-30' --no-pager -g 'MediaFileHandler: Missing file' 2>/dev/null | grep -v '^-- No' | sed -E 's/^.*\]: //' | awk '{print \$1, \$NF}' | sort | uniq -c | sort -k2 | tail -25; echo '--- 총계'; journalctl -u tradebot --since '2026-08-30' --no-pager -g 'MediaFileHandler: Missing file' 2>/dev/null | grep -vc '^-- No'"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-01 20:40:55' --until '2026-10-02 08:14:09' --no-pager | sed -E 's/^.*python\[[0-9]+\]: //' | grep -E 'UPBIT-ORDER\] →|EMA Buy Signal|action=(BUY|SELL)|Sell triggered by|HTS-DETECT\] HTS_BUY|HTS 매수 플래그|HTS-FLAG\]|LIMIT-FILL\] apply_entry|final FILLED|SELL 체결|Position CLOSE|STOP_LOSS_CHECK.*triggered=True|LIMIT BUY 등록|자동 취소|cancel' | cut -c1-230; echo '--- audit_trades'; sqlite3 -separator ' | ' 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, ticker, type, reason, price, bar_time FROM audit_trades WHERE timestamp >= '2026-10-01T20:40:55' ORDER BY id;\""
+
+## A4 사후 확인 1~6
+ssh root@orionhunter7.cafe24.com 'bash -s' < $S/s2_posthoc.sh      # 원문 첨부
+
+## A5 (a)
+grep -rn "실시간 재판정" services core engine | cut -c1-160
+ssh root@orionhunter7.cafe24.com "for w in '2026-10-01 20:10:55|2026-10-01 20:12:00' '2026-10-01 18:10:24|2026-10-01 18:12:00' '2026-10-01 13:24:41|2026-10-01 13:26:00' '2026-10-01 11:42:01|2026-10-01 11:44:00' '2026-10-01 09:55:59|2026-10-01 09:58:00'; do s=\${w%%|*}; e=\${w##*|}; n=\$(journalctl -u tradebot --since \"\$s\" --until \"\$e\" --no-pager | grep -cF 'BUY 실시간 재판정'); f=\$(journalctl -u tradebot --since \"\$s\" --until \"\$e\" --no-pager | grep -F 'BUY 실시간 재판정' | head -1 | sed -E 's/^.*python\[[0-9]+\]: //' | cut -c1-230); echo \"\$s ~ \$e : \$n\"; echo \"   첫 줄: \$f\"; done"
+awk 'NR<=1129 && /^def /{l=NR": "$0} NR==1129{print l}' services/db.py; sed -n 1085,1145p services/db.py; grep -n "def record_warmup_log" -A30 core/strategy_engine.py | grep -n "insert_buy_eval\|log_buy_eval\|notes\|WARMUP" | head
+sed -n 1422,1475p core/strategy_engine.py; ssh root@orionhunter7.cafe24.com "sqlite3 -separator ' | ' 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, bar_time, price, overall_ok, substr(notes,1,60), substr(checks,1,80), backfill_type FROM audit_buy_eval WHERE ticker='KRW-JTO' AND bar_time IN ('2026-10-01T14:10:00+09:00','2026-10-01T03:15:00+09:00','2026-10-01T20:05:00+09:00') ORDER BY bar_time;\""
+grep -n "audit_buy_eval\|fetch_buy_eval\|WARMUP" pages/audit_viewer.py | head -12
+
+## A5 (b)
+ssh root@orionhunter7.cafe24.com 'bash -s' < $S/s2_a5b.sh      # 원문 첨부
+
+## B1
+awk '/^# ===== wo17s_verify_seed.py =====$/{f=1;next} f && /^# ===== /{f=0} f && /^########################################################################$/{f=0} f' docs/plans/2026-10-01-wo17-recompute-seed/commands.txt > $S/verify_from_commands.py && diff <(cat $S/verify_from_commands.py) <(cat $S/wo17s_verify_seed.py; echo)     # 끝 빈 줄 1개 차이뿐
+{ printf '%s\n' '<주석 3줄>'; cat $S/wo17s_verify_seed.py; } > scripts/wo17s_verify_seed.py && python3 -m py_compile scripts/wo17s_verify_seed.py
+
+## B2
+(파일 도구로 test_1 에 실데이터 단언 추가)
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo17s_long_history_seed -v
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 $S/s2_oldseed_run.py      # 옛 방식 → AssertionError 3.0904 not less than 0.1
+for f in engine/live_loop.py core/indicator_state.py; do cp $f $S/s2_new/$(echo $f | tr / _); git show a7d40b2:$f > $f; done; env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo17s_long_history_seed; for f in engine/live_loop.py core/indicator_state.py; do cp $S/s2_new/$(echo $f | tr / _) $f; done     # ImportError
+
+## B3·B4
+(파일 도구로 가이드 사후 확증 7번·project-rules 절 추가)
+sed -i '' '<마지막 업데이트·버전 줄 2.12 → 2.13>' .claude/context/project-rules.md ; git diff .claude/context/project-rules.md > $S/project_rules_diff.txt
+
+## B5
+bash scripts/regression_gate.sh 2>&1 | tail -3; grep -E "^Ran|^OK|FAILED" /tmp/regression_gate.log | tail -2     # 269/269
+
+## B6 (커밋 1건)
+git status --short ; git add scripts/wo17s_verify_seed.py tests/regressions/test_r_2026_10_01_wo17s_long_history_seed.py docs/operations/wo8-force-buy-verification-guide.md .claude/context/project-rules.md docs/plans/2026-10-01-wo17-recompute-seed/s2-check-report.md docs/plans/2026-10-01-wo17-recompute-seed/a5_compare.csv ; git add -f docs/plans/2026-10-01-wo17-recompute-seed/commands.txt
+git log --oneline origin/main..HEAD ; git push
+
+# ===== s2_night.sh =====
+#!/bin/bash
+# A3 야간 운영 집계 (읽기 전용). 사용: ssh ... "bash -s -- '<END>'" < s2_night.sh
+S0="2026-10-01 20:40:55"; E0="$1"
+R=/root/upbit-tradebot-mvp
+J() { journalctl -u tradebot --since "$S0" --until "$E0" --no-pager -o short-iso | grep -vF "fragment with id" | sed -E 's/^.*(python|streamlit)\[[0-9]+\]: //'; }
+C() { J | grep -cF -- "$1"; }
+D="file:$R/services/data/tradebot_mcmax33.db?mode=ro"
+echo "== 창: $S0 ~ $E0"
+echo "== Bar# 범위"
+J | grep -F "Bar#" | head -1 | cut -c1-140
+J | grep -F "Bar#" | tail -1 | cut -c1-140
+echo "   Bar# 줄 수: $(C 'Bar#')"
+echo "== cross 상태 변화 (engine_debug.log, log_to_file 봉 요약 줄 — 보조 출처)"
+awk -v s="[${S0/ /T}" -v e="[${E0/ /T}" '$1 >= s && $1 <= e' $R/mcmax33_engine_debug.log | grep -F "cross=" \
+  | awk '{match($0,/cross=[A-Za-z]+/); c=substr($0,RSTART+6,RLENGTH-6); if (c!=prev) {print; prev=c}}' | cut -c1-200
+echo "   cross 줄 수: $(awk -v s="[${S0/ /T}" -v e="[${E0/ /T}" '$1 >= s && $1 <= e' $R/mcmax33_engine_debug.log | grep -cF 'cross=')"
+echo "== 주문·신호 (journal)"
+for t in "UPBIT-ORDER" "EMA Buy Signal" "action=BUY" "action=SELL" "Sell triggered by" "ema_dead_cross=True" "FORCE" "HTS-DETECT] HTS_BUY" "[HTS-FLAG] cleared"; do echo "   '$t': $(C "$t")"; done
+echo "== 감사 거절 (DB audit_trades)"
+sqlite3 "$D" "SELECT type, COUNT(*) FROM audit_trades WHERE timestamp >= '${S0/ /T}' AND timestamp <= '${E0/ /T}' GROUP BY type;"
+echo "   SELL_REJECTED·BUY_REJECTED: $(sqlite3 "$D" "SELECT COUNT(*) FROM audit_trades WHERE type IN ('SELL_REJECTED','BUY_REJECTED') AND timestamp >= '${S0/ /T}' AND timestamp <= '${E0/ /T}';")"
+echo "== 결함 태그 (journal)"
+for t in " ERROR " "Traceback" "[POS-DESYNC] class=" "Upbit에 없는 timestamp" "불일치 발견" "과거 봉 검증 실패" "database is locked" "CRITICAL" "POLLUTED" "ON CONFLICT clause" "긴 이력 시드 실패"; do echo "   '$t': $(C "$t")"; done
+echo "   조정 400 수신: $(J | awk '/다중 호출 시작/{r=($0 ~ /total_count=400/); next} /다중 호출 완료/{ if(r){match($0,/total=[0-9]+/); print substr($0,RSTART+6,RLENGTH-6)} }' | sort | uniq -c | tr '\n' ' ')"
+echo "   NO_TRADE 건너뜀: $(C 'CONFIRMED-NO-TRADE')  BACKFILL: $(C '누락 봉 평가 시작')  WARNING 줄: $(J | grep -c ' WARNING ')"
+J | grep -E " WARNING " | sed -E 's/[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:]{8} //' | cut -c1-90 | sort | uniq -c | sort -rn | head -8
+
+# ===== s2_posthoc.sh =====
+#!/bin/bash
+# A4 사후 확인 1~6 (읽기 전용). 항목별 기준 시각은 wo8-force-buy-verification-guide.md 그대로.
+G(){ journalctl -u tradebot --since "$1" --no-pager 2>/dev/null | grep -vF "fragment with id" | sed -E 's/^.*(python|streamlit)\[[0-9]+\]: //'; }
+D='file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro'
+S1='2026-09-30 16:33:05'
+echo "-- (1) 강제 매수 원자 경로 (기준 $S1)"
+G "$S1" | grep -E '\[FIXED-PRICE\]\[FORCE\]|\[LIMIT-FILL\] apply_entry' | cut -c1-170 | tail -5
+echo "   FORCE 발주: $(G "$S1" | grep -cF '[FIXED-PRICE][FORCE]')   force_buy 감사 행(기준 이후): $(sqlite3 "$D" "SELECT COUNT(*) FROM audit_trades WHERE reason='force_buy' AND timestamp >= '2026-09-30T16:33:05';")"
+echo "-- (2) HTS 승격 가드 (엔진 종목 KRW-JTO 의 외부 매수 첫 봉)"
+G "$S1" | grep -E 'SELL 차단 \(HOLD 유지\)|POS-DESYNC\] (streak|class=)' | cut -c1-170 | tail -5
+echo "   JTO HTS_BUY 감사 행(기준 이후): $(sqlite3 "$D" "SELECT COUNT(*) FROM audit_trades WHERE ticker='KRW-JTO' AND reason IN ('HTS_BUY','HTS_BUY_ADD') AND timestamp >= '2026-09-30T16:33:05';")  최근: $(sqlite3 "$D" "SELECT MAX(timestamp) FROM audit_trades WHERE ticker='KRW-JTO' AND reason IN ('HTS_BUY','HTS_BUY_ADD');")"
+echo "-- (3) WO-9 (c)(b)(e)"
+G "$S1" | grep -E 'HTS-DETECT\] HTS_BUY|LOCKED-QTY|AUDIT-REJECT' | cut -c1-200 | tail -8
+echo "   REJECTED 감사 행: $(sqlite3 "$D" "SELECT type||':'||COUNT(*) FROM audit_trades WHERE type LIKE '%REJECTED' GROUP BY type;")"
+S4='2026-10-01 11:42:01'
+echo "-- (4) WO-14 (a) 미확정 봉 제외 (기준 $S4)"
+G "$S4" | grep -F '미확정 봉 제외' | cut -c1-160 | tail -5
+echo "   건수: $(G "$S4" | grep -cF '미확정 봉 제외')  (WO-16 배포 13:24:41 뒤 조정 첫 배치가 end_ts 봉까지만 받아 형성 중 봉 자체가 오지 않음)"
+echo "-- (5) WO-14 E1 trailing 복원 (기준 $S4)"
+G "$S4" | grep -F 'trailing 상태 복원' | cut -c1-160 | tail -5
+echo "   trailing 상태 복원: $(G "$S4" | grep -cF 'trailing 상태 복원')  BACKFILL 시작: $(G "$S4" | grep -cF '누락 봉 평가 시작')"
+S6='2026-10-01 18:10:24'
+echo "-- (6) WO-18 hts_buy 해제 사이클 (기준 $S6)"
+G "$S6" | grep -E 'HTS-DETECT\] HTS_BUY|HTS 매수 플래그 설정' | cut -c1-170 | tail -6
+G "$S6" | grep -F '[HTS-FLAG] cleared' | grep -v boot_reconcile | cut -c1-170 | tail -5
+echo "   STOP_LOSS_CHECK hts_buy 값: $(G "$S6" | grep -F 'STOP_LOSS_CHECK' | grep -oE 'hts_buy=(True|False)' | sort | uniq -c | tr '\n' ' ')"
+echo "   잔존 SQL: $(sqlite3 "$D" "SELECT COUNT(*) FROM account_positions WHERE meta LIKE '%\"hts_buy\": true%' AND COALESCE(virtual_coin,0)+COALESCE(virtual_coin_locked,0)=0;")  보유 중 hts_buy 행: $(sqlite3 "$D" "SELECT group_concat(ticker) FROM account_positions WHERE meta LIKE '%\"hts_buy\": true%' AND COALESCE(virtual_coin,0)+COALESCE(virtual_coin_locked,0)>0;")"
+echo "   KRW-JTO 현재: $(sqlite3 "$D" "SELECT virtual_coin||'|'||COALESCE(meta,'') FROM account_positions WHERE ticker='KRW-JTO';")"
+
+# ===== s2_a5b.sh =====
+#!/bin/bash
+# A5 (b): '[REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)' — 이전 기동 18:10~20:10 vs 이번 기동 20:10:55~ 비교
+J(){ journalctl -u tradebot --since "$1" --until "$2" --no-pager -o short-iso | grep -vF "fragment with id" | sed -E 's/^.*(python|streamlit)\[[0-9]+\]: //'; }
+for w in "2026-10-01 18:10:24|2026-10-01 20:10:24" "2026-10-01 20:10:55|2026-10-01 22:10:55"; do
+  s=${w%%|*}; e=${w##*|}
+  echo "== 창 $s ~ $e (2시간)"
+  echo "   '개 봉 변경 감지 (지표는 증분만)': $(J "$s" "$e" | grep -cF '개 봉 변경 감지 (지표는 증분만)')  CLOCK-CLOSE: $(J "$s" "$e" | grep -cF '[CLOCK-CLOSE] 봉 확정 감지')  NO-TRADE: $(J "$s" "$e" | grep -cF 'CONFIRMED-NO-TRADE')"
+  echo "   '변경 감지!' 분류: $(J "$s" "$e" | grep -F '[RECONCILE] 변경 감지!' | grep -oE 'changed=[0-9]+ inserted=[0-9]+' | sort | uniq -c | tr '\n' ' ')"
+  echo "   간격(분) 분포: $(J "$s" "$e" | grep -F '개 봉 변경 감지 (지표는 증분만)' | awk '{split($2,t,":"); m=t[1]*60+t[2]; if(p!="") print m-p; p=m}' | sort -n | uniq -c | tr '\n' ' ')"
+  echo "   변경 봉 = 확정 대상 봉 일치: $(J "$s" "$e" | awk '/CLOCK-CLOSE\] 봉 확정 감지/{match($0,/ts=[0-9: -]+ KST/); c=substr($0,RSTART+3,RLENGTH-7)} /\[RECONCILE\] 변경 감지!/{match($0,/범위: [0-9: -]+ KST ~ [0-9: -]+ KST/); r=substr($0,RSTART+4,RLENGTH-4); split(r,a," KST ~ "); n++; if(a[1]==c && a[2]==c" KST") ok++} END{print ok"/"n}')"
+done
+echo "== 이번 기동 첫 주기 예시 (20:15 주기 전체 줄)"
+J "2026-10-01 20:15:00" "2026-10-01 20:15:12" | grep -E "CLOCK-CLOSE|첫 배치 마지막 봉|다중 호출 완료 \| total=400|로컬 시작 이전|변경 감지|ENGINE\] Reconcile|Bar#" | cut -c1-200
+
+# ===== s2_oldseed_run.py =====
+"""WO-17 (S2): 실데이터 단언이 옛 시드 방식(200봉 SMA)에서 실패함을 보인다.
+test 모듈이 import 한 _seed_warmup_indicators 를 옛 동작(seed_from_closes)으로 바꿔 test_1 만 실행.
+실행: 저장소 루트에서 env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 <이 파일>
+"""
+import sys
+import unittest
+
+sys.path.insert(0, ".")
+import tests.regressions.test_r_2026_10_01_wo17s_long_history_seed as t  # noqa: E402
+
+
+def _old_seed(indicators, initial_df, long_bars, min_hist):
+    ok = indicators.seed_from_closes(initial_df["Close"].tolist())   # 옛 워밍업: 200봉 SMA
+    return ok, "sma200", "old_behavior", initial_df.iloc[-min_hist:]
+
+
+t._seed_warmup_indicators = _old_seed
+suite = unittest.TestSuite([t.TestLongHistorySeed("test_1_800_within_0_3pct_of_1200_baseline")])
+r = unittest.TextTestRunner(verbosity=2).run(suite)
+print("RESULT", "FAIL(기대)" if (r.failures or r.errors) else "PASS(예상 밖)")

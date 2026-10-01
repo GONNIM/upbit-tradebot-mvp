@@ -247,6 +247,28 @@ ssh root@orionhunter7.cafe24.com "
 "
 ```
 
+- 2026-10-02 정기 점검 기록: 외부 매도 경로 2회 확인 — KRW-SNT(HTS_BUY_ADD 10-01 22:19·22:20 → `[HTS-FLAG] cleared | reason=sync_all_positions_cleared` 10-02 00:18:50), KRW-QKC(HTS_BUY 06:31:44 → 07:58:50 같은 사유). 봇 매수(KRW-JTO 10-02 03:40) SELL 평가 `hts_buy=False`. 봇 매도 해제 경로(`reason=bot_sell`)는 아직 미발생(JTO 외부 매수 없음).
+
+### 사후 확증 7번 (2026-10-02 WO-17 (S2) 편입)
+
+세션을 시작할 때마다 봅니다. 기한은 없습니다. 기준 시각은 WO-17 (S) 재시작 시각 `2026-10-01 20:10:55` 입니다. **로그 출처는 `journalctl -u tradebot`** 입니다(`mcmax33_engine_debug.log` 는 `log_to_file` 이벤트만 기록 — 보조 출처).
+
+| 번호 | 항목 | 확인 내용 | 2026-10-02 정기 점검 상태 |
+|---|---|---|---|
+| 7 | WO-17 (S) 긴 이력 시드 | 기동마다 `[WARMUP] 시드 방식=long_history bars=800` 1줄, `긴 이력 시드 실패`·`시드 방식=sma200` 0건, `scripts/wo17s_verify_seed.py` 로 로그 시드 값과 1,200봉 장기 기준 차이 EMA60·EMA200 모두 **0.1원 이내**, fast−slow 부호 같음 | 기동 1회(10-01 20:11:02) 확인 — 1줄·폴백 0, 차이 −0.0000 / −0.0002, 부호 같음(역배열) |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-10-01 20:10:55'
+  J(){ journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null; }
+  echo '-- (7) 기동별 시드 방식 --'
+  J | grep -E 'BOOT-RESUME\] success|시드 방식=' | sed -E 's/^.*\]: //'
+  echo \"긴 이력 시드 실패: \$(J | grep -cF '긴 이력 시드 실패')  sma200: \$(J | grep -cF '시드 방식=sma200')\"
+"
+# 각 기동의 [WARMUP] 시각·ema_fast·ema_slow 로 (로컬, Upbit 공개 API):
+python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <ema_slow> 1200
+```
+
 ```bash
 ssh root@orionhunter7.cafe24.com "
   # 자연 발생 강제 매수 감지 (2026-09-12 17:24 배포 이후 전체 창)
