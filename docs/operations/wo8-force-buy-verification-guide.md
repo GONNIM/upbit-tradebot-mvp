@@ -205,6 +205,26 @@ ssh root@orionhunter7.cafe24.com "
 "
 ```
 
+### 사후 확증 2건 (2026-10-01 WO-14 완결 시 편입)
+
+세션을 시작할 때마다 아래 두 항목을 봅니다. 기한은 없습니다. 기준 시각은 WO-14 재시작 시각 `2026-10-01 11:42:01` 입니다.
+
+| 번호 | 항목 | 확인 내용 | 2026-10-01 관측 창 상태 |
+|---|---|---|---|
+| 4 | WO-14 (a) 미확정 봉 제외 | `[BACKFILL] 미확정 봉 제외 \| ts=T` 가 나오면, 봉 T 의 `audit_buy_eval`·`audit_sell_eval` 행이 다음 주기 실시간 평가 1행뿐이고 `backfill_type` 이 비어 있는지 확인 | 11:50:10 발화 1회 → 11:50 봉 `audit_buy_eval` id 74837 (11:55:11 실시간, 확정 종가 734, backfill 없음), `audit_sell_eval` 0행 (확증 1회, 재발 시 같은 방법으로 확인) |
+| 5 | WO-14 E1 Trailing 상태 복원 | 포지션 보유 중 BACKFILL 이 나오면 `[BACKFILL] trailing 상태 복원 \| highest old→new 되돌림` 의 new 가 BACKFILL 직전 고점과 같은지 확인. `trailing 상태 복원 건너뜀` · `trailing 상태 복원 실패` 는 0 이어야 함 | 미발생 (관측 창 동안 포지션 없음, 대기) |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-10-01 11:42:01'
+  J(){ journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null; }
+  echo '-- (4) 미확정 봉 제외 --'
+  J | grep -F '미확정 봉 제외' | tail -5
+  echo '-- (5) trailing 복원 --'
+  J | grep -F 'trailing 상태 복원' | tail -5
+"
+```
+
 ```bash
 ssh root@orionhunter7.cafe24.com "
   # 자연 발생 강제 매수 감지 (2026-09-12 17:24 배포 이후 전체 창)
