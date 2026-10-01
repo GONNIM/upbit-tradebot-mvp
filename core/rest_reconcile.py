@@ -163,6 +163,30 @@ def _classify_no_trade_after_exhaustion(
         return None
 
 
+def _upbit_to_str(ts) -> str:
+    """
+    ✅ WO-16 (R): Upbit 캔들 `to` 문자열 (UTC, 시간대 표시 없음).
+    Upbit 는 시간대 없는 `to` 를 UTC 로 읽고, pyupbit 0.2.34 는 문자열을 변환 없이 보낸다
+    (오프셋을 붙여도 pyupbit 가 strftime 으로 지움). 기존 KST 문자열은 9시간 뒤를 조회했다(WO-15).
+    시간대 없는 입력은 UTC 로 본다(엔진 규약: 내부 시각은 UTC).
+    """
+    ts = pd.Timestamp(ts)
+    if ts.tzinfo is None:
+        ts = ts.tz_localize("UTC")
+    return ts.tz_convert("UTC").strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _first_batch_to_kwargs(end_ts, interval_sec: int) -> Dict[str, str]:
+    """
+    ✅ WO-16 (R) a-2: 첫 배치 `to`. Upbit `to` 는 봉 시작 시각 기준 배타이므로
+    `end_ts + 봉 간격` 이면 end_ts 봉까지 포함하고 그다음(형성 중) 봉은 제외한다.
+    end_ts=None(워밍업)이면 `to` 없음 → 형성 중 봉 포함 가능(워밍업이 시각으로 판정).
+    """
+    if end_ts is None:
+        return {}
+    return {"to": _upbit_to_str(pd.Timestamp(end_ts) + timedelta(seconds=interval_sec))}
+
+
 # ============================================================
 # P0-1.3: REST 200개 제한 대응 - 다중 호출
 # ============================================================
@@ -231,20 +255,22 @@ def fetch_candles_rest_full(
                 df = pyupbit.get_ohlcv(
                     ticker=market,
                     interval=timeframe,
-                    count=batch_size
+                    count=batch_size,
+                    **_first_batch_to_kwargs(end_ts, interval_sec)  # ✅ WO-16 (R) a-2
                 )
             else:
                 # 나머지 batch: 과거 데이터는 to 사용 (이미 확정됨)
-                to_kst_str = to.astimezone(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M:%S")
+                # ✅ WO-16 (R): UTC 문자열 (기존 KST 문자열은 9시간 뒤를 조회)
+                to_utc_str = _upbit_to_str(to)
 
                 logger.debug(
-                    f"[REST] Batch #{batch_num} (과거 확정 봉) | count={batch_size} | to={to_kst_str}"
+                    f"[REST] Batch #{batch_num} (과거 확정 봉) | count={batch_size} | to(UTC)={to_utc_str}"
                 )
 
                 df = pyupbit.get_ohlcv(
                     ticker=market,
                     interval=timeframe,
-                    to=to_kst_str,
+                    to=to_utc_str,
                     count=batch_size
                 )
 
@@ -287,8 +313,9 @@ def fetch_candles_rest_full(
 
             dfs.append(df)
 
-            # 다음 조회 종료 시점 (가장 오래된 봉 - 1 interval)
-            to = df.index[0] - timedelta(seconds=interval_sec)
+            # 다음 조회 종료 시점 = 가장 오래된 봉 시작 시각
+            # ✅ WO-16 (R): Upbit to 는 배타 → 그 봉 직전부터 받음 (기존 "- 1 interval" 은 경계마다 1봉 누락)
+            to = df.index[0]
             remain -= len(df)
 
             # API Rate Limit 보호 (0.1초 대기)
