@@ -1,0 +1,61 @@
+run,case,item,expected,actual,result
+run1 (13:13:35 KST),-,실행 시각(UTC) / 형성 중 봉 시작(KST),,2026-10-01 04:13:35 / 13:10,PASS
+run1 (13:13:35 KST),(a),수신 봉 수,400,400,PASS
+run1 (13:13:35 KST),(a),중복,0,0,PASS
+run1 (13:13:35 KST),(a),마지막 봉 == end_ts (판정식 오류: end_ts 13:05 봉이 무거래라 Upbit 에 없음 — curl 확인 13:10·13:00·12:55·12:50),10-01 13:05,10-01 13:00,FAIL→판정식 정정
+run1 (13:13:35 KST),(a),형성 중 봉 미포함,없음,없음,PASS
+run1 (13:13:35 KST),(a),직접 조회 400봉과 시각 일치,일치,일치,PASS
+run1 (13:13:35 KST),(a),직접 조회와 종가 불일치,0,0,PASS
+run1 (13:13:35 KST),(a),무거래 구멍(참고),-,12,PASS
+run1 (13:13:35 KST),(a),로그 '첫 배치 마지막 봉 (end_ts 기준)',있음,있음,PASS
+run1 (13:13:35 KST),(b),수신 봉 수,201,201,PASS
+run1 (13:13:35 KST),(b),중복,0,0,PASS
+run1 (13:13:35 KST),(b),마지막 봉 / 상태,-,13:10 / 형성 중,PASS
+run1 (13:13:35 KST),(b),(W) 판정 결과,dropped → 200,dropped → 200 (경과 216s),PASS
+run1 (13:13:35 KST),(c),VERIFY 조회 수신 봉 수,220,220,PASS
+run1 (13:13:35 KST),(c),검증 대상 200봉 중 응답에 없는 봉,0,0,PASS
+run1 (13:13:35 KST),(c),응답 마지막 봉 == 대상 마지막 봉,13:00,13:00,PASS
+run1 (13:13:35 KST),(c),verify_past_candles_with_upbit 결과,True,True,PASS
+run1 (13:13:35 KST),(c),'Upbit에 없는 timestamp' 경고,0,0,PASS
+run1 (13:13:35 KST),(c),범위 양끝 시각 순,시작<끝,시작<끝,PASS
+run2,-,실행 시각(UTC) / 형성 중 봉 시작(KST),,2026-10-01 04:14:17 / 13:10,PASS
+run2,(a),수신 봉 수,400,400,PASS
+run2,(a),중복,0,0,PASS
+run2,(a),end_ts 봉 Upbit 존재 (무거래면 없음),-,없음(무거래),PASS
+run2,(a),마지막 봉 == end_ts 이하 최신 Upbit 봉,10-01 13:00,10-01 13:00,PASS
+run2,(a),형성 중 봉 미포함,없음,없음,PASS
+run2,(a),직접 조회 400봉과 시각 일치,일치,일치,PASS
+run2,(a),직접 조회와 종가 불일치,0,0,PASS
+run2,(a),무거래 구멍(참고),-,12,PASS
+run2,(a),로그 '첫 배치 마지막 봉 (end_ts 기준)',있음,있음,PASS
+run2,(b),수신 봉 수,201,201,PASS
+run2,(b),중복,0,0,PASS
+run2,(b),마지막 봉 / 상태,-,13:10 / 형성 중,PASS
+run2,(b),(W) 판정 결과,dropped → 200,dropped → 200 (경과 259s),PASS
+run2,(c),VERIFY 조회 수신 봉 수,220,220,PASS
+run2,(c),검증 대상 200봉 중 응답에 없는 봉,0,0,PASS
+run2,(c),응답 마지막 봉 == 대상 마지막 봉,13:00,13:00,PASS
+run2,(c),verify_past_candles_with_upbit 결과,True,True,PASS
+run2,(c),'Upbit에 없는 timestamp' 경고,0,0,PASS
+run2,(c),범위 양끝 시각 순,시작<끝,시작<끝,PASS
+run3,-,실행 시각(UTC) / 형성 중 봉 시작(KST),,2026-10-01 04:17:53 / 13:15,PASS
+run3,(a),수신 봉 수,400,400,PASS
+run3,(a),중복,0,0,PASS
+run3,(a),end_ts 봉 Upbit 존재 (무거래면 없음),-,있음,PASS
+run3,(a),마지막 봉 == end_ts 이하 최신 Upbit 봉,10-01 13:10,10-01 13:10,PASS
+run3,(a),마지막 봉 == end_ts,10-01 13:10,10-01 13:10,PASS
+run3,(a),형성 중 봉 미포함,없음,없음,PASS
+run3,(a),직접 조회 400봉과 시각 일치,일치,일치,PASS
+run3,(a),직접 조회와 종가 불일치,0,0,PASS
+run3,(a),무거래 구멍(참고),-,13,PASS
+run3,(a),로그 '첫 배치 마지막 봉 (end_ts 기준)',있음,있음,PASS
+run3,(b),수신 봉 수,201,201,PASS
+run3,(b),중복,0,0,PASS
+run3,(b),마지막 봉 / 상태,-,13:15 / 형성 중,PASS
+run3,(b),(W) 판정 결과,dropped → 200,dropped → 200 (경과 175s),PASS
+run3,(c),VERIFY 조회 수신 봉 수,220,220,PASS
+run3,(c),검증 대상 200봉 중 응답에 없는 봉,0,0,PASS
+run3,(c),응답 마지막 봉 == 대상 마지막 봉,13:00,13:00,PASS
+run3,(c),verify_past_candles_with_upbit 결과,True,True,PASS
+run3,(c),'Upbit에 없는 timestamp' 경고,0,0,PASS
+run3,(c),범위 양끝 시각 순,시작<끝,시작<끝,PASS

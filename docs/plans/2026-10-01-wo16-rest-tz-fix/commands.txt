@@ -286,3 +286,218 @@ cases = [
 for name, to in cases:
     print(f"{name:55s} -> {q(to)}")
 print(f"{'P7 to 없음 (count=2)':55s} -> {q(None, 2)}")
+
+
+########################################################################
+# WO-16 2단계 구현 — 실행 명령 원문 (2026-10-01 13:0x ~ 13:2x KST)
+########################################################################
+
+## 0. 정지선
+git log --oneline -1 && git status -sb | head -1 && git status --short | grep -v '^??'
+ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp; systemctl is-active tradebot; grep -o 'v1\.2026\.[0-9.]*' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1"
+# 결과: 로컬 6caa78e / 서버 52286af, 11:42:01, active, v1.2026.10.01.1126
+
+## 1. 커밋별 공통 (R·V·W·L 각각)
+python3 -m py_compile <변경 파일> <테스트 파일>
+UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.<테스트 모듈> -v
+V=$(date '+%Y.%m.%d.%H%M') && sed -i '' "495s/v1\.2026\.10\.01\.<이전>/v1.$V/" pages/dashboard.py && grep -n "v1.2026" pages/dashboard.py && bash scripts/regression_gate.sh 2>&1 | tail -3
+git add <파일들> && git status --short | grep -v '^??'
+git commit -q -F <scratchpad>/wo16{r,v,w,l}_msg.txt && git log --oneline -1
+# 결과: 199dd09 (1307, 241/241) → f6d624f (1308, 244/244) → 94e5309 (1310, 248/248) → 529411a (1312, 251/251)
+
+## 2. R 테스트를 고치기 전 코드로 실행 (결함 재현 확인)
+cp core/rest_reconcile.py $S/rr_new.py && git show HEAD:core/rest_reconcile.py > core/rest_reconcile.py && UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo16r_rest_to_utc 2>&1 | grep -E "^(FAIL|ERROR):|AssertionError|Ran|FAILED" | cut -c1-170; cp $S/rr_new.py core/rest_reconcile.py; git diff --stat
+# 결과: ①②③ FAIL (293 != 400 / 03:00 != 02:55 / VERIFY 건너뜀 경고), ④·도우미 ERROR(함수 없음), ⑤ 통과
+
+## 3. 범위 밖 문구 확인
+grep -rn "최신 확정 봉" --include="*.py" --include="*.sh" . | grep -v "_old\|/docs/"
+# 결과: core/data_feed.py:996·999 (범위 밖)
+
+## 4. 실 API 실측 (저장소 루트, 더미 키)
+date '+%T KST' && UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 $S/wo16_api_check.py            # run1 (판정식 정정 전, 결과는 api_check.csv 에 수기 반영)
+curl -s "https://api.upbit.com/v1/candles/minutes/5?market=KRW-JTO&count=4&to=2026-10-01T04:15:00Z" | python3 -c "import json,sys; [print(c['candle_date_time_kst'], c['trade_price'], c['candle_acc_trade_volume']) for c in json.load(sys.stdin)]"
+# 결과: 13:10, 13:00, 12:55, 12:50 — 13:05 봉 없음(무거래)
+date '+%T KST' && UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 $S/wo16_api_check.py "run2"
+# (대기 루프 zsh 문법 오류로 중지) until [ "$(date '+%H%M%S')" \> "131520" ]; do sleep 5; done; ...  → TaskStop
+date '+%T KST' && UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 $S/wo16_api_check.py "run3"
+# 결과: run2·run3 FAIL 0, run3 마지막 봉 13:10 == end_ts
+
+## 5. 단독 revert 실측
+bash $S/wo16_revert_check.sh 2>&1 | grep -vE "^Updated 1 path|절대 우회"
+# 결과: R 245/245, V 248/248, W 247/247, L 248/248 (충돌은 버전 줄만, L 은 충돌 없음)
+
+## 6. 테스트 결과 파일
+(test_results.txt 생성: 4개 모듈 unittest -v + regression_gate.sh tail)
+
+# ===== wo16_api_check.py =====
+"""WO-16 실 API 실측: 수정한 fetch_candles_rest_full 을 Upbit 공개 API 에 1회씩 실행 (읽기 전용, 키 불필요).
+실행: 저장소 루트에서 UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 <이 파일>
+기준값: 같은 시점 Upbit API 를 urllib 로 직접(to=UTC 'Z') 조회한 봉 목록.
+출력: docs/plans/2026-10-01-wo16-rest-tz-fix/api_check.csv
+"""
+import csv
+import json
+import logging
+import sys
+import time
+import urllib.request
+from datetime import datetime, timezone
+
+import pandas as pd
+
+sys.path.insert(0, ".")
+import core.rest_reconcile as rr                     # noqa: E402
+from engine.live_loop import _warmup_trim_forming    # noqa: E402
+
+OUT = "docs/plans/2026-10-01-wo16-rest-tz-fix/api_check.csv"
+MARKET, TF, STEP = "KRW-JTO", "minute5", 300
+
+
+class _Cap(logging.Handler):
+    def __init__(self):
+        super().__init__()
+        self.msgs = []
+
+    def emit(self, r):
+        self.msgs.append(r.getMessage())
+
+
+cap = _Cap()
+logging.getLogger("core.rest_reconcile").addHandler(cap)
+logging.getLogger("core.rest_reconcile").setLevel(logging.INFO)
+
+
+def ref_bars(to_utc: pd.Timestamp, n: int) -> list:
+    """기준: Upbit 직접 조회 (to=UTC Z, 배타), n 봉, UTC 시작 시각 오름차순."""
+    out, to = {}, to_utc
+    while len(out) < n:
+        url = (f"https://api.upbit.com/v1/candles/minutes/5?market={MARKET}&count=200&to="
+               + to.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"accept": "application/json"}), timeout=10))
+        if not d:
+            break
+        for c in d:
+            out[pd.Timestamp(c["candle_date_time_utc"], tz="UTC")] = c["trade_price"]
+        to = min(out)
+        time.sleep(0.15)
+    keys = sorted(out)[-n:]
+    return keys, {k: out[k] for k in keys}
+
+
+rows = []
+
+
+RUN = sys.argv[1] if len(sys.argv) > 1 else "run"
+
+
+def row(case, item, expected, actual, ok):
+    rows.append([RUN, case, item, expected, actual, "PASS" if ok else "FAIL"])
+    print(f"{case:4s} {item:42s} expected={expected!s:32s} actual={actual!s:32s} {'PASS' if ok else 'FAIL'}")
+
+
+now = pd.Timestamp(datetime.now(timezone.utc))
+forming_start = now.floor("5min")
+closed = forming_start - pd.Timedelta(seconds=STEP)
+row("-", "실행 시각(UTC) / 형성 중 봉 시작(KST)", "", f"{now:%Y-%m-%d %H:%M:%S} / {forming_start.tz_convert('Asia/Seoul'):%H:%M}", True)
+
+# (a) 조정 경로: total_count=400, end_ts=직전 확정 봉
+cap.msgs.clear()
+df = rr.fetch_candles_rest_full(MARKET, TF, closed.to_pydatetime(), 400)
+ref_keys, ref_close = ref_bars(closed + pd.Timedelta(seconds=STEP), 400)
+row("(a)", "수신 봉 수", 400, len(df), len(df) == 400)
+row("(a)", "중복", 0, int(df.index.duplicated().sum()), not df.index.duplicated().any())
+row("(a)", "end_ts 봉 Upbit 존재 (무거래면 없음)", "-", "있음" if closed in ref_keys else "없음(무거래)", True)
+row("(a)", "마지막 봉 == end_ts 이하 최신 Upbit 봉", f"{ref_keys[-1].tz_convert('Asia/Seoul'):%m-%d %H:%M}", f"{df.index[-1].tz_convert('Asia/Seoul'):%m-%d %H:%M}", df.index[-1] == ref_keys[-1] and df.index[-1] <= closed)
+if closed in ref_keys:
+    row("(a)", "마지막 봉 == end_ts", f"{closed.tz_convert('Asia/Seoul'):%m-%d %H:%M}", f"{df.index[-1].tz_convert('Asia/Seoul'):%m-%d %H:%M}", df.index[-1] == closed)
+row("(a)", "형성 중 봉 미포함", "없음", "포함" if forming_start in df.index else "없음", forming_start not in df.index)
+row("(a)", "직접 조회 400봉과 시각 일치", "일치", "일치" if list(df.index) == ref_keys else "불일치", list(df.index) == ref_keys)
+mism = sum(1 for k in ref_keys if k in df.index and abs(df.loc[k, "Close"] - ref_close[k]) > 1e-9)
+row("(a)", "직접 조회와 종가 불일치", 0, mism, mism == 0)
+gaps = int(((df.index[1:] - df.index[:-1]) > pd.Timedelta(seconds=STEP)).sum())
+row("(a)", "무거래 구멍(참고)", "-", gaps, True)
+row("(a)", "로그 '첫 배치 마지막 봉 (end_ts 기준)'", "있음", "있음" if any("첫 배치 마지막 봉 (end_ts 기준)" in m for m in cap.msgs) else "없음",
+    any("첫 배치 마지막 봉 (end_ts 기준)" in m for m in cap.msgs))
+time.sleep(0.3)
+
+# (b) 워밍업 경로: total_count=201, end_ts=None → (W) 판정
+cap.msgs.clear()
+now_b = pd.Timestamp(datetime.now(timezone.utc))
+wdf = rr.fetch_candles_rest_full(MARKET, TF, None, 201)
+row("(b)", "수신 봉 수", 201, len(wdf), len(wdf) == 201)
+row("(b)", "중복", 0, int(wdf.index.duplicated().sum()), not wdf.index.duplicated().any())
+last = wdf.index[-1]
+forming = last + pd.Timedelta(seconds=STEP) > now_b
+row("(b)", "마지막 봉 / 상태", "-", f"{last.tz_convert('Asia/Seoul'):%H:%M} / {'형성 중' if forming else '확정'}", True)
+trimmed, action, _, elapsed = _warmup_trim_forming(wdf, STEP, now_b.to_pydatetime(), 200)
+exp_len, exp_act = (200, "dropped") if forming else (201, "kept_confirmed")
+row("(b)", "(W) 판정 결과", f"{exp_act} → {exp_len}", f"{action} → {len(trimmed)} (경과 {elapsed}s)", action == exp_act and len(trimmed) == exp_len)
+time.sleep(0.3)
+
+# (c) VERIFY 경로: 검증 대상 = 확정 대상 봉 이전 200봉, count=220, end_ts=대상 마지막 봉
+cap.msgs.clear()
+past_idx = df.index[df.index < closed][-200:]
+past = pd.DataFrame({"Close": [ref_close[k] for k in past_idx]}, index=past_idx)
+vdf = rr.safe_fetch_rest(MARKET, TF, past_idx[-1].to_pydatetime(), int(200 * 1.1))
+missing = [k for k in past_idx if k not in vdf.index]
+row("(c)", "VERIFY 조회 수신 봉 수", 220, len(vdf), len(vdf) == 220)
+row("(c)", "검증 대상 200봉 중 응답에 없는 봉", 0, len(missing), not missing)
+row("(c)", "응답 마지막 봉 == 대상 마지막 봉", f"{past_idx[-1].tz_convert('Asia/Seoul'):%H:%M}", f"{vdf.index[-1].tz_convert('Asia/Seoul'):%H:%M}", vdf.index[-1] == past_idx[-1])
+cap.msgs.clear()
+ok = rr.verify_past_candles_with_upbit(MARKET, TF, past, tolerance=1.0)
+skips = sum(1 for m in cap.msgs if "Upbit에 없는 timestamp" in m)
+row("(c)", "verify_past_candles_with_upbit 결과", True, ok, ok is True)
+row("(c)", "'Upbit에 없는 timestamp' 경고", 0, skips, skips == 0)
+row("(c)", "범위 양끝 시각 순", "시작<끝", "시작<끝" if past_idx[0] < past_idx[-1] else "역전", past_idx[0] < past_idx[-1])
+
+import os
+new = not os.path.exists(OUT)
+with open(OUT, "a", newline="") as f:
+    w = csv.writer(f)
+    if new:
+        w.writerow(["run", "case", "item", "expected", "actual", "result"])
+    w.writerows(rows)
+print("FAIL 수:", sum(1 for r in rows if r[-1] == "FAIL"))
+
+# ===== wo16_revert_check.sh =====
+#!/bin/bash
+# WO-16 커밋별 단독 revert 실측 (임시 worktree, main 무변경)
+set -u
+REPO=/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp
+WT=/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo16_wt
+COMMITS=(199dd09 f6d624f 94e5309 529411a)
+
+git -C "$REPO" worktree remove --force "$WT" 2>/dev/null
+git -C "$REPO" worktree add --detach "$WT" HEAD >/dev/null 2>&1 || { echo "worktree 생성 실패"; exit 1; }
+# 게이트가 .env 를 읽지 않도록 worktree 에는 .env 를 두지 않는다 (git 미추적 파일이라 복사되지 않음)
+ls -a "$WT" | grep -c '^\.env$' | sed 's/^/worktree .env 개수: /'
+# git 미추적 .streamlit(secrets) 은 링크, 업비트 키는 더미 환경변수 (실키 미사용)
+ln -s "$REPO/.streamlit" "$WT/.streamlit"
+export UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID=
+
+for c in "${COMMITS[@]}"; do
+  echo "=================== revert $c ($(git -C "$REPO" log --format=%s -1 "$c" | cut -c1-40))"
+  git -C "$WT" reset -q --hard HEAD
+  git -C "$WT" clean -qfd
+  git -C "$WT" revert --no-commit "$c" >/dev/null 2>&1
+  conflicts=$(git -C "$WT" diff --name-only --diff-filter=U)
+  echo "충돌 파일: ${conflicts:-없음}"
+  other=$(echo "$conflicts" | grep -v '^pages/dashboard.py$' | grep -v '^$')
+  if [ -n "$other" ]; then
+    echo "❌ 버전 줄 외 충돌: $other"
+    git -C "$WT" diff "$other" | head -40
+    continue
+  fi
+  if echo "$conflicts" | grep -q '^pages/dashboard.py$'; then
+    git -C "$WT" checkout --ours pages/dashboard.py
+    git -C "$WT" add pages/dashboard.py
+    echo "버전 줄 충돌 → 현재 버전 유지: $(grep -o 'v1\.2026\.[0-9.]*' "$WT/pages/dashboard.py" | head -1)"
+  fi
+  echo "변경 파일:"; git -C "$WT" diff --cached --stat | tail -5
+  (cd "$WT" && python3 -m py_compile core/rest_reconcile.py engine/live_loop.py pages/dashboard.py && echo "py_compile OK")
+  (cd "$WT" && bash scripts/regression_gate.sh 2>&1 | grep -E "회귀 테스트 .*통과|실패|FAILED|❌" | tail -3)
+done
+
+git -C "$WT" reset -q --hard HEAD
+git -C "$REPO" worktree remove --force "$WT"
+echo "worktree 정리 완료"; git -C "$REPO" worktree list

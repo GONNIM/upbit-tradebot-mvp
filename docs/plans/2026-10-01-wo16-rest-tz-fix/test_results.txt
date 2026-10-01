@@ -1,0 +1,43 @@
+# WO-16 재현 테스트 결과 (2026-10-01 13:18:08 KST, HEAD 529411a)
+# 명령: UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest <4개 모듈> -v
+test_1_400_requested_400_received_no_dup_no_gap (tests.regressions.test_r_2026_10_01_wo16r_rest_to_utc.TestRestToUtc.test_1_400_requested_400_received_no_dup_no_gap)
+ok
+test_2_last_bar_is_end_ts_and_no_forming (tests.regressions.test_r_2026_10_01_wo16r_rest_to_utc.TestRestToUtc.test_2_last_bar_is_end_ts_and_no_forming)
+ok
+test_3_verify_range_covers_all_targets (tests.regressions.test_r_2026_10_01_wo16r_rest_to_utc.TestRestToUtc.test_3_verify_range_covers_all_targets)
+③ VERIFY: 응답 범위가 검증 대상 200봉을 전부 포함 → 건너뜀 0, 통과. ... ok
+test_4_old_kst_to_reproduces_shortfall (tests.regressions.test_r_2026_10_01_wo16r_rest_to_utc.TestRestToUtc.test_4_old_kst_to_reproduces_shortfall)
+ok
+test_5_fetch_confirmed_candle_is_separate (tests.regressions.test_r_2026_10_01_wo16r_rest_to_utc.TestRestToUtc.test_5_fetch_confirmed_candle_is_separate)
+⑤ Issue #8 계열 고정: fetch_confirmed_candle 은 공용 다중 조회 함수를 부르지 않고 ... ok
+test_to_str_is_utc (tests.regressions.test_r_2026_10_01_wo16r_rest_to_utc.TestUpbitToStr.test_to_str_is_utc)
+KST 인식 시각 → UTC 문자열, 시간대 없는 입력은 UTC 로 간주. ... ok
+test_1_inserted_older_bars_sorted (tests.regressions.test_r_2026_10_01_wo16v_reconcile_sorted.TestReconcileSorted.test_1_inserted_older_bars_sorted)
+ok
+test_2_filled_missing_bars_inside_range_sorted (tests.regressions.test_r_2026_10_01_wo16v_reconcile_sorted.TestReconcileSorted.test_2_filled_missing_bars_inside_range_sorted)
+ok
+test_3_unsorted_reproduced_without_sort (tests.regressions.test_r_2026_10_01_wo16v_reconcile_sorted.TestReconcileSorted.test_3_unsorted_reproduced_without_sort)
+(대조) 정렬하지 않으면 덧붙은 봉이 끝에 남아 VERIFY 범위가 역전 — 결함 재현. ... ok
+test_1_201_forming_dropped_to_200 (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_1_201_forming_dropped_to_200)
+① 201 수신 + 마지막 봉 형성 중(시작 128초 뒤) → 제거 → 200. ... ok
+test_2_201_confirmed_kept (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_2_201_confirmed_kept)
+② 201 수신 + 마지막 봉 확정(현재 봉 거래 없음, 봉 간격 이상 경과) → 201 유지. ... ok
+test_3_200_forming_kept_with_warning_no_crash (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_3_200_forming_kept_with_warning_no_crash)
+③ 200 수신(= R 없음) + 형성 중 → 제거하지 않음(기동 오류 없음, F2). ... ok
+test_4_call_site_and_logs (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_4_call_site_and_logs)
+run_live_loop 워밍업이 헬퍼를 쓰고 세 가지 로그를 남기며, 옛 '여유분 없음' 분기는 사라짐. ... ok
+test_1_source_wording (tests.regressions.test_r_2026_10_01_wo16l_rest_log_wording.TestRestLogWording.test_1_source_wording)
+옛 문구가 fetch_candles_rest_full·safe_fetch_rest 에서 사라지고 새 문구가 있음. ... ok
+test_2_rendered_log_with_end_ts (tests.regressions.test_r_2026_10_01_wo16l_rest_log_wording.TestRestLogWording.test_2_rendered_log_with_end_ts)
+end_ts 있음 → '[REST] 첫 배치 마지막 봉 (end_ts 기준)' 렌더, 옛 문구 없음. ... ok
+test_3_rendered_log_without_end_ts (tests.regressions.test_r_2026_10_01_wo16l_rest_log_wording.TestRestLogWording.test_3_rendered_log_without_end_ts)
+end_ts=None(워밍업) → '(형성 중 포함 가능)' 렌더, 시작 로그도 정정. ... ok
+----------------------------------------------------------------------
+Ran 16 tests in 0.449s
+OK
+
+# 회귀 게이트: bash scripts/regression_gate.sh (TELEGRAM_* 빈 값 export, .env 격리)
+
+==========================================
+✅ 회귀 테스트 251/251 통과 — 배포 진행 가능
+==========================================
