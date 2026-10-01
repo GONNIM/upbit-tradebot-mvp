@@ -1,0 +1,365 @@
+# WO-17 (S) G4 측정 — 실행 명령 원문 (2026-10-01 19:0x ~ 19:4x KST, 전부 읽기 전용)
+# 서버: journal·DB(mode=ro)만. 로컬: Upbit 공개 캔들 API(키 불필요) 조회와 계산. 스크립트 원문은 끝에 첨부.
+# S = /private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad
+
+## 0. 정지선 (같은 세션 직전 단계: 서버 1501f7b, 18:10:24, v1.2026.10.01.1740)
+cd /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp && git push 2>&1 | tail -1; ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull --ff-only 2>&1 | tail -1; git rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp"
+
+## 1. 기동별 시드 로그 (journal)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-08-30' --no-pager -g 'Indicator seeded|IndicatorState 초기화|EMA 기간|fast_period|EMA\(fast' 2>/dev/null | grep -v '^-- No' | sed -E 's/^.*\]: //' | cut -c1-220 | head -40"
+
+## 2. 기동별 기간 (settings_history, DB 읽기 전용)
+ssh root@orionhunter7.cafe24.com "sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, saved_at, applied_at, source_page, json_extract(params_json,'\$.interval'), json_extract(params_json,'\$.fast_period'), json_extract(params_json,'\$.slow_period'), json_extract(params_json,'\$.base_ema_period'), json_extract(params_json,'\$.fast_buy'), json_extract(params_json,'\$.slow_buy'), json_extract(params_json,'\$.fast_sell'), json_extract(params_json,'\$.slow_sell'), json_extract(params_json,'\$.ticker') FROM settings_history WHERE saved_at >= '2026-08-25' ORDER BY id;\""
+
+## 3. 교차 조건 확인 (로컬 코드)
+grep -n "prev_ema_fast\b.*<=\|prev_fast.*<=\|golden\|ema_gc =\|ema_dead_cross =\|ema_dc =" core/strategy_incremental.py core/filters/sell_filters.py | head -12
+sed -n 912,935p core/strategy_incremental.py
+
+## 4. Bar# 로그·봇 매매·신호 추출 (읽기 전용)
+ssh root@orionhunter7.cafe24.com 'bash -s' < $S/g4_export.sh 2>&1 | grep -v "^\*\*" > $S/g4_export.txt     # 원문 첨부. 11,971줄 (Bar# 11,247 · 매매 107 · 신호 614, 구분 줄 3)
+
+## 5. Upbit 확정 봉 (공개 API, UTC to)
+python3 $S/g4_fetch.py      # g4_m5.csv 10,400봉(08-23 18:05 ~ 10-01 19:10, 52회 호출) · g4_m1.csv 2,600봉(08-30 14:02 ~ 09-03 15:54, 13회)
+
+## 6. 측정
+python3 $S/g4_measure.py    # → g4_cross_compare.csv, g4_trade_impact.csv
+# 1차 실행: AssertionError (기동 4 09-04 19:46:56 — 기동 순간 거래 없던 19:45 봉이 이후 생김) → A 워밍업 범위를 journal 마지막 봉 기준으로 수정 후 재실행
+python3 $S/g4_prices.py     # 교차 이동 시 봉 마감가 비교 + 기동 1 왕복 손익
+cd docs/plans/2026-10-01-wo17-recompute-seed && cat g4_trade_impact.csv; grep ",BvsC," g4_cross_compare.csv | grep -v ",0,matched"
+
+########################################################################
+# 첨부: 스크립트 원문
+########################################################################
+
+# ===== g4_export.sh =====
+#!/bin/bash
+# G4 측정용 읽기 전용 추출: (1) Bar# 로그 (2) 봇 매매 audit_trades (3) 매수 신호·교차 로그
+echo "##BAR"
+journalctl -u tradebot --since "2026-09-02 14:00" --until "2026-10-02 00:00" --no-pager -o short-iso -g 'Bar#[0-9]+ \| ts=' 2>/dev/null \
+  | grep -v '^-- No' | sed -E 's/^.*\]: //' | grep -F 'KRW-' -v \
+  | awk '{print}'
+echo "##TRADES"
+sqlite3 -separator '|' 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \
+  "SELECT id, timestamp, ticker, type, reason, price, bar_time FROM audit_trades WHERE ticker='KRW-JTO' AND timestamp >= '2026-09-02' AND timestamp < '2026-10-03' ORDER BY id;"
+echo "##SIGNAL"
+journalctl -u tradebot --since "2026-09-02 14:00" --until "2026-10-02 00:00" --no-pager -o short-iso -g 'EMA Buy Signal|ema_dead_cross=True|Sell triggered by|action=(BUY|SELL)' 2>/dev/null \
+  | grep -v '^-- No' | sed -E 's/^.*\]: //' | cut -c1-200
+
+# ===== g4_fetch.py =====
+"""G4: Upbit 공개 캔들 API(키 불필요) 수집. to = UTC 'Z', 봉 시작 시각 기준 배타(WO-16 실측).
+출력: g4_m5.csv (2026-08-24 ~ 2026-10-02 06:00 KST), g4_m1.csv (2026-08-31 ~ 2026-09-03 16:00 KST)
+열: ts_kst, open, high, low, close, volume
+"""
+import csv
+import json
+import time
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+S = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad"
+KST = timezone(timedelta(hours=9))
+
+
+def fetch(unit, start_kst, end_kst, out):
+    rows, to = {}, end_kst.astimezone(timezone.utc)
+    stop = start_kst.astimezone(timezone.utc)
+    calls = 0
+    while to > stop:
+        url = (f"https://api.upbit.com/v1/candles/minutes/{unit}?market=KRW-JTO&count=200&to="
+               + to.strftime("%Y-%m-%dT%H:%M:%SZ"))
+        for attempt in range(5):
+            try:
+                d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"accept": "application/json"}), timeout=15))
+                break
+            except Exception as e:  # 429 등
+                time.sleep(1.0 + attempt)
+        else:
+            raise RuntimeError(url)
+        calls += 1
+        if not d:
+            break
+        for c in d:
+            rows[c["candle_date_time_kst"]] = (c["opening_price"], c["high_price"], c["low_price"],
+                                               c["trade_price"], c["candle_acc_trade_volume"])
+        to = min(datetime.strptime(c["candle_date_time_utc"], "%Y-%m-%dT%H:%M:%S") for c in d).replace(tzinfo=timezone.utc)
+        time.sleep(0.12)
+    with open(out, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["ts_kst", "open", "high", "low", "close", "volume"])
+        for k in sorted(rows):
+            if k >= start_kst.strftime("%Y-%m-%dT%H:%M:%S"):
+                w.writerow([k, *rows[k]])
+    print(out, len(rows), "calls", calls, min(rows), max(rows))
+
+
+fetch(5, datetime(2026, 8, 24, 0, 0, tzinfo=KST), datetime(2026, 10, 2, 6, 0, tzinfo=KST), f"{S}/g4_m5.csv")
+fetch(1, datetime(2026, 8, 31, 0, 0, tzinfo=KST), datetime(2026, 9, 3, 16, 0, tzinfo=KST), f"{S}/g4_m1.csv")
+
+# ===== g4_measure.py =====
+"""WO-17 (S) G4 측정 (읽기 전용 데이터만 사용).
+
+시드 방식 3종 (각 기동 i):
+  A (현재, 200봉 SMA): 기동 시 엔진이 받은 최근 200봉(형성 중 봉이면 워밍업 수신 종가로) → EMA_p = 마지막 p개 SMA.
+  B ((S) 안, 800봉 증분): 확정 봉만(형성 중 제외, WO-16 (W)) 최근 800봉 → 가장 오래된 p개 SMA 로 시작해 나머지 증분.
+  C (장기 기준): 확정 봉 전부(1,200봉 이상 가능한 만큼) → 같은 방식(가장 오래된 p개 SMA → 증분). 수렴값.
+기동 뒤: 같은 확정 봉 흐름을 증분 반영(엔진 update_incremental 과 같은 식, 무거래 봉은 없음).
+교차: 엔진 조건 그대로 — GC: prev_fast <= prev_slow and fast > slow / DC: prev_fast >= prev_slow and fast < slow.
+창: 기동 뒤 24시간 또는 다음 기동 중 이른 쪽. 교차 평가는 A 의 첫 실시간 봉부터.
+재현 검증: A 의 봉별 (fast, slow) 를 journal Bar# 로그(소수 2자리)와 대조.
+출력: g4_cross_compare.csv, g4_trade_impact.csv (+ 표준 출력 요약, g4_seed.csv)
+"""
+import bisect
+import csv
+import re
+from datetime import datetime, timedelta
+
+S = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad"
+OUTD = "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/docs/plans/2026-10-01-wo17-recompute-seed"
+FMT = "%Y-%m-%dT%H:%M:%S"
+
+# (기동 시각=워밍업 [REST] 최신 확정 봉 로그 시각, 마지막 봉, 분, 워밍업 수신 종가, 형성 중 여부, journal 시드 fast/slow, 기간 fast/slow)
+BOOTS = [
+    ("2026-09-02 14:32:56", "2026-09-02 14:21:00", 1, 586, False, 585.35, 585.14, 20, 200),
+    ("2026-09-02 19:04:25", "2026-09-02 19:00:00", 5, 578, True, 583.00, 586.33, 60, 200),
+    ("2026-09-04 17:46:48", "2026-09-04 17:45:00", 5, 589, True, 589.32, 604.31, 60, 200),
+    ("2026-09-04 19:46:56", "2026-09-04 19:40:00", 5, 588, False, 588.33, 602.62, 60, 200),
+    ("2026-09-12 17:36:25", "2026-09-12 17:30:00", 5, 593, False, 591.47, 589.72, 60, 200),
+    ("2026-09-13 17:00:58", "2026-09-13 16:55:00", 5, 581, False, 588.95, 597.04, 60, 200),
+    ("2026-09-18 17:26:34", "2026-09-18 17:20:00", 5, 623, False, 625.58, 613.74, 60, 200),
+    ("2026-09-25 12:41:06", "2026-09-25 12:40:00", 5, 667, True, 673.37, 665.08, 60, 200),
+    ("2026-09-30 16:33:06", "2026-09-30 16:30:00", 5, 755, True, 759.75, 756.49, 60, 200),
+    ("2026-09-30 18:02:09", "2026-09-30 18:00:00", 5, 759, True, 757.13, 756.32, 60, 200),
+    ("2026-09-30 19:44:29", "2026-09-30 19:40:00", 5, 755, True, 755.65, 756.91, 60, 200),
+    ("2026-10-01 09:56:09", "2026-10-01 09:50:00", 5, 727, False, 719.32, 738.76, 60, 200),
+    ("2026-10-01 11:42:08", "2026-10-01 11:40:00", 5, 729, True, 722.83, 735.60, 60, 200),
+]
+# 창 끝 계산용: 측정 대상 13회 + 이후 기동 2회(13:24:48, 18:10:31)
+NEXT_BOOTS = [b[0] for b in BOOTS] + ["2026-10-01 13:24:48", "2026-10-01 18:10:31"]
+
+
+def load(path):
+    rows = []
+    for r in csv.DictReader(open(path)):
+        rows.append((datetime.strptime(r["ts_kst"], FMT), float(r["close"])))
+    return rows
+
+
+M = {5: load(f"{S}/g4_m5.csv"), 1: load(f"{S}/g4_m1.csv")}
+
+# journal Bar# (ts UTC → KST), 소수 2자리
+BAR = {}
+TRADES, mode = [], None
+for line in open(f"{S}/g4_export.txt", encoding="utf-8"):
+    line = line.rstrip("\n")
+    if line.startswith("##"):
+        mode = line[2:]
+        continue
+    if mode == "BAR":
+        m = re.search(r"Bar#\d+ \| ts=(\S+ \S+)\+00:00 \| close=([\d.]+) \| ema_fast=([\d.]+) \| ema_slow=([\d.]+)", line)
+        if m:
+            ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S") + timedelta(hours=9)
+            BAR.setdefault(ts, []).append((float(m.group(3)), float(m.group(4))))
+    elif mode == "TRADES":
+        p = line.split("|")
+        if len(p) >= 7:
+            TRADES.append({"id": p[0], "ts": p[1][:19], "type": p[3], "reason": p[4], "price": p[5], "bar_time": p[6][:19]})
+
+
+def run(seed_bars, seed_kind, p, stream):
+    """seed_kind: 'sma_last' (A) | 'sma_first_then_inc' (B, C). stream: 이후 (ts, close). 반환 {ts: ema} + 시드 값."""
+    closes = [c for _, c in seed_bars]
+    a = 2 / (p + 1)
+    if seed_kind == "sma_last":
+        e = sum(closes[-p:]) / p
+    else:
+        e = sum(closes[:p]) / p
+        for c in closes[p:]:
+            e = a * c + (1 - a) * e
+    seed = e
+    out = {}
+    for ts, c in stream:
+        e = a * c + (1 - a) * e
+        out[ts] = e
+    return seed, out
+
+
+def crosses(seed_f, seed_s, f, s, eval_ts):
+    """eval_ts 순서대로 교차. prev = 직전 봉(첫 봉은 시드 상태)."""
+    ev = []
+    pf, ps = seed_f, seed_s
+    all_ts = sorted(f)
+    for ts in all_ts:
+        cf, cs = f[ts], s[ts]
+        if ts in eval_ts:
+            if pf <= ps and cf > cs:
+                ev.append((ts, "GC"))
+            elif pf >= ps and cf < cs:
+                ev.append((ts, "DC"))
+        pf, ps = cf, cs
+    return ev
+
+
+def pair(evx, evy, idx, maxgap=36):
+    """같은 종류 교차를 가까운 것끼리 짝. 반환 [(type, tx, ty, shift_bars, status)]."""
+    used, res = set(), []
+    for tx, k in evx:
+        best = None
+        for j, (ty, k2) in enumerate(evy):
+            if j in used or k2 != k:
+                continue
+            d = idx[ty] - idx[tx]
+            if abs(d) <= maxgap and (best is None or abs(d) < abs(best[1])):
+                best = (j, d)
+        if best:
+            used.add(best[0])
+            res.append((k, tx, evy[best[0]][0], best[1], "matched"))
+        else:
+            res.append((k, tx, None, None, "only_x"))
+    for j, (ty, k2) in enumerate(evy):
+        if j not in used:
+            res.append((k2, None, ty, None, "only_y"))
+    return res
+
+
+cross_rows, trade_rows, seed_rows, summary = [], [], [], []
+for i, (boot_s, last_s, unit, wclose, forming, jf, js, pf_, ps_) in enumerate(BOOTS, start=1):
+    boot = datetime.strptime(boot_s, "%Y-%m-%d %H:%M:%S")
+    last = datetime.strptime(last_s, "%Y-%m-%d %H:%M:%S")
+    step = timedelta(minutes=unit)
+    bars = M[unit]
+    tss = [t for t, _ in bars]
+    nb = [datetime.strptime(x, "%Y-%m-%d %H:%M:%S") for x in NEXT_BOOTS]
+    later = [x for x in nb if x > boot + timedelta(seconds=5)]
+    end = min([boot + timedelta(hours=24)] + later[:1])
+
+    # A: 엔진이 받은 최근 200봉 — 기동 순간 존재하던 마지막 봉(journal 기록)까지.
+    # (기동 순간 거래가 없던 현재 봉은 나중에 생겨도 워밍업에 없었음: 예 09-04 19:46:56 기동 시 19:45 봉 부재)
+    a_bars = [b for b in bars if b[0] <= last][-200:]
+    assert a_bars[-1][0] == last, (i, a_bars[-1][0], last)
+    if forming:
+        a_bars = a_bars[:-1] + [(last, float(wclose))]
+    # B: 확정 봉만 최근 800, C: 확정 봉 전부
+    conf = [b for b in bars if b[0] + step <= boot]
+    b_bars = conf[-800:]
+    c_bars = conf
+    # 실시간 흐름 (확정 봉, 봉 마감 <= 창 끝)
+    stream_A = [b for b in bars if b[0] > a_bars[-1][0] and b[0] + step <= end]
+    stream_BC = [b for b in bars if b[0] > conf[-1][0] and b[0] + step <= end]
+    eval_ts = set(t for t, _ in stream_A)
+    idx = {t: k for k, t in enumerate(tss)}
+
+    res = {}
+    for name, sb, kind, strm in (("A", a_bars, "sma_last", stream_A), ("B", b_bars, "inc", stream_BC), ("C", c_bars, "inc", stream_BC)):
+        sf, f = run(sb, kind, pf_, strm)
+        ss, s = run(sb, kind, ps_, strm)
+        res[name] = (sf, ss, f, s, len(sb))
+
+    # 재현 검증 (A vs journal Bar#)
+    chk = ok = 0
+    for t in sorted(eval_ts):
+        if t in BAR:
+            chk += 1
+            fa, sa = res["A"][2][t], res["A"][3][t]
+            if any(abs(fa - jf2) <= 0.0051 and abs(sa - js2) <= 0.0051 for jf2, js2 in BAR[t]):
+                ok += 1
+    seed_match = abs(res["A"][0] - jf) <= 0.0051 and abs(res["A"][1] - js) <= 0.0051
+
+    ev = {n: crosses(res[n][0], res[n][1], res[n][2], res[n][3], eval_ts) for n in "ABC"}
+    seed_rows.append([i, boot_s, f"minute{unit}", f"{pf_}/{ps_}", "형성 중" if forming else "확정", len(res["A"][2]) and len(a_bars), len(b_bars), len(c_bars),
+                      round(res["A"][0], 4), round(res["A"][1], 4), jf, js, "일치" if seed_match else "불일치",
+                      round(res["B"][0], 4), round(res["B"][1], 4), round(res["C"][0], 4), round(res["C"][1], 4),
+                      round(res["A"][0] - res["A"][1], 4), round(res["B"][0] - res["B"][1], 4), round(res["C"][0] - res["C"][1], 4),
+                      f"{ok}/{chk}", end.strftime("%Y-%m-%d %H:%M"), len(eval_ts)])
+
+    for (x, y) in (("A", "B"), ("A", "C"), ("B", "C")):
+        for k, tx, ty, d, st in pair(ev[x], ev[y], idx):
+            stt = {"matched": "matched", "only_x": f"only_{x}", "only_y": f"only_{y}"}[st]
+            cross_rows.append([i, boot_s, f"{x}vs{y}", k,
+                               tx.strftime("%Y-%m-%d %H:%M") if tx else "", ty.strftime("%Y-%m-%d %H:%M") if ty else "",
+                               "" if d is None else d, stt])
+
+    # 실매매 대조 (창 안 봇 매매)
+    for tr in TRADES:
+        tts = datetime.strptime(tr["ts"], FMT)
+        if not (boot <= tts <= end + timedelta(minutes=unit)):
+            continue
+        bt = datetime.strptime(tr["bar_time"], FMT) if tr["bar_time"] and tr["bar_time"] != "None" else None
+        kind = {"EMA_GC": "GC", "EMA_DC": "DC"}.get(tr["reason"])
+        a_hit = bool(kind and bt and (bt, kind) in ev["A"])
+        b_note = c_note = ""
+        if kind and bt:
+            for name in ("B", "C"):
+                pr = [r for r in pair(ev["A"], ev[name], idx) if r[1] == bt and r[0] == kind]
+                if pr and pr[0][4] == "matched":
+                    d = pr[0][3]
+                    note = "같은 봉" if d == 0 else (f"{-d}봉 앞당김" if d < 0 else f"{d}봉 늦춤")
+                elif pr:
+                    note = "해당 교차 없음"
+                else:
+                    note = "A 교차 없음(재현 불일치)"
+                if name == "B":
+                    b_note = note
+                else:
+                    c_note = note
+        else:
+            b_note = c_note = "교차 무관(사유: " + tr["reason"] + ")"
+        trade_rows.append([i, boot_s, tr["id"], tr["ts"], tr["type"], tr["reason"], tr["price"], tr["bar_time"],
+                           "예" if a_hit else ("-" if not kind else "아니오"), b_note, c_note])
+
+    n = {k: len(v) for k, v in ev.items()}
+    summary.append((i, boot_s, n, f"{ok}/{chk}", seed_match))
+
+with open(f"{OUTD}/g4_cross_compare.csv", "w", newline="") as fo:
+    w = csv.writer(fo)
+    w.writerow(["# 표 1. 기동별 시드 값 (A=200봉 SMA 현재, B=800봉 증분, C=장기 기준) — 재현 검증 포함"])
+    w.writerow(["boot", "boot_kst", "interval", "fast/slow", "last_bar", "A_bars", "B_bars", "C_bars",
+                "A_fast", "A_slow", "journal_fast", "journal_slow", "A_seed_vs_journal",
+                "B_fast", "B_slow", "C_fast", "C_slow", "A_gap(f-s)", "B_gap", "C_gap",
+                "A_realtime_vs_BarLog(일치/대조)", "window_end", "realtime_bars"])
+    w.writerows(seed_rows)
+    w.writerow([])
+    w.writerow(["# 표 2. 교차 비교 — shift_bars = (y 교차 봉) − (x 교차 봉), 음수 = y 가 먼저. 짝짓기 창 ±36봉"])
+    w.writerow(["boot", "boot_kst", "pair", "type", "x_cross_kst", "y_cross_kst", "shift_bars", "status"])
+    w.writerows(cross_rows)
+
+with open(f"{OUTD}/g4_trade_impact.csv", "w", newline="") as fo:
+    w = csv.writer(fo)
+    w.writerow(["boot", "boot_kst", "trade_id", "trade_ts", "type", "reason", "price", "bar_time",
+                "A_cross_reproduced", "B(800봉 증분)였다면", "C(장기 기준)였다면"])
+    w.writerows(trade_rows)
+
+for r in seed_rows:
+    print(r)
+for s_ in summary:
+    print(s_)
+print("trades in windows:", len(trade_rows))
+
+# ===== g4_prices.py =====
+"""G4 보조: 교차 이동 시 매매 봉 마감가 비교 + 기동 1 왕복 손익(%). 확정 봉 마감가 기준(실제 체결가는 별도)."""
+import csv
+from datetime import datetime
+
+S = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad"
+FMT = "%Y-%m-%dT%H:%M:%S"
+
+
+def closes(path):
+    return {r["ts_kst"]: float(r["close"]) for r in csv.DictReader(open(path))}
+
+
+m5, m1 = closes(f"{S}/g4_m5.csv"), closes(f"{S}/g4_m1.csv")
+cases = [
+    # (기동, 거래 id, 종류, A 교차 봉, B 교차 봉, C 교차 봉, 실제 체결가)
+    (2, 947, "BUY EMA_GC", "2026-09-03T16:00:00", "2026-09-03T16:05:00", "2026-09-03T16:05:00", 583.0),
+    (7, 1047, "BUY EMA_GC", "2026-09-19T05:40:00", "2026-09-19T05:35:00", "2026-09-19T05:35:00", 618.0),
+    (11, 1164, "SELL EMA_DC", "2026-09-30T23:35:00", "2026-09-30T23:30:00", "2026-09-30T23:35:00", 740.0),
+]
+print("boot,trade,kind,A_bar_close,B_bar_close,C_bar_close,actual_fill,B_minus_A_pct")
+for b, tid, k, a, bb, c, fill in cases:
+    ca, cb, cc = m5[a], m5[bb], m5[c]
+    print(f"{b},{tid},{k},{ca},{cb},{cc},{fill},{(cb - ca) / ca * 100:.3f}")
+
+print()
+print("boot1 round trips (A only; B/C 교차 없음 → 매매 없음)")
+for buy, bp, sell, sp in (("943", 586.0, "944", 580.429141937947), ("945", 586.0, "946", 580.0)):
+    print(f"{buy}->{sell}: buy {bp} sell {sp:.3f} pnl {(sp - bp) / bp * 100:.3f}%")
