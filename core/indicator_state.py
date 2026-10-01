@@ -106,7 +106,7 @@ class IndicatorState:
         self.initialized = False
         self.bar_count = 0
 
-    def seed_from_closes(self, closes: List[float]) -> bool:
+    def seed_from_closes(self, closes: List[float], quiet: bool = False) -> bool:
         """
         초기 시드 (SMA로 시작)
 
@@ -165,6 +165,8 @@ class IndicatorState:
 
         self.initialized = True
 
+        if quiet:  # ✅ WO-17 (S): 긴 이력 시드의 중간 단계는 "Indicator seeded" 를 남기지 않음
+            return True
         if self.use_separate_ema:
             logger.info(
                 f"✅ Indicator seeded (separate EMA) | "
@@ -178,6 +180,32 @@ class IndicatorState:
                 f"ema_fast={self.ema_fast:.2f}, ema_slow={self.ema_slow:.2f}, ema_base={self.ema_base:.2f} | "
                 f"macd={self.macd:.5f}, signal={self.signal:.5f}"
             )
+        return True
+
+    def seed_long_history(self, closes: List[float], base_len: int = 200) -> bool:
+        """
+        ✅ WO-17 (S) (2026-10-01): 긴 이력 증분 시드.
+        처음 base_len 봉으로 seed_from_closes(SMA 시작) 한 뒤 나머지 봉을 update_incremental 로 순서대로 반영한다
+        (실시간 증분과 같은 식). 200봉 SMA 시드는 장기 EMA 와 (fast−slow) 간격이 최대 9.3원 달랐고
+        기동 13회 중 3회는 부호가 반대였다(G4 측정). 800봉이면 장기 기준과 0.02원 이내.
+        시드 직후 상태 모양은 seed_from_closes 와 같게 맞춘다(prev_* = None, bar_count = 0).
+        반환: 성공 여부 (len(closes) < base_len 또는 seed 실패 시 False — 호출부가 200봉 SMA 로 폴백)
+        """
+        if len(closes) < base_len:
+            return False
+        if not self.seed_from_closes(closes[:base_len], quiet=True):
+            return False
+        for c in closes[base_len:]:
+            self.update_incremental(c)
+        self.prev_macd = None
+        self.prev_signal = None
+        self.prev_ema_fast = None
+        self.prev_ema_slow = None
+        self.prev_ema_fast_buy = None
+        self.prev_ema_slow_buy = None
+        self.prev_ema_fast_sell = None
+        self.prev_ema_slow_sell = None
+        self.bar_count = 0
         return True
 
     # ✅ WO-17 (P) (2026-10-01): recompute_from_changed_ts(부분 재계산) 제거.

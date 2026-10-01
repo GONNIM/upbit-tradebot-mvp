@@ -67,8 +67,11 @@ class TestWarmupTrim(unittest.TestCase):
         for s in ("[WARMUP] 형성 중 봉 제거 |", "[WARMUP] 마지막 봉 확정 (유지) |", "[WARMUP] 형성 중 봉 유지 (봉 수 부족) |"):
             self.assertIn(s, src)
         self.assertNotIn("마지막 봉 유지 (여유분 없음)", src)
-        i_trim = src.index("_warmup_trim_forming(\n")
-        self.assertLess(i_trim, src.index("indicators.seed_from_closes(closes)"))
+        # ✅ WO-17 (S) 개정: 시드 호출이 헬퍼(_seed_warmup_indicators)로 바뀌어 run_live_loop 본문 안에서 순서를 본다.
+        body = src[src.index("def run_live_loop("):]
+        i_trim = body.index("_warmup_trim_forming(\n")
+        seeds = [body.index(s) for s in ("_seed_warmup_indicators(\n", "indicators.seed_from_closes(closes)") if s in body]
+        self.assertLess(i_trim, min(seeds))
 
 
 if __name__ == "__main__":

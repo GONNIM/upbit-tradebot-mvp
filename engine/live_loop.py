@@ -197,6 +197,30 @@ def _warmup_trim_forming(initial_df: pd.DataFrame, interval_sec: int, now: datet
     return initial_df, "kept_insufficient", last_ts, elapsed
 
 
+LONG_SEED_BARS = 800  # ✅ WO-17 (S) G3: 긴 이력 시드 봉 수 (EMA200 잔차 약 0.25%, G4 측정상 장기 기준과 0.02원 이내)
+
+
+def _seed_warmup_indicators(indicators, initial_df: pd.DataFrame, long_bars: int, min_hist: int):
+    """
+    ✅ WO-17 (S) (2026-10-01): 워밍업 지표 시드 방식 선택.
+    - 확정 봉이 long_bars 이상이면 최근 long_bars 봉으로 긴 이력 증분 시드(첫 min_hist 봉 SMA → 나머지 증분).
+    - 부족하면 현행 200봉 SMA 시드(seed_from_closes — 각 EMA 는 마지막 p개 SMA 이므로 받은 봉 전체를 넘겨도 같음).
+    버퍼·local_series 용 df 는 최근 min_hist 봉만 (WO-14 (b) 로컬 시작 기준 연동).
+    단, 폴백이면서 받은 봉이 min_hist + 1 이하이면 받은 그대로(현행 동작과 완전 동일).
+    반환: (ok, mode, reason, df_for_buffer)  mode = "long_history" | "sma200"
+    """
+    closes = initial_df["Close"].tolist()
+    if len(closes) >= long_bars:
+        if indicators.seed_long_history(closes[-long_bars:], base_len=min_hist):
+            return True, "long_history", "", initial_df.iloc[-min_hist:]
+        reason = "long_seed_failed"
+    else:
+        reason = f"insufficient_bars({len(closes)}<{long_bars})"
+    ok = indicators.seed_from_closes(closes)
+    df_buf = initial_df if len(initial_df) <= min_hist + 1 else initial_df.iloc[-min_hist:]
+    return ok, "sma200", reason, df_buf
+
+
 def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
     """
     전략 실행/매매를 시작하기 위한 최소 웜업 바 수
@@ -1014,10 +1038,15 @@ def run_live_loop(
             # ============================================================
             MAX_WARMUP_RETRIES = 5
             initial_df = None
+            # ✅ WO-17 (S): 첫 시도는 긴 이력(LONG_SEED_BARS + 1) 요청. 실패하면 이후 시도는 현행(min_hist + 1)
+            _long_bars = max(LONG_SEED_BARS, min_hist)
+            _seed_fallback_reason = ""
 
             for attempt in range(1, MAX_WARMUP_RETRIES + 1):
                 # WO-2026-001 Task 1-B: +1개 요청 후 마지막 봉 제거 (현재 진행 중 봉 방지)
-                warmup_request = min_hist + 1
+                warmup_request = (_long_bars + 1) if attempt == 1 else (min_hist + 1)
+                if attempt == 2 and not _seed_fallback_reason:
+                    _seed_fallback_reason = "fetch_failed"
                 logger.info(f"[WARMUP] REST 초기 데이터 요청 (attempt {attempt}/{MAX_WARMUP_RETRIES}) | count={warmup_request} (마지막 봉 제거 예정)...")
                 initial_df = safe_fetch_rest(
                     market=params.upbit_ticker,
@@ -1081,8 +1110,37 @@ def run_live_loop(
                 raise RuntimeError(f"Insufficient warmup data: {len(initial_df)} < {min_hist}")
 
             # 지표 시드
-            closes = initial_df['Close'].tolist()
-            if indicators.seed_from_closes(closes):
+            # ✅ WO-17 (S): 긴 이력 증분 시드 (실패·부족 시 200봉 SMA 폴백), 버퍼·local_series 는 최근 min_hist 봉
+            _seed_ok, _seed_mode, _reason, initial_df = _seed_warmup_indicators(
+                indicators, initial_df, _long_bars, min_hist
+            )
+            if _seed_ok and _seed_mode == "long_history":
+                logger.info(
+                    f"[WARMUP] 시드 방식=long_history bars={_long_bars} "
+                    f"ema_fast={indicators.ema_fast_buy if indicators.use_separate_ema else indicators.ema_fast:.4f} "
+                    f"ema_slow={indicators.ema_slow_buy if indicators.use_separate_ema else indicators.ema_slow:.4f} "
+                    f"ema_base={indicators.ema_base:.4f} | 마지막 봉={format_kst(initial_df.index[-1])}"
+                )
+            elif _seed_ok:
+                _why = _seed_fallback_reason or _reason
+                logger.warning(f"[WARMUP] 긴 이력 시드 실패 → 200봉 SMA 폴백 | 사유={_why}")
+                logger.info(f"[WARMUP] 시드 방식=sma200 bars={len(initial_df)}")
+                try:
+                    from services.notifier import send as _notify, LEVEL_WARNING
+                    _notify(
+                        LEVEL_WARNING,
+                        f"⚠️ 지표 시드 폴백 — {params.upbit_ticker}",
+                        (
+                            f"워밍업에서 긴 이력({_long_bars}봉) 시드를 쓰지 못해 200봉 SMA 시드로 시작했습니다.\n"
+                            f"사유: {_why}\n"
+                            f"매매는 정상 진행됩니다. 기동 직후 지표가 장기 기준과 다를 수 있습니다."
+                        ),
+                        dedupe_key=f"warmup_seed_fallback:{user_id}:{params.upbit_ticker}",
+                        dedupe_ttl=3600,
+                    )
+                except Exception:
+                    pass
+            if _seed_ok:
                 warmup_complete = True
                 logger.info(f"✅ Warmup 완료 | bars={len(initial_df)}")
 
