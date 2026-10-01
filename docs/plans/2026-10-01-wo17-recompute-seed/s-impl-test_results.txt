@@ -1,0 +1,39 @@
+# WO-17 (S) 재현 테스트 결과 (2026-10-01 19:58:31 KST, HEAD bc8bbf1)
+# 명령: env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest <모듈> -v
+test_1_800_within_0_3pct_of_1200_baseline (tests.regressions.test_r_2026_10_01_wo17s_long_history_seed.TestLongHistorySeed.test_1_800_within_0_3pct_of_1200_baseline)
+(1) 800봉 시드의 EMA200 이 1,200봉 장기 기준과 0.3% 이내 (EMA60·간격도 함께 표기). ... ok
+test_2_one_more_bar_equals_incremental (tests.regressions.test_r_2026_10_01_wo17s_long_history_seed.TestLongHistorySeed.test_2_one_more_bar_equals_incremental)
+(2) 801봉 시드 = 800봉 시드 + 마지막 봉 증분 (같은 시작점) — 시드 계산이 실시간 증분과 같은 식. ... ok
+test_3_with_forming_bar_trim (tests.regressions.test_r_2026_10_01_wo17s_long_history_seed.TestLongHistorySeed.test_3_with_forming_bar_trim)
+(3) (W) 와 함께: 801봉 수신 + 마지막 형성 중 → 제거 800 → long_history, 버퍼 df = 그 앞 200봉. ... ok
+test_4_fallback_insufficient_and_lint (tests.regressions.test_r_2026_10_01_wo17s_long_history_seed.TestLongHistorySeed.test_4_fallback_insufficient_and_lint)
+ok
+test_5_g4_boot9_reproduces_B (tests.regressions.test_r_2026_10_01_wo17s_long_history_seed.TestLongHistorySeed.test_5_g4_boot9_reproduces_B)
+(5) G4 기동 9(2026-09-30 16:33:06) 직전 확정 800봉으로 재현 → G4 B 값 756.8929 / 757.5385 와 일치. ... /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_01_wo17s_long_history_seed.py:129: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/fixtures/wo17s_boot9_m5_800.csv' mode='r' encoding='UTF-8'>
+  closes = [float(r["close"]) for r in csv.DictReader(open(path))]
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_6_fallback_identical_to_old (tests.regressions.test_r_2026_10_01_wo17s_long_history_seed.TestLongHistorySeed.test_6_fallback_identical_to_old)
+ok
+test_1_201_forming_dropped_to_200 (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_1_201_forming_dropped_to_200)
+① 201 수신 + 마지막 봉 형성 중(시작 128초 뒤) → 제거 → 200. ... ok
+test_2_201_confirmed_kept (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_2_201_confirmed_kept)
+② 201 수신 + 마지막 봉 확정(현재 봉 거래 없음, 봉 간격 이상 경과) → 201 유지. ... ok
+test_3_200_forming_kept_with_warning_no_crash (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_3_200_forming_kept_with_warning_no_crash)
+③ 200 수신(= R 없음) + 형성 중 → 제거하지 않음(기동 오류 없음, F2). ... ok
+test_4_call_site_and_logs (tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim.TestWarmupTrim.test_4_call_site_and_logs)
+run_live_loop 워밍업이 헬퍼를 쓰고 세 가지 로그를 남기며, 옛 '여유분 없음' 분기는 사라짐. ... ok
+----------------------------------------------------------------------
+Ran 10 tests in 0.022s
+OK
+
+# 옛 코드 대조 (engine/live_loop.py·core/indicator_state.py 를 HEAD~ 로 바꿔 실행, 커밋 전)
+S 테스트 6건: ImportError (LONG_SEED_BARS 없음) — 실패. 개정한 W test_4: 옛 코드에서도 통과(옛·새 공용)
+
+# 단독 revert (임시 worktree·더미 키): 충돌 없음, py_compile OK, 게이트 263/263
+
+# 회귀 게이트: bash scripts/regression_gate.sh (첫 실행 W test_4 1건 실패 → 개정 뒤)
+
+==========================================
+✅ 회귀 테스트 269/269 통과 — 배포 진행 가능
+==========================================

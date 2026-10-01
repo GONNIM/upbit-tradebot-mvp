@@ -363,3 +363,145 @@ print()
 print("boot1 round trips (A only; B/C 교차 없음 → 매매 없음)")
 for buy, bp, sell, sp in (("943", 586.0, "944", 580.429141937947), ("945", 586.0, "946", 580.0)):
     print(f"{buy}->{sell}: buy {bp} sell {sp:.3f} pnl {(sp - bp) / bp * 100:.3f}%")
+
+
+########################################################################
+# WO-17 (S) 구현 — 실행 명령 원문 (2026-10-01 19:4x ~ 20:0x KST)
+########################################################################
+
+## 0. 정지선
+git log --oneline -1 && git status -sb | head -1        # a7d40b2, origin 과 일치
+
+## 1. 코드 읽기
+grep -n "min_hist + 1\|warmup_request\|MAX_WARMUP_RETRIES\|initial_df = None\|for attempt in range" engine/live_loop.py | head
+sed -n "$(grep -n 'warmup_request = min_hist + 1' engine/live_loop.py | cut -d: -f1 | awk '{print $1-12}'),+150p" engine/live_loop.py
+grep -rn "indicators.bar_count\|self.bar_count" core/indicator_state.py ; grep -rn "indicators\.bar_count\|\.indicators\.initialized" core engine services pages | head ; grep -n "LEVEL_WARNING\|def send" services/notifier.py | head -5
+grep -rn "\"bar_count\"\]\|'bar_count'\]\|get(\"bar_count\"\|get('bar_count'" core engine services | head      # 소비처 없음
+sed -n 105,112p core/indicator_state.py ; sed -n 164,186p core/indicator_state.py
+(파일 도구로 core/indicator_state.py·engine/live_loop.py 수정)
+
+## 2. 고정 자료·테스트
+python3 $S/wo17s_fixture.py      # tests/regressions/fixtures/wo17s_boot9_m5_800.csv (800봉, 09-27 18:15 ~ 09-30 16:20)
+git check-ignore -v tests/regressions/fixtures/wo17s_boot9_m5_800.csv    # .gitignore:75 '!/tests/regressions/**' → 추적됨
+python3 -m py_compile tests/regressions/test_r_2026_10_01_wo17s_long_history_seed.py && env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo17s_long_history_seed -v 2>&1 | grep -E "ok$|FAIL|ERROR|Error|Ran|^OK|assert|!=" | cut -c1-200     # 6 OK
+cd /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp && env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 $S/wo17s_boot9.py     # wo17s_boot9_compare.csv
+
+## 3. 버전·게이트
+grep -n "v1.2026" pages/dashboard.py && V=$(date '+%Y.%m.%d.%H%M') && sed -i '' "495s/v1\.2026\.10\.01\.1740/v1.$V/" pages/dashboard.py && grep -n "v1.2026" pages/dashboard.py && python3 -m py_compile pages/dashboard.py engine/live_loop.py core/indicator_state.py && bash scripts/regression_gate.sh 2>&1 | tail -3
+# → 1건 실패. 원인 확인:
+grep -E "^(FAIL|ERROR):|Error:|AssertionError|^Ran|FAILED" /tmp/regression_gate.log | head -20      # test_r_2026_10_01_wo16w_warmup_forming_trim test_4: 44609 not less than 7890
+# (중간에 env UPBIT_ACCESS= 로 직접 discover 실행 → 키 빈 값 때문에 무관한 오류 다수, 폐기)
+(파일 도구로 W test_4 개정) ; bash scripts/regression_gate.sh 2>&1 | tail -3      # 269/269
+
+## 4. 옛 코드 대조
+mkdir -p $S/wo17s_new && for f in engine/live_loop.py core/indicator_state.py; do cp $f $S/wo17s_new/$(echo $f | tr / _); git show HEAD:$f > $f; done; env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_01_wo17s_long_history_seed tests.regressions.test_r_2026_10_01_wo16w_warmup_forming_trim 2>&1 | grep -E "^(FAIL|ERROR):|ImportError|Ran|FAILED|^OK" | cut -c1-200; for f in engine/live_loop.py core/indicator_state.py; do cp $S/wo17s_new/$(echo $f | tr / _) $f; done; git diff --stat
+
+## 5. 커밋·단독 revert
+git add engine/live_loop.py core/indicator_state.py pages/dashboard.py tests/regressions/test_r_2026_10_01_wo16w_warmup_forming_trim.py tests/regressions/test_r_2026_10_01_wo17s_long_history_seed.py tests/regressions/fixtures/wo17s_boot9_m5_800.csv && git status --short | grep -v '^??'
+git commit -q -F $S/wo17s_msg.txt     # bc8bbf1
+sed -e 's/^COMMITS=.*/COMMITS=(bc8bbf1)/' -e 's/wo18_wt/wo17s_wt/' -e 's/WO-18·17 커밋별/WO-17 (S) 커밋/' $S/wo18_revert_check.sh > $S/wo17s_revert_check.sh && bash $S/wo17s_revert_check.sh 2>&1 | grep -vE "^Updated 1 path|절대 우회"     # 충돌 없음, 263/263
+
+## 6. 배포 검증 스크립트 시험 실행 (기동 9)
+python3 $S/wo17s_verify_seed.py "2026-09-30 16:33:06" 756.8929 757.5385 1200
+# 결과: 800 재현 +0.0000/+0.0000, 1200 기준 +0.0000/-0.0181
+
+# ===== wo17s_fixture.py =====
+"""WO-17 (S) 테스트 고정 자료: G4 기동 9(2026-09-30 16:33:06) 직전 확정 5분봉 800개 (Upbit 공개 API, UTC to 수집분)."""
+import csv
+from datetime import datetime, timedelta
+
+S = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad"
+OUT = "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/fixtures/wo17s_boot9_m5_800.csv"
+boot = datetime(2026, 9, 30, 16, 33, 6)
+rows = [(datetime.strptime(r["ts_kst"], "%Y-%m-%dT%H:%M:%S"), r["close"]) for r in csv.DictReader(open(f"{S}/g4_m5.csv"))]
+conf = [r for r in rows if r[0] + timedelta(minutes=5) <= boot][-800:]
+with open(OUT, "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["ts_kst", "close"])
+    for t, c in conf:
+        w.writerow([t.strftime("%Y-%m-%dT%H:%M:%S"), c])
+print(len(conf), conf[0][0], conf[-1][0])
+
+# ===== wo17s_boot9.py =====
+"""WO-17 (S) 기동 9 재현 비교표: 구현(seed_long_history) vs G4 A(현행, journal)·B(800봉)·C(장기 기준)."""
+import csv
+import sys
+
+ROOT = "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp"
+sys.path.insert(0, ROOT)
+import pandas as pd  # noqa: E402
+from core.indicator_state import IndicatorState  # noqa: E402
+from engine.live_loop import LONG_SEED_BARS, _seed_warmup_indicators  # noqa: E402
+
+closes = [float(r["close"]) for r in csv.DictReader(open(f"{ROOT}/tests/regressions/fixtures/wo17s_boot9_m5_800.csv"))]
+ind = IndicatorState(ema_fast=60, ema_slow=200, base_ema=200, use_separate_ema=True,
+                     ema_fast_buy=60, ema_slow_buy=200, ema_fast_sell=60, ema_slow_sell=200)
+idx = pd.date_range(end=pd.Timestamp("2026-09-30 07:20", tz="UTC"), periods=len(closes), freq="5min")
+df = pd.DataFrame({"Open": closes, "High": closes, "Low": closes, "Close": closes, "Volume": 1.0}, index=idx)
+ok, mode, reason, _ = _seed_warmup_indicators(ind, df, LONG_SEED_BARS, 200)
+
+rows = [
+    ("A 현행 200봉 SMA (journal Indicator seeded, G4 표 1)", 759.75, 756.49),
+    ("B G4 800봉 증분 (첫 p개 SMA → 증분)", 756.8929, 757.5385),
+    ("C G4 장기 기준 (10,011봉)", 756.8929, 757.5204),
+    (f"구현 seed_long_history (mode={mode}, 첫 200봉 seed_from_closes → 600봉 증분)", ind.ema_fast_buy, ind.ema_slow_buy),
+]
+OUT = f"{ROOT}/docs/plans/2026-10-01-wo17-recompute-seed/wo17s_boot9_compare.csv"
+with open(OUT, "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["# 기동 9 (2026-09-30 16:33:06 KST, 5분봉 60/200) 직전 확정 800봉 = tests/regressions/fixtures/wo17s_boot9_m5_800.csv (09-27 18:15 ~ 09-30 16:20)"])
+    w.writerow(["series", "ema_fast(60)", "ema_slow(200)", "gap(fast-slow)", "fast_minus_C", "slow_minus_C"])
+    for name, fa, sl in rows:
+        w.writerow([name, round(fa, 6), round(sl, 6), round(fa - sl, 6), round(fa - 756.8929, 6), round(sl - 757.5204, 6)])
+for r in rows:
+    print(r[0], round(r[1], 6), round(r[2], 6), round(r[1] - r[2], 4))
+
+# ===== wo17s_verify_seed.py =====
+"""WO-17 (S) 배포 검증용: 기동 시각 기준 장기 기준(확정 봉 1,200봉 이상) EMA60/EMA200 재계산.
+사용: python3 wo17s_verify_seed.py "2026-10-0X HH:MM:SS"(기동 [WARMUP] 시각, KST) <log_fast> <log_slow> [bars=1200]
+- Upbit 공개 캔들 API(키 불필요), to = UTC 'Z', 봉 시작 시각 기준 배타.
+- 확정 봉(봉 시작 + 5분 <= 기동 시각)만. 첫 200봉 SMA → 나머지 증분(구현과 같은 식).
+- 같은 시각 800봉(구현 재현)도 함께 계산해 로그 값과 비교.
+"""
+import json
+import sys
+import time
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+KST = timezone(timedelta(hours=9))
+boot = datetime.strptime(sys.argv[1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+log_fast, log_slow = float(sys.argv[2]), float(sys.argv[3])
+N = int(sys.argv[4]) if len(sys.argv) > 4 else 1200
+
+bars, to = {}, boot.astimezone(timezone.utc)
+while len(bars) < N + 50:
+    url = ("https://api.upbit.com/v1/candles/minutes/5?market=KRW-JTO&count=200&to=" + to.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"accept": "application/json"}), timeout=15))
+    if not d:
+        break
+    for c in d:
+        t = datetime.strptime(c["candle_date_time_utc"], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+        bars[t] = float(c["trade_price"])
+    to = min(bars)
+    time.sleep(0.15)
+conf = [(t, c) for t, c in sorted(bars.items()) if t + timedelta(minutes=5) <= boot]
+
+
+def seed(closes, base=200):
+    out = {}
+    for p in (60, 200):
+        a = 2 / (p + 1)
+        e = sum(closes[base - p:base]) / p          # seed_from_closes(first 200): 마지막 p개 SMA
+        for c in closes[base:]:
+            e = a * c + (1 - a) * e
+        out[p] = e
+    return out
+
+
+long_ = seed([c for _, c in conf[-N:]])
+s800 = seed([c for _, c in conf[-800:]])
+print(f"마지막 확정 봉 KST: {conf[-1][0].astimezone(KST):%Y-%m-%d %H:%M}  bars_long={len(conf[-N:])}")
+print(f"로그        fast={log_fast:.4f} slow={log_slow:.4f}")
+print(f"800 재현    fast={s800[60]:.4f} slow={s800[200]:.4f}  (로그와 차이 {s800[60]-log_fast:+.4f} / {s800[200]-log_slow:+.4f})")
+print(f"{N} 기준  fast={long_[60]:.4f} slow={long_[200]:.4f}  (로그와 차이 {long_[60]-log_fast:+.4f} / {long_[200]-log_slow:+.4f})")

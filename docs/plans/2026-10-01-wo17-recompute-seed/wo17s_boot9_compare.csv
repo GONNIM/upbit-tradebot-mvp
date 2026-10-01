@@ -1,0 +1,6 @@
+"# 기동 9 (2026-09-30 16:33:06 KST, 5분봉 60/200) 직전 확정 800봉 = tests/regressions/fixtures/wo17s_boot9_m5_800.csv (09-27 18:15 ~ 09-30 16:20)"
+series,ema_fast(60),ema_slow(200),gap(fast-slow),fast_minus_C,slow_minus_C
+"A 현행 200봉 SMA (journal Indicator seeded, G4 표 1)",759.75,756.49,3.26,2.8571,-1.0304
+B G4 800봉 증분 (첫 p개 SMA → 증분),756.8929,757.5385,-0.6456,0.0,0.0181
+"C G4 장기 기준 (10,011봉)",756.8929,757.5204,-0.6275,0.0,0.0
+"구현 seed_long_history (mode=long_history, 첫 200봉 seed_from_closes → 600봉 증분)",756.892933,757.538524,-0.645591,3.3e-05,0.018124
