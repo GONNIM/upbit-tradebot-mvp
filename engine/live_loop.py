@@ -477,6 +477,19 @@ def _maybe_reload_params(*, user_id, params_ref, strategy, cond_path, mtime_stat
     return new_state
 
 
+def _drop_unconfirmed_backfill_ts(backfill_ts_list, closed_ts):
+    """
+    ✅ WO-14 (a) (2026-10-01): 확정 대상 봉(closed_ts)보다 늦은 봉은 아직 닫히지 않은 봉이므로
+    BACKFILL 대상에서 뺀다. 조정 조회 첫 배치가 end_ts 없이 조회해 형성 중 봉을 받아 오고,
+    그 봉이 inserted → BACKFILL 로 미확정 종가 평가됐다(2026-09-30 16:50:05, 20:10:05, WO-13 (a)).
+    다음 주기에 그 봉이 확정 대상 봉이 되면 정상 실시간 평가된다.
+    반환: (남긴 목록, 뺀 목록)
+    """
+    kept = [ts for ts in backfill_ts_list if ts <= closed_ts]
+    dropped = [ts for ts in backfill_ts_list if ts > closed_ts]
+    return kept, dropped
+
+
 def _load_trade_conditions(user_id: str, strategy_type: str) -> Dict[str, Any]:
     """
     매수/매도 조건 JSON 로드
@@ -1172,6 +1185,13 @@ def run_live_loop(
                             # ✅ reconcile_series가 이미 local_series에 누락 봉을 병합했으므로
                             # changed_ts에 있는 모든 봉(누락+변경)을 처리해야 함
                             backfill_ts_list = [ts for ts in changed_ts_list if ts != closed_ts]
+                            # ✅ WO-14 (a): 확정 대상 봉보다 늦은 봉(형성 중)은 제외
+                            backfill_ts_list, _unconfirmed_ts = _drop_unconfirmed_backfill_ts(backfill_ts_list, closed_ts)
+                            for _uts in _unconfirmed_ts:
+                                logger.info(
+                                    f"[BACKFILL] 미확정 봉 제외 | ts={format_kst(_uts)} "
+                                    f"closed_ts={format_kst(closed_ts)}"
+                                )
 
                             if backfill_ts_list:
                                 msg = f"🔄 [BACKFILL] {len(backfill_ts_list)}개 누락 봉 평가 시작"
