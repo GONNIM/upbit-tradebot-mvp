@@ -262,6 +262,8 @@ SELECT id, timestamp, ticker, type, reason, price, entry_price, bars_held
 
 ## 확인 4-W12 · WO-12 2단계 — 기동 방식 전환 (운영자 지정 시각에만 실행)
 
+> **실행 완료 (2026-10-01 09:55:59, 통과)** — 현재 기동 방식은 `scripts/tradebot_boot.py` 입니다. 이후 재시작에서는 대시보드 접속 없이 엔진이 자동 재개됩니다(`[BOOT-RESUME] success` 확인). 결과는 `docs/plans/2026-09-30-wo12-boot-auto-resume/plan.md` §11. 아래 절차는 재적용·되돌리기 참고용으로 둡니다.
+
 2026-09-30 1단계에서 코드(`d12f47b` 계열)만 배포했습니다. 기동 방식은 기존 `streamlit run` 그대로입니다. 2단계는 **운영자가 시각을 따로 지정했을 때만** 실행합니다. 지시 전에는 실행하지 않습니다.
 
 **사전 조건**: 1단계 백업이 `/root/backup/` 에 있어야 합니다 (`tradebot.service.20260930`, `tradebot.service.d.20260930/`, `tradebot.ExecStart.before.20260930`). 없으면 먼저 만듭니다.

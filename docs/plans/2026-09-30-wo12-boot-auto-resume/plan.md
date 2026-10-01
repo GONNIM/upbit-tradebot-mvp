@@ -259,3 +259,44 @@ unit 파일 본문은 고치지 않고 **drop-in 파일**로 `ExecStart` 만 바
 **WO-12 1단계 완결**: 세션 비의존 엔진 시작(`start_engine(mode=)`)·사용자별 시작 잠금·기동 재개 모듈·부팅 복원 보강(C7)을 2026-09-30 19:26 배포했습니다. 기동 방식은 기존대로 두었습니다. 30분 관측에서 통과 조건을 모두 만족했고, 앱에서 산 JTO 포지션이 부팅 직후 업비트 평균가(761.0)로 복원되어 18:02 형 CRITICAL 과 8분 공백이 사라졌습니다.
 
 **2단계 대기 상태**: 기동 방식 전환(`wo12-boot.conf` drop-in)은 운영자가 시각을 지정할 때까지 실행하지 않습니다. 절차·통과 조건 8개·되돌리기는 검증 가이드 §확인 4-W12 에 있습니다. 백업은 `/root/backup/` 에 준비돼 있습니다.
+
+## 11. 2단계 — 기동 방식 전환과 WO-12 완결 (2026-10-01)
+
+### 11.1 실행 (검증 가이드 §확인 4-W12)
+
+| 항목 | 값 |
+|---|---|
+| 탭 닫힘 확인 | 마지막 fragment 경고 09:53:58, 09:55:18·09:55:40 두 차례 8501 연결 0건 |
+| drop-in | `/etc/systemd/system/tradebot.service.d/wo12-boot.conf` (printf 한 줄 생성) — `[Service]` / `ExecStart=` / `ExecStart=/root/upbit-tradebot-mvp/venv/bin/python /root/upbit-tradebot-mvp/scripts/tradebot_boot.py` |
+| ExecStart (daemon-reload 뒤) | `argv[]=/root/upbit-tradebot-mvp/venv/bin/python /root/upbit-tradebot-mvp/scripts/tradebot_boot.py` |
+| 재시작 | 2026-10-01 09:55:59 KST, active, 8501 은 `python` (pid 2253068) |
+| 코드·버전 | 서버 HEAD `39689e8`, v1.2026.09.30.1917 — 1단계와 동일 (버전 변경 없음) |
+
+### 11.2 접속 없이 30분 관측 (09:55:59 ~ 10:25:59) — 통과
+
+| # | 통과 조건 | 결과 |
+|---|---|---|
+| 1 | 재시작 1분 내 BOOT-RESUME | 09:56:05 `[BOOT-RESUME] start \| known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']` → 09:56:08 `[BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=8.5s capital≈2,962,905` |
+| 2 | `[migrate] OK` 14줄 | 14줄 (09:56:03~05) |
+| 3 | BOOT-SEED (JTO) | 해당 없음 — JTO 는 2026-09-30 23:40:09 봇이 전량 매도(EMA_DC, 740.0, orders 550). 복원 대상 없음. seed 실패 CRITICAL 0 |
+| 4 | 엔진 시작·워밍업 | 09:56:08 `[BOOT] run_live_loop start` → 09:56:09 `[WARMUP] REST 데이터 로드 완료 bars=200` → 09:56:10 `Buffer seeded` |
+| 5 | 사람 접속 없이 첫 `[CONFIRMED]` | 10:00:34 (09:55 봉). 그때까지 `[AUTO-RESUME]` 0, 8501 연결 0 |
+| 6 | Bar# 5봉 | 201 → 202 → 203 → 204 → 205 → 206 (09:55 ~ 10:20 봉) |
+| 7 | 결함 태그 | `class=pos_desync_promoted` 0 · `integrity_gap` 0 · `first_bar_guard` 0 · SKIP-BAR 0 · POLLUTED 0 · Traceback 0 · 레벨 CRITICAL 0 · ERROR 0 |
+| 8 | 재개 성공 INFO 알림 | `[BOOT-RESUME] success` 기록, `[NOTIFY]` 발송 실패 0, 토큰·기본 채팅 설정 있음(INFO 전용 채널 없음 → 기본 채팅). 알림 모듈은 성공 시 로그를 남기지 않으므로(규칙 v2.8) 수신은 운영자 확인 항목 |
+
+- 비교: 접속 없는 워밍업에서 `database is locked` 0건 → 1단계의 2건은 페이지 로드 경합 쪽으로 판단(backlog WO-13 기재).
+
+### 11.3 접속 후 확인 (운영자 접속 10:33) — 통과
+
+| 항목 | 결과 |
+|---|---|
+| `[AUTO-RESUME] skip` | 10:33:45 `[AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 \| boot_resume_at=2026-10-01T09:56:08.345431+09:00 mode=LIVE` 1건 |
+| 엔진 스레드 1개 | 재시작 이후 `[BOOT] run_live_loop start` 1건, 엔진 로그 `🚀 엔진 시작` 1건(09:56:08) — 접속 시 새 엔진 없음 |
+| 대시보드 렌더 | 10:33:35 `[DB-LOAD]` → `[AUTO-VERIFY]` → 10:33:45 skip → 10:33:48 `[CHART]` 까지 진행, Traceback·ERROR·DB 잠금 0 |
+
+### 11.4 WO-12 완결 문안
+
+**서비스 기동 시 자동 재개 + 부팅 복원 보강 완료. 재시작 후 사람 접속 없이 9초(기동 스크립트 기준 8.5초) 만에 엔진 재개, 첫 봉 처리까지 약 4.6분(09:55:59 재시작 → 10:00:34 첫 `[CONFIRMED]`, 5분봉 다음 마감 시각).** 이전에는 재시작 뒤 사람이 접속할 때까지 엔진이 멈췄습니다(2026-09-18 46분, 09-30 5분·6분·18분). 부팅 복원은 1단계(2026-09-30 19:44)에서 앱 매수 JTO 포지션을 워밍업 직후 업비트 평균가로 복원해 확인했습니다.
+
+**되돌리기**: 기동 방식만 — `rm -f /etc/systemd/system/tradebot.service.d/wo12-boot.conf` → `systemctl daemon-reload` → `systemctl restart tradebot`. 코드까지 — `git revert 0c8e729`.
