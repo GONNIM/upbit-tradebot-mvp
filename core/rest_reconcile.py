@@ -520,6 +520,10 @@ def reconcile_series(
         # REST 범위의 봉들을 덮어쓰기 (같은 timestamp의 모든 컬럼 업데이트)
         for ts in rest_series.index:
             merged.loc[ts] = rest_series.loc[ts]
+        # ✅ WO-16 (V): 새 시각은 끝에 덧붙으므로 시각 순 정렬.
+        # 정렬이 깨지면 VERIFY 대상(tail 200)·범위 양끝, 로컬 시작(index[0]), tail(500) 이 틀어진다
+        # (2026-09-25 12:50 VERIFY range 09-25 03:45 ~ 09-24 19:50 역전, 93봉 건너뜀).
+        merged = merged.sort_index()
 
     # ✅ Summary
     diff_summary = {
