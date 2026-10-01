@@ -523,6 +523,43 @@ def _load_trade_conditions(user_id: str, strategy_type: str) -> Dict[str, Any]:
         return {"buy": {}, "sell": {}}
 
 
+_BACKFILL_TRAILING_FIELDS = (
+    "highest_price",
+    "highest_since_entry",
+    "trailing_armed",
+    "trailing_fixed_amount",
+    "trailing_activation_price",
+)
+
+
+def _backup_trailing_state(position) -> Dict[str, Any]:
+    """
+    ✅ WO-14 E1 (2026-10-01): BACKFILL 전 Trailing 상태 백업.
+    정책: BACKFILL 재평가는 지표를 바로잡는 작업이며 포지션 상태를 바꾸지 않는다.
+    과거 누락 봉의 가격은 실시간에 보지 못한 가격이므로 Trailing 고점에 반영하지 않는다.
+    """
+    saved = {f: getattr(position, f, None) for f in _BACKFILL_TRAILING_FIELDS}
+    saved["has_position"] = getattr(position, "has_position", False)
+    return saved
+
+
+def _restore_trailing_state(position, saved: Dict[str, Any]):
+    """
+    ✅ WO-14 E1: BACKFILL 뒤 Trailing 상태 복원. 바뀐 필드만 되돌린다.
+    BACKFILL 중 보유 여부가 바뀌었으면(별도 스레드 체결 반영 등) 새 포지션 상태를 덮어쓰지 않도록 건너뛴다.
+    반환: {필드: (BACKFILL 뒤 값, 되돌린 값)} — 건너뛰면 None
+    """
+    if getattr(position, "has_position", False) != saved.get("has_position"):
+        return None
+    changed = {}
+    for f in _BACKFILL_TRAILING_FIELDS:
+        cur = getattr(position, f, None)
+        if cur != saved[f]:
+            changed[f] = (cur, saved[f])
+            setattr(position, f, saved[f])
+    return changed
+
+
 # ============================================================
 # 메인 Live Loop (증분 처리 기반)
 # ============================================================
@@ -1226,6 +1263,9 @@ def run_live_loop(
                                         'prev_ema_slow_sell': engine.indicators.prev_ema_slow_sell,
                                     })
 
+                                # ✅ WO-14 E1: Trailing 상태 백업 (BACKFILL 은 포지션 상태를 바꾸지 않음)
+                                saved_trailing = _backup_trailing_state(engine.position)
+
                                 # ✅ WO-1 추가 A: 백업 로그 debug → info 승격 (프로덕션 감시)
                                 prev_fast_str = f"{saved_indicators['prev_ema_fast']:.2f}" if saved_indicators['prev_ema_fast'] is not None else "None"
                                 prev_slow_str = f"{saved_indicators['prev_ema_slow']:.2f}" if saved_indicators['prev_ema_slow'] is not None else "None"
@@ -1283,6 +1323,26 @@ def run_live_loop(
                                 finally:
                                     # ✅ WO-1 추가 C 설계 제약 #2: 복원은 finally 안, 자체 예외 처리 (silent continue 금지)
                                     # Issue #11: BACKFILL 처리 중 변경된 지표를 원래 상태로 복원 → 다음 실시간 봉 크로스 감지 보장
+                                    # ✅ WO-14 E1: Trailing 상태 복원 (과거 누락 봉 가격은 고점에 반영하지 않음)
+                                    try:
+                                        _trail_changed = _restore_trailing_state(engine.position, saved_trailing)
+                                        if _trail_changed is None:
+                                            logger.warning(
+                                                "[BACKFILL] trailing 상태 복원 건너뜀 | BACKFILL 중 보유 여부 변경"
+                                            )
+                                        elif _trail_changed:
+                                            _hp = _trail_changed.get("highest_price")
+                                            _head = f"highest {_hp[0]}→{_hp[1]} 되돌림" if _hp else "highest 변화 없음"
+                                            _rest = " ".join(
+                                                f"{k}={v[0]}→{v[1]}" for k, v in _trail_changed.items()
+                                                if k != "highest_price"
+                                            )
+                                            logger.info(
+                                                f"[BACKFILL] trailing 상태 복원 | {_head}"
+                                                + (f" | {_rest}" if _rest else "")
+                                            )
+                                    except Exception as _trail_exc:
+                                        logger.error(f"[BACKFILL] ❌ trailing 상태 복원 실패 | {_trail_exc}", exc_info=True)
                                     try:
                                         engine.indicators.ema_fast = saved_indicators['ema_fast']
                                         engine.indicators.ema_slow = saved_indicators['ema_slow']
