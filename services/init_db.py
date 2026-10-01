@@ -752,6 +752,28 @@ def ensure_audit_settings_bar_time(user_id: str):
     conn.close()
 
 
+_AUDIT_SETTINGS_UNIQUE_COLS = ["ticker", "interval_sec", "bar_time"]
+
+
+def _audit_settings_unique_state(conn):
+    """
+    ✅ WO-14 (c): idx_audit_settings_unique 현재 상태.
+    반환: None (인덱스 없음) 또는 (unique 여부, 열 목록 순서대로)
+    """
+    for row in conn.execute("PRAGMA index_list(audit_settings)").fetchall():
+        # row: (seq, name, unique, origin, partial)
+        if row[1] == "idx_audit_settings_unique":
+            cols = [
+                r[2] for r in sorted(
+                    conn.execute("PRAGMA index_info(idx_audit_settings_unique)").fetchall(),
+                    key=lambda r: r[0],
+                )
+            ]
+            return bool(row[2]), cols
+    return None
+
+
+@_log_migrate_ok
 def ensure_audit_settings_unique(user_id: str):
     """
     audit_settings 테이블에 UNIQUE 인덱스 추가:
@@ -759,13 +781,27 @@ def ensure_audit_settings_unique(user_id: str):
       - bar_time 기준 = "1개의 봉마다 1개" 보장
       - UNIQUE INDEX는 DB 레벨에서 중복을 원천 차단
       - INSERT OR IGNORE와 함께 사용하여 중복 시도 시 조용히 무시
+
+    ✅ WO-14 (c) (2026-10-01): 매 호출 DROP→CREATE 제거.
+    기존에는 호출마다 인덱스를 다시 만들어 audit_settings(18만 행) 재생성에 1~10초가 걸렸고,
+    DROP~CREATE 사이에 UNIQUE 인덱스가 없어 설정 스냅샷 ON CONFLICT upsert 가 실패했다
+    (2026-09-30 19:44:30·35). 이제 목표 구성과 같으면 아무것도 하지 않고, 없으면 CREATE 만,
+    구성이 다를 때(옛 timestamp 기준 등)만 DROP→CREATE 하고 경고를 남긴다.
     """
     conn = _connect(user_id)
     try:
-        # 🔥 기존 인덱스 삭제 (timestamp 기준 → bar_time 기준으로 변경)
-        conn.execute("DROP INDEX IF EXISTS idx_audit_settings_unique")
+        state = _audit_settings_unique_state(conn)
+        if state == (True, _AUDIT_SETTINGS_UNIQUE_COLS):
+            return
+        if state is not None:
+            # 🔥 구성이 다른 기존 인덱스 삭제 (timestamp 기준 → bar_time 기준으로 변경)
+            logger.warning(
+                f"[migrate] ensure_audit_settings_unique 재생성 "
+                f"(기존 unique={int(state[0])} 열={','.join(state[1])}, user_id={user_id})"
+            )
+            conn.execute("DROP INDEX IF EXISTS idx_audit_settings_unique")
 
-        # ✅ UNIQUE 인덱스 재생성 - bar_time 기준
+        # ✅ UNIQUE 인덱스 생성 - bar_time 기준
         conn.execute("""
             CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_settings_unique
             ON audit_settings(ticker, interval_sec, bar_time)
