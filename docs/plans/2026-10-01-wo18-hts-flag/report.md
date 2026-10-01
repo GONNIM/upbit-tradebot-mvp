@@ -2,7 +2,7 @@
 
 - 작성일: 2026-10-01
 - 승인: [WO-16 완결 승인 — WO-18 신설(hts_buy 잔존) + WO-17 (C)(P) 착수], WO-17 G1~G5 제안대로, (S) 금지 유지
-- 상태: **로컬 커밋만, push·배포 안 함**
+- 상태: **완결 (2026-10-01 18:10:24 배포, 30분 관측·접속 1회 통과 — §8)**. H1~H3 승인, 기존 테스트 1건 개정 승인
 - 근거 파일: `test_results.txt`, `commands.txt`
 
 버전: v1.2026.10.01.1312 → v1.2026.10.01.1740 (커밋마다 1735 → 1737 → 1740)
@@ -133,3 +133,47 @@ Issue #17 의 "Dead 상태 HTS 매수는 STOP_LOSS 건너뜀" 로직은 **제거
 | H2 | §2.1-2 `sync_from_wallet` 지갑 0 판정 미사용 | 그대로 (API 실패 시 0 반환) |
 | H3 | 기동 정합 검사 건너뜀 창 10분 | 그대로 |
 | H4 | 배포 시점 | 별도 지시 |
+
+---
+
+## 8. 배포·관측 결과 (2026-10-01) — WO-18 · WO-17 (C)(P) 완결
+
+### 8.1 배포
+
+| 항목 | 로컬 | 서버 |
+|---|---|---|
+| HEAD | `6536c08` (코드 기준 `83f48ba`) | `6536c08` |
+| `dashboard.py` 버전 | v1.2026.10.01.1740 | v1.2026.10.01.1740 |
+| 서비스 시작 | — | 2026-10-01 18:10:24 KST, active (기동 스크립트 재개, 접속 없음) |
+
+버전: v1.2026.10.01.1312 → v1.2026.10.01.1740
+
+### 8.2 접속 없이 30분 관측 (18:10:24 ~ 18:40:24) — 통과
+
+| 항목 | 결과 |
+|---|---|
+| 기동 | `[BOOT-RESUME] success` 18:10:30 (6.1초). 엔진 종목 KRW-JTO 보유 0 이라 `[BOOT-SEED]` 없음(정상). 첫 `[CONFIRMED]` 18:15:06 |
+| **WO-18** | `[HTS-FLAG] cleared \| reason=boot_reconcile` **89줄**(18:10:30~31), `[HTS-FLAG] 기동 정합 검사 완료 \| user_id=mcmax33 cleared=89`, 건너뜀 0. 잔존 SQL(§6 원문) **0**. KRW-FOLD·KRW-PYUSD `hts_buy` 유지. KRW-JTO meta `{}` |
+| **WO-17 (P)** | `부분 재계산 완료` 0, `Not enough data for seed` 0, `[ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음)` 6, `[REST-RECONCILE] … (지표는 증분만)` 6 (배포 전 같은 30분: `Not enough data for seed` 6) |
+| WO-16 유지 | 조정 6회 전부 `total=400`, VERIFY 6회 역전 0·`없는 timestamp` 0·검증 실패 0·불일치 0. 워밍업 `[WARMUP] 마지막 봉 확정 (유지) \| ts=18:05 \| 봉 수=201` — (W) 의 확정 유지 분기 첫 실측(18:10 봉에 아직 거래 없음) |
+| 공통 | 결함 태그·Traceback·ERROR/CRITICAL 0, `database is locked` 0, `ON CONFLICT` 0, 발주 0. Bar# 202 → 207 (6봉) |
+
+- 집계 명령 1회차는 SSH 로 넘긴 종료 시각 인자가 따옴표를 잃어 journal 조회가 모두 오류(`--since= must be before --until=`)였다. 그 출력은 버리고 인자를 따옴표로 감싸 다시 집계했다(`deploy_obs.log`). 30분 대기는 서버 시계 기준으로 해 지연 없음.
+
+### 8.3 접속 1회 (운영자 접속 18:46:55)
+
+| 항목 | 결과 |
+|---|---|
+| `[AUTO-RESUME] skip (boot-resume 로 이미 실행 중)` | 18:46:55 1줄 |
+| 엔진 스레드 1개 | 재시작 이후 `run_live_loop start` 1, `engine_runner 시작` 1 |
+| 페이지 로드 잠금 오류 | `database is locked` 0, `ON CONFLICT` 0, 인덱스 재생성 경고 0, ERROR 0 |
+| 페이지 로드 뒤 잔존 SQL | 0 (동기화 `sync_all_positions cleared` 실행 뒤에도 재발 없음, 추가 `[HTS-FLAG]` 0 — 이미 지워져 로그 없음이 정상) |
+| **운영자 육안: FOLD·PYUSD 출처 배지** | **해당 화면 없음.** 대시보드 진입 경로 배지는 엔진 종목(`_ticker` = KRW-JTO) 1개에 대해, 그 종목 보유(가용+묶임) > 0 일 때만 그린다(`pages/dashboard.py:800, 853~858`). FOLD·PYUSD 는 대시보드 어디에도 배지가 없고, JTO 는 보유 0 이라 지금은 배지가 나오지 않는 것이 정상. 참고: 코드상 FOLD·PYUSD 를 넣으면 최근 BUY 감사 사유가 `HTS_BUY`(09-26 09:46, 09-29 15:15)라 `👤 외부 매수 (HTS)` 로 판정됨 |
+
+### 8.4 완결 문안
+
+- **WO-18 완결**: 보유 0 이 되는 경로 3개(봇 매도 `bot_sell`, 지갑 0 강제 청산 `position_sync_wallet_zero`, 1분 동기화 `sync_all_positions_cleared`)에 hts_buy 해제를 신설하고, 기동 정합 검사로 잔존 89행(mcmax33, KRW-JTO 포함)을 정리했다. 보유 중 2행(FOLD·PYUSD)은 유지. Issue #17 STOP_LOSS 스킵은 a192d31 에서 이미 제거된 상태였고 위험은 알림 등급·표시였다.
+- **WO-17 (C) 완결**: `fetch_confirmed_candle`·`stream_candles` 오해 주석 정정, 실행 코드 AST 해시 고정.
+- **WO-17 (P) 완결**: 부분 재계산 경로 제거 — 배포 뒤 `Not enough data for seed` 0, "완료" 오기 0, 조정 변경 시 증분만.
+- 사후 확증 6번 편입: `docs/operations/wo8-force-buy-verification-guide.md` "사후 확증 6번 (2026-10-01 WO-18 완결 시 편입)".
+- 다음 단계: WO-17 (S) G4 측정 프롬프트 초안 `docs/plans/2026-10-01-wo17-recompute-seed/g4-prompt.md` (읽기 전용, 지시 대기).

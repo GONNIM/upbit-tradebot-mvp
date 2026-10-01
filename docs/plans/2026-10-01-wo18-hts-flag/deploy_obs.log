@@ -1,0 +1,69 @@
+# WO-18 + WO-17 (C)(P) 배포 관측 (읽기 전용) — 창 A = 18:10:24 ~ 18:40:24 (접속 없음)
+== 창: 2026-10-01 18:10:24 ~ 2026-10-01 18:40:24 | HEAD=6536c08 active=active
+== 기동
+2026-10-01 18:10:28 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-01 18:10:30 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.1s capital≈2,960,903
+2026-10-01 18:10:30 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-01 18:15:06 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 18:10:00 KST | close=739.0
+== WO-18
+[HTS-FLAG] cleared | reason=boot_reconcile: 89
+2026-10-01 18:10:31 INFO engine.live_loop | [HTS-FLAG] 기동 정합 검사 완료 | user_id=mcmax33 cleared=89
+건너뜀: 0   기타 [HTS-FLAG] cleared(boot_reconcile 외): 0
+잔존 SQL (보유 0 + hts_buy true): 0
+보유 중 hts_buy 유지 행: KRW-FOLD,KRW-PYUSD
+KRW-JTO meta: 0.0|{}
+== WO-17 (P)
+부분 재계산 완료: 0  Not enough data for seed: 0  (지표는 증분만, 재시드 없음): 6  REST-RECONCILE (지표는 증분만): 6
+== WO-16 유지
+조정 400 요청 → 수신:       6 400 
+워밍업: 2026-10-01 18:10:31 INFO engine.live_loop | [WARMUP] 마지막 봉 확정 (유지) | ts=2026-10-01 18:05:00 KST | 봉 수=201
+VERIFY 실행: 6  역전: 0  없는 timestamp: 0  검증 실패: 0  불일치: 0
+== 공통
+  class=pos_desync_promoted: 0
+  integrity_gap: 0
+  POLLUTED: 0
+  Traceback: 0
+  database is locked: 0
+  ON CONFLICT clause: 0
+  UPBIT-ORDER: 0
+  ERROR/CRITICAL: 0
+2026-10-01 18:15:06 Bar#202 2026-10-01 18:20:10 Bar#203 2026-10-01 18:25:05 Bar#204 2026-10-01 18:30:10 Bar#205 2026-10-01 18:35:11 Bar#206 2026-10-01 18:40:11 Bar#207 
+
+# 발췌: 기동·정합 검사(앞 5줄·끝 3줄)·워밍업·첫 주기
+2026-10-01 18:10:28 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-01 18:10:30 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.1s capital≈2,960,903
+2026-10-01 18:10:30 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-01 18:10:30 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-AAVE
+2026-10-01 18:10:30 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-AGLD
+2026-10-01 18:10:30 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-ANIME
+2026-10-01 18:10:30 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-ARB
+2026-10-01 18:10:30 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-ARK
+2026-10-01 18:10:31 INFO engine.live_loop | [HTS-FLAG] 기동 정합 검사 완료 | user_id=mcmax33 cleared=89
+2026-10-01 18:10:31 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=201 end=None (to 없음, 형성 중 봉 포함 가능)
+2026-10-01 18:10:31 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (형성 중 포함 가능) | ts=2026-10-01 18:05:00 KST | close=738 | high=738 | low=736 | volume=8398.46
+2026-10-01 18:10:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=201 batches=2 | 2026-10-01 01:10:00 KST ~ 2026-10-01 18:05:00 KST
+2026-10-01 18:10:31 INFO engine.live_loop | [WARMUP] 마지막 봉 확정 (유지) | ts=2026-10-01 18:05:00 KST | 봉 수=201
+2026-10-01 18:10:31 INFO core.indicator_state | ✅ Indicator seeded (separate EMA) | BUY: fast=741.12, slow=731.60 | SELL: fast=741.12, slow=731.60 | base=731.60 | macd=9.52167, signal=9.52167
+2026-10-01 18:15:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-01 18:10:00 KST
+2026-10-01 18:15:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-01 18:15:05 INFO core.rest_reconcile | [RECONCILE] 확정 종가 (다음 봉 존재) ✅ | ts=2026-10-01 18:10:00 KST | close=739 | high=739 | low=739 | volume=3271.21
+2026-10-01 18:15:05 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=400 end=2026-10-01 18:10:00 KST
+2026-10-01 18:15:05 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 18:10:00 KST | close=739 | high=739 | low=739 | volume=3271.21
+2026-10-01 18:15:05 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-09-30 08:15:00 KST ~ 2026-10-01 18:10:00 KST
+2026-10-01 18:15:05 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=198 local_start=2026-10-01 01:10:00 KST
+2026-10-01 18:15:05 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-01 18:10:00 KST ~ 2026-10-01 18:10:00 KST
+2026-10-01 18:15:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-01 18:15:05 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-01 18:10:00 KST
+2026-10-01 18:15:05 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-01 01:15:00 KST ~ 2026-10-01 18:05:00 KST
+2026-10-01 18:15:05 INFO core.rest_reconcile | [REST] 다중 호출 시작 | market=KRW-JTO timeframe=minute5 total_count=220 end=2026-10-01 18:05:00 KST
+2026-10-01 18:15:05 INFO core.rest_reconcile | [REST] 첫 배치 마지막 봉 (end_ts 기준) | ts=2026-10-01 18:05:00 KST | close=738 | high=738 | low=736 | volume=8398.46
+2026-10-01 18:15:05 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-09-30 23:35:00 KST ~ 2026-10-01 18:05:00 KST
+2026-10-01 18:15:05 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-01 18:15:05 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-01 18:15:05 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-01 09:10:00+00:00 ~ 2026-10-01 09:10:00+00:00
+2026-10-01 18:15:06 INFO core.strategy_engine | 📊 Bar#202 | ts=2026-10-01 09:10:00+00:00 | close=739.00 | ema_fast=741.05 | ema_slow=731.67 | ema_base=731.67 | action=HOLD | pos=False
+2026-10-01 18:15:06 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-01 18:10:00 KST | close=739.0
+  … (HTS-FLAG cleared 총 89줄, 끝 3줄은 아래)
+2026-10-01 18:10:31 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-ZBT
+2026-10-01 18:10:31 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-ZORA
+2026-10-01 18:10:31 INFO services.db | [HTS-FLAG] cleared | reason=boot_reconcile | ticker=KRW-ZRO

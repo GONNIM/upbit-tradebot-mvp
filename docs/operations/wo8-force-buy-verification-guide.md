@@ -225,6 +225,28 @@ ssh root@orionhunter7.cafe24.com "
 "
 ```
 
+### 사후 확증 6번 (2026-10-01 WO-18 완결 시 편입)
+
+세션을 시작할 때마다 봅니다. 기한은 없습니다. 기준 시각은 WO-18 재시작 시각 `2026-10-01 18:10:24` 입니다.
+
+| 번호 | 항목 | 확인 내용 | 2026-10-01 관측 창 상태 |
+|---|---|---|---|
+| 6 | WO-18 hts_buy 해제 사이클 | 다음 HTS 매수 → 봇 매도 사이클에서 ① `[HTS-DETECT] HTS_BUY 감지` + `HTS 매수 플래그 설정` ② 그 포지션의 봇 매도 체결 직후 `[HTS-FLAG] cleared \| reason=bot_sell \| ticker=…` 1줄 ③ 다음 봇 매수의 `STOP_LOSS_CHECK … hts_buy=False`. 외부 매도로 끝나면 ② 대신 `reason=sync_all_positions_cleared` 또는 `position_sync_wallet_zero` | 미발생 (대기). 기동 정합 검사로 잔존 89행 해제 확인(18:10:31) |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-10-01 18:10:24'
+  J(){ journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null; }
+  echo '-- (6) HTS 매수 감지 / 플래그 설정 --'
+  J | grep -E 'HTS-DETECT\] HTS_BUY|HTS 매수 플래그 설정' | tail -5
+  echo '-- (6) 플래그 해제 (boot_reconcile 제외) --'
+  J | grep -F '[HTS-FLAG] cleared' | grep -v boot_reconcile | tail -5
+  echo '-- (6) 해제 뒤 SELL 평가 hts_buy 값 --'
+  J | grep -F 'STOP_LOSS_CHECK' | grep -oE 'hts_buy=(True|False)' | sort | uniq -c
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT COUNT(*) FROM account_positions WHERE meta LIKE '%\\\"hts_buy\\\": true%' AND COALESCE(virtual_coin,0)+COALESCE(virtual_coin_locked,0)=0;\"
+"
+```
+
 ```bash
 ssh root@orionhunter7.cafe24.com "
   # 자연 발생 강제 매수 감지 (2026-09-12 17:24 배포 이후 전체 창)
