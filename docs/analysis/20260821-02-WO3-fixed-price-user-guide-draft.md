@@ -1,3 +1,5 @@
+> **종결 (2026-10-01)**: 사용자 자율 설정으로 갈음. 사용자가 설정 페이지에서 직접 조정 중임이 실측됨(`settings_history` id 171(09-28 05:16)·172·173(09-30 10:30·15:37)·180~182(10-01 15:10~15:13), 모두 `source_page=set_buy_sell_conditions`). 회신 요청 중단. 근거 원칙: `.claude/context/project-rules.md` "투자자 연락 원칙" (v2.12).
+
 <!--
 운영자 전용 메타데이터 — 발송 시 이 블록 전체 제거
 관련 진단: docs/analysis/20260821-01-JTO-GC-Miss-Analysis.md (WO-3)
