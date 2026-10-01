@@ -993,7 +993,7 @@ def stream_candles(
                     if stop_event and stop_event.is_set():
                         return
                     try:
-                        # ✅ to 파라미터 제거 - 항상 최신 확정 봉만 조회 (임시 종가 회피)
+                        # ✅ to 파라미터 없음 → 형성 중 봉 포함 가능 (확정 판정은 호출부 책임, WO-17 (C) 정정)
                         _log("INFO",
                             f"[실시간 API] 호출 #{delay_retry_attempt + 1}/{max_delay_retry} | "
                             f"count={need} (최신 확정 봉)"

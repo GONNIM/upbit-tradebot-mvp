@@ -615,7 +615,8 @@ def fetch_confirmed_candle(
     확정 종가만 반환. to 파라미터 없이 최신 봉 조회.
 
     🔒 WO-2026-001 Task 1-A + Issue #8 강화:
-    - to 파라미터 완전 제거 → Upbit가 확정한 최신 봉만 반환
+    - to 파라미터 없음 → Upbit 는 형성 중 봉까지 포함한 최신 봉을 반환 (WO-17 (C) 정정).
+      확정 여부는 이 함수의 다음 봉 존재·재시도 판정(아래 케이스 A/B/C)이 가린다
     - closed_ts 일치 여부 검증
     - Progressive Retry → interval의 50% 시간까지만 대기
     - 최대 재시도 초과 시 None 반환 → BACKFILL로 처리
@@ -671,7 +672,7 @@ def fetch_confirmed_candle(
 
     for attempt in range(max_retry):
         try:
-            # ✅ to 파라미터 없음 → Upbit가 확정한 최신 봉만 반환
+            # ✅ to 파라미터 없음 → 형성 중 봉 포함 최신 봉 반환 (확정 판정은 아래 다음 봉 존재·재시도, WO-17 (C))
             logger.debug(
                 f"[RECONCILE] 확정 봉 조회 시도 {attempt+1}/{max_retry} | "
                 f"ticker={ticker} timeframe={timeframe}"
