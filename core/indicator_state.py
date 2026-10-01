@@ -180,50 +180,10 @@ class IndicatorState:
             )
         return True
 
-    def recompute_from_changed_ts(self, full_series: 'pd.DataFrame', changed_ts: List) -> None:
-        """
-        부분 재계산 (Reconcile 변경 시)
-
-        🔒 리스크 헷지:
-        - 전체 400 bars 재계산 금지 (CPU 보호)
-        - changed_ts 이후만 재계산
-
-        Args:
-            full_series: 전체 시계열 (DataFrame with Close column)
-            changed_ts: 변경된 timestamp 리스트
-
-        Example:
-            >>> indicators.recompute_from_changed_ts(full_series, [ts1, ts2])
-            # ts1 이후의 봉들만 재계산
-        """
-        if not changed_ts:
-            logger.debug("[INDICATORS] 변경 없음, 재계산 skip")
-            return
-
-        # changed_ts의 가장 오래된 시점
-        recompute_start = min(changed_ts)
-
-        # 해당 시점 이후 데이터만 추출
-        tail = full_series.loc[recompute_start:]
-
-        if tail.empty:
-            logger.warning("[INDICATORS] 재계산 범위 없음 (tail empty)")
-            return
-
-        logger.info(
-            f"[INDICATORS] 부분 재계산 시작 | "
-            f"changed_count={len(changed_ts)} bars={len(tail)} | "
-            f"range: {tail.index[0]} ~ {tail.index[-1]}"
-        )
-
-        # tail로 seed (전체가 아닌 tail만 재계산)
-        closes = tail['Close'].tolist()
-        self.seed_from_closes(closes)
-
-        logger.info(
-            f"[INDICATORS] 부분 재계산 완료 | "
-            f"ema_fast={self.ema_fast:.2f} ema_slow={self.ema_slow:.2f}"
-        )
+    # ✅ WO-17 (P) (2026-10-01): recompute_from_changed_ts(부분 재계산) 제거.
+    #   바뀐 봉 이후 꼬리(늘 1~3봉)로 SMA 재시드를 시도해 보존 기간 내 성공 0 / 실패 8,199 였고 "완료" 로그만 남겼다.
+    #   꼬리가 시드 필요 수 이상이면 SMA 재시드 + 현재 봉 이중 반영 + prev_ema 초기화가 일어날 수 있어 경로를 없앤다.
+    #   조정 변경 시 지표는 update_incremental 만 (core/strategy_engine.py on_new_bar_confirmed).
 
     def update_incremental(self, close: float):
         """

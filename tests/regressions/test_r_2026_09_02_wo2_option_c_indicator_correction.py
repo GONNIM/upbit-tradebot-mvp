@@ -1,9 +1,13 @@
-"""WO-2 옵션 C 회귀 (2026-09-02, 보완 1): 지표 교정 경로 증명.
+"""WO-2 옵션 C 회귀 (2026-09-02, 보완 1): 확정 종가 재진입 시 지표 경로.
 
 미확정 평가에서 잠정 종가로 update_incremental(bar.close=800) 이 실행된 뒤,
-확정 종가(802)가 도착하면 BACKFILL 재평가 경로 (changed_count > 0) 를 통해
-recompute_from_changed_ts + update_incremental(802) 가 실행되어 지표가 802
-기준으로 교정된다.
+확정 종가(802)가 도착하면 BACKFILL 재평가 경로 (changed_count > 0) 로 들어온다.
+
+✅ WO-17 (P) (2026-10-01) 개정: 원래 이 테스트는 recompute_from_changed_ts 호출로 "802 기준 교정" 을
+증명한다고 적었으나, 실제 운영에서 그 호출은 꼬리 1봉 < 시드 필요 수(200)로 늘 실패해 무동작이었다
+(journal 보존분 성공 0 / 실패 8,199). 실효 동작은 update_incremental(802) 1회뿐이었다.
+WO-17 (P)에서 부분 재계산 경로를 제거했으므로, 이 테스트는 이제 "재시드 없이 확정 종가로
+update_incremental 1회" 를 고정한다.
 """
 from __future__ import annotations
 
@@ -18,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 class TestIndicatorCorrection(unittest.TestCase):
     def test_backfill_reentry_triggers_recompute_and_update(self):
         """미확정 평가로 잠정 종가가 반영된 뒤, 확정 종가 BACKFILL 진입이
-        recompute_from_changed_ts + update_incremental(확정) 를 호출한다.
+        재시드 없이 update_incremental(확정) 1회만 호출한다 (WO-17 (P) 개정).
         """
         from core.strategy_engine import StrategyEngine, Bar
         from core.pending_order import PendingOrderQueue
@@ -87,9 +91,9 @@ class TestIndicatorCorrection(unittest.TestCase):
 
         StrategyEngine.on_new_bar_confirmed(engine, confirmed_bar, full_series, diff_summary)
 
-        # 지표 교정 호출 검증
-        engine.indicators.recompute_from_changed_ts.assert_called_once()
-        engine.indicators.update_incremental.assert_called_with(802.0)
+        # ✅ WO-17 (P): 재시드(부분 재계산) 없음, 확정 종가로 증분 1회
+        engine.indicators.recompute_from_changed_ts.assert_not_called()
+        engine.indicators.update_incremental.assert_called_once_with(802.0)
 
 
 if __name__ == '__main__':

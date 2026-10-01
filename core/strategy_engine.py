@@ -708,7 +708,7 @@ class StrategyEngine:
 
         🔒 리스크 헷지:
         - REST 실패 시 local 유지
-        - changed_ts 있으면 부분 재계산
+        - changed_ts 있어도 지표는 증분만 (WO-17 (P): 부분 재계산 제거)
         - 확정 봉으로만 매매 판단
 
         Args:
@@ -774,20 +774,15 @@ class StrategyEngine:
             self.indicators.update_incremental(bar.close)
 
         elif changed_count > 0:
-            # ✅ Reconcile 변경 발생 → 부분 재계산
-            logger.warning(
-                f"[ENGINE] Reconcile 변경 감지 → 부분 재계산 | "
+            # ✅ WO-17 (P) P1 (2026-10-01): 재시드 없이 증분만.
+            # 기존 recompute_from_changed_ts 는 바뀐 봉 이후 꼬리(늘 1~3봉)로 시드를 시도해
+            # "Not enough data for seed" 로 실패(보존 기간 성공 0 / 실패 8,199)하면서 "완료" 로그만 남겼고,
+            # 꼬리가 시드 필요 수 이상이면 SMA 재시드 + 현재 봉 이중 반영이 일어날 수 있었다 → 호출 제거.
+            logger.info(
+                f"[ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | "
                 f"changed={changed_count} | "
                 f"range: {min(changed_ts)} ~ {max(changed_ts)}"
             )
-
-            # 🔒 리스크 헷지: 전체 400개 재계산 금지
-            # changed_ts 이후만 재계산
-            self.indicators.recompute_from_changed_ts(full_series, changed_ts)
-
-            # ✅ 재계산 후 현재 봉 반영 (CRITICAL!)
-            # recompute_from_changed_ts는 full_series(과거 데이터)로만 재시드
-            # 현재 봉(bar.close)은 아직 반영되지 않으므로 증분 업데이트 필수
             self.indicators.update_incremental(bar.close)
 
         else:

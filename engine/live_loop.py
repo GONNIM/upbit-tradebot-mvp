@@ -1242,7 +1242,7 @@ def run_live_loop(
                         if rest_failed:
                             logger.warning(f"⚠️ [REST-RECONCILE] REST 실패 → Fallback to Local")
                         elif changed_count > 0:
-                            msg = f"🔄 [REST-RECONCILE] {changed_count}개 봉 변경 감지 → 부분 재계산"
+                            msg = f"🔄 [REST-RECONCILE] {changed_count}개 봉 변경 감지 (지표는 증분만)"  # ✅ WO-17 (P)
                             logger.info(msg)
                             log_to_file(msg, user_id)
 
