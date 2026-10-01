@@ -1,0 +1,288 @@
+# WO-16 1단계 사전 측정 — 실행 명령 원문 (2026-10-01, 전부 읽기 전용)
+# 서버: journal·DB(mode=ro)·소스 읽기만. 재시작·쓰기 없음.
+# 로컬: Upbit 공개 캔들 API(키 불필요) 조회, 계산 스크립트 실행. 스크립트 원문은 이 파일 끝에 붙임.
+# S = /private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad
+
+## 0. 정지선
+git log --oneline -2; git status -sb | head -1
+ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp; systemctl is-active tradebot; grep -o 'v1\.2026\.[0-9.]*' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1"
+# 결과: 로컬 8c8942f / 서버 52286af, 2026-10-01 11:42:01 KST, active, v1.2026.10.01.1126
+
+## 1. 코드 읽기
+sed -n 480,500p core/rest_reconcile.py ; sed -n 900,975p core/rest_reconcile.py   # reconcile_series 병합, VERIFY 비교·재조회·반환
+grep -n "sort_index\|is_monotonic" engine/live_loop.py
+grep -rn "safe_fetch_rest(\|fetch_candles_rest_full(\|fetch_candles_rest_cached(" --include="*.py" . | grep -v "^./tests\|def \|_old\|>>>"
+
+## 2. VERIFY 로그 추출 (09-24 ~ 10-01)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-09-24 00:00:00' --until '2026-10-01 23:59:59' --no-pager -o short-iso -g 'VERIFY\] (과거 봉 검증 시작 \| count=[0-9]+ \| range|⚠️ Upbit에 없는|불일치 발견|❌ 재조회 모두 실패|✅ 모든 과거 봉 일치|✅ 검증 통과)|VERIFY-RETRY|다중 호출 시작 .*minute' 2>/dev/null | sed -E 's/^.*\]: //'" > $S/wo16_verify_raw.log
+grep -c "Upbit에 없는" $S/wo16_verify_raw.log                           # 36290
+grep -c "range=" $S/wo16_verify_raw.log                                 # 2163
+grep -cE "불일치 발견|재조회 모두 실패|VERIFY-RETRY" $S/wo16_verify_raw.log  # 0
+grep -oE "timeframe=minute[0-9]+" $S/wo16_verify_raw.log | sort | uniq -c   # 4332 minute5
+grep -oE "과거 봉 검증 시작 \| count=[0-9]+ \| range" $S/wo16_verify_raw.log | grep -oE "count=[0-9]+" | cut -d= -f2 | awk '{s+=$1;n++} END{print "runs",n,"bars",s}'   # runs 2163 bars 432600
+grep -cE "✅ 모든 과거 봉 일치" $S/wo16_verify_raw.log    # 2163
+grep -cE "✅ 검증 통과" $S/wo16_verify_raw.log            # 0
+python3 $S/wo16_parse.py                                  # → wo16_skips.csv, 실행별 분포
+awk -F, 'NR>1 && $1>="2026-10-01 11:42:01"' $S/wo16_skips.csv | wc -l    # 18 (WO-14 배포 뒤)
+
+## 3. 엔진 기록 값 (DB 읽기 전용)
+ssh root@orionhunter7.cafe24.com "D='file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro'; for t in audit_buy_eval audit_sell_eval; do echo \"== \$t\"; sqlite3 \"\$D\" \"PRAGMA table_info(\$t);\" | cut -d'|' -f2 | tr '\n' ' '; echo; done"
+ssh root@orionhunter7.cafe24.com "D='file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro'; sqlite3 -csv -header \"\$D\" \"SELECT 'buy' AS tbl, id, timestamp, bar_time, price, backfill_close, backfill_type, confirmed_close, tentative_close FROM audit_buy_eval WHERE ticker='KRW-JTO' AND bar_time >= '2026-09-22' AND bar_time < '2026-10-02' UNION ALL SELECT 'sell', id, timestamp, bar_time, price, backfill_close, backfill_type, NULL, NULL FROM audit_sell_eval WHERE ticker='KRW-JTO' AND bar_time >= '2026-09-22' AND bar_time < '2026-10-02';\"" > $S/wo16_audit.csv
+# 결과: 2666 buy + 283 sell 행
+
+## 4. Upbit 확정 OHLC 대조
+python3 $S/wo16_match.py      # → docs/plans/2026-10-01-wo16-rest-tz-fix/verify_gap_match.csv
+# 결과: upbit 3000봉(09-20 20:00 ~ 10-01 12:50), 고유 1813봉, match 1492 / backfill_mismatch 321, 실시간 종가 차이 0원 1813건
+python3 -c "
+import csv
+rs=[r for r in csv.DictReader(open('docs/plans/2026-10-01-wo16-rest-tz-fix/verify_gap_match.csv')) if r['class']=='backfill_mismatch']
+eq_open=sum(1 for r in rs if float(r['engine_backfill_close'])==float(r['upbit_open']))
+import collections
+print('backfill_mismatch',len(rs),'backfill_close==upbit_open',eq_open)
+print('types',collections.Counter(r['audit_rows'] for r in rs).most_common(5))
+print('diff dist',sorted(collections.Counter(round(float(r['diff_backfill'])) for r in rs).items()))
+print('days',sorted(collections.Counter(r['skip_ts_kst'][:10] for r in rs).items()))
+"
+# 결과: 321 중 263 이 upbit_open 과 같음
+ssh root@orionhunter7.cafe24.com "sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT bar_time, backfill_at, backfill_close, backfill_reason FROM audit_buy_eval WHERE ticker='KRW-JTO' AND bar_time IN ('2026-09-23T07:25:00+09:00','2026-09-23T10:25:00+09:00','2026-09-23T14:45:00+09:00');\""
+# 결과: backfill_at = bar_time + 5~11초
+
+## 5. 큰 건너뜀 실행 구간 (wo16_skips.csv 에서 5봉 초과 실행을 연속 구간으로 묶음)
+python3 -c "
+import csv,collections
+runs=collections.OrderedDict()
+for r in csv.DictReader(open('$S/wo16_skips.csv')):
+    runs.setdefault(r['run_time'],[]).append(r)
+big=[(t,len(v)) for t,v in runs.items() if len(v)>5]
+seg=[];prev=None
+for t,n in big:
+    if prev is None or t[:13]!=prev[:13] and (t>prev and (int(t[11:13])*60+int(t[14:16]) - (int(prev[11:13])*60+int(prev[14:16]))>10 or t[:10]!=prev[:10])):
+        seg.append([t,t,0])
+    seg[-1][1]=t; seg[-1][2]+=1; prev=t
+for s in seg[:20]: print(s)
+"
+# 출력: [09-25 12:50:34, 09-25 23:55:10, 134] [09-26 00:00:05, 09-26 05:30:11, 67] [09-30 16:40:31, 09-30 17:55:10, 16] [09-30 18:10:33, 09-30 23:55:10, 66] [10-01 00:00:05, 10-01 11:40:11, 141] — 날짜 경계로 나뉜 것을 이어 붙임
+# 결과: 09-25 12:50:34~09-26 05:30:11 (201회), 09-30 16:40:31~17:55:10 (16회), 09-30 18:10:33~10-01 11:40:11 (207회)
+
+## 6. Upbit to 경계 실측 (2026-10-01 12:54:57 KST)
+python3 $S/wo16_to_probe.py
+# 결과: P1 11:55 / P2 12:00 / P3 12:00 / P4 12:00 / P5 12:50 / P6 12:00 / P7 12:50,12:45
+
+## 7. 계획서 인용 줄 번호 확인
+grep -n "to = df.index\[0\]" core/rest_reconcile.py                                   # 291
+grep -n "merged.loc\[ts\] = rest_series.loc\[ts\]\|merged = local_series.copy()" core/rest_reconcile.py   # 492, 495
+grep -n "past_to_verify = past_series.tail" engine/live_loop.py                        # 1426
+grep -n "end_ts: 조회 종료 시각\|to 파라미터 없음 → Upbit 확정 봉만\|return result$\|최신 확정 봉 ✅" core/rest_reconcile.py   # 187, 226, 278, 320, 344
+
+## 기록: 측정 중 빈 셸 heredoc 1건 실행 (python3 - <<'X' 본문 없음, 무동작) — 규칙 위반 기록
+
+########################################################################
+# 첨부: 스크립트 원문
+########################################################################
+
+# ===== wo16_parse.py =====
+"""WO-16 사전 측정: VERIFY 실행별 건너뛴 봉 파싱.
+입력: wo16_verify_raw.log (journal 추출, 09-24 ~ 10-01)
+출력: wo16_skips.csv (run_time, range_start, range_end, skip_ts, pos_from_oldest) + 분포 요약
+"""
+import collections
+import csv
+import re
+from datetime import datetime
+
+S = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad"
+re_start = re.compile(r"^(\S+ \S+) .*\[VERIFY\] 과거 봉 검증 시작 \| count=(\d+) \| range=(\S+ \S+) KST ~ (\S+ \S+) KST")
+re_skip = re.compile(r"^(\S+ \S+) .*Upbit에 없는 timestamp \| ts=(\S+ \S+) KST")
+fmt = "%Y-%m-%d %H:%M:%S"
+
+runs = []
+cur = None
+for line in open(f"{S}/wo16_verify_raw.log", encoding="utf-8"):
+    m = re_start.match(line)
+    if m:
+        cur = {"t": m.group(1), "count": int(m.group(2)), "a": m.group(3), "b": m.group(4), "skips": []}
+        runs.append(cur)
+        continue
+    m = re_skip.match(line)
+    if m and cur is not None:
+        cur["skips"].append(m.group(2))
+
+rows = []
+for r in runs:
+    a = datetime.strptime(r["a"], fmt)
+    for s in r["skips"]:
+        pos = int((datetime.strptime(s, fmt) - a).total_seconds() // 300)
+        rows.append([r["t"], r["a"], r["b"], s, pos])
+
+with open(f"{S}/wo16_skips.csv", "w", newline="") as f:
+    w = csv.writer(f)
+    w.writerow(["run_time", "range_start", "range_end", "skip_ts", "slot_from_range_start"])
+    w.writerows(rows)
+
+n_runs = len(runs)
+n_skip = sum(len(r["skips"]) for r in runs)
+dist = collections.Counter(len(r["skips"]) for r in runs)
+print("runs", n_runs, "skips", n_skip, "unique bars", len({x[3] for x in rows}))
+print("skips per run (top):", sorted(dist.items())[:12], "... max", max(dist))
+# 건너뛴 봉이 범위 앞쪽(오래된 쪽)에 몰려 있는지: 연속 앞부분인지
+contig = 0
+for r in runs:
+    if not r["skips"]:
+        continue
+    srt = sorted(r["skips"])
+    if srt[0] == r["a"]:
+        contig += 1
+print("runs whose first skip == range_start:", contig, "/", sum(1 for r in runs if r["skips"]))
+big = [r for r in runs if len(r["skips"]) > 5]
+print("runs with >5 skips:", len(big))
+for r in big[:3]:
+    print(r["t"], r["a"], r["b"], len(r["skips"]), r["skips"][:3], r["skips"][-2:])
+by_day = collections.Counter(r["t"][:10] for r in big)
+print("big runs by day:", sorted(by_day.items()))
+
+# ===== wo16_match.py =====
+"""WO-16 사전 측정: VERIFY 가 건너뛴 봉(09-24 ~ 10-01) vs Upbit 확정 OHLC vs 엔진 기록 값.
+
+Upbit: 공개 캔들 API, to=UTC 'Z' (배타), 200봉씩. 키 불필요.
+엔진 기록 값: audit_buy_eval / audit_sell_eval (읽기 전용 추출 wo16_audit.csv)
+  - price          : 실시간 평가 때 쓴 종가
+  - backfill_close : BACKFILL 재평가 때 쓴 종가(REST 값)
+출력: verify_gap_match.csv (봉 단위), 요약 출력
+"""
+import collections
+import csv
+import json
+import time
+import urllib.request
+from datetime import datetime, timedelta, timezone
+
+S = "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad"
+OUT = "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/docs/plans/2026-10-01-wo16-rest-tz-fix/verify_gap_match.csv"
+KST = timezone(timedelta(hours=9))
+TOL = 1.0  # VERIFY tolerance ±1원
+
+# ---- 1. 건너뛴 봉 (실행 단위) ----
+runs = collections.defaultdict(list)          # skip_ts -> [(run_time, range_start, range_end)]
+for r in csv.DictReader(open(f"{S}/wo16_skips.csv")):
+    runs[r["skip_ts"]].append((r["run_time"], r["range_start"], r["range_end"]))
+
+# ---- 2. Upbit 확정 캔들 (09-21 ~ 10-01 13:00 KST) ----
+upbit = {}
+to = datetime(2026, 10, 1, 13, 0, tzinfo=KST).astimezone(timezone.utc)
+stop = datetime(2026, 9, 21, 0, 0, tzinfo=KST).astimezone(timezone.utc)
+while to > stop:
+    url = ("https://api.upbit.com/v1/candles/minutes/5?market=KRW-JTO&count=200&to="
+           + to.strftime("%Y-%m-%dT%H:%M:%SZ"))
+    data = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"accept": "application/json"}), timeout=10))
+    if not data:
+        break
+    for c in data:
+        k = c["candle_date_time_kst"].replace("T", " ")
+        upbit[k] = (c["opening_price"], c["high_price"], c["low_price"], c["trade_price"], c["candle_acc_trade_volume"])
+    to = min(datetime.strptime(c["candle_date_time_utc"], "%Y-%m-%dT%H:%M:%S") for c in data).replace(tzinfo=timezone.utc)
+    time.sleep(0.15)
+
+# ---- 3. 엔진 기록 값 ----
+audit = collections.defaultdict(list)
+for r in csv.DictReader(open(f"{S}/wo16_audit.csv")):
+    k = r["bar_time"][:19].replace("T", " ")
+    audit[k].append(r)
+
+
+def f(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return None
+
+
+rows = []
+cls_count = collections.Counter()
+diff_dist = collections.Counter()
+for ts in sorted(runs):
+    rs = runs[ts]
+    unsorted = any(a > b for _, a, b in rs)                 # 범위 시작 > 끝 = 로컬 시계열 정렬 깨짐
+    edge = all(ts == a for _, a, _b in rs if a <= _b)       # 정렬된 실행에서는 늘 범위 첫 봉
+    u = upbit.get(ts)
+    recs = audit.get(ts, [])
+    rt = [f(r["price"]) for r in recs if f(r["price"]) is not None and not r["backfill_type"]]
+    rt_any = [f(r["price"]) for r in recs if f(r["price"]) is not None]
+    bf = [f(r["backfill_close"]) for r in recs if f(r["backfill_close"]) is not None]
+    local_rt = rt[0] if rt else (rt_any[0] if rt_any else None)
+    local_bf = bf[-1] if bf else None
+    uc = u[3] if u else None
+
+    if u is None:
+        cls = "upbit_no_candle"
+    elif local_rt is None and local_bf is None:
+        cls = "no_engine_record"
+    else:
+        d_rt = None if local_rt is None else local_rt - uc
+        d_bf = None if local_bf is None else local_bf - uc
+        if (d_bf is not None and abs(d_bf) <= TOL) or (d_bf is None and abs(d_rt) <= TOL):
+            cls = "match"
+        elif d_bf is None and abs(d_rt) > TOL:
+            cls = "rt_mismatch_only"     # 실시간 평가 종가만 다름(그 뒤 REST 덮어쓰기)
+        else:
+            cls = "backfill_mismatch"
+    cls_count[cls] += 1
+    if u is not None and local_rt is not None:
+        diff_dist[round(local_rt - uc)] += 1
+
+    rows.append([
+        ts, len(rs), rs[0][0], rs[-1][0], "Y" if unsorted else "N", "Y" if edge and not unsorted else "N",
+        *(u if u else ("", "", "", "", "")),
+        "" if local_rt is None else local_rt,
+        "" if local_bf is None else local_bf,
+        "" if (u is None or local_rt is None) else round(local_rt - uc, 4),
+        "" if (u is None or local_bf is None) else round(local_bf - uc, 4),
+        ";".join(sorted({r["tbl"] + ":" + (r["backfill_type"] or "rt") for r in recs})),
+        cls,
+    ])
+
+with open(OUT, "w", newline="") as fo:
+    w = csv.writer(fo)
+    w.writerow(["skip_ts_kst", "n_runs_skipped", "first_run", "last_run", "in_unsorted_run", "oldest_edge_only",
+                "upbit_open", "upbit_high", "upbit_low", "upbit_close", "upbit_volume",
+                "engine_rt_close", "engine_backfill_close", "diff_rt", "diff_backfill", "audit_rows", "class"])
+    w.writerows(rows)
+
+print("upbit bars fetched", len(upbit), min(upbit), max(upbit))
+print("unique skipped bars", len(rows))
+print("class", dict(cls_count))
+print("rt diff dist", sorted(diff_dist.items()))
+print("unsorted bars", sum(1 for r in rows if r[4] == "Y"), "edge-only bars", sum(1 for r in rows if r[5] == "Y"))
+mm = [r for r in rows if r[-1] not in ("match",)]
+for r in mm[:12]:
+    print(r)
+
+# ===== wo16_to_probe.py =====
+"""WO-16: Upbit 캔들 API `to` 경계 실측 (공개 API, 키 불필요, 읽기 전용).
+기준 봉: 2026-10-01 12:00 KST (= 03:00 UTC), 5분봉.
+"""
+import json
+import time
+import urllib.parse
+import urllib.request
+
+BASE = "https://api.upbit.com/v1/candles/minutes/5?market=KRW-JTO&count={n}"
+
+
+def q(to=None, n=1):
+    url = BASE.format(n=n) + ("" if to is None else "&to=" + urllib.parse.quote(to))
+    d = json.load(urllib.request.urlopen(urllib.request.Request(url, headers={"accept": "application/json"}), timeout=10))
+    time.sleep(0.15)
+    return [c["candle_date_time_kst"] for c in d]
+
+
+cases = [
+    ("P1 to=03:00:00Z (봉 시작 시각 정확히)", "2026-10-01T03:00:00Z"),
+    ("P2 to=03:00:01Z (봉 시작 +1초)", "2026-10-01T03:00:01Z"),
+    ("P3 to=03:05:00Z (봉 시작 + 봉 간격)", "2026-10-01T03:05:00Z"),
+    ("P4 to='2026-10-01 03:05:00' (시간대 없음, UTC 값)", "2026-10-01 03:05:00"),
+    ("P5 to='2026-10-01 12:05:00' (시간대 없음, KST 값 — 현 코드 방식)", "2026-10-01 12:05:00"),
+    ("P6 to='2026-10-01T12:05:00+09:00' (KST 오프셋 명시)", "2026-10-01T12:05:00+09:00"),
+]
+for name, to in cases:
+    print(f"{name:55s} -> {q(to)}")
+print(f"{'P7 to 없음 (count=2)':55s} -> {q(None, 2)}")
