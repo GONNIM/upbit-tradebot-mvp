@@ -1,0 +1,40 @@
+test_1_real_row_kept (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_1_real_row_kept)
+(1) 실제 판정 행이 있을 때 워밍업 호출 → 행 불변, 결과 'kept'. (옛 코드: WARMUP 으로 덮여 실패) ... ok
+test_2_warmup_row_updated (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_2_warmup_row_updated)
+(2) WARMUP 자리표시자 행이 있을 때 → 갱신(진행 표기 바뀜), 결과 'updated_placeholder'. ... 2026-10-02 09:45:02 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 09:45:02 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 09:45:02 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo19)
+2026-10-02 09:45:02 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:10:00+09:00 | old_id=1 | new_price=750
+ok
+test_3_no_row_inserted (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_3_no_row_inserted)
+(3) 행 없음 → 자리표시자 삽입, 결과 'inserted'. ... 2026-10-02 09:45:02 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 09:45:02 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 09:45:02 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo19)
+ok
+test_4_realtime_overwrites_placeholder (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_4_realtime_overwrites_placeholder)
+(4) 워밍업 뒤 실시간 판정 → WARMUP 자리표시자를 덮음 (기존 동작 유지). ... 2026-10-02 09:45:03 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 09:45:03 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 09:45:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo19)
+2026-10-02 09:45:03 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:10:00+09:00 | old_id=1 | new_price=751
+ok
+test_5_sell_path_same_rule (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_5_sell_path_same_rule)
+(추가) 포지션 보유 중 기동(SELL 경로)도 같은 규칙: 실제 SELL 판정 행 보존, 없으면 삽입. ... 2026-10-02 09:45:03 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 09:45:03 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 09:45:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo19)
+ok
+test_6_boot_log_line (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_6_boot_log_line)
+(추가) 기동마다 1줄 '[WARMUP] 감사 행 보존 | kept=N inserted=M updated_placeholder=K'. ... 2026-10-02 09:45:03 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 09:45:03 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 09:45:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo19)
+ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 9.403s
+
+OK
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo19_wdmjnprk/tradebot_test_r_2026_10_02_wo19.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo19_0bi8rho7/tradebot_test_r_2026_10_02_wo19.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo19_ys8br_u6/tradebot_test_r_2026_10_02_wo19.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo19_eh1pnshb/tradebot_test_r_2026_10_02_wo19.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo19_nfm5i253/tradebot_test_r_2026_10_02_wo19.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo19_982zdxmk/tradebot_test_r_2026_10_02_wo19.db

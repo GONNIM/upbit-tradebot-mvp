@@ -1,0 +1,18 @@
+(1) 실제 판정 행이 있을 때 워밍업 호출 → 행 불변, 결과 'kept'. (옛 코드: WARMUP 으로 덮여 실패) ... 2026-10-02 09:33:56 INFO services.db | [AUDIT-UPDATE] BUY 실시간 재판정 | ticker=KRW-JTO | bar_time=2026-10-01T14:10:00+09:00 | old_id
+(2) WARMUP 자리표시자 행이 있을 때 → 갱신(진행 표기 바뀜), 결과 'updated_placeholder'. ... 2026-10-02 09:33:57 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+(3) 행 없음 → 자리표시자 삽입, 결과 'inserted'. ... 2026-10-02 09:33:57 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+(4) 워밍업 뒤 실시간 판정 → WARMUP 자리표시자를 덮음 (기존 동작 유지). ... 2026-10-02 09:33:57 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+(추가) 포지션 보유 중 기동(SELL 경로)도 같은 규칙: 실제 SELL 판정 행 보존, 없으면 삽입. ... 2026-10-02 09:33:57 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+(추가) 기동마다 1줄 '[WARMUP] 감사 행 보존 | kept=N inserted=M updated_placeholder=K'. ... 2026-10-02 09:33:57 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+FAIL: test_1_real_row_kept (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_1_real_row_kept)
+AssertionError: Lists differ: [{'id[33 chars]:33:56.990492+09:00', 'bar_time': '2026-10-01T[691 chars]one}] != [{'id[33 chars]:33:54.643250+09:00', 'bar_time': '2026-10-01T[575 chars]one}]
+FAIL: test_2_warmup_row_updated (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_2_warmup_row_updated)
+AssertionError: None != 'inserted'
+FAIL: test_3_no_row_inserted (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_3_no_row_inserted)
+AssertionError: None != 'inserted'
+FAIL: test_5_sell_path_same_rule (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_5_sell_path_same_rule)
+AssertionError: None != 'kept'
+FAIL: test_6_boot_log_line (tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve.TestWarmupAuditPreserve.test_6_boot_log_line)
+AssertionError: 'f"[WARMUP] 감사 행 보존 | kept={_wu_audit.get(\'kept\', 0)} "' not found in '"""\n라이브 트레이딩 루프 - 증분 처리 기반 (Backtest 제거)\n"""\nimport threading\nimport queue\nimport logging\nimport os\nimpo
+Ran 6 tests in 4.619s
+FAILED (failures=5)

@@ -1,0 +1,15 @@
+worktree .env 개수: 0
+=================== HEAD 8fd26c1 fix(wo19): 워밍업이 실제 판정 감사 행을 WARMUP 자리표시자로 덮지 않음 (v1.2026.10.01.1955 → v1.2026.10.02.0942) 게이트 (.env 없음)
+✅ 회귀 테스트 275/275 통과 — 배포 진행 가능
+=================== revert 8fd26c1 (fix(wo19): 워밍업이 실제 판정 감사 행을 WARMUP 자리표시자)
+충돌 파일: 없음
+변경 파일:
+ core/strategy_engine.py                            |  12 +-
+ .../operations/wo8-force-buy-verification-guide.md |   4 -
+ engine/live_loop.py                                |  12 +-
+ pages/dashboard.py                                 |   2 +-
+ services/db.py                                     |  34 -----
+ ...test_r_2026_10_02_wo19_warmup_audit_preserve.py | 157 ---------------------
+ 6 files changed, 6 insertions(+), 215 deletions(-)
+py_compile OK
+✅ 회귀 테스트 269/269 통과 — 배포 진행 가능

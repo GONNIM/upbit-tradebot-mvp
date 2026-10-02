@@ -1,0 +1,3 @@
+962bb46
+ExecMainStartTimestamp=Thu 2026-10-01 20:10:55 KST
+v1.2026.10.01.1955

@@ -1,0 +1,39 @@
+WO-19 실행 명령 (2026-10-02 KST). S=세션 scratchpad, 서버 명령은 모두 읽기 전용.
+
+## A. 조사
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo19_a2.py      # A2 7일 집계 (보고 직전 재실행 → results/db-a2-7days.txt)
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo19_a3.py      # A3 매수 봉 행 → results/db-a3-buy-bars.txt
+git show 27d83f2:services/db.py | sed -n 1055,1068p              # A1 옛 코드 인용
+
+## B. 구현·시험
+(파일 도구로 services/db.py, core/strategy_engine.py, engine/live_loop.py, 시험 파일, 운영 가이드 수정)
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_02_wo19_warmup_audit_preserve -v > $S/wo19_newcode.txt 2>&1     # 6 OK
+(옛 코드 3파일을 HEAD 본으로 잠시 바꿔 같은 시험 실행 → $S/wo19_oldcode.txt, FAILED failures=5, 이후 새 코드 복귀)
+V=$(date '+%Y.%m.%d.%H%M') && sed -i '' "495s/v1\.2026\.10\.02\.0934/v1.$V/" pages/dashboard.py     # → v1.2026.10.02.0942
+python3 -m py_compile pages/dashboard.py engine/live_loop.py core/strategy_engine.py services/db.py tests/regressions/test_r_2026_10_02_wo19_warmup_audit_preserve.py
+git add services/db.py core/strategy_engine.py engine/live_loop.py pages/dashboard.py docs/operations/wo8-force-buy-verification-guide.md
+git add -f tests/regressions/test_r_2026_10_02_wo19_warmup_audit_preserve.py
+git status --short | grep -v '^??'          # 6 파일 스테이징 확인
+git commit -q -F $S/wo19_msg.txt            # 8fd26c1
+bash $S/wo19_revert_check.sh                 # worktree(.env 0개) HEAD 게이트 275/275, revert 8fd26c1 충돌 없음 269/269
+
+## C. 재시작 영향 (코드 읽기 + 서버 DB 읽기)
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo19_c.py       # 마지막 BUY, 주문 555
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo19_c2.py      # executed_at 분포, get_last_open_buy_order sql1 재현
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo19_c3.py      # account_positions, 마지막 SELL 평가
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-02 09:29' --no-pager | grep -E 'SELL|POS-SYNC|hts|wallet' | head -8"     # 09:30 매도 확인
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --no-pager | grep -E 'P3 boot seed 시각 복원 실패|source=boot_seed|Position recovered \|' | tail -6"     # 0건
+ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp; grep -o 'v1\.2026\.[0-9.]*' /root/upbit-tradebot-mvp/pages/dashboard.py | head -1"
+
+## D. 묶음·push
+git show 8fd26c1 > docs/plans/2026-10-02-wo19-warmup-audit-preserve/wo19-code.diff
+git log --oneline -8 > docs/plans/2026-10-02-wo19-warmup-audit-preserve/git-log.txt
+(cd docs/plans/2026-10-02-wo19-warmup-audit-preserve && zip -r wo19-impl-20261002.zip report.md commands.txt git-log.txt wo19-code.diff results)
+unzip -l docs/plans/2026-10-02-wo19-warmup-audit-preserve/wo19-impl-20261002.zip
+git add -f docs/plans/2026-10-02-wo19-warmup-audit-preserve
+git status --short | grep -v '^??'
+git commit -F $S/wo19docs_msg.txt
+git log --oneline origin/main..HEAD         # push 대상 2개 확인
+git push origin main
+
+서버 pull·재시작 없음. 포지션·주문 조작 없음. 투자자 안내 없음.

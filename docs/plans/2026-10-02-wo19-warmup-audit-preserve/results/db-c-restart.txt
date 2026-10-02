@@ -1,0 +1,11 @@
+last_buy_audit_trades (1174, '2026-10-02T08:00:14.048381+09:00', 733.9999999999999, None)
+sell_eval_since_buy(count,min_bar,max_bar) (18, '2026-10-02T08:00:00+09:00', '2026-10-02T09:25:00+09:00')
+orders_cols ['id', 'user_id', 'timestamp', 'ticker', 'side', 'price', 'volume', 'status', 'current_krw', 'current_coin', 'profit_krw', 'provider_uuid', 'state', 'executed_volume', 'avg_price', 'paid_fee', 'requested_at', 'executed_at', 'canceled_at', 'updated_at', 'entry_bar', 'meta', 'settings_history_id']
+last_buy_order {'id': 555, 'user_id': 'mcmax33', 'timestamp': '2026-10-02T08:00:12.437007+09:00', 'ticker': 'KRW-JTO', 'side': 'BUY', 'price': 734.0, 'volume': 0.0, 'status': 'requested', 'current_krw': 2103047.18880863, 'current_coin': 318.01810267, 'profit_krw': None, 'provider_uuid': '42870e09-8dba-433c-a7e7-d687397dbc83', 'state': 'FILLED', 'executed_volume': 318.01810267, 'avg_price': 733.9999999999999, 'paid_fee': None, 'requested_at': '2026-10-02T08:00:12.216379+09:00', 'executed_at': None, 'canceled_at': None, 'updated_at': '2026-10-02T08:00:14.045644+09:00', 'entry_bar': 330, 'meta': '{"bar": 330, "reason": "EMA_GC", "bar_time": "2026-10-02T07:55:00+09:00", "macd": 0.02761350368780313, "signal": 0.09962161321728895, "ema_fast": 732.5314585745903, "ema_slow": 732.5038450709025, "fixed_price_buy": true, "is_fixed_price_buy": true, "interval_sec": 1500, "limit_price": 734.0}', 'settings_history_id': 184}
+account_positions.meta [('{}',)]
+JTO BUY filled with executed_at set: (0, None)
+JTO BUY filled executed_at null: (189,)
+sql1 result: (733.9999999999999, 330, None)
+buy maxrowid / sell maxrowid: (555,) (556,)
+account_positions {'user_id': 'mcmax33', 'ticker': 'KRW-JTO', 'virtual_coin': 0.0, 'updated_at': '2026-10-02T09:41:28.063989+09:00', 'meta': '{}', 'virtual_coin_locked': 0.0, 'entry_price': 0.0}
+last sell_eval [(15505, '2026-10-02T09:25:00+09:00', 742.0, 745.0099999999998, 726.6599999999999, 747.0, 0.1, 0, 18, '🔴 SELL | TRAILING_STOP_FIXED | Golden | PNL=1.09% | bar=348'), (15504, '2026-10-02T09:20:00+09:00', 744.0, 745.0099999999998, 726.6599999999999, 747.0, 0.1, 0, 17, 'Golden | PNL=1.36% | bar=347')]
