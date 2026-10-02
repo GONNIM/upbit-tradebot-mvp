@@ -269,6 +269,10 @@ ssh root@orionhunter7.cafe24.com "
 python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <ema_slow> 1200
 ```
 
+### 기동 이전 봉의 BUY 평가 근거 찾기 (2026-10-02 WO-19 편입)
+
+WO-19 배포 전까지는 엔진이 기동할 때마다 워밍업이 직전 약 200봉(5분봉 기준 약 16.7시간)의 `audit_buy_eval` 실제 판정 행을 "⏳ WARMUP 진행 중"(`checks.status=WARMUP`, `overall_ok=0`) 자리표시자로 덮어썼다(최근 7일 KRW-JTO 539행, 예: 2026-10-01 14:10 봉 id 74864). 이미 덮인 행은 복원하지 않으므로, 감사 로그 페이지의 BUY 평가가 WARMUP 으로 보이는 기동 이전 봉의 판정 근거는 **journal(`journalctl -u tradebot`)의 `🔔 EMA Buy Signal | fast=… slow=…` 줄과 `📊 Bar#… | action=…` 줄**, 그리고 **`mcmax33_engine_debug.log` 의 봉 요약 `cross=Golden/Dead | ema_fast=… | ema_slow=…` 줄**(보조 출처)에서 찾는다. 실제 매매 여부는 `audit_trades`(덮이지 않음)로 확인한다. WO-19 배포 뒤 기동부터는 워밍업이 실제 판정 행을 건드리지 않으며, 기동마다 `[WARMUP] 감사 행 보존 | kept=N inserted=M updated_placeholder=K` 1줄이 남는다.
+
 ```bash
 ssh root@orionhunter7.cafe24.com "
   # 자연 발생 강제 매수 감지 (2026-09-12 17:24 배포 이후 전체 창)

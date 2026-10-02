@@ -1145,6 +1145,7 @@ def run_live_loop(
                 logger.info(f"✅ Warmup 완료 | bars={len(initial_df)}")
 
                 # 버퍼 채우기
+                _wu_audit = {}  # ✅ WO-19: 워밍업 감사 행 결과 집계 (kept / inserted / updated_placeholder)
                 for idx, row in initial_df.iterrows():
                     bar = Bar(
                         ts=idx,
@@ -1158,7 +1159,16 @@ def run_live_loop(
                     buffer.append(bar)
                     engine.bar_count = len(buffer)
                     current_count = min(len(buffer), min_hist)
-                    engine.record_warmup_log(bar, f"(완료 {current_count}/{min_hist})")
+                    _wu_res = engine.record_warmup_log(bar, f"(완료 {current_count}/{min_hist})")
+                    _wu_audit[_wu_res] = _wu_audit.get(_wu_res, 0) + 1  # ✅ WO-19 집계
+
+                # ✅ WO-19: 기동마다 1줄 — 워밍업이 실제 판정 감사 행을 보존했는지
+                logger.info(
+                    f"[WARMUP] 감사 행 보존 | kept={_wu_audit.get('kept', 0)} "
+                    f"inserted={_wu_audit.get('inserted', 0)} "
+                    f"updated_placeholder={_wu_audit.get('updated_placeholder', 0)}"
+                    + (f" failed={_wu_audit[None]}" if _wu_audit.get(None) else "")
+                )
 
                 engine.last_bar_ts = initial_df.index[-1]
                 local_series = initial_df.copy()

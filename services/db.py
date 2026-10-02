@@ -999,6 +999,21 @@ def get_initial_krw(user_id: str) -> float:
         return row[0] if row else None
 
 
+def _is_warmup_placeholder_row(cur, table: str, row_id: int) -> bool:
+    """
+    ✅ WO-19 (2026-10-02): 기존 감사 행이 워밍업 자리표시자(checks.status == "WARMUP")인지.
+    실시간 판정 행의 checks 에는 status 키가 없다. checks 가 비었거나(BACKFILL 전용 missing_bar 행 등)
+    읽을 수 없으면 자리표시자가 아닌 것으로 본다(보존 쪽).
+    """
+    row = cur.execute(f"SELECT checks FROM {table} WHERE id=?", (row_id,)).fetchone()
+    if not row or not row[0]:
+        return False
+    try:
+        return (json.loads(row[0]) or {}).get("status") == "WARMUP"
+    except Exception:
+        return False
+
+
 def insert_buy_eval(
     user_id: str,
     ticker: str,
@@ -1016,6 +1031,7 @@ def insert_buy_eval(
     is_backfill: bool = False,    # ✅ WO-1: BACKFILL 재평가 경로 여부
     pending_created_at: str | None = None,  # ✅ WO-2: 매수 지연 등록 시각 (ISO 8601 KST)
     tentative_close: float | None = None,   # ✅ WO-2: 지연 등록 시점의 미확정 종가
+    warmup_placeholder: bool = False,       # ✅ WO-19: 워밍업 자리표시자 기록 (실제 판정 행은 보존)
 ):
     """
     BUY 평가 감사로그 기록.
@@ -1064,6 +1080,12 @@ def insert_buy_eval(
             (ticker, bar_time)
         )
         existing = cur.fetchone()
+
+        # ✅ WO-19 (2026-10-02): 워밍업은 자기가 만든 자리표시자(WARMUP)만 갱신한다.
+        # 기존 행이 실제 판정이면 건드리지 않는다(기동마다 직전 ~200봉 실판정이 WARMUP 으로 덮이던 결함).
+        if warmup_placeholder and existing and not is_backfill:
+            if not _is_warmup_placeholder_row(cur, "audit_buy_eval", existing[0]):
+                return "kept"
 
         if is_backfill:
             # ─── BACKFILL 경로 (via_backfill=True) ────────────────────────────
@@ -1171,6 +1193,9 @@ def insert_buy_eval(
 
         conn.commit()
 
+    if warmup_placeholder:  # ✅ WO-19: 워밍업 집계용 결과
+        return "updated_placeholder" if existing else "inserted"
+
 
 def update_buy_eval_wo2_resolution(
     user_id: str,
@@ -1249,6 +1274,7 @@ def insert_sell_eval(
     notes: str = "",
     bar_time: str | None = None,  # ✅ 봉 시각 파라미터 (필수)
     is_backfill: bool = False,    # ✅ WO-1: BACKFILL 재평가 경로 여부
+    warmup_placeholder: bool = False,  # ✅ WO-19: 워밍업 자리표시자 기록 (실제 판정 행은 보존)
 ):
     """
     SELL 평가 감사로그 기록.
@@ -1283,6 +1309,11 @@ def insert_sell_eval(
             (ticker, bar_time)
         )
         existing = cur.fetchone()
+
+        # ✅ WO-19: 워밍업 자리표시자는 실제 판정 행을 덮지 않는다 (insert_buy_eval 과 같은 규칙)
+        if warmup_placeholder and existing and not is_backfill:
+            if not _is_warmup_placeholder_row(cur, "audit_sell_eval", existing[0]):
+                return "kept"
 
         if is_backfill:
             if existing:
@@ -1377,6 +1408,9 @@ def insert_sell_eval(
                 )
 
         conn.commit()
+
+    if warmup_placeholder:  # ✅ WO-19: 워밍업 집계용 결과
+        return "updated_placeholder" if existing else "inserted"
 
 
 def annotate_buy_eval_blocked(

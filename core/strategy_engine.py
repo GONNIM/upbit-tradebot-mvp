@@ -1470,7 +1470,8 @@ class StrategyEngine:
                 # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                 # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
                 bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
-                insert_buy_eval(
+                # ✅ WO-19: warmup_placeholder=True — 실제 판정 행은 보존, 결과("kept"/"inserted"/"updated_placeholder") 반환
+                return insert_buy_eval(
                     user_id=self.user_id,
                     ticker=self.ticker,
                     interval_sec=self.interval_sec,
@@ -1483,14 +1484,15 @@ class StrategyEngine:
                     failed_keys=["WARMUP_IN_PROGRESS"],
                     checks=checks,
                     notes=notes,
-                    bar_time=bar_ts_kst.isoformat()
+                    bar_time=bar_ts_kst.isoformat(),
+                    warmup_placeholder=True,
                 )
             else:
                 # 포지션 있을 때: SELL 평가 로그 기록
                 # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                 # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
                 bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
-                insert_sell_eval(
+                return insert_sell_eval(
                     user_id=self.user_id,
                     ticker=self.ticker,
                     interval_sec=self.interval_sec,
@@ -1508,10 +1510,12 @@ class StrategyEngine:
                     triggered=False,
                     trigger_key=None,
                     notes=notes,
-                    bar_time=bar_ts_kst.isoformat()
+                    bar_time=bar_ts_kst.isoformat(),
+                    warmup_placeholder=True,  # ✅ WO-19
                 )
         except Exception as e:
             logger.error(f"❌ WARMUP 로그 기록 실패: {e}")
+            return None
 
     def _record_audit_log(self, bar: Bar, indicators: Dict[str, Any], action: Action, is_backfill: bool = False):
         """
