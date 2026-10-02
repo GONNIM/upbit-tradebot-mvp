@@ -289,6 +289,9 @@ class OrderReconciler:
             else:  # 'cancel'
                 db_state = "CANCELED"
 
+            # ✅ WO-20: 확정 시각 기록용 값 (DB 기록 인자만, 판정·발주 경로 무관)
+            executed_at, canceled_at = self._final_timestamps(uuid, trades, exec_volume, db_state)
+
             self._finalize_order(
                 uuid=uuid,
                 user_id=user_id,
@@ -297,7 +300,9 @@ class OrderReconciler:
                 exec_vol=exec_volume,
                 avg_px=avg_price,
                 fee=paid_fee,
-                state=db_state
+                state=db_state,
+                executed_at=executed_at,
+                canceled_at=canceled_at,
             )
 
             # ✅ SP-PI-2: LIMIT BUY 전량 체결(FILLED) 감지 시 fill callback 발화
@@ -342,10 +347,48 @@ class OrderReconciler:
         except Exception as e:
             logger.warning(f"[OR] progress update failed uuid={uuid}: {e}")
 
-    def _finalize_order(self, uuid, user_id, ticker, side, exec_vol, avg_px, fee, state):
+    @staticmethod
+    def _final_timestamps(uuid, trades, exec_vol, db_state):
+        """
+        ✅ WO-20 (2026-10-02): 확정 시 orders 에 남길 시각 (executed_at, canceled_at).
+        - executed_at: 체결 수량이 있으면 Upbit trades[].created_at 중 가장 늦은 값 (KST ISO).
+          trades 가 비어 있으면 확정 처리 시각으로 대신하고 로그 1줄을 남긴다.
+        - canceled_at: 취소 확정(CANCELED)이면 확정 처리 시각.
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        kst = ZoneInfo("Asia/Seoul")
+        now_iso = datetime.now(kst).isoformat()
+
+        executed_at = None
+        if exec_vol and exec_vol > 0:
+            latest = None
+            for t in trades or []:
+                try:
+                    ts = datetime.fromisoformat(str(t.get("created_at")))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=kst)
+                except Exception:
+                    continue
+                if latest is None or ts > latest:
+                    latest = ts
+            if latest is not None:
+                executed_at = latest.astimezone(kst).isoformat()
+            else:
+                executed_at = now_iso
+                logger.warning(
+                    f"[OR] executed_at 대체 | uuid={uuid} trades 없음 → 확정 처리 시각 {now_iso} 기록"
+                )
+
+        canceled_at = now_iso if db_state == "CANCELED" else None
+        return executed_at, canceled_at
+
+    def _finalize_order(self, uuid, user_id, ticker, side, exec_vol, avg_px, fee, state,
+                        executed_at=None, canceled_at=None):
         """
         최종 체결/취소 결과를 orders 테이블에 반영.
         - state: 'FILLED' | 'CANCELED' | (필요 시 'REJECTED' 등 확장)
+        - executed_at / canceled_at: ✅ WO-20 확정 시각 (_final_timestamps)
         """
         try:
             # ✅ 잔고 조회 (대시보드 표시용 current_krw, current_coin 저장)
@@ -374,12 +417,15 @@ class OrderReconciler:
                 executed_volume=exec_vol,
                 avg_price=avg_px or None,
                 paid_fee=fee or None,
+                executed_at=executed_at,  # ✅ WO-20
+                canceled_at=canceled_at,  # ✅ WO-20
                 current_krw=current_krw,  # ✅ 체결 후 KRW 잔고
                 current_coin=current_coin,  # ✅ 체결 후 코인 보유량
             )
             logger.info(
                 f"[OR] final {state} uuid={uuid} user={user_id} side={side} "
-                f"vol={exec_vol} avg={avg_px} fee={fee} krw={current_krw} coin={current_coin}"
+                f"vol={exec_vol} avg={avg_px} fee={fee} krw={current_krw} coin={current_coin} "
+                f"executed_at={executed_at} canceled_at={canceled_at}"
             )
 
             # ✅ LIVE 모드 체결 로그 기록

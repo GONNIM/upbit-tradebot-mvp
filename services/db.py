@@ -1887,9 +1887,14 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         where_sql = " AND ".join(where)
 
         # --- ORDER BY 구성 ---
-        order_keys = [c for c in ("executed_at", "created_at", "ts", "timestamp") if c in cols]
+        # ✅ WO-20 (2026-10-02): 최신 체결 우선. 이전에는 "executed_at , timestamp DESC" 로
+        #   executed_at 이 오름차순이라, executed_at 이 채워지기 시작하면 옛 매수를 골랐다.
+        def _coalesce(keys):
+            return keys[0] if len(keys) == 1 else f"COALESCE({', '.join(keys)})"
+
+        order_keys = [c for c in ("executed_at", "updated_at", "timestamp") if c in cols]
         if order_keys:
-            order_sql = " , ".join(order_keys) + " DESC, ROWID DESC"
+            order_sql = f"{_coalesce(order_keys)} DESC, ROWID DESC"
         else:
             order_sql = "ROWID DESC"
 
@@ -1903,14 +1908,14 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         if "entry_bar" in cols:
             select_cols += ", entry_bar"
 
-        # ✅ SP-PI-1: 진입 시각 복원 — 우선순위 executed_at > created_at > ts > timestamp
-        ts_col_pick = None
-        for cand in ("executed_at", "created_at", "ts", "timestamp"):
-            if cand in cols:
-                ts_col_pick = cand
-                break
-        if ts_col_pick:
-            select_cols += f", {ts_col_pick}"
+        # ✅ SP-PI-1: 진입 시각 복원
+        # ✅ WO-20: COALESCE(executed_at, updated_at) — executed_at 이 비면 확정 갱신 시각(updated_at)으로 대신.
+        #   (FILLED 는 실제 체결과 수 초 차이, 부분 체결 뒤 취소는 최대 1봉 늦음 — WO-20 조사 B3)
+        ts_keys = [c for c in ("executed_at", "updated_at") if c in cols]
+        if not ts_keys:
+            ts_keys = [c for c in ("created_at", "ts", "timestamp") if c in cols][:1]
+        if ts_keys:
+            select_cols += f", {_coalesce(ts_keys)}"
 
         # ✅ B1 해결: 청산 검증 헬퍼 — 마지막 BUY 이후 SELL이 있으면 청산된 것으로 간주
         def _last_buy_closed_by_later_sell() -> bool:

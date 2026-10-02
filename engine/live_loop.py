@@ -388,6 +388,70 @@ def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[Dict[str, A
         return None
 
 
+def _apply_boot_seed(position, db_result: Dict[str, Any], actual_qty: float) -> bool:
+    """기동 시 봇 주문 기록으로 보유 포지션의 진입 시각·진입 봉을 복원 (P3 boot_seed).
+
+    ✅ WO-20 (2026-10-02) 규칙:
+    - 주문 기록에서는 entry_ts 와 entry_bar 만 가져온다.
+      entry_ts 는 COALESCE(executed_at, updated_at) (services/db.py get_last_open_buy_order).
+    - avg_price 는 직전 sync_from_wallet 이 정한 지갑 값(account_positions.entry_price 또는
+      Upbit avg_buy_price)을 유지한다. 지갑 평균가를 구하지 못한 경우에만 주문 평균가를 쓴다.
+      (봇 매수 뒤 앱 추가 매수가 섞인 포지션에서 단일 주문 평균가로 덮지 않기 위함)
+    - entry_ts 가 없으면 apply_entry 를 부르지 않는다. 지갑 동기화 값(has_position=True,
+      entry_ts=기동 시각)이 그대로 남으므로 WARNING 1줄로 사실대로 남긴다.
+
+    Returns:
+        bool: apply_entry(source="boot_seed") 를 불렀으면 True
+    """
+    order_price = db_result.get("price")
+    entry_bar = db_result.get("entry_bar")
+    entry_ts_iso = db_result.get("entry_ts_iso")
+
+    entry_ts = None
+    if entry_ts_iso:
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+            entry_ts = datetime.fromisoformat(str(entry_ts_iso))
+            if entry_ts.tzinfo is None:
+                entry_ts = entry_ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
+        except Exception as e:
+            logger.warning(f"[SEED] entry_ts parse 실패: {e} → seed 시각 부재")
+            entry_ts = None
+
+    wallet_avg = position.avg_price if (position.avg_price is not None and position.avg_price > 0) else None
+    if wallet_avg is not None:
+        avg_price, avg_src = float(wallet_avg), "wallet"
+    elif order_price is not None:
+        avg_price, avg_src = float(order_price), "order"
+    else:
+        avg_price, avg_src = None, None
+
+    if entry_ts is not None and avg_price is not None:
+        position.apply_entry(
+            qty=actual_qty,
+            avg_price=avg_price,
+            entry_bar=int(entry_bar) if entry_bar is not None else 0,
+            entry_ts=entry_ts,
+            source="boot_seed",
+        )
+        logger.info(
+            f"🔁 Position recovered | avg_price={avg_price} (출처: {avg_src}) order_price={order_price} "
+            f"qty={actual_qty:.6f} entry_bar={entry_bar} entry_ts={entry_ts.isoformat()}"
+        )
+        return True
+
+    # entry_ts(또는 평균가) 를 정하지 못함 — apply_entry 미호출, 지갑 동기화 값 유지
+    _ts = position.entry_ts.isoformat() if hasattr(position.entry_ts, "isoformat") else position.entry_ts
+    logger.warning(
+        f"⚠️ [BOOT-SEED] 봇 주문의 체결 시각 없음 → boot_seed 미적용, 지갑 동기화 값 유지 | "
+        f"has_position={position.has_position} qty={actual_qty:.6f} avg_price={position.avg_price} (출처: 지갑) "
+        f"entry_ts={_ts} (기동 시각) | 정체 포지션 판정은 기동 시각부터 다시 센다 | "
+        f"order_price={order_price} entry_ts_iso={entry_ts_iso}"
+    )
+    return False
+
+
 def detect_position_and_seed_entry(
     trader: UpbitTrader,
     ticker: str,
@@ -694,42 +758,7 @@ def run_live_loop(
 
         db_result = _seed_entry_price_from_db(params.upbit_ticker, user_id)
         if db_result:
-            entry_price = db_result.get("price")
-            entry_bar = db_result.get("entry_bar")
-            entry_ts_iso = db_result.get("entry_ts_iso")
-
-            # ✅ SP-PI-1: entry_ts 원 시각 복원 (P3 boot_seed 경로)
-            entry_ts = None
-            if entry_ts_iso:
-                try:
-                    from datetime import datetime
-                    from zoneinfo import ZoneInfo
-                    entry_ts = datetime.fromisoformat(str(entry_ts_iso))
-                    if entry_ts.tzinfo is None:
-                        entry_ts = entry_ts.replace(tzinfo=ZoneInfo("Asia/Seoul"))
-                except Exception as e:
-                    logger.warning(f"[SEED] entry_ts parse 실패: {e} → seed 시각 부재")
-                    entry_ts = None
-
-            if entry_price is not None and entry_ts is not None:
-                position.apply_entry(
-                    qty=actual_qty,
-                    avg_price=float(entry_price),
-                    entry_bar=int(entry_bar) if entry_bar is not None else 0,
-                    entry_ts=entry_ts,
-                    source="boot_seed",
-                )
-                logger.info(
-                    f"🔁 Position recovered | entry={entry_price} qty={actual_qty:.6f} "
-                    f"entry_bar={entry_bar} entry_ts={entry_ts.isoformat()}"
-                )
-            else:
-                # entry_ts 복원 실패 — 신뢰 가능 데이터 부족 → SP-PI-5 방침에 따라 has_position=False 유지
-                logger.error(
-                    f"❌ P3 boot seed 시각 복원 실패 → has_position=False 유지. "
-                    f"entry_price={entry_price} entry_ts_iso={entry_ts_iso}. "
-                    f"수동 정리 또는 force_liquidate 필요."
-                )
+            _apply_boot_seed(position, db_result, actual_qty)
         else:
             # ✅ SP-PI-5: avg_price=None 비상 모드 완전 제거.
             #   진입가·시각이 신뢰 가능하지 않은 상태로 has_position=True 를 유지하면
