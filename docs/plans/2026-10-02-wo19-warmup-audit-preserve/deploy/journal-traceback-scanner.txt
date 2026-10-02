@@ -1,0 +1,20 @@
+2026-10-02T11:15:10+0900 orionhunter7.cafe24.com python[2280865]: 2026-10-02 11:15:10 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-02 11:10:00 KST | close=749.0
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: 2026-10-02 11:15:24.865 MediaFileHandler: Missing file ....//....//....//app/.streamlit/secrets.toml
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: Traceback (most recent call last):
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:   File "/root/upbit-tradebot-mvp/venv/lib/python3.12/site-packages/streamlit/web/bootstrap.py", line 348, in run
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:     if asyncio.get_running_loop().is_running():
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: RuntimeError: no running event loop
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: During handling of the above exception, another exception occurred:
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: Traceback (most recent call last):
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:   File "/root/upbit-tradebot-mvp/venv/lib/python3.12/site-packages/streamlit/runtime/memory_media_file_storage.py", line 140, in get_file
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:     return self._files_by_id[file_id]
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:            ~~~~~~~~~~~~~~~~~^^^^^^^^^
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: KeyError: '....//....//....//app/.streamlit/secrets'
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: The above exception was the direct cause of the following exception:
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: Traceback (most recent call last):
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:   File "/root/upbit-tradebot-mvp/venv/lib/python3.12/site-packages/streamlit/web/server/media_file_handler.py", line 95, in validate_absolute_path
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:     self._storage.get_file(absolute_path)
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:   File "/root/upbit-tradebot-mvp/venv/lib/python3.12/site-packages/streamlit/runtime/memory_media_file_storage.py", line 142, in get_file
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]:     raise MediaFileStorageError(
+2026-10-02T11:15:24+0900 orionhunter7.cafe24.com python[2280865]: streamlit.runtime.media_file_storage.MediaFileStorageError: Bad filename '....//....//....//app/.streamlit/secrets.toml'. (No media file with id '....//....//....//

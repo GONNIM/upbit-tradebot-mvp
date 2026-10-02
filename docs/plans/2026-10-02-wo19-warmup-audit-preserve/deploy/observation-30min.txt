@@ -1,0 +1,35 @@
+== 창: 2026-10-02 10:03:17 ~ 2026-10-02 10:33:18 | HEAD=786b5cb active=active start=Fri 2026-10-02 10:03:18 KST 버전=v1.2026.10.02.0942
+== (a) '[WARMUP] 감사 행 보존' — 코드 존재 확인 후 건수
+1167:                    f"[WARMUP] 감사 행 보존 | kept={_wu_audit.get('kept', 0)} "
+2026-10-02 10:03:26 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=133 inserted=20 updated_placeholder=47
+   journal 건수: 1  failed= 포함: 0  engine_debug.log 안 건수: 0
+== (b) 기동 구간(보존 줄 이전) '[AUDIT-UPDATE] BUY 실시간 재판정'
+   보존 줄 시각: 2026-10-02 10:03:26
+   기동 구간 BUY 재판정: 47  SELL 재판정: 0
+   관찰 창 전체 BUY 재판정: 47  (기동 뒤 실시간 판정이 자기 봉을 다시 쓰는 경우 포함)
+== (d) 사후 확인 7: 시드
+2026-10-02 10:03:26 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=736.1508 ema_slow=733.8483 ema_base=733.8483 | 마지막 봉=2026-10-02 09:55:00 KST
+   long_history bars=800: 1  sma200: 0  '긴 이력 시드 실패': 0  '지표 시드 폴백': 0
+== (e) 결함 태그
+   ' ERROR ': 0
+   'Traceback': 0
+   '[POS-DESYNC] class=': 0
+   'Upbit에 없는 timestamp': 0
+   '불일치 발견': 0
+   '과거 봉 검증 실패': 0
+   'POLLUTED': 0
+   'database is locked': 0
+   'ON CONFLICT clause': 0
+   'CRITICAL': 0
+   Traceback 중 외부 스캐너 파일 요청(Missing file / MediaFileStorageError): 0
+== (f) Bar# / 조정 / BACKFILL
+2026-10-02 10:05:11 Bar#201 2026-10-02 10:10:10 Bar#202 2026-10-02 10:15:11 Bar#203 2026-10-02 10:20:06 Bar#204 2026-10-02 10:25:06 Bar#205 2026-10-02 10:30:05 Bar#206 
+   Bar# 건수: 6
+   조정 400 수신:       6 400 
+   BACKFILL '누락 봉 평가 시작': 0  '누락 봉 평가 |': 0  '미확정 봉 제외': 0
+== (g) WO-12
+2026-10-02 10:03:22 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-02 10:03:25 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.7s capital≈2,963,852
+   run_live_loop start: 1  engine_runner 시작: 1
+== (h) 매수 신호
+   EMA Buy Signal: 0  action=BUY: 0  action=SELL: 0  UPBIT-ORDER: 0

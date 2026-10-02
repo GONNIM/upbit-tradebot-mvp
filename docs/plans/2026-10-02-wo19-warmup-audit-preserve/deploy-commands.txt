@@ -1,0 +1,38 @@
+WO-19 배포 실행 명령 (2026-10-02 KST). S=세션 scratchpad. 서버 명령은 pull·restart 외 모두 읽기 전용.
+
+## 0. 배포 전 확인
+git fetch -q && git log --oneline -3 && git rev-parse --short origin/main          # 786b5cb
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; git log --oneline -1; systemctl show tradebot -p ExecMainStartTimestamp; grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo19d_pre.py      # Upbit GET /v1/accounts + account_positions + 기준 행 → deploy/baseline-before.txt
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo19d_snap.py > $S/wo19d_snap_before.tsv         # 배포 전 스냅샷
+
+## 1. 배포
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull 2>&1 | tail -3 && git rev-parse --short HEAD && date '+restart_cmd %F %T' && systemctl restart tradebot && systemctl status tradebot --no-pager | head -5 && systemctl show tradebot -p ExecMainStartTimestamp && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"
+
+## 2. 관찰
+ssh root@orionhunter7.cafe24.com "sleep 100; journalctl -u tradebot --since '2026-10-02 10:03:17' --no-pager | grep -E '\[WARMUP\]|BOOT-RESUME|AUTO-RESUME|Traceback|BOOT-SEED|POS-SYNC|POSITION-APPLY' | cut -c1-260"
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo19d_snap.py > $S/wo19d_snap_after.tsv          # 기동 직후 스냅샷
+python3 $S/wo19d_compare.py                                                                      # 전후 대조 → deploy/snapshot-compare.txt
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && venv/bin/python scripts/wo17s_verify_seed.py '2026-10-02 10:03:26' 736.1508 733.8483"
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-02 10:33:18'" < $S/wo19d_obs.sh              # 30분 관찰 판정 → deploy/observation-30min.txt
+(백그라운드 대기 작업이 끝나지 않아 TaskStop 후 위 명령을 직접 실행. 창 끝 시각은 10:33:18 로 고정)
+
+## 3. 접속 구간 (운영자 접속 뒤)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-02 10:33:18' ... | grep -E 'AUTO-RESUME|BOOT-RESUME|run_live_loop start|engine_runner 시작' ; 결함 태그 건수 ; Bar# 목록"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-02 10:33:18' --no-pager -o short-iso | grep -vF 'fragment with id' | grep -B2 -A14 'Traceback'"   # → deploy/journal-traceback-scanner.txt
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-02 10:03:17' --until '2026-10-02 11:16:00' ... | grep -E 'BOOT-RESUME|AUTO-RESUME|\[WARMUP\]|AUDIT-UPDATE|Bar#|...'"   # → deploy/journal-excerpt.txt
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo19d_pre.py      # 접속 후 기준 행 → deploy/baseline-after-access.txt
+
+## 마무리
+(파일 도구로 deploy-report.md, deploy-commands.txt, investor-notice-log.md 작성)
+git rm --cached docs/plans/2026-10-02-wo19-warmup-audit-preserve/wo19-impl-20261002.zip     # 번들 zip 추적 제외
+git log --oneline -8 > docs/plans/2026-10-02-wo19-warmup-audit-preserve/deploy-git-log.txt
+(cd docs/plans/2026-10-02-wo19-warmup-audit-preserve && zip -qr wo19-deploy-20261002.zip deploy-report.md report.md deploy-commands.txt deploy-git-log.txt deploy)
+unzip -l docs/plans/2026-10-02-wo19-warmup-audit-preserve/wo19-deploy-20261002.zip
+git add docs/operations/investor-notice-log.md
+git add -f deploy-report.md deploy-commands.txt deploy-git-log.txt deploy/   (zip 은 add 하지 않음)
+git status --short | grep -v '^??'
+git commit -F $S/wo19done_msg.txt
+git log --oneline origin/main..HEAD          # push 대상 1개
+git push origin main
+서버 pull 없음.

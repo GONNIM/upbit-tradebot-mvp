@@ -1,0 +1,7 @@
+조회 시각 2026-10-02T11:15:50+09:00
+Upbit /v1/accounts http 200
+Upbit JTO: [] (행 없음 = 0)
+account_positions KRW-JTO: [(0.0, 0.0, 0.0, '{}', '2026-10-02T11:14:57.019484+09:00')]
+== 기준 행
+id=75021 bar_time=2026-10-02T03:35:00+09:00 timestamp=2026-10-02T03:40:12.157886+09:00 overall_ok=1 checks.reason=BUY_SIGNAL checks.status=None notes=🟢 BUY | Golden | bar=286
+id=75063 bar_time=2026-10-02T07:55:00+09:00 timestamp=2026-10-02T08:00:12.017163+09:00 overall_ok=1 checks.reason=BUY_SIGNAL checks.status=None notes=🟢 BUY | Golden | bar=330

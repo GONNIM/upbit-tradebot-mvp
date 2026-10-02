@@ -1,0 +1,10 @@
+before rows 203 / after rows 224 / missing after 0
+  new_realtime: 1
+  new_warmup: 20
+  unchanged_real: 153
+  unchanged_warmup: 3
+  warmup_placeholder_updated: 47
+기동 후 timestamp 갱신 행 중 status=WARMUP: 67 (그중 기동 전 실제 판정이던 행: 0)
+새 행 bar_time: buy:10-02T03:40:WARMUP, buy:10-02T03:50:WARMUP, buy:10-02T08:00:WARMUP, buy:10-02T08:05:WARMUP, buy:10-02T08:10:WARMUP, buy:10-02T08:15:WARMUP, buy:10-02T08:20:WARMUP, buy:10-02T08:25:WARMUP, buy:10-02T08:30:WARMUP, buy:10-02T08:35:WARMUP, buy:10-02T08:40:WARMUP, buy:10-02T08:45:WARMUP, buy:10-02T08:50:WARMUP, buy:10-02T08:55:WARMUP, buy:10-02T09:00:WARMUP, buy:10-02T09:05:WARMUP, buy:10-02T09:10:WARMUP, buy:10-02T09:15:WARMUP, buy:10-02T09:20:WARMUP, buy:10-02T09:25:WARMUP, buy:10-02T10:00:None
+기준 행 after: ['audit_buy_eval', '75021', '2026-10-02T03:35:00+09:00', '2026-10-02T03:40:12.157886+09:00', '1', 'None', '🟢 BUY | Golden | bar=286'] | 동일
+기준 행 after: ['audit_buy_eval', '75063', '2026-10-02T07:55:00+09:00', '2026-10-02T08:00:12.017163+09:00', '1', 'None', '🟢 BUY | Golden | bar=330'] | 동일

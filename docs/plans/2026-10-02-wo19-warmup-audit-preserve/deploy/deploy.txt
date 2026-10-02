@@ -1,0 +1,12 @@
+ create mode 100644 docs/plans/2026-10-02-wo19-warmup-audit-preserve/wo19-impl-20261002.zip
+ create mode 100644 scripts/wo17s_verify_seed.py
+ create mode 100644 tests/regressions/test_r_2026_10_02_wo19_warmup_audit_preserve.py
+786b5cb
+restart_cmd 2026-10-02 10:03:17
+● tradebot.service - Upbit Tradebot MVP v1
+     Loaded: loaded (/etc/systemd/system/tradebot.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/tradebot.service.d
+             └─override.conf, wo12-boot.conf
+     Active: active (running) since Fri 2026-10-02 10:03:18 KST; 5ms ago
+ExecMainStartTimestamp=Fri 2026-10-02 10:03:18 KST
+v1.2026.10.02.0942
