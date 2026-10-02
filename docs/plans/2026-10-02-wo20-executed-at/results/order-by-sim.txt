@@ -1,0 +1,4 @@
+ORDER BY 절: executed_at , timestamp DESC, ROWID DESC
+[현재: 전부 NULL, 최신=710] 결과 = (710, 200, None)
+[(가)만: 최신 행만 executed_at 채움 (기대 734)] 결과 = (710, 200, None)
+[(가)+과거 보정: 전부 채움 (기대 734)] 결과 = (700, 100, '2026-09-01T10:00:00+09:00')

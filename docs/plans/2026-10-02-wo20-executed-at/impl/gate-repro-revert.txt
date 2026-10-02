@@ -1,0 +1,68 @@
+worktree wo20_wt .env 개수: 0
+worktree wo20_wt_old .env 개수: 0
+=================== [A] 986c9b0 게이트 (.env 없음)
+✅ 회귀 테스트 282/282 통과 — 배포 진행 가능
+=================== [B] 986c9b0 WO-20 시험
+(1) executed_at NULL 옛 행 + 채워진 새 행 → 최신 매수(734). 모두 채워져도 734. (옛 코드: 710 / 700) ... ok
+(2) done(trades 2건) → executed_at=마지막 체결 시각. cancel → canceled_at. 진행(wait) → executed_at NULL. ... ok
+Ran 7 tests in 3.065s
+OK
+=================== [C] 재시작 재현 — 새 코드 986c9b0 / as_is
+[1] sync_from_wallet → has_position=True avg_price=734.0 entry_ts=2026-10-02 22:44:19.723293+09:00
+[2] _seed_entry_price_from_db → {'price': 733.9999999999999, 'entry_bar': 330, 'entry_ts_iso': '2026-10-02T08:00:14.045644+09:00'}
+[3] _apply_boot_seed → applied=True
+[4] 결과 → has_position=True avg_price=734.0 entry_bar=330 entry_ts=2026-10-02 08:00:14.045644+09:00
+== 로그 판정
+   [POSITION-APPLY] source=boot_seed: 1
+   [BOOT-SEED] WARNING: 0
+   P3 boot seed 시각 복원 실패: 0
+    WARNING core.position_state | ✅ [POS-SYNC] entry_ts 도 함께 복구 (sync 시각) | entry_ts=2026-10-02T22:44:19.723293+09:00 | ticker=KRW-JTO
+    WARNING core.position_state | ✅ [POS-SYNC] avg_price 복구 성공 | source=upbit_api | avg_price=734.000000 | qty=318.018103 | ticker=KRW-JTO
+    INFO core.position_state | ✅ [POSITION-APPLY] source=boot_seed qty=318.018103 entry=734.00 bar=330 ts=2026-10-02T08:00:14.045644+09:00
+    INFO engine.live_loop | 🔁 Position recovered | avg_price=734.0 (출처: wallet) order_price=733.9999999999999 qty=318.018103 entry_bar=330 entry_ts=2026-10-02T08:00:14.045644+09:00
+=================== [C] 재시작 재현 — 옛 코드 e444114 / as_is
+[1] sync_from_wallet → has_position=True avg_price=734.0 entry_ts=2026-10-02 22:44:22.001913+09:00
+[2] _seed_entry_price_from_db → {'price': 733.9999999999999, 'entry_bar': 330}
+[3] (옛 코드) live_loop.py:714 조건 = False → ERROR 분기 'P3 boot seed 시각 복원 실패' (apply_entry 미호출)
+[4] 결과 → has_position=True avg_price=734.0 entry_bar=None entry_ts=2026-10-02 22:44:22.001913+09:00
+== 로그 판정
+   [POSITION-APPLY] source=boot_seed: 0
+   [BOOT-SEED] WARNING: 0
+   P3 boot seed 시각 복원 실패: 0
+    WARNING core.position_state | ✅ [POS-SYNC] entry_ts 도 함께 복구 (sync 시각) | entry_ts=2026-10-02T22:44:22.001913+09:00 | ticker=KRW-JTO
+    WARNING core.position_state | ✅ [POS-SYNC] avg_price 복구 성공 | source=upbit_api | avg_price=734.000000 | qty=318.018103 | ticker=KRW-JTO
+=================== [C] 재시작 재현 — 새 코드 986c9b0 / exec_set
+[1] sync_from_wallet → has_position=True avg_price=734.0 entry_ts=2026-10-02 22:44:24.235202+09:00
+[2] _seed_entry_price_from_db → {'price': 733.9999999999999, 'entry_bar': 330, 'entry_ts_iso': '2026-10-02T08:00:12+09:00'}
+[3] _apply_boot_seed → applied=True
+[4] 결과 → has_position=True avg_price=734.0 entry_bar=330 entry_ts=2026-10-02 08:00:12+09:00
+== 로그 판정
+   [POSITION-APPLY] source=boot_seed: 1
+   [BOOT-SEED] WARNING: 0
+   P3 boot seed 시각 복원 실패: 0
+    WARNING core.position_state | ✅ [POS-SYNC] entry_ts 도 함께 복구 (sync 시각) | entry_ts=2026-10-02T22:44:24.235202+09:00 | ticker=KRW-JTO
+    WARNING core.position_state | ✅ [POS-SYNC] avg_price 복구 성공 | source=upbit_api | avg_price=734.000000 | qty=318.018103 | ticker=KRW-JTO
+    INFO core.position_state | ✅ [POSITION-APPLY] source=boot_seed qty=318.018103 entry=734.00 bar=330 ts=2026-10-02T08:00:12+09:00
+    INFO engine.live_loop | 🔁 Position recovered | avg_price=734.0 (출처: wallet) order_price=733.9999999999999 qty=318.018103 entry_bar=330 entry_ts=2026-10-02T08:00:12+09:00
+=================== [C] 재시작 재현 — 옛 코드 e444114 / exec_set
+[1] sync_from_wallet → has_position=True avg_price=734.0 entry_ts=2026-10-02 22:44:26.281048+09:00
+[2] _seed_entry_price_from_db → {'price': 747.0, 'entry_bar': 286}
+[3] (옛 코드) live_loop.py:714 조건 = False → ERROR 분기 'P3 boot seed 시각 복원 실패' (apply_entry 미호출)
+[4] 결과 → has_position=True avg_price=734.0 entry_bar=None entry_ts=2026-10-02 22:44:26.281048+09:00
+== 로그 판정
+   [POSITION-APPLY] source=boot_seed: 0
+   [BOOT-SEED] WARNING: 0
+   P3 boot seed 시각 복원 실패: 0
+    WARNING core.position_state | ✅ [POS-SYNC] entry_ts 도 함께 복구 (sync 시각) | entry_ts=2026-10-02T22:44:26.281048+09:00 | ticker=KRW-JTO
+    WARNING core.position_state | ✅ [POS-SYNC] avg_price 복구 성공 | source=upbit_api | avg_price=734.000000 | qty=318.018103 | ticker=KRW-JTO
+=================== [D] revert 986c9b0 (fix(wo20): 체결 확정 시 executed_at·canceled_at 기록 + 복원)
+충돌 파일: 없음
+변경 파일:
+ engine/live_loop.py                                | 101 +++-----
+ engine/order_reconciler.py                         |  52 +----
+ pages/dashboard.py                                 |   2 +-
+ services/db.py                                     |  25 +-
+ .../test_r_2026_10_02_wo20_executed_at.py          | 253 ---------------------
+ 5 files changed, 50 insertions(+), 383 deletions(-)
+py_compile OK
+✅ 회귀 테스트 275/275 통과 — 배포 진행 가능

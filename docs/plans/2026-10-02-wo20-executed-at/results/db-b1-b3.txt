@@ -1,0 +1,43 @@
+DB 파일: ['tradebot_.db', 'tradebot_default.db', 'tradebot_gon1972.db', 'tradebot_mcmax33.db']
+
+== B1 state=FILLED 행 수 / executed_at NULL 수 (side 별), 그 밖의 state 도 함께
+  tradebot_.db: executed_at 열 없음
+  tradebot_default.db: orders 전체 0행
+  tradebot_gon1972.db: orders 전체 0행
+  tradebot_mcmax33.db: orders 전체 557행
+  tradebot_mcmax33.db                state=(NULL)             side=BUY  행=    8 executed_at NULL=    8 채워짐=0
+  tradebot_mcmax33.db                state=(NULL)             side=SELL 행=    9 executed_at NULL=    9 채워짐=0
+  tradebot_mcmax33.db                state=CANCELED           side=BUY  행=  134 executed_at NULL=  134 채워짐=0
+  tradebot_mcmax33.db                state=FAILED             side=BUY  행=    4 executed_at NULL=    4 채워짐=0
+  tradebot_mcmax33.db                state=FILLED             side=BUY  행=  116 executed_at NULL=  116 채워짐=0
+  tradebot_mcmax33.db                state=FILLED             side=SELL 행=  286 executed_at NULL=  286 채워짐=0
+  -- 합계
+  state=(NULL)             side=BUY  행=    8 executed_at NULL=    8 채워짐=0
+  state=(NULL)             side=SELL 행=    9 executed_at NULL=    9 채워짐=0
+  state=CANCELED           side=BUY  행=  134 executed_at NULL=  134 채워짐=0
+  state=FAILED             side=BUY  행=    4 executed_at NULL=    4 채워짐=0
+  state=FILLED             side=BUY  행=  116 executed_at NULL=  116 채워짐=0
+  state=FILLED             side=SELL 행=  286 executed_at NULL=  286 채워짐=0
+
+== B2 executed_at 이 채워진 행
+  전무
+
+== B3 KRW-JTO (mcmax33) 매수: get_last_open_buy_order 와 같은 체결 필터 (state IN completed/filled/FILLED OR (CANCELED AND executed_volume>0))
+  state 별: [('CANCELED', 92), ('FILLED', 97)]
+  대상 행: 189
+  requested_at/updated_at 결측: 0  meta.interval_sec 없음: 86
+  차이(초) 최소 1.6 / 중앙 2.8 / 90% 65.4 / 99% 302.5 / 최대 304.8
+  차이 ≤ 5초: 139
+  차이 ≤ 10초: 154
+  차이 ≤ 30초: 163
+  차이 ≤ 60초: 169
+  차이 ≤ 300초: 185
+  차이 > interval_sec 인 행: 6
+    (250, '2026-07-17T17:52:07.389801+09:00', '2026-07-17T17:57:10.217298+09:00', 302.8, 300, 'EMA_GC', True)
+    (306, '2026-08-01T10:02:07.297622+09:00', '2026-08-01T10:05:08.294575+09:00', 181.0, 180, 'EMA_GC', True)
+    (309, '2026-08-02T09:55:11.959361+09:00', '2026-08-02T09:58:13.831766+09:00', 181.9, 180, 'EMA_GC', True)
+    (384, '2026-08-14T10:10:56.493780+09:00', '2026-08-14T10:15:58.557144+09:00', 302.1, 300, 'EMA_GC', True)
+    (396, '2026-08-17T11:11:37.932710+09:00', '2026-08-17T11:16:42.688890+09:00', 304.8, 300, 'EMA_GC', True)
+    (409, '2026-08-21T07:07:55.955313+09:00', '2026-08-21T07:12:58.436667+09:00', 302.5, 300, 'EMA_GC', True)
+  meta.interval_sec 값 분포: [1200, 1500, 180, 240, 300, 540, 60, 900, None]
+  meta.fixed_price_buy 분포: {True: 103, False: 0, None: 86}

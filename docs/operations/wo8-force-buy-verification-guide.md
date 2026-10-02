@@ -269,6 +269,31 @@ ssh root@orionhunter7.cafe24.com "
 python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <ema_slow> 1200
 ```
 
+### 사후 확증 8번 — 초안 (2026-10-02 WO-20, 배포 전까지 초안)
+
+> **초안**: WO-20(`986c9b0`) 배포 전이다. 배포 완료 판정 때 기준 시각을 넣고 "초안" 표시를 뗀다.
+
+봇이 산 포지션을 보유한 채 재시작(배포·서비스 재시작)이 있었던 경우에만 본다. 기한은 없다. 로그 출처는 `journalctl -u tradebot` 이다.
+
+| 번호 | 항목 | 확인 내용 |
+|---|---|---|
+| 8 | WO-20 boot_seed 복원 | 그 기동에서 ① `[POSITION-APPLY] source=boot_seed … ts=<시각>` 1줄과 `🔁 Position recovered \| avg_price=… (출처: wallet) …` 1줄 ② `[BOOT-SEED] 봇 주문의 체결 시각 없음` WARNING 0건, `P3 boot seed 시각 복원 실패` 0건 ③ ① 의 `ts` 가 그 포지션 매수 주문의 체결 시각(`orders.executed_at`, WO-20 이전 주문은 `updated_at`)과 같음 ④ ① 의 `avg_price` 가 지갑 값(직전 `[POS-SYNC] avg_price 복구 성공 … avg_price=…`)과 같음 ⑤ 첫 SELL 평가가 정상 진행(`[MIN_HOLDING_CHECK] bars_held=` 양수, audit 보정 시 `audit fallback=` 줄) |
+
+- 같은 기동의 `[POS-SYNC] entry_ts 도 함께 복구 (sync 시각)` · `[POS-SYNC] avg_price 복구 성공` 은 WARNING 수준이지만 지갑 동기화의 정상 기록이다(이어서 boot_seed 가 entry_ts 를 주문 시각으로 덮는다). ② 의 "WARNING 0건" 대상이 아니다.
+- 정체 포지션 판정의 `entry_time=` 은 보유 시간이 기준 시간을 넘은 봉에서만 `[STALE_POSITION_CHECK]` 줄에 찍힌다. 그 전에는 ① 의 `ts` 로 판정한다.
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='<재시작 시각 KST>'
+  J(){ journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | sed -E 's/^.*\]: //'; }
+  echo '-- (8) boot_seed 적용 / 지갑 동기화 --'
+  J | grep -E 'POSITION-APPLY\] source=boot_seed|Position recovered|POS-SYNC\] (avg_price 복구 성공|entry_ts 도 함께)' | head -6
+  echo \"[BOOT-SEED] WARNING: \$(J | grep -cF '[BOOT-SEED] 봇 주문의 체결 시각 없음')  P3 문구: \$(J | grep -cF 'P3 boot seed 시각 복원 실패')\"
+  J | grep -E 'MIN_HOLDING_CHECK|audit fallback' | head -3
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, executed_at, updated_at, avg_price, entry_bar FROM orders WHERE side='BUY' AND state='FILLED' ORDER BY COALESCE(executed_at, updated_at, timestamp) DESC LIMIT 1;\"
+"
+```
+
 ### 기동 이전 봉의 BUY 평가 근거 찾기 (2026-10-02 WO-19 편입)
 
 WO-19 배포 전까지는 엔진이 기동할 때마다 워밍업이 직전 약 200봉(5분봉 기준 약 16.7시간)의 `audit_buy_eval` 실제 판정 행을 "⏳ WARMUP 진행 중"(`checks.status=WARMUP`, `overall_ok=0`) 자리표시자로 덮어썼다(최근 7일 KRW-JTO 539행, 예: 2026-10-01 14:10 봉 id 74864). 이미 덮인 행은 복원하지 않으므로, 감사 로그 페이지의 BUY 평가가 WARMUP 으로 보이는 기동 이전 봉의 판정 근거는 **journal(`journalctl -u tradebot`)의 `🔔 EMA Buy Signal | fast=… slow=…` 줄과 `📊 Bar#… | action=…` 줄**, 그리고 **`mcmax33_engine_debug.log` 의 봉 요약 `cross=Golden/Dead | ema_fast=… | ema_slow=…` 줄**(보조 출처)에서 찾는다. 실제 매매 여부는 `audit_trades`(덮이지 않음)로 확인한다. WO-19 배포 뒤 기동부터는 워밍업이 실제 판정 행을 건드리지 않으며, 기동마다 `[WARMUP] 감사 행 보존 | kept=N inserted=M updated_placeholder=K` 1줄이 남는다.

@@ -1,0 +1,127 @@
+test_1_order_picks_latest_buy (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_1_order_picks_latest_buy)
+(1) executed_at NULL 옛 행 + 채워진 새 행 → 최신 매수(734). 모두 채워져도 734. (옛 코드: 710 / 700) ... FAIL
+test_2_finalize_records_executed_and_canceled_at (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_2_finalize_records_executed_and_canceled_at)
+(2) done(trades 2건) → executed_at=마지막 체결 시각. cancel → canceled_at. 진행(wait) → executed_at NULL. ... FAIL
+test_3_boot_seed_uses_updated_at (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_3_boot_seed_uses_updated_at)
+(3) executed_at NULL + updated_at → boot_seed 가 apply_entry, entry_ts = updated_at. (옛 코드: 시각 없음) ... 2026-10-02 22:40:22 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-02 22:40:22 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 734.0, 'entry_bar': 330}
+2026-10-02 22:40:22 INFO engine.live_loop | [SEED] raw_last_open={'price': 734.0, 'entry_bar': 330}
+2026-10-02 22:40:22 INFO engine.live_loop | 🔁 Seed from DB: price=734.0 entry_bar=330 entry_ts=None
+FAIL
+test_4_avg_price_keeps_wallet_value (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_4_avg_price_keeps_wallet_value)
+(4) 지갑 평균가 740, 주문 평균가 734, 수량 불일치(앱 추가 매수 혼합) → avg_price 740, entry_ts 주문 시각. ... 2026-10-02 22:40:22 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 22:40:22 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 22:40:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo20)
+2026-10-02 22:40:22 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-02 22:40:22 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 734.0, 'entry_bar': 330, 'entry_ts_iso': '2026-10-02T08:00:12+09:00'}
+2026-10-02 22:40:22 INFO engine.live_loop | [SEED] raw_last_open={'price': 734.0, 'entry_bar': 330, 'entry_ts_iso': '2026-10-02T08:00:12+09:00'}
+2026-10-02 22:40:22 INFO engine.live_loop | 🔁 Seed from DB: price=734.0 entry_bar=330 entry_ts=2026-10-02T08:00:12+09:00
+ERROR
+test_5_old_entry_bar_uses_audit_fallback (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_5_old_entry_bar_uses_audit_fallback)
+(5) 고정: 옛 entry_bar(330) > 현재 봉(201) → bars_held 음수가 아니라 audit 보정값. 기존 경로 그대로. ... 2026-10-02 22:40:22 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 22:40:22 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 22:40:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo20)
+2026-10-02 22:40:22 INFO core.strategy_incremental | [EMA Strategy] take_profit from params.json: 50.00%
+2026-10-02 22:40:22 INFO core.strategy_incremental | [EMA Strategy] stop_loss from params.json: 50.00%
+2026-10-02 22:40:22 INFO core.strategy_incremental | [EMA Strategy] trailing_stop from params.json: threshold=None, activation=50.00%, use_fixed_mode=False
+2026-10-02 22:40:22 INFO core.strategy_incremental | [EMA Strategy] Surge Filter from params.json (backward compatibility)
+2026-10-02 22:40:22 INFO core.strategy_incremental | [EMA Strategy] Buy conditions: ema_gc=True, above_base_ema=True, bullish_candle=True, base_ema_gap=False (threshold=-0.50%)
+2026-10-02 22:40:22 INFO core.strategy_incremental | [EMA Strategy] Surge Filter: enabled=False, threshold=1.00% (Slow EMA 대비)
+2026-10-02 22:40:22 INFO core.strategy_incremental | [EMA Strategy] Sell conditions: stop_loss=True, take_profit=True, trailing_stop=True, ema_dc=True, stale_position=False (hours=1.0h, threshold=1.00%)
+2026-10-02 22:40:22 INFO core.filters | ✅ Buy Filter registered: SlowEmaSurgeFilter
+2026-10-02 22:40:22 INFO core.filters | ✅ Sell Filter registered: StopLossFilter (Category: CORE_STRATEGY)
+2026-10-02 22:40:22 INFO core.filters | ✅ Sell Filter registered: TrailingStopFilter (Category: CORE_STRATEGY)
+2026-10-02 22:40:22 INFO core.filters | ✅ Sell Filter registered: TakeProfitFilter (Category: CORE_STRATEGY)
+2026-10-02 22:40:22 INFO core.filters | ✅ Sell Filter registered: DeadCrossFilter (Category: CORE_STRATEGY)
+2026-10-02 22:40:22 INFO core.filters | ✅ Sell Filter registered: StalePositionFilter (Category: SELL_AUXILIARY)
+2026-10-02 22:40:22 INFO core.position_state | ✅ [POSITION-APPLY] source=boot_seed qty=318.000000 entry=740.00 bar=330 ts=2026-10-02T08:00:12+09:00
+2026-10-02 22:40:22 INFO core.filters.sell_filters | 🔍 DEBUG [STOP_LOSS_CHECK] enable=True, stop_loss_triggered=False, pnl_pct=0.14%, threshold=-50.00%, current_price=741, hts_buy=False
+2026-10-02 22:40:22 INFO core.filters.sell_filters | 🔍 DEBUG [TAKE_PROFIT_CHECK] enable_take_profit=True, take_profit_triggered=False, pnl_pct=0.14%, threshold=50.00%, current_price=741
+2026-10-02 22:40:22 INFO core.filters.sell_filters | 🔍 DEBUG [DEAD_CROSS_CHECK] enable_dead_cross=True, ema_dead_cross=False, prev_fast=740.9, prev_slow=739.0, curr_fast=741.00, curr_slow=739.00
+ok
+test_6_restart_with_position_sequence (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_6_restart_with_position_sequence)
+(6) 보유 중 재시작 재현: sync_from_wallet → _seed_entry_price_from_db → _apply_boot_seed. ... 2026-10-02 22:40:22 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 22:40:22 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 22:40:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo20)
+ERROR
+test_7_warning_text_when_no_time (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_7_warning_text_when_no_time)
+(추가) 시각을 정하지 못하면 apply_entry 미호출 + WARNING 문구(실제 동작: has_position=True 유지). ... 2026-10-02 22:40:23 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-02 22:40:23 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-02 22:40:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_02_wo20)
+ERROR
+
+======================================================================
+ERROR: test_4_avg_price_keeps_wallet_value (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_4_avg_price_keeps_wallet_value)
+(4) 지갑 평균가 740, 주문 평균가 734, 수량 불일치(앱 추가 매수 혼합) → avg_price 740, entry_ts 주문 시각.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_02_wo20_executed_at.py", line 178, in test_4_avg_price_keeps_wallet_value
+    self.assertTrue(live_loop._apply_boot_seed(p, r, 400.0))
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'engine.live_loop' has no attribute '_apply_boot_seed'
+
+======================================================================
+ERROR: test_6_restart_with_position_sequence (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_6_restart_with_position_sequence)
+(6) 보유 중 재시작 재현: sync_from_wallet → _seed_entry_price_from_db → _apply_boot_seed.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_02_wo20_executed_at.py", line 229, in test_6_restart_with_position_sequence
+    live_loop._apply_boot_seed(p, r, 318.01810267)
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'engine.live_loop' has no attribute '_apply_boot_seed'
+
+======================================================================
+ERROR: test_7_warning_text_when_no_time (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_7_warning_text_when_no_time)
+(추가) 시각을 정하지 못하면 apply_entry 미호출 + WARNING 문구(실제 동작: has_position=True 유지).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_02_wo20_executed_at.py", line 243, in test_7_warning_text_when_no_time
+    applied = live_loop._apply_boot_seed(p, {"price": 734.0, "entry_bar": 330}, 318.01810267)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'engine.live_loop' has no attribute '_apply_boot_seed'
+
+======================================================================
+FAIL: test_1_order_picks_latest_buy (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_1_order_picks_latest_buy)
+(1) executed_at NULL 옛 행 + 채워진 새 행 → 최신 매수(734). 모두 채워져도 734. (옛 코드: 710 / 700)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_02_wo20_executed_at.py", line 99, in test_1_order_picks_latest_buy
+    self.assertEqual((r["price"], r["entry_bar"]), (734.0, 330))
+AssertionError: Tuples differ: (710.0, 200) != (734.0, 330)
+
+First differing element 0:
+710.0
+734.0
+
+- (710.0, 200)
++ (734.0, 330)
+
+======================================================================
+FAIL: test_2_finalize_records_executed_and_canceled_at (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_2_finalize_records_executed_and_canceled_at)
+(2) done(trades 2건) → executed_at=마지막 체결 시각. cancel → canceled_at. 진행(wait) → executed_at NULL.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_02_wo20_executed_at.py", line 128, in test_2_finalize_records_executed_and_canceled_at
+    self.assertEqual(done["executed_at"], "2026-10-02T08:00:14+09:00")
+AssertionError: None != '2026-10-02T08:00:14+09:00'
+
+======================================================================
+FAIL: test_3_boot_seed_uses_updated_at (tests.regressions.test_r_2026_10_02_wo20_executed_at.TestWo20.test_3_boot_seed_uses_updated_at)
+(3) executed_at NULL + updated_at → boot_seed 가 apply_entry, entry_ts = updated_at. (옛 코드: 시각 없음)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_02_wo20_executed_at.py", line 161, in test_3_boot_seed_uses_updated_at
+    self.assertEqual(r.get("entry_ts_iso"), NEW_UPD)
+AssertionError: None != '2026-10-02T08:00:14.045644+09:00'
+
+----------------------------------------------------------------------
+Ran 7 tests in 3.183s
+
+FAILED (failures=3, errors=3)
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo20_pmp0uiwx/tradebot_test_r_2026_10_02_wo20.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo20_k3x60uoc/tradebot_test_r_2026_10_02_wo20.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo20_pep4c9la/tradebot_test_r_2026_10_02_wo20.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo20_vuaw274q/tradebot_test_r_2026_10_02_wo20.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo20_6vt2bcs8/tradebot_test_r_2026_10_02_wo20.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo20_3jewdct8/tradebot_test_r_2026_10_02_wo20.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo20_ol_fvd8m/tradebot_test_r_2026_10_02_wo20.db
