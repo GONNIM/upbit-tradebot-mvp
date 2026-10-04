@@ -1,0 +1,12 @@
+== 검색어 코드 존재
+1254:                    logger.info(f"⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts={format_kst(closed_ts)}")
+1293:                                f"⏭ [CONFIRMED-NO-TRADE] closed_ts={format_kst(closed_ts)} "
+1372:                f"📊 Bar#{self.bar_count} | ts={bar.ts} | close={bar.close:.2f} | "
+1378:                f"📊 Bar#{self.bar_count} | ts={bar.ts} | close={bar.close:.2f} | "
+== 집계
+1분봉 (WO-20 기동 이후) | 2026-10-04 10:22:33 ~ 2026-10-04 11:10:06
+   봉 확정(CLOCK-CLOSE) 48 | Bar# 29 (60.4%) | CONFIRMED-NO-TRADE 18 (37.5%) | 그 밖(차이) 1
+1분봉 (전환~WO-20 재시작) | 2026-10-03 21:03:46 ~ 2026-10-04 10:22:33
+   봉 확정(CLOCK-CLOSE) 815 | Bar# 559 (68.6%) | CONFIRMED-NO-TRADE 256 (31.4%) | 그 밖(차이) 0
+5분봉 (WO-19 기동~전환 직전 엔진 정지) | 2026-10-02 10:03:18 ~ 2026-10-03 21:02:34
+   봉 확정(CLOCK-CLOSE) 421 | Bar# 401 (95.2%) | CONFIRMED-NO-TRADE 20 (4.8%) | 그 밖(차이) 0

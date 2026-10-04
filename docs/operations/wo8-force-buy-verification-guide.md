@@ -265,11 +265,11 @@ ssh root@orionhunter7.cafe24.com "
   J | grep -E 'BOOT-RESUME\] success|시드 방식=' | sed -E 's/^.*\]: //'
   echo \"긴 이력 시드 실패: \$(J | grep -cF '긴 이력 시드 실패')  sma200: \$(J | grep -cF '시드 방식=sma200')\"
 "
-# 각 기동의 [WARMUP] 시각·ema_fast·ema_slow 로 (로컬, Upbit 공개 API):
-python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <ema_slow> 1200
+# 각 기동의 [WARMUP] 시각·ema_fast·ema_slow 로 (로컬, Upbit 공개 API). 봉 간격은 그 기동의 운영 간격으로 지정:
+python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <ema_slow> 1200 --interval <minute1|minute5|…>
 ```
 
-- **주의 (2026-10-04)**: `scripts/wo17s_verify_seed.py` 는 5분봉(`candles/minutes/5`)으로 고정되어 있다. 운영 봉 간격이 바뀌면(2026-10-04 WO-20 배포 시 `interval=minute1`) 그 간격의 캔들로 바꾼 사본으로 대조해야 한다. 5분봉 그대로 돌리면 차이가 수 원 이상 나와 오판한다(10-04 실측: 5분봉 대조 +3.64 / −12.59, 1분봉 대조 +0.0000 / +0.0052).
+- **봉 간격 인자 (2026-10-04)**: 검증 스크립트는 `--interval` 로 봉 간격을 받는다(`minute1`·`minute5` 또는 분 숫자). 인자가 없으면 params JSON(기본 `mcmax33_latest_params_EMA.json`, `--params` 로 변경)의 `interval` 을 읽는다. 출력 첫 줄 `봉 간격: minuteN (출처: …)` 이 **그 기동의 journal `[CLOCK] Initialized | timeframe=minuteN`** 과 같은지 먼저 확인한다. 지난 기동을 검증할 때는 지금 설정이 아니라 그 기동의 간격을 `--interval` 로 넣는다(2026-10-03 21:03:47 부터 minute1, 그 전은 minute5). 간격이 다르면 차이가 수 원 이상 나와 오판한다(10-04 실측: 5분봉 대조 +3.64 / −12.59, 1분봉 대조 +0.0000 / +0.0052).
 
 ### 사후 확증 8번 (2026-10-04 WO-20 완결 시 편입)
 

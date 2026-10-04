@@ -1,0 +1,125 @@
+
+        # ✅ WO-11 (2026-09-30): 매수 방식 두 가지 설명 병기 (용어: docs/operations/terminology.md)
+        if "fixed_price_buy_enabled" in BUY_FILTERS:
+            _wb = int(st.session_state.get("fixed_price_buy_wait_bars", 3))
+            st.caption(
+                "**매수 방식** — "
+                "**시장가 매수** (위 토글 끔): 신호가 나면 시장가로 바로 삽니다. · "
+                f"**현재가 매수** (위 토글 켬): 신호 봉의 마감가로 주문을 걸고 {_wb}봉 기다립니다. "
+                "미체결이면 자동 취소됩니다."
+---
+        if st.session_state.get("fixed_price_buy_enabled", False):
+            st.markdown("#### ⚙️ 현재가 매수 동작 안내")
+
+            # ✅ WO-10 (d): 도움말 예시를 실제 봉 간격으로 계산 (출처: engine/params.py interval_sec — WO-8·WO-11 과 동일)
+            try:
+                _hp = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_tag)
+                _h_interval = int(_hp.interval_sec) if _hp else None
+            except Exception:
+                _h_interval = None
+            if _h_interval:
+                _h_min = _h_interval / 60
+                _wait_example = (
+                    f"현재 {_h_min:g}분봉 기준: 3봉 ≈ {3 * _h_min:g}분, 5봉 ≈ {5 * _h_min:g}분.\n"
+                )
+            else:
+                _wait_example = "대기 시간 = 봉 수 × 봉 간격 (전략 파라미터의 interval).\n"
+
+            # ✅ SP6 — 대기 봉 수 입력 (1~5 봉, 기본 3)
+            wait_bars = st.number_input(
+                "현재가 매수 대기 봉 수 (1~5 봉)",
+                min_value=1, max_value=5,
+                value=int(st.session_state.get("fixed_price_buy_wait_bars", 3)),
+                step=1,
+                key=f"input_fixed_price_buy_wait_bars_{strategy_tag}",
+                help=(
+                    "설정한 봉 수 만큼 체결을 기다린 후 자동 취소합니다.\n"
+                    + _wait_example +
+                    "변동성 큰 시장에서는 더 많은 봉을 기다리는 것이 체결률이 높습니다."
+                ),
+            )
+            st.session_state["fixed_price_buy_wait_bars"] = int(wait_bars)
+
+            if mode != "LIVE":
+                st.warning(
+                    f"⚠️ 현재 모드: **{mode}** — 현재가 매수는 **LIVE 모드 한정** 기능입니다. "
+                    "TEST 모드에서는 자동으로 시장가 매수로 동작합니다."
+                )
+            else:
+                st.info(
+                    f"🎯 **현재가 매수**: 신호 봉의 마감가로 주문을 걸고 **{int(wait_bars)}봉** 기다립니다. "
+                    f"미체결이면 자동 취소됩니다.\n"
+                    f"- 가격 자동: 신호 봉 마감가를 Upbit 호가 단위에 맞춰 라운딩 후 사용\n"
+                    f"- **Timeout: {int(wait_bars)}봉 대기 후 미체결 시 자동 취소** → 다음 봉 시그널 재평가\n"
+                    f"- 알림: 주문 등록 / 미체결 취소 / API 거부 / 잔고 부족 시 Telegram 전송"
+                )
+
+---
+            # ✅ 2026-08-05: 현재가 매수 대기 봉수 표시 (요약 섹션 누락 봉쇄)
+            # ✅ WO-11 fixup (2026-09-30): 대기 시간 = 봉 수 × 실제 봉 간격 (1분봉 가정 ×60 제거).
+            #   interval_sec 출처는 WO-8 과 동일 — engine/params.py interval_sec 속성.
+            if key == "fixed_price_buy_enabled" and st.session_state.get(key, False):
+                wait_bars = int(st.session_state.get("fixed_price_buy_wait_bars", 3))
+                try:
+                    _p = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_tag)
+                    _interval_sec = int(_p.interval_sec) if _p else None
+                except Exception:
+                    _interval_sec = None
+                if _interval_sec:
+                    _wait_min = wait_bars * _interval_sec / 60
+                    st.caption(f"   └─ 대기 봉수: {wait_bars}봉 (약 {_wait_min:g}분)")
+                else:
+                    st.caption(f"   └─ 대기 봉수: {wait_bars}봉")
+
+with col2:
+    st.markdown("**📉 매도 설정**")
+--- core/strategy_engine.py:1222-1239
+        if fixed_price_mode:
+            meta["fixed_price_buy"] = True
+            # ✅ SP6 — 대기 봉 수 (사용자 conditions, 기본 3)
+            wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
+            wait_bars = max(1, min(5, wait_bars))  # 안전 클램프 1~5
+            effective_interval_sec = self.interval_sec * wait_bars
+            logger.info(
+                f"🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | "
+                f"close={bar.close} ticker={self.ticker} "
+                f"wait_bars={wait_bars} effective_timeout≈{effective_interval_sec-5}s"
+            )
+            result = self.trader.buy_limit(
+                bar.close,
+                self.ticker,
+                ts=bar.ts,
+                meta=meta,
+                interval_sec=effective_interval_sec,  # ✅ SP6 — wait_bars 곱셈된 값 전달
+            )
+--- engine/order_reconciler.py (timeout)
+489:        timeout_sec = max(5, interval_sec - 5)
+--- engine/params.py:272-290
+    def interval_sec(self) -> int:
+        """
+        interval 문자열을 초(sec) 단위로 변환.
+        예: "minute1" -> 60, "minute3" -> 180, "minute5" -> 300
+        """
+        interval_map = {
+            "minute1": 60,
+            "minute3": 180,
+            "minute5": 300,
+            "minute10": 600,
+            "minute15": 900,
+            "minute30": 1800,
+            "minute60": 3600,
+            "day": 86400,
+        }
+        return interval_map.get(self.interval, 60)  # 기본값 60초
+
+    @property
+    def is_macd(self) -> bool:
+--- core/filters/sell_filters.py:456-463 (stale 는 시간 단위)
+    def __init__(self, stale_hours: float = 2.0, stale_threshold_pct: float = 0.01):
+        """
+        Args:
+            stale_hours: 정체 판단 기준 시간 (시간 단위)
+            stale_threshold_pct: 최소 수익률 목표 (기본 1% = 0.01)
+        """
+        super().__init__(FilterCategory.SELL_AUXILIARY)
+        self.stale_hours = stale_hours

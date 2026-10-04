@@ -1,0 +1,43 @@
+== 파일 권한
+-rw------- 1 root root 367 May 31 14:24 /root/upbit-tradebot-mvp/.env
+-rw-r--r-- 1 root root 355 May 31 14:23 /root/upbit-tradebot-mvp/.env.bak
+-rw------- 1 root root 590 Nov 19  2025 /root/upbit-tradebot-mvp/.streamlit/secrets.toml
+drwxr-xr-x 17 root root 4096 Oct  3 21:03 /root/upbit-tradebot-mvp
+drwxr-xr-x  2 root root 4096 Nov 22  2025 /root/upbit-tradebot-mvp/.streamlit
+== Streamlit 설정 파일
+ls: cannot access '/root/.streamlit/config.toml': No such file or directory
+-rw-r--r-- 1 root root 71 Nov 22  2025 /root/upbit-tradebot-mvp/.streamlit/config.toml
+-- /root/upbit-tradebot-mvp/.streamlit/config.toml
+1:[server]
+2:fileWatcherType = "none"
+== 실행 중 Streamlit 설정 값 (설정 미지정 시 기본값)
+streamlit 1.46.0
+server.enableStaticServing = False
+server.address = None
+server.port = 8501
+server.enableCORS = True
+server.enableXsrfProtection = True
+server.headless = True
+== 정적 폴더 존재 여부 (enableStaticServing 이 켜지면 이 폴더만 제공)
+ls: cannot access '/root/upbit-tradebot-mvp/static': No such file or directory
+== 최근 7일 외부 스캐너 요청 (journal)
+   기간: 2026-09-27 11:07:21 ~ 2026-10-04 11:07:53
+   MediaFileHandler: Missing file 줄: 7
+   MediaFileStorageError(Bad filename) 줄: 14
+   Traceback 줄: 21
+   요청 경로별 (Missing file):
+      5 .git/config
+      1 .env
+      1 ....//....//....//app/.streamlit/secrets.toml
+   날짜별:
+      2 Oct 02
+      2 Oct 03
+      3 Sep 28
+   Missing file 이 아닌 Traceback 묶음(엔진 쪽 여부 확인용) 첫 줄 이후 마지막 예외 줄:
+      1 KeyError: '....//....//....//app/.streamlit/secrets'
+      1 KeyError: '.env'
+      5 KeyError: '.git/config'
+      7 RuntimeError: no running event loop
+      1 streamlit.runtime.media_file_storage.MediaFileStorageError: Bad filename '....//....//....//app/.streamlit/secrets.toml'. (No media file with id '....//....//....//app/.streamlit/secrets')
+      1 streamlit.runtime.media_file_storage.MediaFileStorageError: Bad filename '.env'. (No media file with id '.env')
+      5 streamlit.runtime.media_file_storage.MediaFileStorageError: Bad filename '.git/config'. (No media file with id '.git/config')
