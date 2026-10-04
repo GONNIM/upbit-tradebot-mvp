@@ -135,6 +135,8 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ### 세션 개시 정기 점검 조회 명령
 
+> **세션 개시 정기 점검 목록 (2026-10-04 추가)**: 사후 확인 1~9, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령).
+
 ```bash
 ssh root@orionhunter7.cafe24.com "
   START='2026-09-12 17:24:07'

@@ -371,6 +371,7 @@ chmod +x /root/cleanup_tradebot_db.sh
 | Streamlit `server.enableStaticServing` | `False` (Streamlit 1.46.0 실행 값, `static/` 폴더 없음) |
 | 외부 스캐너 요청 (2026-09-27 ~ 10-04, 7일) | 7건 전부 거부 (`.git/config` 5, `.env` 1, `....//…/app/.streamlit/secrets.toml` 1 — 모두 `MediaFileStorageError: Bad filename`) |
 | `/root/upbit-tradebot-mvp/.env.bak` | `644` → **`chmod 600`** (2026-10-04). 삭제하지 않음: `.env` 와 키 11개 이름은 같으나 `TELEGRAM_BOT_TOKEN`·`TELEGRAM_CHAT_ID` 값이 다름. 삭제 여부는 운영자 결정 |
+| `.env.bak` 삭제 (2026-10-04 12:05) | **.env.bak 삭제 완료(옛 텔레그램 값 2개 폐기, 업비트 키는 .env 와 동일했음).** 운영자 판단. `.env` 무변경, 서비스 active 유지(재시작 없음) |
 | 다른 백업 파일 | `/root`, 저장소 루트와 하위 1단계 디렉터리 16개의 `.bak`·`.old`·`.orig`·`~` 접미사 파일은 `.env.bak` 1개뿐 |
 | `/root` | `drwx------` (700), 일반 계정(uid ≥ 1000) 없음 |
 
