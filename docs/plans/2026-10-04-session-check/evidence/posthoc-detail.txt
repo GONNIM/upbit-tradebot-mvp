@@ -1,0 +1,15 @@
+2026-09-30 16:49:10 WARNING engine.order_reconciler | ⛔ [LOCKED-QTY] 매도 불가 — 앱 지정가 매도 주문으로 수량 묶임 | ticker=KRW-JTO 가용=0.000000 묶임=1340.436268
+2026-09-30 23:24:26 INFO engine.order_reconciler | ✅ [LOCKED-QTY] 묶임 해제 — 가용 회복 | ticker=KRW-JTO 가용=307.667517 묶임=0.000000
+---
+2026-10-03 09:18:47 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-JTO | total(가용+묶임): 0.000000 → 2071.002113 (Δ=2071.002113) | 가용=2071.002113 묶임=0.
+2026-10-03 09:18:47 INFO services.db | 🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker=KRW-JTO
+2026-10-03 09:20:11 INFO core.strategy_incremental | 🔥 [SELL_BLOCK_ENTRY] EMA Strategy sell evaluation started | bar_idx=474
+2026-10-03 09:20:11 INFO core.strategy_incremental | 🔍 [MIN_HOLDING_CHECK] bars_held=1, min_required=1, will_skip=False
+2026-10-03 09:25:11 INFO core.strategy_incremental | 🔥 [SELL_BLOCK_ENTRY] EMA Strategy sell evaluation started | bar_idx=475
+2026-10-03 09:25:11 INFO core.strategy_incremental | 🔍 [MIN_HOLDING_CHECK] bars_held=2, min_required=1, will_skip=False
+2026-10-03 09:30:11 INFO core.strategy_incremental | 🔥 [SELL_BLOCK_ENTRY] EMA Strategy sell evaluation started | bar_idx=476
+2026-10-03 09:30:11 INFO core.strategy_incremental | 🔍 [MIN_HOLDING_CHECK] bars_held=3, min_required=1, will_skip=False
+2026-10-03 09:32:53 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-FOLD | total(가용+묶임): 117.370892 → 1732.399463 (Δ=1615.028571) | 가용=1732.399463 �
+2026-10-03 09:32:53 INFO services.db | 🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker=KRW-FOLD
+2026-10-03 09:35:11 INFO core.strategy_incremental | 🔥 [SELL_BLOCK_ENTRY] EMA Strategy sell evaluation started | bar_idx=477
+2026-10-03 09:35:11 INFO core.strategy_incremental | 🔍 [MIN_HOLDING_CHECK] bars_held=4, min_required=1, will_skip=False

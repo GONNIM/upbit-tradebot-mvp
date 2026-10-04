@@ -1,0 +1,66 @@
+END=2026-10-04 12:23:53
+== 창: 2026-10-04 10:22:33 ~ 2026-10-04 12:23:53
+== 1. 서버 상태
+   HEAD=e97dec6 active=active start=Sun 2026-10-04 10:22:33 KST NRestarts=0 버전=v1.2026.10.02.2241
+   서비스 재기동(ExecMainStart 이후): 0  엔진 기동 run_live_loop start: 1  run_live_loop 종료: 0  BOOT-RESUME success: 1  AUTO-RESUME skip: 2
+== 2. 기동 이력
+2026-10-04 10:22:40 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.6s capital≈3,009,338
+2026-10-04 10:22:40 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=764.0099 ema_slow=767.5907 ema_base=767.5907 | 마지막 봉=2026-10-04 10:21:00 KST
+2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=200 inserted=0 updated_placeholder=0
+   시드 long_history bars=800: 1  sma200: 0  긴 이력 시드 실패: 0  감사 행 보존: 1  boot_seed: 0  [BOOT-SEED]: 0
+== 3. 운영 상태
+   봉 확정(CLOCK-CLOSE) 121 (고유 121)  Bar# 75  CONFIRMED-NO-TRADE 46 (고유 46)
+   Bar# 처음·끝: 10:27:11 Bar#201 12:19:11 Bar#275 
+   Bar# 이중(같은 ts 2회 이상): 0
+   EMA Buy Signal 0  action=BUY 0  action=SELL 0  FIXED-PRICE 진입 0  [OR] final 0  [OR] enqueued 0
+   SELL_REJECTED/BUY_REJECTED 로그: 0
+   결함 태그:
+     ' ERROR ': 0
+     'Traceback': 0
+     '[POS-DESYNC] class=': 0
+     'Upbit에 없는 timestamp': 0
+     '불일치 발견': 0
+     '과거 봉 검증 실패': 0
+     'database is locked': 0
+     '[LOCKED-QTY]': 0
+     'CRITICAL': 0
+     VERIFY WARNING 줄: 0
+   외부 스캐너 (따로): Missing file 0  MediaFileStorageError 0
+   기타 WARNING 상위 (참고):
+    193 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=N-N-N N:N:N KST �
+     75 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=N inserted=N | 범위: 
+      2 WARNING services.page_context | [PageContext] 필수 컨텍스트 부재 → 로그인 리
+      1 WARNING root | ⚠️ [PHASEN] Redis/WebSocket 기능 비활성화: No module named 'redis
+      1 (N, 'N-N-NTN:N:N+N:N', 'KRW-JTO', 'SELL', 'FILLED', 'requested', N
+== DB (읽기 전용)
+account_positions JTO|0.0|0.0|0.0|{}
+== 5. 사후 확인 1~7 (기준 시각은 가이드 그대로)
+-- (1) 강제 매수: FORCE 발주 0  LIMIT-FILL apply_entry 3  force_buy 감사 행 0
+-- (2) HTS 승격 가드 (KRW-JTO): SELL 차단 1  streak 리셋 1  class= 0  JTO HTS_BUY 최근: 2026-10-03T09:18:47.815714+09:00
+2026-09-30 16:50:05 ERROR core.strategy_incremental | ❌ [EMA] bars_held=0 AND audit 실측 없음 — 데이터 무결성 결손 CRITICAL. SELL 차단 (HOLD 유지). en
+2026-09-30 16:50:07 INFO core.strategy_incremental | [POS-DESYNC] streak 리셋: 1 → 0 (bars_held=1 정상 통과)
+-- (3) WO-9: HTS_BUY 감지 18  LOCKED-QTY 2  AUDIT-REJECT 0  REJECTED 감사 행: 
+-- (4) WO-14 (a) 미확정 봉 제외: 6  최근: 2026-10-01 13:10:05 INFO engine.live_loop | [BACKFILL] 미확정 봉 제외 | ts=2026-10-01 13:10:00 KST closed_ts=2026-
+-- (5) WO-14 E1 trailing 복원: 복원 0  건너뜀 0  실패 0  BACKFILL 시작 1
+-- (6) WO-18: HTS_BUY 감지 16  cleared(boot_reconcile 제외) 10  reason 분포:       2 reason=bot_sell       8 reason=sync_all_positions_cleared 
+   STOP_LOSS_CHECK hts_buy:      21 hts_buy=False     141 hts_buy=True   잔존 SQL: 0  보유 중 hts_buy: KRW-PYUSD,KRW-USDT,KRW-ANKR
+2026-10-03 09:35:55 INFO services.db | [HTS-FLAG] cleared | reason=sync_all_positions_cleared | ticker=KRW-FOLD
+2026-10-03 20:05:12 INFO core.position_state | [HTS-FLAG] cleared | reason=bot_sell | ticker=KRW-JTO memory=True db=True
+2026-10-04 07:15:05 INFO services.db | [HTS-FLAG] cleared | reason=sync_all_positions_cleared | ticker=KRW-FLOCK
+-- (7) 시드: 기동별 (창 안)
+2026-10-04 10:22:40 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.6s capital≈3,009,338
+2026-10-04 10:22:41 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute1 interval=60sec
+2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=764.0099 ema_slow=767.5907 ema_base=767.5907 | 마지막 봉=2026-10-04 10:21:00 KST
+== 6. 비밀 파일
+-rw------- 1 root root 367 May 31 14:24 /root/upbit-tradebot-mvp/.env
+-rw------- 1 root root 590 Nov 19  2025 /root/upbit-tradebot-mvp/.streamlit/secrets.toml
+   백업 접미사 파일 (/root, 저장소 루트·하위 1단계, ls -la + awk 접미사 비교):
+   (끝 — 위에 줄이 없으면 0개)
+   enableStaticServing = False
+   7일(2026-09-27 12:31:54~): Missing file 7  MediaFileStorageError 14
+      1 ....//....//....//app/.streamlit/secrets.toml
+      1 .env
+      5 .git/config
+
+[exited with code 0]
