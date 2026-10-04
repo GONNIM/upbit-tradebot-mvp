@@ -1138,6 +1138,9 @@ def run_live_loop(
                 )
                 raise RuntimeError(f"Insufficient warmup data: {len(initial_df)} < {min_hist}")
 
+            # ✅ WO-21: trailing 재계산용으로 워밍업 전체 봉(최대 800, 형성 중 봉 제거 뒤)을 보관 — 시드가 min_hist 로 자르기 전
+            _wu_full_df = initial_df
+
             # 지표 시드
             # ✅ WO-17 (S): 긴 이력 증분 시드 (실패·부족 시 200봉 SMA 폴백), 버퍼·local_series 는 최근 min_hist 봉
             _seed_ok, _seed_mode, _reason, initial_df = _seed_warmup_indicators(
@@ -1207,6 +1210,17 @@ def run_live_loop(
                 if boot_seed_recover_qty is not None:
                     _boot_seed_recover_from_wallet(engine, params.upbit_ticker, user_id, boot_seed_recover_qty)
                     boot_seed_recover_qty = None
+                # ✅ WO-21: 복원 2경로(boot_seed / wallet_sync) 뒤, 첫 매도 평가 전 1회 — trailing 상태 재계산
+                if engine.position.has_position:
+                    try:
+                        from core.trailing_restore import restore_trailing_on_boot
+                        restore_trailing_on_boot(
+                            engine.position, engine.strategy,
+                            user_id=user_id, ticker=params.upbit_ticker, timeframe=params.interval,
+                            interval_sec=params.interval_sec, warmup_df=_wu_full_df,
+                        )
+                    except Exception as _tr_e:
+                        logger.warning(f"[TRAILING-RESTORE] 재계산 불가 → 초기화 | 사유=예외 {_tr_e}")
             else:
                 logger.error("❌ [WARMUP] Indicator seed 실패")
                 raise RuntimeError("Indicator warmup failed")

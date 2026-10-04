@@ -1983,6 +1983,37 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         return None
 
 
+def get_last_open_buy_trade(user_id: str, ticker: str) -> Optional[Dict[str, Any]]:
+    """
+    ✅ WO-21 (2026-10-04): 보유 포지션의 trailing 재계산 시작점 — audit_trades 의 마지막 BUY
+    (봇 매수·force_buy·HTS_BUY·HTS_BUY_ADD 모두 포함). 그 뒤에 SELL 이 있으면 청산된 것으로 보고 None.
+
+    Returns:
+        {"timestamp": ISO 문자열, "reason": str, "price": float} 또는 None
+    """
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            buy = cur.execute(
+                "SELECT timestamp, reason, price FROM audit_trades "
+                "WHERE ticker = ? AND type = 'BUY' ORDER BY timestamp DESC, id DESC LIMIT 1",
+                (ticker,),
+            ).fetchone()
+            if not buy:
+                return None
+            sell = cur.execute(
+                "SELECT timestamp FROM audit_trades "
+                "WHERE ticker = ? AND type = 'SELL' AND timestamp > ? ORDER BY timestamp LIMIT 1",
+                (ticker, buy[0]),
+            ).fetchone()
+            if sell:
+                return None
+            return {"timestamp": buy[0], "reason": buy[1], "price": buy[2]}
+    except Exception as e:
+        logger.error(f"[TRAILING-RESTORE] 마지막 BUY 조회 실패: {e}")
+        return None
+
+
 def estimate_bars_held_from_audit(user_id: str, ticker: str) -> int:
     """
     bars_held 간단하게 계산: 최근 BUY 이후 SELL 평가 개수 세기

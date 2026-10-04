@@ -240,6 +240,66 @@ class TrailingStopFilter(BaseFilter):
     def get_name(self) -> str:
         return "TrailingStopFilter"
 
+    def advance_state(self, position: PositionState, current_price: float, log: bool = True) -> Optional[FilterResult]:
+        """
+        ✅ WO-21 (2026-10-04): trailing 상태 전진 (evaluate 의 STEP 1·2 를 그대로 옮긴 함수).
+        실시간 evaluate 와 재시작 재계산(core/trailing_restore.py)이 같은 규칙을 쓰도록 공용화했다.
+
+        STEP 1: 미무장이면 수익률이 활성화 기준(take_profit_pct) 이상인지 보고 무장
+                (고정폭 모드면 활성화 시점 1회 고정 금액·활성화 가격 계산)
+        STEP 2: 신고가 갱신
+        반환: 판정을 여기서 끝내야 하면 FilterResult (NO_PNL / TS_NOT_ARMED), 계속하면 None
+        log=False: 재계산(재생) 때 실시간 로그를 남기지 않음 — 상태 변화는 같다
+        """
+        # ✅ STEP 1: Take Profit 도달 체크 (trailing_armed 활성화 트리거)
+        if not position.trailing_armed:
+            pnl_pct = position.get_pnl_pct(current_price)
+
+            # ✅ [Fix 3] silent skip 방지 — avg_price 없으면 TS 활성화 자체 불가
+            if pnl_pct is None:
+                if log:
+                    logger.warning(
+                        f"⚠️ [TRAILING_STOP_CHECK] pnl_pct=None (avg_price={position.avg_price}) → TS 활성화 스킵. "
+                        f"has_position={position.has_position}, qty={position.qty}, current_price={current_price}"
+                    )
+                return FilterResult(
+                    should_block=False,
+                    reason="NO_PNL",
+                    details=f"PnL calculation failed (avg_price={position.avg_price})"
+                )
+
+            if pnl_pct is not None and pnl_pct >= self.take_profit_pct:
+                # Take Profit 도달 → Trailing Stop 활성화
+                position.activate_trailing_stop(current_price, log=log)
+
+                # ✅ 고정폭 모드: 활성화 시점 1회 계산
+                if self.use_fixed_mode:
+                    activation_profit = current_price - position.avg_price
+                    position.trailing_fixed_amount = activation_profit * self.trailing_stop_pct
+                    position.trailing_activation_price = current_price
+                    if log:
+                        logger.info(
+                            f"🔒 고정 금액 폭 설정 | "
+                            f"활성화 수익=₩{activation_profit:,.0f} × {self.trailing_stop_pct:.0%} "
+                            f"= ₩{position.trailing_fixed_amount:,.0f}"
+                        )
+
+                if log:
+                    mode_str = "고정폭" if self.use_fixed_mode else "비율"
+                    logger.info(
+                        f"🔄 AUTO-SWITCH: Take Profit 도달 ({pnl_pct:.2%}) "
+                        f"→ Trailing Stop 활성화 ({mode_str}) | "
+                        f"진입가=₩{position.avg_price:,.0f} 현재가=₩{current_price:,.0f}"
+                    )
+            else:
+                # 아직 Take Profit 미도달 → Trailing Stop 미작동
+                return FilterResult(should_block=False, reason="TS_NOT_ARMED")
+
+        # ✅ STEP 2: 신고가 갱신
+        if current_price > position.highest_price:
+            position.highest_price = current_price
+        return None
+
     def evaluate(self, **kwargs) -> FilterResult:
         """
         ✅ 변경: 수익 기반 Trailing Stop
@@ -270,50 +330,10 @@ class TrailingStopFilter(BaseFilter):
                 details="Trailing stop percentage not set"
             )
 
-        # ✅ STEP 1: Take Profit 도달 체크 (trailing_armed 활성화 트리거)
-        if not position.trailing_armed:
-            pnl_pct = position.get_pnl_pct(current_price)
-
-            # ✅ [Fix 3] silent skip 방지 — avg_price 없으면 TS 활성화 자체 불가
-            if pnl_pct is None:
-                logger.warning(
-                    f"⚠️ [TRAILING_STOP_CHECK] pnl_pct=None (avg_price={position.avg_price}) → TS 활성화 스킵. "
-                    f"has_position={position.has_position}, qty={position.qty}, current_price={current_price}"
-                )
-                return FilterResult(
-                    should_block=False,
-                    reason="NO_PNL",
-                    details=f"PnL calculation failed (avg_price={position.avg_price})"
-                )
-
-            if pnl_pct is not None and pnl_pct >= self.take_profit_pct:
-                # Take Profit 도달 → Trailing Stop 활성화
-                position.activate_trailing_stop(current_price)
-
-                # ✅ 고정폭 모드: 활성화 시점 1회 계산
-                if self.use_fixed_mode:
-                    activation_profit = current_price - position.avg_price
-                    position.trailing_fixed_amount = activation_profit * self.trailing_stop_pct
-                    position.trailing_activation_price = current_price
-                    logger.info(
-                        f"🔒 고정 금액 폭 설정 | "
-                        f"활성화 수익=₩{activation_profit:,.0f} × {self.trailing_stop_pct:.0%} "
-                        f"= ₩{position.trailing_fixed_amount:,.0f}"
-                    )
-
-                mode_str = "고정폭" if self.use_fixed_mode else "비율"
-                logger.info(
-                    f"🔄 AUTO-SWITCH: Take Profit 도달 ({pnl_pct:.2%}) "
-                    f"→ Trailing Stop 활성화 ({mode_str}) | "
-                    f"진입가=₩{position.avg_price:,.0f} 현재가=₩{current_price:,.0f}"
-                )
-            else:
-                # 아직 Take Profit 미도달 → Trailing Stop 미작동
-                return FilterResult(should_block=False, reason="TS_NOT_ARMED")
-
-        # ✅ STEP 2: 신고가 갱신
-        if current_price > position.highest_price:
-            position.highest_price = current_price
+        # ✅ STEP 1·2: 무장 판정 + 신고가 갱신 (WO-21: 재시작 재계산과 같은 함수)
+        early = self.advance_state(position, current_price)
+        if early is not None:
+            return early
 
         # ✅ STEP 3: Trailing Stop 체크 (모드별 분기)
         if self.use_fixed_mode:

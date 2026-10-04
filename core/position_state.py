@@ -409,12 +409,13 @@ class PositionState:
 
         return False
 
-    def activate_trailing_stop(self, current_price: float):
+    def activate_trailing_stop(self, current_price: float, log: bool = True):
         """
         ✅ NEW: Trailing Stop 활성화 (Take Profit 도달 시 호출)
 
         Args:
             current_price: 현재 가격 (최고가 초기값으로 사용)
+            log: False 면 로그 생략 (WO-21 재시작 재계산 재생용, 상태 변화는 같다)
         """
         if not self.has_position:
             return
@@ -422,10 +423,11 @@ class PositionState:
         self.trailing_armed = True
         self.highest_price = current_price  # 현재가를 최고가 초기값으로
 
-        logger.info(
-            f"🔓 Trailing Stop ACTIVATED | "
-            f"entry=₩{self.avg_price:,.0f} initial_highest=₩{current_price:,.0f}"
-        )
+        if log:
+            logger.info(
+                f"🔓 Trailing Stop ACTIVATED | "
+                f"entry=₩{self.avg_price:,.0f} initial_highest=₩{current_price:,.0f}"
+            )
 
     def get_pnl_pct(self, current_price: float) -> Optional[float]:
         """

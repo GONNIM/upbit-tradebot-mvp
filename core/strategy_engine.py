@@ -1504,7 +1504,7 @@ class StrategyEngine:
                     sl_price=0,
                     highest=None,
                     ts_pct=None,
-                    ts_armed=False,
+                    ts_armed=bool(getattr(self.position, "trailing_armed", False)),  # ✅ WO-21: 실제 무장 여부 (이전 False 고정)
                     bars_held=0,
                     checks=checks,
                     triggered=False,
@@ -1852,7 +1852,7 @@ class StrategyEngine:
                         sl_price=sl_price,
                         highest=self.position.highest_price,
                         ts_pct=self.trailing_stop_pct,
-                        ts_armed=False,
+                        ts_armed=bool(getattr(self.position, "trailing_armed", False)),  # ✅ WO-21: 실제 무장 여부 (이전 False 고정)
                         bars_held=bars_held,
                         checks=sell_checks,
                         triggered=False,
@@ -1933,7 +1933,7 @@ class StrategyEngine:
                         sl_price=sl_price,
                         highest=self.position.highest_price,
                         ts_pct=self.trailing_stop_pct,
-                        ts_armed=False,
+                        ts_armed=bool(getattr(self.position, "trailing_armed", False)),  # ✅ WO-21: 실제 무장 여부 (이전 False 고정)
                         bars_held=bars_held,
                         checks=sell_checks,
                         triggered=True,
