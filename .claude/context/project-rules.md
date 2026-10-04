@@ -462,5 +462,20 @@ deploy-tradebot
 
 ---
 
-**마지막 업데이트**: 2026-10-02
-**버전**: 2.13 (관찰 판정 로그 출처: journalctl 기준, engine_debug.log 는 보조)
+## 🔐 서버 비밀 파일 권한 규칙 (2026-10-04 신설)
+
+**한 줄 원칙**: 서버의 비밀 값이 든 파일은 600 이어야 하고, 백업 파일은 만들지 않는다. 정기 점검에 권한 확인을 포함한다.
+
+**근거 (2026-10-04)**: 1분봉 전환 점검 A6 에서 `/root/upbit-tradebot-mvp/.env.bak` 이 `644`(모두 읽기 가능)이고 실제 키 값이 들어 있는 것을 확인했다. `/root` 가 700 이라 다른 계정의 접근 경로는 없었으나 `chmod 600` 으로 정리했다. `.env` 와 텔레그램 값 2개가 달라 삭제는 운영자 결정으로 남겼다. 같은 기간 외부 스캐너가 Streamlit 미디어 경로로 `.env`·`secrets.toml`·`.git/config` 를 7회 요청했고 모두 거부됐다.
+- 상세: `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04", `docs/plans/2026-10-04-interval-m1-check/secret-report.md`
+
+**적용 기준**:
+- 대상: `.env`, `.streamlit/secrets.toml`, 키·토큰이 든 모든 파일. 권한 `600`, 소유자 root.
+- 비밀 파일을 바꿀 때 `.bak`·`.old`·`.orig`·`~` 같은 사본을 서버에 남기지 않는다.
+- 세션 시작 정기 점검에 `ls -l .env .streamlit/secrets.toml` (사본이 있으면 그것도)과 `server.enableStaticServing=False` 확인을 넣는다.
+- 키 값은 어떤 보고·로그·문서에도 적지 않는다. 비교가 필요하면 키 이름과 "같음/다름" 만 적는다.
+
+---
+
+**마지막 업데이트**: 2026-10-04
+**버전**: 2.14 (서버 비밀 파일 600·백업 금지·정기 점검 권한 확인)

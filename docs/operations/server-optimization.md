@@ -360,11 +360,39 @@ chmod +x /root/cleanup_tradebot_db.sh
 
 ---
 
+## 🔒 비밀 파일 권한 점검 2026-10-04
+
+근거: `docs/plans/2026-10-04-interval-m1-check/report.md` A6, `secret-report.md`. 키 값은 어떤 기록에도 남기지 않는다(키 이름만).
+
+| 항목 | 결과 |
+|------|------|
+| `/root/upbit-tradebot-mvp/.env` | `-rw-------` (600) root |
+| `/root/upbit-tradebot-mvp/.streamlit/secrets.toml` | `-rw-------` (600) root |
+| Streamlit `server.enableStaticServing` | `False` (Streamlit 1.46.0 실행 값, `static/` 폴더 없음) |
+| 외부 스캐너 요청 (2026-09-27 ~ 10-04, 7일) | 7건 전부 거부 (`.git/config` 5, `.env` 1, `....//…/app/.streamlit/secrets.toml` 1 — 모두 `MediaFileStorageError: Bad filename`) |
+| `/root/upbit-tradebot-mvp/.env.bak` | `644` → **`chmod 600`** (2026-10-04). 삭제하지 않음: `.env` 와 키 11개 이름은 같으나 `TELEGRAM_BOT_TOKEN`·`TELEGRAM_CHAT_ID` 값이 다름. 삭제 여부는 운영자 결정 |
+| 다른 백업 파일 | `/root`, 저장소 루트와 하위 1단계 디렉터리 16개의 `.bak`·`.old`·`.orig`·`~` 접미사 파일은 `.env.bak` 1개뿐 |
+| `/root` | `drwx------` (700), 일반 계정(uid ≥ 1000) 없음 |
+
+**정기 점검 명령 (읽기 전용)**:
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  cd /root/upbit-tradebot-mvp
+  ls -l .env .env.bak .streamlit/secrets.toml
+  venv/bin/python -c 'import streamlit.config as c; print(\"enableStaticServing =\", c.get_option(\"server.enableStaticServing\"))'
+  echo \"7일 스캐너 거부: \$(journalctl -u tradebot --since '7 days ago' --no-pager | grep -cF MediaFileStorageError)\"
+"
+```
+
+---
+
 ## 📝 변경 이력
 
 | 버전 | 날짜 | 작성자 | 변경 내용 |
 |------|------|--------|----------|
 | 1.0 | 2026-04-30 | Claude Code | 초기 작성 (즉시 조치사항 완료) |
+| 1.1 | 2026-10-04 | Claude Code | 비밀 파일 권한 점검 절 추가 (.env.bak chmod 600) |
 
 ---
 
