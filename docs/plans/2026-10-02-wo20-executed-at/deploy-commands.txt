@@ -1,0 +1,37 @@
+WO-20 배포 실행 명령 (2026-10-04 KST). S=세션 scratchpad. 서버 명령은 pull·restart 외 모두 읽기 전용.
+
+## 정지선
+git fetch -q && git log --oneline -3 && git rev-parse --short origin/main                     # e97dec6
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; git rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp; grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"   # 786b5cb, 10-02 10:03:18, 0942
+
+## 0. 배포 전 확인
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo20d_pre.py      # 이력·포지션(GET /v1/accounts)·정렬 비교
+
+## 1. 배포
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull 2>&1 | tail -2 && git rev-parse --short HEAD && date '+restart_cmd %F %T' && systemctl restart tradebot && systemctl status tradebot --no-pager | head -5 && systemctl show tradebot -p ExecMainStartTimestamp && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"
+
+## 2. 관찰
+ssh root@orionhunter7.cafe24.com "sleep 75; journalctl -u tradebot --since '2026-10-04 10:22:33' ... | grep -E 'BOOT-RESUME|\[WARMUP\] (시드|감사)|SEED|POS-SYNC|POSITION-APPLY|...'"
+ssh root@orionhunter7.cafe24.com 'cd /root/upbit-tradebot-mvp && venv/bin/python -' < $S/wo20d_restore.py              # (c) 배포 코드 복원 조회
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && venv/bin/python scripts/wo17s_verify_seed.py '2026-10-04 10:22:41' 764.0099 767.5907"   # 5분봉 고정 → 간격 불일치
+sed -e 's#candles/minutes/5?#candles/minutes/1?#' -e 's/t + timedelta(minutes=5) <= boot/t + timedelta(minutes=1) <= boot/' scripts/wo17s_verify_seed.py > $S/wo20d_verify_seed_m1.py
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && venv/bin/python - '2026-10-04 10:22:41' 764.0099 767.5907" < $S/wo20d_verify_seed_m1.py   # (d) 1분봉 대조
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-02 10:00' --until '2026-10-04 10:22' --no-pager | grep -E 'interval_min=[0-9]+ 전달|timeframe=minute[0-9]+ interval'"   # 1분봉 전환 10-03 21:03:47
+ssh -o ServerAliveInterval=60 root@orionhunter7.cafe24.com "sleep 1560; date '+%F %T'"     # 관찰 종료 대기 (백그라운드)
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-04 10:22:33' '2026-10-04 10:52:33'" < $S/wo20d_obs.sh             # 2(a)~(g)
+
+## 3. 접속 구간
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-04 10:52:33' ... | grep -E 'AUTO-RESUME|BOOT-RESUME|run_live_loop start' ; 결함 태그 건수"
+grep -n 'qty > 0\|최근 거래\|현재 포지션' pages/dashboard.py              # 포지션 없을 때 카드 표시 설계 확인
+
+## 4. 문서·묶음
+(파일 도구로 deploy-report.md, deploy-commands.txt, 가이드 사후 확증 7 주의·8 정식·9 신설)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-04 10:22:33' --until '2026-10-04 10:55:00' ... | grep -E '...'" > deploy/journal-excerpt.txt
+git log --oneline -6 > deploy/git-log.txt
+(scratchpad 묶음 폴더에 deploy-report.md 를 report.md 로 복사해 zip → wo20-deploy-20261004.zip)
+git add docs/operations/wo8-force-buy-verification-guide.md ; git add -f deploy-report.md deploy-commands.txt deploy/
+git status --short | grep -v '^??'
+git commit -F $S/wo20done_msg.txt
+git log --oneline origin/main..HEAD          # push 대상 1개
+git push origin main
+서버 pull 없음.

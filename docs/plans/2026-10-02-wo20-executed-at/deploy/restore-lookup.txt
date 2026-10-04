@@ -1,0 +1,4 @@
+배포 코드 정렬 식: True
+INFO services.db | [DB] last BUY (with status filter=True) => {'price': 733.9999999999999, 'entry_bar': 330, 'entry_ts_iso': '2026-10-02T08:00:14.045644+09:00'}
+WARNING services.db | [DB] last BUY already closed by later SELL → returning None (B1: 가짜 진입가 차용 방지)
+get_last_open_buy_order(KRW-JTO) = None

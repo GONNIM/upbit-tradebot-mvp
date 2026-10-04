@@ -1,0 +1,206 @@
+2026-10-04T10:22:37+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:37 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-04T10:22:40+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:40 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.6s capital≈3,009,338
+2026-10-04T10:22:40+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:40 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | ✅ [HTS-DETECT] LIVE user mcmax33 registered for periodic balance sync (interval=60s)
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] Required bars: 200
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute1 interval=60sec
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | ✅ CandleClock 초기화 | interval=minute1 | interval_sec=60
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] REST 초기 데이터 요청 (attempt 1/5) | count=801 (마지막 봉 제거 예정)...
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=801 batches=5 | 2026-10-03 12:44:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 성공 (attempt 1) | bars=801
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 완료 | bars=801
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 마지막 봉 확정 (유지) | ts=2026-10-04 10:21:00 KST | 봉 수=801
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=764.0099 ema_slow=767.5907 ema_base=767.5907 | 마지막 봉=2026-10-04 10:21:00 KST
+2026-10-04T10:22:41+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=200 inserted=0 updated_placeholder=0
+2026-10-04T10:23:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:23:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:17:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:23:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:23:31 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:22:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:23:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:23:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:01:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:23:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:23:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:23:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:23:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:22:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:23:43+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:23:43 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:24:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:24:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:17:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:24:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:24:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:23:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:24:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:24:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:01:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:24:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:24:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:24:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:24:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:23:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:24:49+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:24:49 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:25:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:25:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:17:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:25:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:25:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:24:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:25:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:25:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:01:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:25:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:25:30 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:25:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:25:30 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:24:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:25:46+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:25:46 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:26:06+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:26:06 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:17:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:26:06+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:26:06 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:25:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:26:06+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:26:06 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:01:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:26:06+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:26:06 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:26:06+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:26:06 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:25:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:26:44+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:26:44 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:27:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:27:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:19:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:27:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:27:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:01:00 KST ~ 2026-10-04 10:21:00 KST
+2026-10-04T10:27:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:27:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:27:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:27:11 INFO core.strategy_engine | 📊 Bar#201 | ts=2026-10-04 01:26:00+00:00 | close=762.00 | ema_fast=763.94 | ema_slow=767.54 | ema_base=767.54 | action=HOLD | pos=False
+2026-10-04T10:27:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:27:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:26:00 KST | close=762.0
+2026-10-04T10:27:45+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:27:45 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:28:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:28:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:19:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:28:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:28:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:27:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:28:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:28:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:02:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:28:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:28:30 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:28:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:28:30 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:27:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:28:45+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:28:45 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:29:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:29:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:19:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:29:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:29:31 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:28:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:29:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:29:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:02:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:29:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:29:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:29:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:29:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:28:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:29:46+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:29:46 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:30:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:30:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:19:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:30:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:30:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:29:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:30:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:30:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:02:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:30:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:30:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:30:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:30:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:29:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:30:46+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:30:46 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:31:20+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:31:20 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:19:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:31:20+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:31:20 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:30:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:31:20+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:31:20 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:02:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:31:20+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:31:20 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:31:20+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:31:20 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:30:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:31:47+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:31:47 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:32:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:32:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:20:00 KST ~ 2026-10-04 10:31:00 KST
+2026-10-04T10:32:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:32:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:02:00 KST ~ 2026-10-04 10:26:00 KST
+2026-10-04T10:32:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:32:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:32:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:32:11 INFO core.strategy_engine | 📊 Bar#202 | ts=2026-10-04 01:31:00+00:00 | close=762.00 | ema_fast=763.88 | ema_slow=767.48 | ema_base=767.48 | action=HOLD | pos=False
+2026-10-04T10:32:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:32:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:31:00 KST | close=762.0
+2026-10-04T10:32:48+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:32:48 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:33:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:33:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:21:00 KST ~ 2026-10-04 10:32:00 KST
+2026-10-04T10:33:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:33:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:03:00 KST ~ 2026-10-04 10:31:00 KST
+2026-10-04T10:33:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:33:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:33:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:33:10 INFO core.strategy_engine | 📊 Bar#203 | ts=2026-10-04 01:32:00+00:00 | close=762.00 | ema_fast=763.82 | ema_slow=767.43 | ema_base=767.43 | action=HOLD | pos=False
+2026-10-04T10:33:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:33:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:32:00 KST | close=762.0
+2026-10-04T10:33:48+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:33:48 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:34:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:34:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:22:00 KST ~ 2026-10-04 10:33:00 KST
+2026-10-04T10:34:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:34:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:04:00 KST ~ 2026-10-04 10:32:00 KST
+2026-10-04T10:34:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:34:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:34:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:34:10 INFO core.strategy_engine | 📊 Bar#204 | ts=2026-10-04 01:33:00+00:00 | close=761.00 | ema_fast=763.73 | ema_slow=767.36 | ema_base=767.36 | action=HOLD | pos=False
+2026-10-04T10:34:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:34:10 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:33:00 KST | close=761.0
+2026-10-04T10:34:49+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:34:49 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:35:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:35:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:23:00 KST ~ 2026-10-04 10:34:00 KST
+2026-10-04T10:35:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:35:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:07:00 KST ~ 2026-10-04 10:33:00 KST
+2026-10-04T10:35:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:35:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:35:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:35:11 INFO core.strategy_engine | 📊 Bar#205 | ts=2026-10-04 01:34:00+00:00 | close=761.00 | ema_fast=763.64 | ema_slow=767.30 | ema_base=767.30 | action=HOLD | pos=False
+2026-10-04T10:35:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:35:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:34:00 KST | close=761.0
+2026-10-04T10:35:49+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:35:49 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:36:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:36:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:24:00 KST ~ 2026-10-04 10:35:00 KST
+2026-10-04T10:36:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:36:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:09:00 KST ~ 2026-10-04 10:34:00 KST
+2026-10-04T10:36:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:36:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:36:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:36:11 INFO core.strategy_engine | 📊 Bar#206 | ts=2026-10-04 01:35:00+00:00 | close=761.00 | ema_fast=763.55 | ema_slow=767.24 | ema_base=767.24 | action=HOLD | pos=False
+2026-10-04T10:36:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:36:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:35:00 KST | close=761.0
+2026-10-04T10:36:50+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:36:50 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:37:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:37:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:24:00 KST ~ 2026-10-04 10:35:00 KST
+2026-10-04T10:37:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:37:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:36:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:37:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:37:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:10:00 KST ~ 2026-10-04 10:35:00 KST
+2026-10-04T10:37:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:37:30 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:37:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:37:30 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:36:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:37:51+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:37:51 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:38:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:38:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:25:00 KST ~ 2026-10-04 10:37:00 KST
+2026-10-04T10:38:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:38:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:10:00 KST ~ 2026-10-04 10:35:00 KST
+2026-10-04T10:38:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:38:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:38:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:38:11 INFO core.strategy_engine | 📊 Bar#207 | ts=2026-10-04 01:37:00+00:00 | close=762.00 | ema_fast=763.50 | ema_slow=767.18 | ema_base=767.18 | action=HOLD | pos=False
+2026-10-04T10:38:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:38:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:37:00 KST | close=762.0
+2026-10-04T10:38:51+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:38:51 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:39:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:39:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:26:00 KST ~ 2026-10-04 10:38:00 KST
+2026-10-04T10:39:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:39:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:17:00 KST ~ 2026-10-04 10:37:00 KST
+2026-10-04T10:39:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:39:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:39:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:39:11 INFO core.strategy_engine | 📊 Bar#208 | ts=2026-10-04 01:38:00+00:00 | close=759.00 | ema_fast=763.35 | ema_slow=767.10 | ema_base=767.10 | action=HOLD | pos=False
+2026-10-04T10:39:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:39:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:38:00 KST | close=759.0
+2026-10-04T10:39:52+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:39:52 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:40:15+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:40:15 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:26:00 KST ~ 2026-10-04 10:38:00 KST
+2026-10-04T10:40:15+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:40:15 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:39:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:40:15+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:40:15 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:19:00 KST ~ 2026-10-04 10:38:00 KST
+2026-10-04T10:40:15+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:40:15 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:40:15+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:40:15 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:39:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:40:52+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:40:52 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:41:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:41:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:27:00 KST ~ 2026-10-04 10:40:00 KST
+2026-10-04T10:41:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:41:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:19:00 KST ~ 2026-10-04 10:38:00 KST
+2026-10-04T10:41:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:41:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:41:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:41:11 INFO core.strategy_engine | 📊 Bar#209 | ts=2026-10-04 01:40:00+00:00 | close=760.00 | ema_fast=763.24 | ema_slow=767.03 | ema_base=767.03 | action=HOLD | pos=False
+2026-10-04T10:41:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:41:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:40:00 KST | close=760.0
+2026-10-04T10:41:53+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:41:53 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:42:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:42:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:27:00 KST ~ 2026-10-04 10:40:00 KST
+2026-10-04T10:42:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:42:10 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:41:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:42:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:42:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:20:00 KST ~ 2026-10-04 10:40:00 KST
+2026-10-04T10:42:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:42:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:42:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:42:10 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:41:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:42:53+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:42:53 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:43:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:43:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:28:00 KST ~ 2026-10-04 10:42:00 KST
+2026-10-04T10:43:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:43:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:20:00 KST ~ 2026-10-04 10:40:00 KST
+2026-10-04T10:43:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:43:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:43:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:43:11 INFO core.strategy_engine | 📊 Bar#210 | ts=2026-10-04 01:42:00+00:00 | close=761.00 | ema_fast=763.17 | ema_slow=766.97 | ema_base=766.97 | action=HOLD | pos=False
+2026-10-04T10:43:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:43:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:42:00 KST | close=761.0
+2026-10-04T10:43:54+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:43:54 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:44:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:44:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:28:00 KST ~ 2026-10-04 10:42:00 KST
+2026-10-04T10:44:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:44:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:43:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:44:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:44:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:21:00 KST ~ 2026-10-04 10:42:00 KST
+2026-10-04T10:44:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:44:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:44:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:44:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:43:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:44:55+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:44:55 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:45:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:45:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:29:00 KST ~ 2026-10-04 10:44:00 KST
+2026-10-04T10:45:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:45:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:21:00 KST ~ 2026-10-04 10:42:00 KST
+2026-10-04T10:45:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:45:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:45:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:45:10 INFO core.strategy_engine | 📊 Bar#211 | ts=2026-10-04 01:44:00+00:00 | close=762.00 | ema_fast=763.13 | ema_slow=766.92 | ema_base=766.92 | action=HOLD | pos=False
+2026-10-04T10:45:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:45:10 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:44:00 KST | close=762.0
+2026-10-04T10:45:55+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:45:55 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:46:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:46:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:31:00 KST ~ 2026-10-04 10:45:00 KST
+2026-10-04T10:46:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:46:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:22:00 KST ~ 2026-10-04 10:44:00 KST
+2026-10-04T10:46:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:46:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:46:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:46:11 INFO core.strategy_engine | 📊 Bar#212 | ts=2026-10-04 01:45:00+00:00 | close=760.00 | ema_fast=763.03 | ema_slow=766.85 | ema_base=766.85 | action=HOLD | pos=False
+2026-10-04T10:46:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:46:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:45:00 KST | close=760.0
+2026-10-04T10:46:56+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:46:56 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:47:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:47:30 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:31:00 KST ~ 2026-10-04 10:45:00 KST
+2026-10-04T10:47:30+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:47:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:46:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:47:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:47:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:23:00 KST ~ 2026-10-04 10:45:00 KST
+2026-10-04T10:47:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:47:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:47:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:47:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:46:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:47:57+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:47:57 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:48:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:48:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:32:00 KST ~ 2026-10-04 10:47:00 KST
+2026-10-04T10:48:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:48:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:23:00 KST ~ 2026-10-04 10:45:00 KST
+2026-10-04T10:48:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:48:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:48:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:48:10 INFO core.strategy_engine | 📊 Bar#213 | ts=2026-10-04 01:47:00+00:00 | close=760.00 | ema_fast=762.93 | ema_slow=766.78 | ema_base=766.78 | action=HOLD | pos=False
+2026-10-04T10:48:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:48:10 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:47:00 KST | close=760.0
+2026-10-04T10:48:57+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:48:57 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:49:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:49:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:32:00 KST ~ 2026-10-04 10:47:00 KST
+2026-10-04T10:49:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:49:31 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 10:48:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04T10:49:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:49:31 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:27:00 KST ~ 2026-10-04 10:47:00 KST
+2026-10-04T10:49:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:49:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:49:31+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:49:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 10:48:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04T10:49:57+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:49:57 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:50:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:50:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:33:00 KST ~ 2026-10-04 10:49:00 KST
+2026-10-04T10:50:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:50:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:27:00 KST ~ 2026-10-04 10:47:00 KST
+2026-10-04T10:50:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:50:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:50:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:50:11 INFO core.strategy_engine | 📊 Bar#214 | ts=2026-10-04 01:49:00+00:00 | close=760.00 | ema_fast=762.83 | ema_slow=766.72 | ema_base=766.72 | action=HOLD | pos=False
+2026-10-04T10:50:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:50:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:49:00 KST | close=760.0
+2026-10-04T10:50:58+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:50:58 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:51:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:51:05 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:34:00 KST ~ 2026-10-04 10:50:00 KST
+2026-10-04T10:51:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:51:05 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:29:00 KST ~ 2026-10-04 10:49:00 KST
+2026-10-04T10:51:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:51:05 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:51:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:51:05 INFO core.strategy_engine | 📊 Bar#215 | ts=2026-10-04 01:50:00+00:00 | close=759.00 | ema_fast=762.71 | ema_slow=766.64 | ema_base=766.64 | action=HOLD | pos=False
+2026-10-04T10:51:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:51:05 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:50:00 KST | close=759.0
+2026-10-04T10:51:59+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:51:59 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:52:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:52:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:35:00 KST ~ 2026-10-04 10:51:00 KST
+2026-10-04T10:52:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:52:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:33:00 KST ~ 2026-10-04 10:50:00 KST
+2026-10-04T10:52:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:52:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:52:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:52:11 INFO core.strategy_engine | 📊 Bar#216 | ts=2026-10-04 01:51:00+00:00 | close=761.00 | ema_fast=762.65 | ema_slow=766.58 | ema_base=766.58 | action=HOLD | pos=False
+2026-10-04T10:52:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:52:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:51:00 KST | close=761.0
+2026-10-04T10:52:59+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:52:59 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:53:10+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:53:10 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:36:00 KST ~ 2026-10-04 10:52:00 KST
+2026-10-04T10:53:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:53:11 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:35:00 KST ~ 2026-10-04 10:51:00 KST
+2026-10-04T10:53:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:53:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:53:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:53:11 INFO core.strategy_engine | 📊 Bar#217 | ts=2026-10-04 01:52:00+00:00 | close=760.00 | ema_fast=762.56 | ema_slow=766.52 | ema_base=766.52 | action=HOLD | pos=False
+2026-10-04T10:53:11+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:53:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:52:00 KST | close=760.0
+2026-10-04T10:53:48+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:53:48 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-04T10:22:40.475492+09:00 mode=LIVE
+2026-10-04T10:54:00+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:54:00 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04T10:54:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:54:05 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=400 batches=2 | 2026-10-04 01:37:00 KST ~ 2026-10-04 10:53:00 KST
+2026-10-04T10:54:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:54:05 INFO core.rest_reconcile | [REST] 다중 호출 완료 | total=220 batches=2 | 2026-10-04 05:37:00 KST ~ 2026-10-04 10:52:00 KST
+2026-10-04T10:54:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:54:05 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04T10:54:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:54:05 INFO core.strategy_engine | 📊 Bar#218 | ts=2026-10-04 01:53:00+00:00 | close=760.00 | ema_fast=762.48 | ema_slow=766.45 | ema_base=766.45 | action=HOLD | pos=False
+2026-10-04T10:54:05+0900 orionhunter7.cafe24.com python[2313925]: 2026-10-04 10:54:05 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 10:53:00 KST | close=760.0

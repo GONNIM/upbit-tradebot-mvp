@@ -269,11 +269,11 @@ ssh root@orionhunter7.cafe24.com "
 python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <ema_slow> 1200
 ```
 
-### 사후 확증 8번 — 초안 (2026-10-02 WO-20, 배포 전까지 초안)
+- **주의 (2026-10-04)**: `scripts/wo17s_verify_seed.py` 는 5분봉(`candles/minutes/5`)으로 고정되어 있다. 운영 봉 간격이 바뀌면(2026-10-04 WO-20 배포 시 `interval=minute1`) 그 간격의 캔들로 바꾼 사본으로 대조해야 한다. 5분봉 그대로 돌리면 차이가 수 원 이상 나와 오판한다(10-04 실측: 5분봉 대조 +3.64 / −12.59, 1분봉 대조 +0.0000 / +0.0052).
 
-> **초안**: WO-20(`986c9b0`) 배포 전이다. 배포 완료 판정 때 기준 시각을 넣고 "초안" 표시를 뗀다.
+### 사후 확증 8번 (2026-10-04 WO-20 완결 시 편입)
 
-봇이 산 포지션을 보유한 채 재시작(배포·서비스 재시작)이 있었던 경우에만 본다. 기한은 없다. 로그 출처는 `journalctl -u tradebot` 이다.
+기준 시각은 WO-20 재시작 시각 `2026-10-04 10:22:33` 이다. 그 뒤 봇이 산 포지션을 보유한 채 재시작(배포·서비스 재시작)이 있었던 경우에만 본다. 기한은 없다. 로그 출처는 `journalctl -u tradebot` 이다. 배포 기동(10-04 10:22:33)은 포지션 없음이라 해당 없음(`[SEED] raw_last_open`·`[POSITION-APPLY] source=boot_seed`·`[BOOT-SEED]` 0건).
 
 | 번호 | 항목 | 확인 내용 |
 |---|---|---|
@@ -292,6 +292,26 @@ ssh root@orionhunter7.cafe24.com "
   J | grep -E 'MIN_HOLDING_CHECK|audit fallback' | head -3
   sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, executed_at, updated_at, avg_price, entry_bar FROM orders WHERE side='BUY' AND state='FILLED' ORDER BY COALESCE(executed_at, updated_at, timestamp) DESC LIMIT 1;\"
 "
+```
+
+### 사후 확증 9번 (2026-10-04 WO-20 완결 시 편입)
+
+기준 시각은 WO-20 재시작 시각 `2026-10-04 10:22:33` 이다. 배포 뒤 첫 체결 확정 주문 1건을 본다(이후 정기 점검에서는 표본 확인). 로그 출처는 `journalctl -u tradebot` 이다.
+
+| 번호 | 항목 | 확인 내용 |
+|---|---|---|
+| 9 | WO-20 체결 시각 기록 | 배포 뒤 첫 확정 주문에서 ① `[OR] final FILLED … executed_at=<시각> canceled_at=None` (취소 확정이면 `final CANCELED … canceled_at=<시각>`) ② 그 `orders` 행의 `executed_at` 이 ① 과 같고, Upbit `GET /v1/order?uuid=` 의 `trades[].created_at` 마지막 값과 **수 초 이내** ③ 취소 확정이면 `canceled_at` 이 있음 ④ `[OR] executed_at 대체`(trades 없음) 0건 |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-10-04 10:22:33'
+  J(){ journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | sed -E 's/^.*\]: //'; }
+  echo '-- (9) 확정 로그 --'
+  J | grep -F '[OR] final' | head -3
+  echo \"executed_at 대체: \$(J | grep -cF '[OR] executed_at 대체')\"
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, side, state, executed_at, canceled_at, updated_at, provider_uuid FROM orders WHERE id > 558 ORDER BY id LIMIT 3;\"
+"
+# ② Upbit 대조는 조회 전용 스크립트(docs/plans/2026-10-02-wo20-executed-at/results/wo20_b3.py 와 같은 GET /v1/order)로 uuid 를 넣어 확인한다.
 ```
 
 ### 기동 이전 봉의 BUY 평가 근거 찾기 (2026-10-02 WO-19 편입)

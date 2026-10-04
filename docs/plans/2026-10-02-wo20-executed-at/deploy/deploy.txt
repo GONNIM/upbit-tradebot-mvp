@@ -1,0 +1,11 @@
+ create mode 100644 docs/plans/2026-10-02-wo20-executed-at/results/wo20_quotes.sh
+ create mode 100644 tests/regressions/test_r_2026_10_02_wo20_executed_at.py
+e97dec6
+restart_cmd 2026-10-04 10:22:33
+● tradebot.service - Upbit Tradebot MVP v1
+     Loaded: loaded (/etc/systemd/system/tradebot.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/tradebot.service.d
+             └─override.conf, wo12-boot.conf
+     Active: active (running) since Sun 2026-10-04 10:22:33 KST; 4ms ago
+ExecMainStartTimestamp=Sun 2026-10-04 10:22:33 KST
+v1.2026.10.02.2241

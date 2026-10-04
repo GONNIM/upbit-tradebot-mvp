@@ -1,0 +1,13 @@
+10:54:09
+2026-10-04 10:53:48 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-04T10:22:40.475492+09:00 mode=LIVE
+AUTO-RESUME skip: 1 run_live_loop start: 0 OR final: 0
+' ERROR ': 0
+'Traceback': 0
+'CRITICAL': 0
+'Missing file': 0
+'database is locked': 0
+'[POS-DESYNC] class=': 0
+'과거 봉 검증 실패': 0
+'불일치 발견': 0
+'[BOOT-SEED]': 0
+Bar#: 2

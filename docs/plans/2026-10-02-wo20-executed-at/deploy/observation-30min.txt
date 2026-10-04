@@ -1,0 +1,38 @@
+== 창: 2026-10-04 10:22:33 ~ 2026-10-04 10:52:33 | HEAD=e97dec6 active=active start=Sun 2026-10-04 10:22:33 KST 버전=v1.2026.10.02.2241
+== (a) 기동
+2026-10-04 10:22:40 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.6s capital≈3,009,338
+2026-10-04 10:22:40 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-04 10:22:41 INFO engine.live_loop | ✅ [HTS-DETECT] LIVE user mcmax33 registered for periodic balance sync (interval=60s)
+2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=764.0099 ema_slow=767.5907 ema_base=767.5907 | 마지막 봉=2026-10-04 10:21:00 KST
+2026-10-04 10:22:41 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=200 inserted=0 updated_placeholder=0
+   BOOT-RESUME success: 1  시드 long_history bars=800: 1  감사 행 보존: 1
+   boot_seed 분기 진입 표식 — 코드 존재 확인:
+/root/upbit-tradebot-mvp/engine/live_loop.py:360:        logger.info(f"[SEED] raw_last_open={raw}")
+/root/upbit-tradebot-mvp/engine/live_loop.py:439:            f"🔁 Position recovered | avg_price={avg_price} (출처: {avg_src}) order_price={order_
+/root/upbit-tradebot-mvp/engine/live_loop.py:447:        f"⚠️ [BOOT-SEED] 봇 주문의 체결 시각 없음 → boot_seed 미적용, 지갑 동�
+/root/upbit-tradebot-mvp/core/position_state.py:264:            f"✅ [POSITION-APPLY] source={source} qty={qty:.6f} "
+   [SEED] raw_last_open: 0  [POSITION-APPLY] source=boot_seed: 0  Position recovered: 0  [BOOT-SEED] WARNING: 0
+== (b) 체결 확정 ([OR] final)
+   [OR] final 건수: 0
+   관찰 창 orders (id>558):
+== (e) 결함 태그
+   ' ERROR ': 0
+   'Traceback': 0
+   '[POS-DESYNC] class=': 0
+   'Upbit에 없는 timestamp': 0
+   '불일치 발견': 0
+   '과거 봉 검증 실패': 0
+   'database is locked': 0
+   '[LOCKED-QTY]': 0
+   'CRITICAL': 0
+   (따로) [POS-SYNC] WARNING 줄: 0  외부 스캐너 파일 요청(Missing file / MediaFileStorageError): 0
+== (f) Bar# / 조정 / BACKFILL
+   Bar# 건수: 15  처음·끝: 10:27:11 Bar#201 10:51:05 Bar#215 
+   조정 요청 total_count 분포:      29 total_count=220      29 total_count=400       1 total_count=801 
+   조정 400 수신:      29 400 
+   BACKFILL '누락 봉 평가 시작': 0  '누락 봉 평가 |': 0  '미확정 봉 제외': 0
+== (g) '[OR] executed_at 대체' — 코드 존재 확인 후 건수
+380:                    f"[OR] executed_at 대체 | uuid={uuid} trades 없음 → 확정 처리 시각 {now_iso} 기록"
+   journal: 0
+== 매매 신호
+   EMA Buy Signal: 0  action=BUY: 0  action=SELL: 0
