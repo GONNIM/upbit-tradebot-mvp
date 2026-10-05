@@ -1,0 +1,170 @@
+test_1_incident_upbit_avg_first (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_1_incident_upbit_avg_first)
+(1) 사건 재현: orders 봇 BUY 777(이미 앱 매도됨, 기록 없음), 캐시 0, 지갑 13.05개 avg_buy_price 766 → 766 (출처 upbit_avg). ... 2026-10-05 11:49:50 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=13.054830 entry=766.00 bar=1009 ts=2026-10-05T11:49:50.771909+09:00
+ok
+test_2_fallback_order (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_2_fallback_order)
+(2) Upbit 평균가 없음·캐시 770 → 770 (account_positions). 둘 다 없음 + orders BUY 수량 = 지갑 → 777 (orders). ... 2026-10-05 11:49:51 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:49:51 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:49:51 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:51 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=13.054830), memory_has_position=False
+2026-10-05 11:49:51 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=13.054830 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:49:51 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:51 INFO core.strategy_engine | [POSITION-SYNC] entry_price=770.0 (출처: account_positions)
+2026-10-05 11:49:51 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=13.054830 entry=770.00 bar=1009 ts=2026-10-05T11:49:51.417597+09:00
+2026-10-05 11:49:51 INFO core.strategy_engine | ✅ [POSITION-SYNC] 자동 복구 성공 (source=account_positions, api=apply_entry): qty=13.054830, entry_price=770.00, entry_bar=1009, entry_ts=2026-10-05T11:49:51.417597+09:00
+2026-10-05 11:49:51 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:51 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:49:51 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00', 'executed_volume': 1739.90482236}
+2026-10-05 11:49:51 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T11:49:51.816585+09:00
+2026-10-05 11:49:52 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:52 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:49:52 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00', 'executed_volume': 1739.90482236}
+ok
+test_3_wallet_zero_records_hts_sell (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_3_wallet_zero_records_hts_sell)
+(3) 지갑 0 닫힘 → audit_trades HTS_SELL 1행(가격 비움, 수량·직전 진입가), 그 뒤 get_last_open_buy_* 가 None. ... 2026-10-05 11:49:52 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:49:52 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:49:52 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:52 INFO core.position_state | ✅ [POSITION-APPLY] source=bot_limit_fill qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T08:26:52+09:00
+2026-10-05 11:49:52 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=False (balance=0.000000), memory_has_position=True
+2026-10-05 11:49:52 WARNING core.strategy_engine | 🚨 [POSITION-SYNC] 강제 포지션 종료 실행: 지갑 잔고=0.000000 (거의 0) but memory shows has_position=True (qty=1739.904822)
+2026-10-05 11:49:52 INFO core.strategy_engine | [POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty=1739.90482236 entry=777.0
+2026-10-05 11:49:52 INFO core.position_state | ✅ Position CLOSE | qty=1739.904822 entry=777.00
+2026-10-05 11:49:52 INFO core.strategy_engine | ✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False
+2026-10-05 11:49:52 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:49:52 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00', 'executed_volume': 1739.90482236}
+2026-10-05 11:49:52 WARNING services.db | [DB] last BUY already closed by external sell (HTS_SELL id=2 ts=2026-10-05T11:49:52.966015+09:00) → returning None (WO-22)
+ok
+test_4_rebuy_after_hts_sell_does_not_borrow_old_buy (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_4_rebuy_after_hts_sell_does_not_borrow_old_buy)
+(4) HTS_SELL 뒤 앱 재매수: Upbit 평균가·캐시가 아직 없어도 옛 봇 BUY(777)로 돌아가지 않는다 (진입가 없음 → 복원 보류). ... 2026-10-05 11:49:53 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:49:53 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:49:53 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:53 INFO core.position_state | ✅ [POSITION-APPLY] source=bot_limit_fill qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T08:26:52+09:00
+2026-10-05 11:49:53 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=False (balance=0.000000), memory_has_position=True
+2026-10-05 11:49:53 WARNING core.strategy_engine | 🚨 [POSITION-SYNC] 강제 포지션 종료 실행: 지갑 잔고=0.000000 (거의 0) but memory shows has_position=True (qty=1739.904822)
+2026-10-05 11:49:53 INFO core.strategy_engine | [POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty=1739.90482236 entry=777.0
+2026-10-05 11:49:53 INFO core.position_state | ✅ Position CLOSE | qty=1739.904822 entry=777.00
+2026-10-05 11:49:53 INFO core.strategy_engine | ✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False
+2026-10-05 11:49:53 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=1739.904822), memory_has_position=False
+2026-10-05 11:49:53 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=1739.904822 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:49:53 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:53 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:49:53 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00', 'executed_volume': 1739.90482236}
+2026-10-05 11:49:53 WARNING services.db | [DB] last BUY already closed by external sell (HTS_SELL id=2 ts=2026-10-05T11:49:53.498241+09:00) → returning None (WO-22)
+2026-10-05 11:49:53 ERROR core.strategy_engine | ❌ [POSITION-SYNC] 신뢰 가능한 진입가 없음 (avg_buy_price 캐시 부재 + 미청산 BUY 부재). 자동 매도 방지를 위해 has_position=False 유지. 수동 정리 또는 LIVE 모드 재진입(검증) 필요.
+ok
+test_5_incident_replay_no_stop_loss (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_5_incident_replay_no_stop_loss)
+(5) 사건 전체 재생: 777 봇 매수 보유 → 앱 매도(지갑 0) → 앱 매수 766 → 첫 매도 평가 종가 765: ... 2026-10-05 11:49:54 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:49:54 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:49:54 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:49:55 INFO core.position_state | ✅ [POSITION-APPLY] source=bot_limit_fill qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T08:26:52+09:00
+2026-10-05 11:49:55 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=False (balance=0.000000), memory_has_position=True
+2026-10-05 11:49:55 WARNING core.strategy_engine | 🚨 [POSITION-SYNC] 강제 포지션 종료 실행: 지갑 잔고=0.000000 (거의 0) but memory shows has_position=True (qty=1739.904822)
+2026-10-05 11:49:55 INFO core.strategy_engine | [POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty=1739.90482236 entry=777.0
+2026-10-05 11:49:55 INFO core.position_state | ✅ Position CLOSE | qty=1739.904822 entry=777.00
+2026-10-05 11:49:55 INFO core.strategy_engine | ✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False
+2026-10-05 11:49:55 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=13.054830), memory_has_position=False
+2026-10-05 11:49:55 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=13.054830 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:49:55 INFO core.strategy_engine | [POSITION-SYNC] entry_price=766.0 (출처: upbit_avg)
+2026-10-05 11:49:55 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=13.054830 entry=766.00 bar=1009 ts=2026-10-05T11:49:55.389989+09:00
+2026-10-05 11:49:55 INFO core.strategy_engine | ✅ [POSITION-SYNC] 자동 복구 성공 (source=upbit_avg, api=apply_entry): qty=13.054830, entry_price=766.00, entry_bar=1009, entry_ts=2026-10-05T11:49:55.389989+09:00
+2026-10-05 11:49:55 INFO core.filters.sell_filters | 🔍 DEBUG [STOP_LOSS_CHECK] enable=True, stop_loss_triggered=False, pnl_pct=-0.13%, threshold=-1.00%, current_price=765.0, hts_buy=False
+ok
+test_1_live_running_user_resumed_without_session (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootResume.test_1_live_running_user_resumed_without_session) ... 2026-10-05 11:49:56 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:56 INFO services.init_db | [migrate] ensure_audit_trades_bar_time OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:56 INFO services.init_db | [migrate] ensure_audit_settings_bar_time OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:56 INFO services.init_db | [migrate] ensure_audit_settings_unique OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:56 INFO services.init_db | [migrate] ensure_audit_buy_eval_bar_time OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:56 INFO services.init_db | [migrate] ensure_audit_sell_eval_bar_time OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_audit_backfill_columns OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_account_positions_meta OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_users_trading_paused OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_wo2_audit_columns OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_audit_trades_reject_columns OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:57 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=['test_r_2026_09_30_wo12']
+2026-10-05 11:49:57 INFO engine.boot_resume | [BOOT-RESUME] success user=test_r_2026_09_30_wo12 mode=LIVE elapsed=0.1s capital≈1,000,000
+ok
+test_1b_default_start_uses_mode_live_not_session (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootResume.test_1b_default_start_uses_mode_live_not_session)
+기본 start 경로가 engine_manager.start_engine(mode='LIVE') 를 부르는지 (세션 비의존). ... 2026-10-05 11:49:58 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:49:58 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:49:58 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:49:58 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:03 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=['test_r_2026_09_30_wo12']
+2026-10-05 11:50:03 INFO engine.boot_resume | [BOOT-RESUME] success user=test_r_2026_09_30_wo12 mode=LIVE elapsed=0.7s capital≈1
+ok
+test_2_verify_fail_no_start_critical_db_unchanged (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootResume.test_2_verify_fail_no_start_critical_db_unchanged) ... 2026-10-05 11:50:04 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:50:04 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:50:04 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:04 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:04 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:04 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=['test_r_2026_09_30_wo12']
+2026-10-05 11:50:04 ERROR engine.boot_resume | [BOOT-RESUME] fail user=test_r_2026_09_30_wo12 reason=키 조회 실패: … (DB 상태 무변경, 첫 접속 경로에 맡김)
+2026-10-05 11:50:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:05 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=['test_r_2026_09_30_wo12']
+2026-10-05 11:50:05 ERROR engine.boot_resume | [BOOT-RESUME] fail user=test_r_2026_09_30_wo12 reason=운용자산 0 (DB 상태 무변경, 첫 접속 경로에 맡김)
+2026-10-05 11:50:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+ok
+test_3_not_target_excluded (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootResume.test_3_not_target_excluded) ... 2026-10-05 11:50:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:50:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:50:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:06 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=[]
+2026-10-05 11:50:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:06 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=[]
+ok
+test_6_trading_paused_untouched_engine_resumed (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootResume.test_6_trading_paused_untouched_engine_resumed) ... 2026-10-05 11:50:07 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:50:07 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:50:07 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:07 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:08 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:08 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=['test_r_2026_09_30_wo12']
+2026-10-05 11:50:08 INFO engine.boot_resume | [BOOT-RESUME] success user=test_r_2026_09_30_wo12 mode=LIVE elapsed=0.2s capital≈1
+ok
+test_migration_runs_at_boot_for_known_users (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootResume.test_migration_runs_at_boot_for_known_users) ... 2026-10-05 11:50:08 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:50:08 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:50:08 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_09_30_wo12)
+2026-10-05 11:50:08 INFO engine.boot_resume | [BOOT-RESUME] start | known=['test_r_2026_09_30_wo12'] targets=[]
+ok
+test_c7_no_bot_order_restores_from_upbit_avg_then_first_bar_skip (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootSeedRecover.test_c7_no_bot_order_restores_from_upbit_avg_then_first_bar_skip) ... 2026-10-05 11:50:08 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=1340.436268), memory_has_position=False
+2026-10-05 11:50:08 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=1340.436268 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:50:08 INFO core.strategy_engine | [POSITION-SYNC] entry_price=761.0 (출처: account_positions)
+2026-10-05 11:50:08 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=1340.436268 entry=761.00 bar=200 ts=2026-10-05T11:50:08.508535+09:00
+2026-10-05 11:50:08 INFO core.strategy_engine | ✅ [POSITION-SYNC] 자동 복구 성공 (source=account_positions, api=apply_entry): qty=1340.436268, entry_price=761.00, entry_bar=200, entry_ts=2026-10-05T11:50:08.508535+09:00
+ok
+test_c7_no_price_source_keeps_existing_critical (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootSeedRecover.test_c7_no_price_source_keeps_existing_critical) ... 2026-10-05 11:50:08 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=1340.436268), memory_has_position=False
+2026-10-05 11:50:08 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=1340.436268 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:50:08 ERROR core.strategy_engine | ❌ [POSITION-SYNC] 신뢰 가능한 진입가 없음 (avg_buy_price 캐시 부재 + 미청산 BUY 부재). 자동 매도 방지를 위해 has_position=False 유지. 수동 정리 또는 LIVE 모드 재진입(검증) 필요.
+ok
+test_c7_wallet_zero_keeps_no_position_and_critical (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestBootSeedRecover.test_c7_wallet_zero_keeps_no_position_and_critical) ... ok
+test_boot_script_mirrors_streamlit_run (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestDashboardAutoResumeGuards.test_boot_script_mirrors_streamlit_run) ... ok
+test_dashboard_skip_log_and_race_guard_present (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestDashboardAutoResumeGuards.test_dashboard_skip_log_and_race_guard_present) ... ok
+test_4_second_path_skips_after_boot_resume (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestEngineManagerStartLock.test_4_second_path_skips_after_boot_resume) ... ok
+test_5_concurrent_calls_start_once (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestEngineManagerStartLock.test_5_concurrent_calls_start_once) ... 2026-10-05 11:50:08 INFO engine.engine_manager | [ENGINE-MANAGER] start_engine skip — 이미 실행 중: user_id=test_r_2026_09_30_wo12, mode=LIVE
+ok
+test_mode_param_bypasses_session (tests.regressions.test_r_2026_09_30_wo12_boot_resume.TestEngineManagerStartLock.test_mode_param_bypasses_session) ... ok
+
+----------------------------------------------------------------------
+Ran 19 tests in 23.077s
+
+OK
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_c6hn9fyr/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_h7vhkpc4/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_cg9wuact/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_5idqgvr_/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_6n65lj8g/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo12_eslm_kho/tradebot_test_r_2026_09_30_wo12.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo12_0arplaet/tradebot_test_r_2026_09_30_wo12.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo12_m9iapy78/tradebot_test_r_2026_09_30_wo12.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo12_x1gvhx66/tradebot_test_r_2026_09_30_wo12.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo12_ukqg6e6e/tradebot_test_r_2026_09_30_wo12.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo12_0i495knp/tradebot_test_r_2026_09_30_wo12.db

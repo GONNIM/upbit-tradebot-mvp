@@ -1,0 +1,18 @@
+worktree wo22_wt .env 개수: 0
+worktree wo22_wt_old .env 개수: 0
+=================== [A] dfc075f 게이트 (.env 없음)
+✅ 회귀 테스트 295/295 통과 — 배포 진행 가능
+=================== [B] dfc075f WO-21 시험 (-v)
+Ran 5 tests in 3.085s
+OK
+=================== [D] revert dfc075f (fix(wo22): 지갑 동기화 복원 진입가 우선순위 + 지갑 0 닫힘 외부 매도(HTS_)
+충돌 파일: 없음
+변경 파일:
+ core/strategy_engine.py                            |  77 ++------
+ pages/dashboard.py                                 |   2 +-
+ services/db.py                                     |  58 ++----
+ .../test_r_2026_09_30_wo12_boot_resume.py          |   8 +-
+ .../test_r_2026_10_05_wo22_wallet_sync_entry.py    | 200 ---------------------
+ 5 files changed, 28 insertions(+), 317 deletions(-)
+py_compile OK
+✅ 회귀 테스트 290/290 통과 — 배포 진행 가능

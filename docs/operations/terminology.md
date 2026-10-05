@@ -27,6 +27,7 @@
 | Upbit `balance.locked > 0` (외부 주문) | 앱 지정가 주문으로 수량 묶임 | WO-9 (b) |
 | `insufficient_funds_ask` | 주문 가능 수량 부족 — 업비트 앱에서 직접 넣은 지정가 매도 주문이 있는지 확인하세요. | WO-9 (a)/(e) |
 | `insufficient_funds_bid` | 주문 가능 KRW 부족 — 업비트 앱에서 직접 넣은 지정가 매수 주문이 있는지, KRW 잔고가 충분한지 확인하세요. | WO-9 (a)/(e) |
+| audit_trades `type = HTS_SELL` | 외부 매도 | WO-22 (2026-10-05). 봇이 아닌 매도(앱 매도 등)로 지갑 잔고가 0 이 된 것을 봇이 감지해 남긴 기록. 체결 가격은 알 수 없어 비어 있고, 손익 집계에는 넣지 않는다. 감사 로그 페이지 유형 필터에서는 "매도" 에 포함 |
 | 로그 태그 `[FIXED-PRICE]`, `[BUY-LIMIT]`, `[LIMIT-FILL]` | (화면 노출 없음) | 태그 유지 — 운영 문서 grep 과 연동 |
 | dedupe 키 `fixed_buy_*` | (화면 노출 없음) | 키 유지 |
 

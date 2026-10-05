@@ -1,0 +1,46 @@
+WO-22 실행 명령 (2026-10-05 KST). S=세션 scratchpad. 서버 명령은 모두 읽기 전용 (DB mode=ro, Upbit GET 만, 키 값 미출력).
+
+## 사건 확인 (WO-21 관찰 중)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 08:26:00' ... | grep -E 'LOCKED-QTY|POSITION-SYNC|...'"         # → evidence/journal-0826-0945-jto.txt
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 10:55:07' --until '2026-10-05 10:59:30' ... "               # → evidence/journal-1055-1059-key.txt
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo21d_closed.py                                     # Upbit GET /v1/orders/closed → evidence/upbit-closed-orders-0930-1110.txt
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 10:54:00' --until '2026-10-05 11:00:00' ..."              # → evidence/journal-1054-1100.txt
+ssh root@orionhunter7.cafe24.com "sqlite3 'file:...?mode=ro' \"orders 564·565, audit_trades 1198·1201\""                               # → evidence/db-orders-564-565-audit-1201.txt
+
+## A. 조사
+sed -n "$(grep -n 'def _reconcile_position_with_wallet' core/strategy_engine.py | cut -d: -f1),+135p" core/strategy_engine.py
+sed -n "$(grep -n 'def get_position_entry_price' services/db.py | cut -d: -f1),+20p" services/db.py
+grep -n "_reconcile_position_with_wallet()\|position.sync_from_wallet()" core/strategy_engine.py engine/live_loop.py
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo22_a3.py                                                                          # → evidence/a3-30days.txt
+
+## B. 구현 (파일 도구)
+core/strategy_engine.py · services/db.py · tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py · tests/regressions/test_r_2026_09_30_wo12_boot_resume.py
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_09_30_wo12_boot_resume tests.regressions.test_r_2026_10_01_wo18_hts_flag_clear tests.regressions.test_r_2026_10_02_wo20_executed_at   # 27 OK
+env … python3 -m unittest tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry                                                # 5 OK
+
+## 구 코드 시험
+for f in services/db.py core/strategy_engine.py; do cp $f $S/wo22_new/…; git show HEAD:$f > $f; done
+env … python3 -m unittest tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry -v > $S/wo22_oldcode.txt                        # FAILED (failures=5)
+(새 코드 복귀)
+
+## 버전·커밋
+V=$(date '+%Y.%m.%d.%H%M') && sed -i '' "495s/v1\.2026\.10\.04\.1731/v1.$V/" pages/dashboard.py                                    # → v1.2026.10.05.1145
+python3 -m py_compile pages/dashboard.py core/strategy_engine.py services/db.py tests/…
+git add core/strategy_engine.py services/db.py pages/dashboard.py ; git add -f tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py tests/regressions/test_r_2026_09_30_wo12_boot_resume.py
+git status --short | grep -v '^??'                                                                                                    # 운영 가이드(WO-21 문서)는 스테이징 제외 확인
+git commit -q -F $S/wo22_msg.txt                                                                                                      # dfc075f
+
+## 검증 (임시 worktree, .env 없음)
+sed (wo21_check.sh → wo22_check.sh: NEW=dfc075f OLD=ce65f29, 시험 파일 교체, 구 코드 재현 단계 제거) ; bash $S/wo22_check.sh      # 게이트 295/295, revert 충돌 없음 290/290
+(worktree 에서 시험 -v → impl/test-new-code.txt, 19 OK)
+
+## 문서·묶음
+(파일 도구로 incident.md, plan.md, report.md, commands.txt, docs/operations/terminology.md "외부 매도")
+git show dfc075f -- core services pages tests > docs/plans/2026-10-05-wo22-wallet-sync-entry/impl/wo22-code.diff
+git add docs/operations/terminology.md ; git add -f docs/plans/2026-10-05-wo22-wallet-sync-entry/(incident.md plan.md report.md commands.txt evidence impl)
+git status --short | grep -v '^??'
+git commit -F $S/wo22docs_msg.txt
+git log --oneline origin/main..HEAD          # push 대상 2개
+git push origin main
+(scratchpad 묶음 폴더에서 zip → wo22-impl-20261005.zip, 미추적)
+서버 pull·재시작 없음.

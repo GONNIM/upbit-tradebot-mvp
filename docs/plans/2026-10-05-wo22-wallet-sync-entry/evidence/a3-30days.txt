@@ -1,0 +1,402 @@
+기간: 2026-09-05 11:39:31 ~ (journal 보존 시작 2026-09-07T09:36:23+0900 )
+== 사건 목록 (KRW-JTO 엔진 로그)
+   2026-09-07 09:40:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-07 10:09:43 | HTS 감지(OR) | Δ=83.632663 avg=626.49708721
+   2026-09-07 10:10:05 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=83.632663 entry=626.50
+   2026-09-07 10:25:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-08 11:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-08 11:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-08 13:23:10 | HTS 감지(OR) | Δ=440.586913 avg=596.0
+   2026-09-08 13:25:13 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=440.586913 entry=596.00
+   2026-09-08 15:10:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-09 02:05:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-09 09:55:14 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=4300.577922 entry=616.00
+   2026-09-09 10:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-09 10:40:11 | 외부 매수 복원 실패(진입가 없음) | 
+   2026-09-09 10:40:43 | HTS 감지(OR) | Δ=4296.280196 avg=607.0
+   2026-09-09 15:50:10 | 지갑0 닫힘(Case1) | 4296.280196
+   2026-09-09 16:15:08 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=428.512780 entry=626.00
+   2026-09-09 16:45:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-09 19:35:14 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=439.798030 entry=609.00
+   2026-09-09 22:40:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-10 07:32:30 | HTS 감지(OR) | Δ=46.565694 avg=569.0
+   2026-09-10 07:33:31 | HTS 감지(OR) | Δ=93.381518 avg=568.00216709
+   2026-09-10 07:34:32 | HTS 감지(OR) | Δ=45.880477 avg=567.50783612
+   2026-09-10 07:35:06 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=185.827690 entry=567.51
+   2026-09-10 07:35:33 | HTS 감지(OR) | Δ=45.501823 avg=567.01455226
+   2026-09-10 07:56:48 | HTS 감지(OR) | Δ=44.227996 avg=566.53070551
+   2026-09-10 10:22:38 | HTS 감지(OR) | Δ=16.339869 avg=566.27708509
+   2026-09-10 10:28:43 | HTS 감지(OR) | Δ=28.947177 avg=565.89119872
+   2026-09-10 10:32:46 | HTS 감지(OR) | Δ=44.994071 avg=565.16664697
+   2026-09-10 10:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-10 10:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-10 16:24:42 | HTS 감지(OR) | Δ=43.971115 avg=556.0
+   2026-09-10 16:25:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=43.971115 entry=556.00
+   2026-09-10 19:35:09 | HTS 감지(OR) | Δ=93.800747 avg=560.08504664
+   2026-09-10 21:30:05 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-10 21:30:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-11 07:55:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=472.764602 entry=565.00
+   2026-09-11 14:36:54 | HTS 감지(OR) | Δ=422.708963 avg=566.88820298
+   2026-09-11 14:38:56 | HTS 감지(OR) | Δ=0.000000 avg=566.88820298
+   2026-09-11 18:40:12 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-11 23:50:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=451.913413 entry=589.00
+   2026-09-12 00:30:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-13 17:30:12 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=457.064778 entry=583.00
+   2026-09-13 17:45:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-13 18:00:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=45.818743 entry=581.00
+   2026-09-13 18:17:38 | HTS 감지(OR) | Δ=45.251595 avg=581.99377242
+   2026-09-13 22:21:35 | HTS 감지(OR) | Δ=132.600260 avg=583.77927457
+   2026-09-14 00:15:10 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-14 06:25:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=45.203205 entry=589.00
+   2026-09-14 07:05:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-14 07:45:11 | 외부 매수 복원 실패(진입가 없음) | 
+   2026-09-14 07:45:21 | HTS 감지(OR) | Δ=46.995485 avg=567.0
+   2026-09-14 08:07:33 | HTS 감지(OR) | Δ=45.897926 avg=567.98818475
+   2026-09-14 08:13:36 | HTS 감지(OR) | Δ=46.525309 avg=567.65841841
+   2026-09-14 08:28:41 | HTS 감지(OR) | Δ=318.071019 avg=568.59115676
+   2026-09-14 09:30:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-14 10:50:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=45.989095 entry=579.00
+   2026-09-14 11:30:10 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-14 13:06:29 | HTS 감지(OR) | Δ=44.060117 avg=599.0
+   2026-09-14 13:08:30 | HTS 감지(OR) | Δ=88.493348 avg=597.33406426
+   2026-09-14 13:10:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=132.553465 entry=597.33
+   2026-09-14 15:28:22 | HTS 감지(OR) | Δ=43.473193 avg=596.75762187
+   2026-09-14 15:33:24 | HTS 감지(OR) | Δ=43.110690 avg=596.21511744
+   2026-09-14 15:34:25 | HTS 감지(OR) | Δ=42.751349 avg=595.69027384
+   2026-09-14 16:13:37 | HTS 감지(OR) | Δ=42.395101 avg=595.17611721
+   2026-09-14 16:15:38 | HTS 감지(OR) | Δ=42.041963 avg=594.66916051
+   2026-09-14 16:30:39 | HTS 감지(OR) | Δ=41.691881 avg=594.16746661
+   2026-09-14 16:45:44 | HTS 감지(OR) | Δ=41.344822 avg=593.66987307
+   2026-09-14 17:50:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-14 17:50:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-14 18:10:06 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=45.230786 entry=588.00
+   2026-09-14 19:00:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-14 21:11:25 | HTS 감지(OR) | Δ=440.079504 avg=605.0
+   2026-09-14 21:15:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=440.079504 entry=605.00
+   2026-09-14 21:46:35 | HTS 감지(OR) | Δ=396.705132 avg=604.52591728
+   2026-09-14 22:00:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-15 05:11:02 | HTS 감지(OR) | Δ=43.055381 avg=617.0
+   2026-09-15 05:15:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=43.055381 entry=617.00
+   2026-09-15 05:51:06 | HTS 감지(OR) | Δ=42.693799 avg=616.50210837
+   2026-09-15 06:02:08 | HTS 감지(OR) | Δ=84.315464 avg=615.5105381
+   2026-09-15 06:05:12 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-19 07:10:06 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-19 07:15:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-19 17:24:35 | HTS 감지(OR) | Δ=482.738989 avg=613.0
+   2026-09-19 17:25:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=482.738989 entry=613.00
+   2026-09-19 20:25:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-19 20:30:10 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-19 23:35:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-21 12:12:34 | HTS 감지(OR) | Δ=393.563864 avg=678.0
+   2026-09-21 12:13:35 | HTS 감지(OR) | Δ=437.963368 avg=677.47330244
+   2026-09-21 12:15:10 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=831.527232 entry=677.47
+   2026-09-21 13:30:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-21 13:30:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 01:10:10 | 봇 매도 신호 | DeadCrossFilter: EMA_DC
+   2026-09-30 03:00:05 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 06:23:15 | HTS 감지(OR) | Δ=2097.517082 avg=767.0
+   2026-09-30 07:20:11 | 봇 매도 신호 | DeadCrossFilter: EMA_DC
+   2026-09-30 15:40:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 15:40:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 16:47:09 | HTS 감지(OR) | Δ=1340.436268 avg=761.0
+   2026-09-30 16:50:05 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=1340.436268 entry=761.00
+   2026-09-30 17:10:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 17:15:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 17:30:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 17:30:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 17:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 17:40:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 17:45:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=1340.436268 entry=761.00
+   2026-09-30 18:10:12 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:13 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:13 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:13 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:14 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:15 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:16 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:16 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:16 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:16 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:17 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:19 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:19 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:22 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:22 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:22 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:23 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:26 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:26 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:26 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:26 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:26 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:27 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:27 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:27 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:27 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:27 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:28 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:28 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:28 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:28 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:29 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:29 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:29 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:29 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:29 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:30 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:30 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:30 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:30 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:30 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:31 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:31 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:31 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:31 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:31 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:32 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:32 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:10:32 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:32 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:32 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:10:33 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:15:12 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:15:13 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:20:12 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:25:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:25:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 18:30:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:35:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:40:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:45:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:45:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:50:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 18:55:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:00:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:05:05 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:05:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:10:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:15:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:20:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:25:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:44:40 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=1340.436268 entry=761.00
+   2026-09-30 19:50:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:12 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:13 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:13 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:13 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:14 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:14 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:14 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:14 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:14 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:15 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:15 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:15 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:15 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:15 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:16 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:17 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:17 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:17 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:17 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:18 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:18 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:18 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:18 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:19 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:19 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:19 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:19 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:19 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:20 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:21 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:22 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:22 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:22 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:22 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:23 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:23 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:23 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:23 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:23 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:24 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:25 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 19:50:25 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:26 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:26 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:26 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:26 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:26 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:27 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:27 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:27 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:27 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:27 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:28 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:28 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:28 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:28 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:28 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:29 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:29 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:29 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:29 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:30 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:30 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:30 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:50:31 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 19:55:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:00:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:05:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:10:05 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:10:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:15:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:20:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:25:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:30:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:40:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 20:45:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 20:50:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:50:12 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:55:05 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 20:55:05 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:00:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:05:10 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:10:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:15:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:20:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:20:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:25:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:30:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:30:06 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-09-30 21:35:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 21:35:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 21:40:06 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 21:40:06 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 21:45:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-09-30 21:50:11 | 지갑0 닫힘(Case1) | 1340.436268
+   2026-09-30 23:25:06 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=307.667517 entry=745.00
+   2026-09-30 23:40:06 | 봇 매도 신호 | DeadCrossFilter: EMA_DC
+   2026-09-30 23:40:06 | 봇 매도 신호 | DeadCrossFilter: EMA_DC
+   2026-10-01 15:35:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-10-02 03:55:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-10-02 09:30:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-10-02 12:15:11 | 외부 매수 복원 실패(진입가 없음) | 
+   2026-10-02 12:15:16 | HTS 감지(OR) | Δ=346.207133 avg=743.0
+   2026-10-02 14:15:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-10-03 09:18:47 | HTS 감지(OR) | Δ=2071.002113 avg=710.0
+   2026-10-03 09:20:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=2071.002113 entry=710.00
+   2026-10-03 20:05:11 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-10-04 17:57:11 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+   2026-10-04 23:07:11 | 외부 매수 복원(Case2) source=upbit_avg_buy_price | qty=749.529132 entry=761.00
+   2026-10-04 23:48:06 | 봇 매도 신호 | TrailingStopFilter: TRAILING_STOP_FIXED
+   2026-10-05 09:42:11 | 지갑0 닫힘(Case1) | 1739.904822
+   2026-10-05 10:59:05 | 외부 매수 복원(Case2) source=last_open_buy | qty=13.054830 entry=777.00
+   2026-10-05 10:59:05 | 봇 매도 신호 | StopLossFilter: STOP_LOSS
+
+== Case2 복원 전후 audit_trades (각 복원 시각 ±3시간)
+  [2026-09-07 10:10:05] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=83.632663 entry=626.50
+       (959, '2026-09-07T08:01:26.892909+09:00', 'BUY', 633.0, 'HTS_BUY')
+       (960, '2026-09-07T09:40:13.606441+09:00', 'SELL', 637.0000000000001, 'TRAILING_STOP_FIXED')
+       (961, '2026-09-07T10:09:43.981286+09:00', 'BUY', 626.49708721, 'HTS_BUY')
+  [2026-09-08 13:25:13] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=440.586913 entry=596.00
+       (963, '2026-09-08T11:05:14.981745+09:00', 'BUY', 611.9999999999999, 'EMA_GC')
+       (964, '2026-09-08T11:35:18.727170+09:00', 'SELL', 605.0, 'STOP_LOSS')
+       (965, '2026-09-08T13:23:10.144696+09:00', 'BUY', 596.0, 'HTS_BUY')
+  [2026-09-09 09:55:14] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=4300.577922 entry=616.00
+       (969, '2026-09-09T09:54:20.030877+09:00', 'BUY', 616.0, 'force_buy')
+  [2026-09-09 16:15:08] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=428.512780 entry=626.00
+       (972, '2026-09-09T16:15:04.626922+09:00', 'BUY', 626.0, 'force_buy')
+  [2026-09-09 19:35:14] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=439.798030 entry=609.00
+       (973, '2026-09-09T16:45:13.842810+09:00', 'SELL', 617.0, 'STOP_LOSS')
+       (974, '2026-09-09T19:32:36.424069+09:00', 'BUY', 609.0, 'force_buy')
+  [2026-09-10 07:35:06] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=185.827690 entry=567.51
+       (976, '2026-09-10T07:32:30.956931+09:00', 'BUY', 569.0, 'HTS_BUY')
+       (977, '2026-09-10T07:33:31.782565+09:00', 'BUY', 568.00216709, 'HTS_BUY_ADD')
+       (978, '2026-09-10T07:34:32.538588+09:00', 'BUY', 567.50783612, 'HTS_BUY_ADD')
+       (979, '2026-09-10T07:35:33.259975+09:00', 'BUY', 567.01455226, 'HTS_BUY_ADD')
+  [2026-09-10 16:25:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=43.971115 entry=556.00
+       (985, '2026-09-10T16:24:42.583129+09:00', 'BUY', 556.0, 'HTS_BUY')
+  [2026-09-11 07:55:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=472.764602 entry=565.00
+       (988, '2026-09-11T07:50:25.378275+09:00', 'BUY', 565.0, 'force_buy')
+  [2026-09-11 23:50:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=451.913413 entry=589.00
+       (992, '2026-09-11T23:49:13.431776+09:00', 'BUY', 589.0, 'force_buy')
+  [2026-09-13 17:30:12] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=457.064778 entry=583.00
+       (994, '2026-09-13T17:27:01.886415+09:00', 'BUY', 583.0, 'force_buy')
+  [2026-09-13 18:00:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=45.818743 entry=581.00
+       (994, '2026-09-13T17:27:01.886415+09:00', 'BUY', 583.0, 'force_buy')
+       (995, '2026-09-13T17:45:13.108698+09:00', 'SELL', 578.0, 'STOP_LOSS')
+       (996, '2026-09-13T17:59:41.730293+09:00', 'BUY', 581.0, 'force_buy')
+  [2026-09-14 06:25:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=45.203205 entry=589.00
+       (1000, '2026-09-14T06:24:49.415146+09:00', 'BUY', 589.0, 'force_buy')
+  [2026-09-14 10:50:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=45.989095 entry=579.00
+       (1003, '2026-09-14T08:07:33.329236+09:00', 'BUY', 567.98818475, 'HTS_BUY_ADD')
+       (1004, '2026-09-14T08:13:36.261229+09:00', 'BUY', 567.65841841, 'HTS_BUY_ADD')
+       (1005, '2026-09-14T08:28:41.620105+09:00', 'BUY', 568.59115676, 'HTS_BUY_ADD')
+       (1006, '2026-09-14T09:30:14.425414+09:00', 'SELL', 571.0, 'TRAILING_STOP_FIXED')
+       (1007, '2026-09-14T10:46:32.533690+09:00', 'BUY', 579.0, 'force_buy')
+  [2026-09-14 13:10:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=132.553465 entry=597.33
+       (1007, '2026-09-14T10:46:32.533690+09:00', 'BUY', 579.0, 'force_buy')
+       (1008, '2026-09-14T11:30:13.642169+09:00', 'SELL', 588.0, 'TRAILING_STOP_FIXED')
+       (1009, '2026-09-14T13:06:29.257151+09:00', 'BUY', 599.0, 'HTS_BUY')
+       (1010, '2026-09-14T13:08:30.248590+09:00', 'BUY', 597.33406426, 'HTS_BUY_ADD')
+  [2026-09-14 18:10:06] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=45.230786 entry=588.00
+       (1011, '2026-09-14T15:28:22.190135+09:00', 'BUY', 596.75762187, 'HTS_BUY_ADD')
+       (1012, '2026-09-14T15:33:24.151979+09:00', 'BUY', 596.21511744, 'HTS_BUY_ADD')
+       (1013, '2026-09-14T15:34:25.156328+09:00', 'BUY', 595.69027384, 'HTS_BUY_ADD')
+       (1014, '2026-09-14T16:13:37.175120+09:00', 'BUY', 595.17611721, 'HTS_BUY_ADD')
+       (1015, '2026-09-14T16:15:38.117967+09:00', 'BUY', 594.66916051, 'HTS_BUY_ADD')
+       (1016, '2026-09-14T16:30:39.577192+09:00', 'BUY', 594.16746661, 'HTS_BUY_ADD')
+       (1017, '2026-09-14T16:45:44.744620+09:00', 'BUY', 593.66987307, 'HTS_BUY_ADD')
+       (1018, '2026-09-14T17:50:09.451297+09:00', 'SELL', 586.0, 'STOP_LOSS')
+       (1019, '2026-09-14T18:07:18.804720+09:00', 'BUY', 588.0, 'force_buy')
+  [2026-09-14 21:15:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=440.079504 entry=605.00
+       (1020, '2026-09-14T19:00:14.243716+09:00', 'SELL', 592.0, 'TRAILING_STOP_FIXED')
+       (1021, '2026-09-14T21:11:25.040970+09:00', 'BUY', 605.0, 'HTS_BUY')
+  [2026-09-15 05:15:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=43.055381 entry=617.00
+       (1024, '2026-09-15T05:11:02.287353+09:00', 'BUY', 617.0, 'HTS_BUY')
+  [2026-09-19 17:25:11] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=482.738989 entry=613.00
+       (1049, '2026-09-19T17:24:35.545268+09:00', 'BUY', 613.0, 'HTS_BUY')
+  [2026-09-21 12:15:10] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=831.527232 entry=677.47
+       (1053, '2026-09-21T12:12:34.991881+09:00', 'BUY', 678.0, 'HTS_BUY')
+       (1054, '2026-09-21T12:13:35.542218+09:00', 'BUY', 677.47330244, 'HTS_BUY_ADD')
+  [2026-09-30 16:50:05] 외부 매수 복원(Case2) source=upbit_avg_buy_price qty=1340.436268 entry=761.00
+       (1161, '2026-09-30T15:40:13.476028+09:00', 'SELL', 748.0, 'STOP_LOSS')
+       (1162, '2026-09-30T16:47:09.09

@@ -1,0 +1,37 @@
+2026-10-05 10:56:07 INFO services.db | [DB] sync_all_positions cleared: KRW-JTO → active=0, locked=0, entry_price=0
+2026-10-05 10:56:08 INFO services.db | [HTS-FLAG] cleared | reason=sync_all_positions_cleared | ticker=KRW-UP2
+2026-10-05 10:56:08 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-05 10:56:08 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-05 10:57:08 INFO services.db | [DB] sync_all_positions cleared: KRW-JTO → active=0, locked=0, entry_price=0
+2026-10-05 10:57:09 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-05 10:57:09 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-05 10:58:08 INFO services.db | [DB] sync_all_positions cleared: KRW-JTO → active=0, locked=0, entry_price=0
+2026-10-05 10:58:09 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-05 10:58:09 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-05 10:59:05 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=13.054830), memory_has_position=False
+2026-10-05 10:59:05 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=13.054830 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 10:59:05 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'se
+2026-10-05 10:59:05 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00'}
+2026-10-05 10:59:05 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=13.054830 entry=777.00 bar=951 ts=2026-10-05T10:59:05.813456+09:00
+2026-10-05 10:59:05 INFO core.strategy_engine | ✅ [POSITION-SYNC] 자동 복구 성공 (source=last_open_buy, api=apply_entry): qty=13.054830, entry_price=777.00, entry_bar=951, entry_ts=2026-10-05T10:59:05.813456+09:00
+2026-10-05 10:59:05 INFO core.strategy_incremental | 🔥 [SELL_BLOCK_ENTRY] EMA Strategy sell evaluation started | bar_idx=202
+2026-10-05 10:59:05 INFO services.db | [BARS_HELD] BUY=2026-10-05T08:26:53.250364+09:00 이후 SELL 평가 56개 → bars_held=56
+2026-10-05 10:59:05 WARNING core.strategy_incremental | ⚠️ [EMA] in-memory bars_held=-749 → audit fallback=56 적용 (entry_bar 951 → 146). 근본: apply_entry 미경유 진입 or 재시작 seed 지연 의심
+2026-10-05 10:59:05 INFO core.strategy_incremental | 🔍 [MIN_HOLDING_CHECK] bars_held=56, min_required=1, will_skip=False
+2026-10-05 10:59:05 INFO core.filters.sell_filters | 🔍 DEBUG [STOP_LOSS_CHECK] enable=True, stop_loss_triggered=True, pnl_pct=-1.42%, threshold=-1.00%, current_price=766.0, hts_buy=False
+2026-10-05 10:59:05 INFO core.filters.sell_filters | 🛡️ Stop Loss triggered | pnl=-1.42% sl=1.00%
+2026-10-05 10:59:05 INFO core.filters | ✅ Sell triggered by StopLossFilter: STOP_LOSS
+2026-10-05 10:59:05 INFO core.filters |    └─ Stop loss triggered: -1.42% (threshold: -1.00%)
+2026-10-05 10:59:05 INFO core.strategy_engine | 📊 Bar#202 | ts=2026-10-05 01:58:00+00:00 | close=766.00 | ema_fast=769.71 | ema_slow=771.65 | ema_base=771.65 | action=SELL | pos=True
+2026-10-05 10:59:06 INFO core.trader | [SELL] plan qty=13.05483028 price=766.00000000 fee=0.0005
+2026-10-05 10:59:06 INFO core.trader | [UPBIT-ORDER] → POST /v1/orders payload={'market': 'KRW-JTO', 'side': 'ask', 'volume': '13.05483028', 'ord_type': 'market'}
+2026-10-05 10:59:06 INFO core.trader | [UPBIT-ORDER] ← status=201 body={'uuid': '71f0a546-7aaf-42ba-a4d0-8b298369a8c2', 'side': 'ask', 'ord_type': 'market', 'state': 'wait', 'market': 'KRW-JTO', 'created_at': '2026-10-05T10:59:06+09:00', 'volume': 
+2026-10-05 10:59:06 INFO core.trader | [SELL-LIVE] ok=True status=201 error_name=None error_message=None
+2026-10-05 10:59:07 INFO engine.order_reconciler | [OR] enqueued: 71f0a546-7aaf-42ba-a4d0-8b298369a8c2 side=SELL KRW-JTO
+2026-10-05 10:59:07 INFO core.strategy_engine | ✅ SELL 체결 | qty=13.054830 price=766.00 pnl=-1.42% bars_held=56
+2026-10-05 10:59:07 INFO core.position_state | ✅ Position CLOSE | qty=13.054830 entry=777.00
+2026-10-05 10:59:09 INFO services.db | [DB] sync_all_positions cleared: KRW-JTO → active=0, locked=0, entry_price=0
+2026-10-05 10:59:09 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-05 10:59:09 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-05 10:59:11 INFO engine.order_reconciler | [OR] final FILLED uuid=71f0a546-7aaf-42ba-a4d0-8b298369a8c2 user=mcmax33 side=SELL vol=13.05483028 avg=765.0000000000001 fee=0.0 krw=1503998.32332669 coin=None executed_at=2026-10-05T10:59:06+09:00 c
+2026-10-05 10:59:11 INFO engine.order_reconciler | [OR] audit_trades inserted: uuid=71f0a546-7aaf-42ba-a4d0-8b298369a8c2 side=SELL px=765.0000000000001 vol=13.05483028

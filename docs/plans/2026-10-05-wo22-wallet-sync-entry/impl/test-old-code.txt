@@ -1,0 +1,121 @@
+test_1_incident_upbit_avg_first (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_1_incident_upbit_avg_first)
+(1) 사건 재현: orders 봇 BUY 777(이미 앱 매도됨, 기록 없음), 캐시 0, 지갑 13.05개 avg_buy_price 766 → 766 (출처 upbit_avg). ... 2026-10-05 11:45:08 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:08 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:45:08 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00'}
+2026-10-05 11:45:08 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=13.054830 entry=777.00 bar=951 ts=2026-10-05T11:45:08.963766+09:00
+FAIL
+test_2_fallback_order (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_2_fallback_order)
+(2) Upbit 평균가 없음·캐시 770 → 770 (account_positions). 둘 다 없음 + orders BUY 수량 = 지갑 → 777 (orders). ... 2026-10-05 11:45:10 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:45:10 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:45:10 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:10 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=13.054830), memory_has_position=False
+2026-10-05 11:45:10 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=13.054830 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:45:10 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:10 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=13.054830 entry=770.00 bar=1009 ts=2026-10-05T11:45:10.341225+09:00
+2026-10-05 11:45:10 INFO core.strategy_engine | ✅ [POSITION-SYNC] 자동 복구 성공 (source=upbit_avg_buy_price, api=apply_entry): qty=13.054830, entry_price=770.00, entry_bar=1009, entry_ts=2026-10-05T11:45:10.341225+09:00
+2026-10-05 11:45:10 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:10 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:45:10 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00'}
+2026-10-05 11:45:10 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T11:45:10.635150+09:00
+FAIL
+test_3_wallet_zero_records_hts_sell (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_3_wallet_zero_records_hts_sell)
+(3) 지갑 0 닫힘 → audit_trades HTS_SELL 1행(가격 비움, 수량·직전 진입가), 그 뒤 get_last_open_buy_* 가 None. ... 2026-10-05 11:45:11 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:45:11 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:45:11 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:11 INFO core.position_state | ✅ [POSITION-APPLY] source=bot_limit_fill qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T08:26:52+09:00
+2026-10-05 11:45:11 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=False (balance=0.000000), memory_has_position=True
+2026-10-05 11:45:11 WARNING core.strategy_engine | 🚨 [POSITION-SYNC] 강제 포지션 종료 실행: 지갑 잔고=0.000000 (거의 0) but memory shows has_position=True (qty=1739.904822)
+2026-10-05 11:45:11 INFO core.position_state | ✅ Position CLOSE | qty=1739.904822 entry=777.00
+2026-10-05 11:45:11 INFO core.strategy_engine | ✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False
+FAIL
+test_4_rebuy_after_hts_sell_does_not_borrow_old_buy (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_4_rebuy_after_hts_sell_does_not_borrow_old_buy)
+(4) HTS_SELL 뒤 앱 재매수: Upbit 평균가·캐시가 아직 없어도 옛 봇 BUY(777)로 돌아가지 않는다 (진입가 없음 → 복원 보류). ... 2026-10-05 11:45:12 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:45:12 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:45:12 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:12 INFO core.position_state | ✅ [POSITION-APPLY] source=bot_limit_fill qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T08:26:52+09:00
+2026-10-05 11:45:12 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=False (balance=0.000000), memory_has_position=True
+2026-10-05 11:45:12 WARNING core.strategy_engine | 🚨 [POSITION-SYNC] 강제 포지션 종료 실행: 지갑 잔고=0.000000 (거의 0) but memory shows has_position=True (qty=1739.904822)
+2026-10-05 11:45:12 INFO core.position_state | ✅ Position CLOSE | qty=1739.904822 entry=777.00
+2026-10-05 11:45:12 INFO core.strategy_engine | ✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False
+2026-10-05 11:45:13 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=1739.904822), memory_has_position=False
+2026-10-05 11:45:13 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=1739.904822 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:45:13 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:13 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:45:13 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00'}
+2026-10-05 11:45:13 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T11:45:13.178425+09:00
+2026-10-05 11:45:13 INFO core.strategy_engine | ✅ [POSITION-SYNC] 자동 복구 성공 (source=last_open_buy, api=apply_entry): qty=1739.904822, entry_price=777.00, entry_bar=951, entry_ts=2026-10-05T11:45:13.178425+09:00
+FAIL
+test_5_incident_replay_no_stop_loss (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_5_incident_replay_no_stop_loss)
+(5) 사건 전체 재생: 777 봇 매수 보유 → 앱 매도(지갑 0) → 앱 매수 766 → 첫 매도 평가 종가 765: ... 2026-10-05 11:45:14 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 11:45:14 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 11:45:14 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:14 INFO core.position_state | ✅ [POSITION-APPLY] source=bot_limit_fill qty=1739.904822 entry=777.00 bar=951 ts=2026-10-05T08:26:52+09:00
+2026-10-05 11:45:14 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=False (balance=0.000000), memory_has_position=True
+2026-10-05 11:45:14 WARNING core.strategy_engine | 🚨 [POSITION-SYNC] 강제 포지션 종료 실행: 지갑 잔고=0.000000 (거의 0) but memory shows has_position=True (qty=1739.904822)
+2026-10-05 11:45:14 INFO core.position_state | ✅ Position CLOSE | qty=1739.904822 entry=777.00
+2026-10-05 11:45:14 INFO core.strategy_engine | ✅ [POSITION-SYNC] PositionState 리셋 완료 → has_position=False
+2026-10-05 11:45:14 WARNING core.strategy_engine | 🔄 [POSITION-SYNC] Wallet-Memory 불일치 감지! wallet_has_coins=True (balance=13.054830), memory_has_position=False
+2026-10-05 11:45:14 WARNING core.strategy_engine | ⚠️ [POSITION-SYNC] 외부 매수 감지: 지갑 잔고=13.054830 but memory shows has_position=False. 진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)...
+2026-10-05 11:45:14 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo22)
+2026-10-05 11:45:14 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'entry_bar', 'executed_at', 'executed_volume', 'id', 'meta', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'settings_history_id', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-10-05 11:45:14 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 777.0, 'entry_bar': 951, 'entry_ts_iso': '2026-10-05T08:26:52+09:00'}
+2026-10-05 11:45:14 INFO core.position_state | ✅ [POSITION-APPLY] source=wallet_sync qty=13.054830 entry=777.00 bar=951 ts=2026-10-05T11:45:14.683895+09:00
+2026-10-05 11:45:14 INFO core.strategy_engine | ✅ [POSITION-SYNC] 자동 복구 성공 (source=last_open_buy, api=apply_entry): qty=13.054830, entry_price=777.00, entry_bar=951, entry_ts=2026-10-05T11:45:14.683895+09:00
+2026-10-05 11:45:14 INFO core.filters.sell_filters | 🔍 DEBUG [STOP_LOSS_CHECK] enable=True, stop_loss_triggered=True, pnl_pct=-1.54%, threshold=-1.00%, current_price=765.0, hts_buy=False
+2026-10-05 11:45:14 INFO core.filters.sell_filters | 🛡️ Stop Loss triggered | pnl=-1.54% sl=1.00%
+FAIL
+
+======================================================================
+FAIL: test_1_incident_upbit_avg_first (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_1_incident_upbit_avg_first)
+(1) 사건 재현: orders 봇 BUY 777(이미 앱 매도됨, 기록 없음), 캐시 0, 지갑 13.05개 avg_buy_price 766 → 766 (출처 upbit_avg).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py", line 125, in test_1_incident_upbit_avg_first
+    self.assertEqual(eng.position.avg_price, 766.0)
+AssertionError: 777.0 != 766.0
+
+======================================================================
+FAIL: test_2_fallback_order (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_2_fallback_order)
+(2) Upbit 평균가 없음·캐시 770 → 770 (account_positions). 둘 다 없음 + orders BUY 수량 = 지갑 → 777 (orders).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py", line 141, in test_2_fallback_order
+    self.assertTrue(any("(출처: orders)" in m for m in cm.output))
+AssertionError: False is not true
+
+======================================================================
+FAIL: test_3_wallet_zero_records_hts_sell (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_3_wallet_zero_records_hts_sell)
+(3) 지갑 0 닫힘 → audit_trades HTS_SELL 1행(가격 비움, 수량·직전 진입가), 그 뒤 get_last_open_buy_* 가 None.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py", line 159, in test_3_wallet_zero_records_hts_sell
+    self.assertEqual(len(rows), 1)
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_4_rebuy_after_hts_sell_does_not_borrow_old_buy (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_4_rebuy_after_hts_sell_does_not_borrow_old_buy)
+(4) HTS_SELL 뒤 앱 재매수: Upbit 평균가·캐시가 아직 없어도 옛 봇 BUY(777)로 돌아가지 않는다 (진입가 없음 → 복원 보류).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py", line 177, in test_4_rebuy_after_hts_sell_does_not_borrow_old_buy
+    self.assertFalse(eng.position.has_position)
+AssertionError: True is not false
+
+======================================================================
+FAIL: test_5_incident_replay_no_stop_loss (tests.regressions.test_r_2026_10_05_wo22_wallet_sync_entry.TestWo22.test_5_incident_replay_no_stop_loss)
+(5) 사건 전체 재생: 777 봇 매수 보유 → 앱 매도(지갑 0) → 앱 매수 766 → 첫 매도 평가 종가 765:
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py", line 194, in test_5_incident_replay_no_stop_loss
+    self.assertEqual(eng.position.avg_price, 766.0)
+AssertionError: 777.0 != 766.0
+
+----------------------------------------------------------------------
+Ran 5 tests in 21.337s
+
+FAILED (failures=5)
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_l_f2zh8x/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_ifpsng4y/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_iz2g0wzr/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_qv9uo00c/tradebot_test_r_2026_10_05_wo22.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo22_eyxkrp4t/tradebot_test_r_2026_10_05_wo22.db
