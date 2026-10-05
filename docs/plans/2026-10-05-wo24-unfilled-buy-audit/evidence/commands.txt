@@ -1,0 +1,28 @@
+WO-24 실행 명령 원문 (2026-10-05, 로컬만. 서버 접속 없음)
+S = /private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad
+
+[1] 문법
+python3 -m py_compile engine/order_reconciler.py core/strategy_engine.py services/db.py services/notifier.py pages/audit_viewer.py core/trader.py services/trading_control.py config.py pages/set_buy_sell_conditions.py pages/dashboard.py
+
+[2] 구 코드 시험 (커밋 전, HEAD=3850794). 변경 9개 파일을 HEAD 판으로 임시 복원 → 시험 → 새 판으로 되돌림. git diff --stat 으로 복원 전후 일치 확인.
+for f in engine/order_reconciler.py core/strategy_engine.py services/db.py services/notifier.py pages/audit_viewer.py core/trader.py services/trading_control.py config.py pages/set_buy_sell_conditions.py; do cp $f $S/wo24_new/$(echo $f | tr / _); git show HEAD:$f > $f; done
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit -v > $S/wo24_oldcode.txt 2>&1
+for f in (같은 목록); do cp $S/wo24_new/$(echo $f | tr / _) $f; done
+→ evidence/test-oldcode-failures.txt  (FAILED failures=5, errors=2)
+
+[3] 커밋
+git add config.py core/strategy_engine.py core/trader.py engine/order_reconciler.py pages/audit_viewer.py pages/dashboard.py pages/set_buy_sell_conditions.py services/db.py services/notifier.py services/trading_control.py tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py
+git commit -F $S/wo24_msg.txt   → 147efea
+
+[4] 게이트·단독 revert (임시 worktree, .env 없음, 더미 env)
+bash $S/wo24_check.sh > $S/wo24_check_out.txt 2>&1   (스크립트 원문: evidence/wo24_check.sh)
+→ evidence/gate-and-revert.txt
+  * 첫 실행은 스크립트 안 커밋 해시를 잘못 적어(e7a8bce) "worktree 생성 실패" 로 멈춤. 147efea 로 고쳐 재실행.
+
+[5] 새 코드 시험 (작업 트리 = 147efea)
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit -v > evidence/test-newcode.txt 2>&1
+grep -c 'TOKEN-SECRET-123\|CHAT-999' evidence/test-newcode.txt   → 0
+
+[6] 근거 수집
+git show 147efea > evidence/code-diff-147efea.txt
+git log --oneline -8 > evidence/git-log.txt

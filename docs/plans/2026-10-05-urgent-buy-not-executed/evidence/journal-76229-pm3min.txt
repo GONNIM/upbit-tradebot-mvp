@@ -1,0 +1,91 @@
+##### id=76229 bar_time=2026-10-04T14:15:00+09:00 eval=2026-10-04T14:16:11.877515+09:00 cls=요청 후 취소 notes=🟢 BUY | Golden | bar=332
+    2026-10-04 14:14:11 INFO core.strategy_engine | 📊 Bar#331 | ts=2026-10-04 05:13:00+00:00 | close=764.00 | ema_fast=761.93 | ema_slow=761.95 | ema_base=761.95 | action=HOLD | pos=False
+    2026-10-04 14:14:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 14:13:00 KST | close=764.0
+    2026-10-04 14:15:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:14:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+    2026-10-04 14:16:10 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=761.97 slow=761.96
+    2026-10-04 14:16:11 INFO core.strategy_engine | 📊 Bar#332 | ts=2026-10-04 05:15:00+00:00 | close=763.00 | ema_fast=761.97 | ema_slow=761.96 | ema_base=761.96 | action=BUY | pos=False
+    2026-10-04 14:16:11 INFO core.strategy_engine | 🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | close=763.0 ticker=KRW-JTO wait_bars=5 effective_timeout≈295s
+    2026-10-04 14:16:11 INFO core.trader | [BUY-LIMIT] plan close=763.0 rounded=763.0 krw_to_use=811830 qty=1063.46564595
+    2026-10-04 14:16:11 INFO core.trader | [UPBIT-ORDER] → POST /v1/orders payload={'market': 'KRW-JTO', 'side': 'bid', 'price': '763.0', 'volume': '1063.46564595', 'ord_type': 'limit'}
+    2026-10-04 14:16:12 INFO core.trader | [UPBIT-ORDER] ← status=201 body={'uuid': '33d218cf-a9b1-4683-a2bf-4a069bfd8bc7', 'side': 'bid', 'ord_type': 'limit', 'price': '763', 'state': 'wait', 'market': 'KRW-JTO', 'created_at': '2026-10-04T14:16:12+09:00', 'volume
+    2026-10-04 14:16:12 INFO core.trader | [BUY-LIMIT] ok=True status=201 error_name=None error_message=None
+    2026-10-04 14:16:13 INFO engine.order_reconciler | [OR] enqueued: 33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 side=BUY KRW-JTO
+    2026-10-04 14:16:13 INFO core.strategy_engine | 🎯 LIMIT BUY 등록(체결 대기) | price=763.0000 uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 bar=332 wait_bars=5
+    2026-10-04 14:16:13 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 14:15:00 KST | close=763.0
+    2026-10-04 14:16:13 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:16 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:18 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:20 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:22 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:24 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:27 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:29 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:31 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:33 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:35 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:42 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:44 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:46 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:48 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:51 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:53 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:55 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:57 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:16:59 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:02 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:04 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:06 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:08 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:10 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:13 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:15 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:17 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:19 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:21 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:24 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:26 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:28 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:30 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:16:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+    2026-10-04 14:17:32 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:35 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:37 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:43 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:45 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:48 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:50 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:52 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:54 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:56 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:17:59 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:01 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:03 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:05 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:07 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:10 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:12 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:14 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:16 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:18 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:21 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:23 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:25 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:27 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:29 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:17:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+    2026-10-04 14:18:32 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:34 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:36 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:38 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:44 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:47 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:49 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:51 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:53 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:55 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:18:58 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:19:00 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:19:02 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:19:04 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:19:06 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED
+    2026-10-04 14:19:09 INFO engine.order_reconciler | [OR] progress uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 state=REQUESTED

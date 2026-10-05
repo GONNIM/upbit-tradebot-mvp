@@ -1,0 +1,235 @@
+2026-10-04 14:13:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:12:00 KST (UTC: 2026-10-04T05:12:00+00:00)
+2026-10-04 14:13:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:12:00 KST
+2026-10-04 14:13:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:13:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:13:00+09:00
+2026-10-04 14:13:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:13:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-04 14:12:00 KST | close=765
+2026-10-04 14:13:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-04 14:12:00 KST | close=765 | 안정화 대기=5s
+2026-10-04 14:13:10 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=70 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:13:10 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-04 14:12:00 KST ~ 2026-10-04 14:12:00 KST
+2026-10-04 14:13:10 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-04 14:13:10 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:12:00 KST
+2026-10-04 14:13:10 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 08:55:00 KST ~ 2026-10-04 14:11:00 KST
+2026-10-04 14:13:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:13:10 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:13:10 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-04 05:12:00+00:00 | last_bar_ts=2026-10-04 05:11:00+00:00 | backfill_mode=False
+2026-10-04 14:13:10 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-04 05:12:00+00:00 ~ 2026-10-04 05:12:00+00:00
+2026-10-04 14:13:10 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-04 14:13:10 INFO core.strategy_engine | 📊 Bar#330 | ts=2026-10-04 05:12:00+00:00 | close=765.00 | ema_fast=761.86 | ema_slow=761.93 | ema_base=761.93 | action=HOLD | pos=False
+2026-10-04 14:13:10 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 14:12:00 KST | close=765.0
+2026-10-04 14:13:38 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:13:38 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:14:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:13:00 KST (UTC: 2026-10-04T05:13:00+00:00)
+2026-10-04 14:14:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:13:00 KST
+2026-10-04 14:14:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:14:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:14:00+09:00
+2026-10-04 14:14:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:14:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-04 14:13:00 KST | close=764
+2026-10-04 14:14:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-04 14:13:00 KST | close=764 | 안정화 대기=5s
+2026-10-04 14:14:11 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=69 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:14:11 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-04 14:13:00 KST ~ 2026-10-04 14:13:00 KST
+2026-10-04 14:14:11 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-04 14:14:11 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:13:00 KST
+2026-10-04 14:14:11 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 08:59:00 KST ~ 2026-10-04 14:12:00 KST
+2026-10-04 14:14:11 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:14:11 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:14:11 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-04 05:13:00+00:00 | last_bar_ts=2026-10-04 05:12:00+00:00 | backfill_mode=False
+2026-10-04 14:14:11 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-04 05:13:00+00:00 ~ 2026-10-04 05:13:00+00:00
+2026-10-04 14:14:11 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-04 14:14:11 INFO core.strategy_engine | 📊 Bar#331 | ts=2026-10-04 05:13:00+00:00 | close=764.00 | ema_fast=761.93 | ema_slow=761.95 | ema_base=761.95 | action=HOLD | pos=False
+2026-10-04 14:14:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 14:13:00 KST | close=764.0
+2026-10-04 14:14:39 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:14:39 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:15:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:14:00 KST (UTC: 2026-10-04T05:14:00+00:00)
+2026-10-04 14:15:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:14:00 KST
+2026-10-04 14:15:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:15:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:15:00+09:00
+2026-10-04 14:15:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:15:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:14:00 KST 실제=2026-10-04 14:13:00 KST | 5초 대기 (시도 1/5)
+2026-10-04 14:15:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:14:00 KST 실제=2026-10-04 14:13:00 KST | 5초 대기 (시도 2/5)
+2026-10-04 14:15:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:14:00 KST 실제=2026-10-04 14:13:00 KST | 5초 대기 (시도 3/5)
+2026-10-04 14:15:20 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:14:00 KST 실제=2026-10-04 14:13:00 KST | 5초 대기 (시도 4/5)
+2026-10-04 14:15:25 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:14:00 KST 실제=2026-10-04 14:13:00 KST | 5초 대기 (시도 5/5)
+2026-10-04 14:15:30 INFO core.rest_reconcile | [RECONCILE] F1b ticks 체결 0건 확인 → NO_TRADE | ts=2026-10-04 14:14:00 KST
+2026-10-04 14:15:30 INFO core.rest_reconcile | [RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | ts=2026-10-04 14:14:00 KST — 실패 계수 미가산
+2026-10-04 14:15:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:14:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04 14:15:30 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=69 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:15:30 INFO core.rest_reconcile | [RECONCILE] 변경 없음 | local=331 rest=331
+2026-10-04 14:15:30 INFO engine.live_loop | ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+2026-10-04 14:15:30 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:14:00 KST
+2026-10-04 14:15:30 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:00:00 KST ~ 2026-10-04 14:13:00 KST
+2026-10-04 14:15:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:15:31 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:15:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 14:14:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04 14:15:39 INFO services.health_monitor | 🏥 시스템 상태: 메모리 162.4MB, CPU 0.0%, 활성엔진 1개, 가동시간 3.8h
+2026-10-04 14:15:40 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:15:40 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:16:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:15:00 KST (UTC: 2026-10-04T05:15:00+00:00)
+2026-10-04 14:16:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:15:00 KST
+2026-10-04 14:16:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:16:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:16:00+09:00
+2026-10-04 14:16:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:16:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-04 14:15:00 KST | close=763
+2026-10-04 14:16:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-04 14:15:00 KST | close=763 | 안정화 대기=5s
+2026-10-04 14:16:10 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=68 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:16:10 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-04 14:15:00 KST ~ 2026-10-04 14:15:00 KST
+2026-10-04 14:16:10 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-04 14:16:10 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:15:00 KST
+2026-10-04 14:16:10 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:00:00 KST ~ 2026-10-04 14:13:00 KST
+2026-10-04 14:16:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:16:10 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:16:10 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-04 05:15:00+00:00 | last_bar_ts=2026-10-04 05:13:00+00:00 | backfill_mode=False
+2026-10-04 14:16:10 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-04 05:15:00+00:00 ~ 2026-10-04 05:15:00+00:00
+2026-10-04 14:16:10 INFO core.strategy_incremental | ⏭️ Above Base EMA disabled
+2026-10-04 14:16:10 INFO core.strategy_incremental | ⏭️ Bullish Candle disabled
+2026-10-04 14:16:10 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=761.97 slow=761.96
+2026-10-04 14:16:11 INFO core.strategy_engine | 📊 Bar#332 | ts=2026-10-04 05:15:00+00:00 | close=763.00 | ema_fast=761.97 | ema_slow=761.96 | ema_base=761.96 | action=BUY | pos=False
+2026-10-04 14:16:11 INFO core.strategy_engine | 🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | close=763.0 ticker=KRW-JTO wait_bars=5 effective_timeout≈295s
+2026-10-04 14:16:11 INFO core.trader | [BUY-LIMIT] plan close=763.0 rounded=763.0 krw_to_use=811830 qty=1063.46564595
+2026-10-04 14:16:11 INFO core.trader | [UPBIT-ORDER] → POST /v1/orders payload={'market': 'KRW-JTO', 'side': 'bid', 'price': '763.0', 'volume': '1063.46564595', 'ord_type': 'limit'}
+2026-10-04 14:16:12 INFO core.trader | [UPBIT-ORDER] ← status=201 body={'uuid': '33d218cf-a9b1-4683-a2bf-4a069bfd8bc7', 'side': 'bid', 'ord_type': 'limit', 'price': '763', 'state': 'wait', 'market': 'KRW-JTO', 'created_at': '2026-10-04T14:16:12+09:00', 'volume': '1063.46564595', 'remaining_volume': '1063.46564595', 'prevented_volume': '0', 'reserved_fee': '405.712143929925', 'remaining_fee': '405.712143929925', 'paid_fee': '0', 'locked': '811830.000003779925', 'prevented_locked': '0', 'executed_volume': '0', 'trades_count': 0}
+2026-10-04 14:16:12 INFO core.trader | [BUY-LIMIT] ok=True status=201 error_name=None error_message=None
+2026-10-04 14:16:13 INFO engine.order_reconciler | [OR] enqueued: 33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 side=BUY KRW-JTO
+2026-10-04 14:16:13 INFO core.strategy_engine | 🎯 LIMIT BUY 등록(체결 대기) | price=763.0000 uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 bar=332 wait_bars=5
+2026-10-04 14:16:13 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 14:15:00 KST | close=763.0
+2026-10-04 14:16:41 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:16:41 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:17:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:16:00 KST (UTC: 2026-10-04T05:16:00+00:00)
+2026-10-04 14:17:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:16:00 KST
+2026-10-04 14:17:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:17:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:17:00+09:00
+2026-10-04 14:17:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:17:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:16:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 1/5)
+2026-10-04 14:17:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:16:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 2/5)
+2026-10-04 14:17:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:16:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 3/5)
+2026-10-04 14:17:20 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:16:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 4/5)
+2026-10-04 14:17:25 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:16:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 5/5)
+2026-10-04 14:17:30 INFO core.rest_reconcile | [RECONCILE] F1b ticks 체결 0건 확인 → NO_TRADE | ts=2026-10-04 14:16:00 KST
+2026-10-04 14:17:30 INFO core.rest_reconcile | [RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | ts=2026-10-04 14:16:00 KST — 실패 계수 미가산
+2026-10-04 14:17:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:16:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04 14:17:30 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=68 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:17:30 INFO core.rest_reconcile | [RECONCILE] 변경 없음 | local=332 rest=332
+2026-10-04 14:17:30 INFO engine.live_loop | ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+2026-10-04 14:17:30 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:16:00 KST
+2026-10-04 14:17:30 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:01:00 KST ~ 2026-10-04 14:15:00 KST
+2026-10-04 14:17:30 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:17:30 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:17:30 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 14:16:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04 14:17:43 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:17:43 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:18:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:17:00 KST (UTC: 2026-10-04T05:17:00+00:00)
+2026-10-04 14:18:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:17:00 KST
+2026-10-04 14:18:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:18:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:18:00+09:00
+2026-10-04 14:18:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:18:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:17:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 1/5)
+2026-10-04 14:18:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:17:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 2/5)
+2026-10-04 14:18:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:17:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 3/5)
+2026-10-04 14:18:20 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:17:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 4/5)
+2026-10-04 14:18:25 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:17:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 5/5)
+2026-10-04 14:18:30 INFO core.rest_reconcile | [RECONCILE] F1b ticks 체결 0건 확인 → NO_TRADE | ts=2026-10-04 14:17:00 KST
+2026-10-04 14:18:30 INFO core.rest_reconcile | [RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | ts=2026-10-04 14:17:00 KST — 실패 계수 미가산
+2026-10-04 14:18:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:17:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04 14:18:30 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=68 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:18:30 INFO core.rest_reconcile | [RECONCILE] 변경 없음 | local=332 rest=332
+2026-10-04 14:18:30 INFO engine.live_loop | ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+2026-10-04 14:18:30 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:17:00 KST
+2026-10-04 14:18:30 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:01:00 KST ~ 2026-10-04 14:15:00 KST
+2026-10-04 14:18:30 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:18:30 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:18:30 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 14:17:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04 14:18:44 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:18:44 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:19:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:18:00 KST (UTC: 2026-10-04T05:18:00+00:00)
+2026-10-04 14:19:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:18:00 KST
+2026-10-04 14:19:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:19:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:19:00+09:00
+2026-10-04 14:19:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:19:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:18:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 1/5)
+2026-10-04 14:19:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:18:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 2/5)
+2026-10-04 14:19:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:18:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 3/5)
+2026-10-04 14:19:20 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:18:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 4/5)
+2026-10-04 14:19:25 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:18:00 KST 실제=2026-10-04 14:15:00 KST | 5초 대기 (시도 5/5)
+2026-10-04 14:19:30 INFO core.rest_reconcile | [RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | ts=2026-10-04 14:18:00 KST — 실패 계수 미가산
+2026-10-04 14:19:31 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:18:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04 14:19:31 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=68 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:19:31 INFO core.rest_reconcile | [RECONCILE] 변경 없음 | local=332 rest=332
+2026-10-04 14:19:31 INFO engine.live_loop | ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+2026-10-04 14:19:31 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:18:00 KST
+2026-10-04 14:19:31 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:01:00 KST ~ 2026-10-04 14:15:00 KST
+2026-10-04 14:19:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:19:31 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:19:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 14:18:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04 14:19:45 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:19:45 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:20:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:19:00 KST (UTC: 2026-10-04T05:19:00+00:00)
+2026-10-04 14:20:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:19:00 KST
+2026-10-04 14:20:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:20:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:20:00+09:00
+2026-10-04 14:20:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:20:05 INFO core.rest_reconcile | [RECONCILE] 케이스 B 첫 진입 (5초 안정화 대기) | ts=2026-10-04 14:19:00 KST | close=764
+2026-10-04 14:20:10 INFO core.rest_reconcile | [RECONCILE] 케이스 B 안정화 확정 ✅ | ts=2026-10-04 14:19:00 KST | close=764 | 안정화 대기=5s
+2026-10-04 14:20:10 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=67 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:20:10 WARNING core.rest_reconcile | [RECONCILE] 변경 감지! | changed=1 inserted=1 | 범위: 2026-10-04 14:19:00 KST ~ 2026-10-04 14:19:00 KST
+2026-10-04 14:20:10 INFO engine.live_loop | 🔄 [REST-RECONCILE] 1개 봉 변경 감지 (지표는 증분만)
+2026-10-04 14:20:10 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:19:00 KST
+2026-10-04 14:20:10 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:01:00 KST ~ 2026-10-04 14:15:00 KST
+2026-10-04 14:20:10 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:20:10 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:20:10 INFO core.strategy_engine | [ENGINE-ENTRY] on_new_bar_confirmed | bar.ts=2026-10-04 05:19:00+00:00 | last_bar_ts=2026-10-04 05:15:00+00:00 | backfill_mode=False
+2026-10-04 14:20:10 INFO core.strategy_engine | [ENGINE] Reconcile 변경 감지 (지표는 증분만, 재시드 없음) | changed=1 | range: 2026-10-04 05:19:00+00:00 ~ 2026-10-04 05:19:00+00:00
+2026-10-04 14:20:11 INFO core.strategy_incremental | ⏭️ EMA Golden Cross not detected
+2026-10-04 14:20:11 INFO core.strategy_engine | 📊 Bar#333 | ts=2026-10-04 05:19:00+00:00 | close=764.00 | ema_fast=762.03 | ema_slow=761.98 | ema_base=761.98 | action=HOLD | pos=False
+2026-10-04 14:20:11 INFO engine.live_loop | ✅ [CONFIRMED] 봉 처리 완료 | ts=2026-10-04 14:19:00 KST | close=764.0
+2026-10-04 14:20:39 INFO services.health_monitor | 🏥 시스템 상태: 메모리 164.3MB, CPU 0.0%, 활성엔진 1개, 가동시간 3.9h
+2026-10-04 14:20:47 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:20:47 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:21:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:20:00 KST (UTC: 2026-10-04T05:20:00+00:00)
+2026-10-04 14:21:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:20:00 KST
+2026-10-04 14:21:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:21:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:21:00+09:00
+2026-10-04 14:21:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:21:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:20:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 1/5)
+2026-10-04 14:21:09 WARNING engine.order_reconciler | ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 elapsed=296.4s timeout=295s ticker=KRW-JTO
+2026-10-04 14:21:09 INFO engine.order_reconciler | [OR] cancel_order resp uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7: {'uuid': '33d218cf-a9b1-4683-a2bf-4a069bfd8bc7', 'side': 'bid', 'ord_type': 'limit', 'price': '763', 'state': 'wait', 'market': 'KRW-JTO', 'created_at': '2026-10-04T14:16:12+09:00', 'volume': '1063.46564595', 'remaining_volume': '1063.46564595', 'prevented_volume': '0', 'reserved_fee': '405.712143929925', 'remaining_fee': '405.712143929925', 'paid_fee': '0', 'locked': '811830.000003779925', 'prevented_locked': '0', 'executed_volume': '0', 'trades_count': 0}
+2026-10-04 14:21:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:20:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 2/5)
+2026-10-04 14:21:12 INFO engine.order_reconciler | [OR] final CANCELED uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 krw=1624472.19923491 coin=None executed_at=None canceled_at=2026-10-04T14:21:12.764527+09:00
+2026-10-04 14:21:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:20:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 3/5)
+2026-10-04 14:21:20 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:20:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 4/5)
+2026-10-04 14:21:25 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:20:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 5/5)
+2026-10-04 14:21:30 INFO core.rest_reconcile | [RECONCILE] F1b ticks 체결 0건 확인 → NO_TRADE | ts=2026-10-04 14:20:00 KST
+2026-10-04 14:21:30 INFO core.rest_reconcile | [RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | ts=2026-10-04 14:20:00 KST — 실패 계수 미가산
+2026-10-04 14:21:30 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:20:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04 14:21:30 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=67 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:21:30 INFO core.rest_reconcile | [RECONCILE] 변경 없음 | local=333 rest=333
+2026-10-04 14:21:30 INFO engine.live_loop | ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+2026-10-04 14:21:30 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:20:00 KST
+2026-10-04 14:21:30 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:02:00 KST ~ 2026-10-04 14:19:00 KST
+2026-10-04 14:21:30 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:21:30 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:21:30 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 14:20:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04 14:21:48 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:21:48 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)
+2026-10-04 14:22:00 INFO core.candle_clock | [CLOCK] 봉 확정 | closed=2026-10-04 14:21:00 KST (UTC: 2026-10-04T05:21:00+00:00)
+2026-10-04 14:22:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-10-04 14:21:00 KST
+2026-10-04 14:22:03 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-04 14:22:03 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ✅ Recorded at 2026-10-04T14:22:00+09:00
+2026-10-04 14:22:05 INFO engine.live_loop | 🔄 [REST-RECONCILE] Fetching 400 bars from REST...
+2026-10-04 14:22:05 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:21:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 1/5)
+2026-10-04 14:22:10 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:21:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 2/5)
+2026-10-04 14:22:15 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:21:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 3/5)
+2026-10-04 14:22:20 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:21:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 4/5)
+2026-10-04 14:22:25 WARNING core.rest_reconcile | [RECONCILE] 봉 미반영 | 기대=2026-10-04 14:21:00 KST 실제=2026-10-04 14:19:00 KST | 5초 대기 (시도 5/5)
+2026-10-04 14:22:31 INFO core.rest_reconcile | [RECONCILE] F1b ticks 체결 0건 확인 → NO_TRADE | ts=2026-10-04 14:21:00 KST
+2026-10-04 14:22:31 INFO core.rest_reconcile | [RECONCILE] 재시도 소진 후 무거래 확정 (NO_TRADE, 건너뜀) | ts=2026-10-04 14:21:00 KST — 실패 계수 미가산
+2026-10-04 14:22:31 INFO engine.live_loop | ⏭ [CONFIRMED-NO-TRADE] closed_ts=2026-10-04 14:21:00 KST 무거래 봉 → Reconcile 계속 (지표 미반영, 봉 건너뜀)
+2026-10-04 14:22:31 INFO engine.live_loop | [RECONCILE] 로컬 시작 이전 봉 제외 | n=67 local_start=2026-10-04 05:41:00 KST
+2026-10-04 14:22:31 INFO core.rest_reconcile | [RECONCILE] 변경 없음 | local=333 rest=333
+2026-10-04 14:22:31 INFO engine.live_loop | ✅ [REST-RECONCILE] 변경 없음 → 증분 업데이트
+2026-10-04 14:22:31 INFO engine.live_loop | [VERIFY] 과거 봉 검증 시작 | count=200 | 현재 봉=2026-10-04 14:21:00 KST
+2026-10-04 14:22:31 INFO core.rest_reconcile | [VERIFY] 과거 봉 검증 시작 | count=200 | range=2026-10-04 09:02:00 KST ~ 2026-10-04 14:19:00 KST
+2026-10-04 14:22:31 INFO core.rest_reconcile | [VERIFY] ✅ 모든 과거 봉 일치 | count=200 | tolerance=±1원
+2026-10-04 14:22:31 INFO engine.live_loop | ✅ [VERIFY] 과거 봉 검증 통과 | count=200 | 현재 봉 처리 진행
+2026-10-04 14:22:31 INFO engine.live_loop | ⏭ [CLOCK-CLOSE-NO-TRADE] closed_ts=2026-10-04 14:21:00 KST 무거래 확정 → RETRY 스킵, 다음 봉 대기
+2026-10-04 14:22:48 INFO engine.order_reconciler | [OR] periodic sync: user=mcmax33 updated (full portfolio sync included)
+2026-10-04 14:22:48 INFO engine.order_reconciler | [OR] periodic sync completed: 1 user(s), interval=60s (HTS 매수 감지 포함)

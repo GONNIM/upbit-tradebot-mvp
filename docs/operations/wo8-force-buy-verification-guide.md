@@ -56,6 +56,8 @@ ssh root@orionhunter7.cafe24.com \
 
 배포 시각으로부터 30분 창(2026-09-12 17:24:07 ~ 17:54:07) 결함 태그 부재.
 
+> **배포 관찰 상설 항목 (2026-10-05 추가)**: 모든 배포의 30분 관찰에 "BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조(통과·체결·취소·미요청 수)" 표를 넣는다 (`wo22d_match.py '<시작>' '<끝>'`).
+
 | 태그 | 대상 | 목표 |
 |---|---|---|
 | `⏸ [SKIP-BAR]` | live_loop | **0건** |
@@ -135,7 +137,9 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ### 세션 개시 정기 점검 조회 명령
 
-> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10번 편입)**: 사후 확인 1~10, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령).
+> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10번 편입)**: 사후 확인 1~10, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령), **BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조**(상설, 2026-10-05 추가 — 점검 창 안 `audit_buy_eval.overall_ok=1`·`audit_sell_eval.triggered=1` 행마다 봉 시작 ~ 뒤 2봉 안 orders 를 "체결·취소·미요청" 으로 분류해 수를 표로 적는다. 대조 스크립트: `docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy/wo22d_match.py`).
+>
+> **이전 미체결 취소 확인 (WO-24 배포 전 구간)**: WO-24 배포 전의 현재가 매수 미체결 취소는 audit_trades 에 기록이 없다. `orders.state='CANCELED'` 이고 `executed_volume=0` 인 BUY 행(봇 주문)으로 확인한다 (예: 2026-10-04 14:16 orders 559 — `docs/plans/2026-10-05-urgent-buy-not-executed/report.md`). WO-24 배포 뒤부터는 감사 로그 페이지 "⏱ 매수 미체결 취소" 행으로 보인다.
 
 ```bash
 ssh root@orionhunter7.cafe24.com "

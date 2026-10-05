@@ -1,0 +1,24 @@
+worktree wo24_wt .env 개수: 0
+worktree wo24_wt_old .env 개수: 0
+=================== [A] 147efea 게이트 (.env 없음)
+✅ 회귀 테스트 302/302 통과 — 배포 진행 가능
+=================== [B] 147efea WO-24 시험 (-v)
+Ran 7 tests in 1.827s
+OK
+=================== [D] revert 147efea (feat(wo24): 현재가 매수 미체결 취소 감사 기록 + 미체결 시 시장가 전환 옵션()
+충돌 파일: 없음
+변경 파일:
+ config.py                                          |   5 -
+ core/strategy_engine.py                            |  85 --------
+ core/trader.py                                     |   6 +-
+ engine/order_reconciler.py                         |  74 -------
+ pages/audit_viewer.py                              |  15 +-
+ pages/dashboard.py                                 |   2 +-
+ pages/set_buy_sell_conditions.py                   |  44 -----
+ services/db.py                                     |   5 +-
+ services/notifier.py                               |   2 -
+ services/trading_control.py                        |   1 -
+ .../test_r_2026_10_05_wo24_unfilled_buy_audit.py   | 214 ---------------------
+ 11 files changed, 6 insertions(+), 447 deletions(-)
+py_compile OK
+✅ 회귀 테스트 295/295 통과 — 배포 진행 가능

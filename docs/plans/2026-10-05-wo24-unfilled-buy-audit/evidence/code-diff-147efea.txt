@@ -1,0 +1,667 @@
+commit 147efeae7aec85729f3bef289584b21fc686ad19
+Author: GONNIM <suauncle@gmail.com>
+Date:   Mon Oct 5 15:26:57 2026 +0900
+
+    feat(wo24): 현재가 매수 미체결 취소 감사 기록 + 미체결 시 시장가 전환 옵션(기본 끔) + 알림 성공 로그 (v1.2026.10.05.1145 → v1.2026.10.05.1526)
+    
+    - engine/order_reconciler.py: LIMIT BUY timeout 취소 표식 → 취소 확정 때 audit_trades type='BUY_CANCELED' 1행
+      (주문가·주문 수량·체결 수량·대기 봉/초·사유 "대기 N봉 내 체결 없음"·uuid·전환 결과). 부분 체결 뒤 취소도 같은 유형.
+    - core/strategy_engine.py convert_unfilled_limit_buy: 옵션 켬 + 현재가 ≤ 주문가 × (1 + 허용 %) 일 때만 남은 수량을
+      기존 시장가 매수(trader.buy_market)로, 엔진 실행 락 아래 apply_entry(source=bot_market_convert). 강제 매수는 대상 아님.
+      넘으면 전환 안 함 + 사유 "가격 차이 x% > 허용 y%". 현재가 매수 주문 meta 에 wait_bars 추가(봇·강제).
+    - core/trader.py buy_market(krw_amount=None): 지정 시에만 KRW 금액 제한 (기본 동작 무변경).
+    - config.py: UNFILLED_TO_MARKET_DEFAULT=False (운영자 결정 대기, 한 줄 변경), UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT=0.3.
+    - pages/set_buy_sell_conditions.py: "미체결 시 시장가 전환" 체크 + "전환 허용 가격 차이 (%)" + 안내 문구(대기 시간 재사용). 추가만.
+    - pages/audit_viewer.py · services/db.py: 유형 "⏱ 매수 미체결 취소", 필터 "미체결 취소", 옅은 노란 배경(거절 붉은색과 구분). 추가만.
+    - services/notifier.py: 발송 성공 시 "[NOTIFY] sent | kind=… dedupe=…" INFO 1줄 (토큰·채팅 ID 미기록).
+    - 매수·매도 판정식·필터 무변경. tests: test_r_2026_10_05_wo24_unfilled_buy_audit (7건, 구 코드 7건 모두 실패).
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/config.py b/config.py
+index 65f2421..b4fa3c2 100644
+--- a/config.py
++++ b/config.py
+@@ -66,6 +66,11 @@ AUDIT_BUY_COOLDOWN_BARS = 0     # 동일 상태에서 최소 대기 bar 수 (0 =
+ AUDIT_SELL_SAMPLE_N = 60         # (SELL 평가 샘플링 간격; 필요 시)
+ AUDIT_SELL_COOLDOWN_BARS = 0    # SELL 평가 쿨다운 (0 = 샘플링 제거)
+ 
++# ✅ WO-24 (2026-10-05): 현재가 매수 미체결 시 시장가 전환 — 설정 파일에 값이 없을 때의 기본값.
++#   기본값(켬/끔)은 운영자 결정이 올 때까지 끔. 결정이 오면 아래 한 줄만 바꾼다.
++UNFILLED_TO_MARKET_DEFAULT = False
++UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT = 0.3   # 전환 허용 가격 차이 % (현재가 ≤ 주문가 × (1 + 0.3%) 일 때만 전환)
++
+ # 엔진 실행 모드: 
+ # - "BACKTEST" : 지금처럼 _run_backtest_once만 사용
+ # - "REPLAY"   : run_replay_on_dataframe(...) 기반으로 동작
+diff --git a/core/strategy_engine.py b/core/strategy_engine.py
+index 1691493..9d19179 100644
+--- a/core/strategy_engine.py
++++ b/core/strategy_engine.py
+@@ -143,6 +143,90 @@ def execute_force_buy_limit_atomic(
+     return result
+ 
+ 
++def convert_unfilled_limit_buy(
++    *,
++    user_id: str,
++    ticker: str,
++    limit_price: float,
++    remaining_qty: float,
++    executed_qty: float,
++    executed_avg: float,
++    orig_uuid: str,
++    meta: "Dict[str, Any]",
++    price_fetcher=None,
++) -> "Dict[str, Any]":
++    """
++    ✅ WO-24 (2026-10-05): 현재가 매수가 대기 봉 안에 체결되지 않아 취소 확정됐을 때 "미체결 시 시장가 전환".
++
++    - 옵션: buy_conditions.fixed_price_unfilled_to_market (없으면 config.UNFILLED_TO_MARKET_DEFAULT),
++            buy_conditions.fixed_price_convert_max_gap_pct (없으면 config.UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT, %)
++    - 현재가 ≤ 주문가 × (1 + 허용 %) 일 때만 남은 수량을 기존 시장가 매수(trader.buy_market, KRW = 남은 수량 × 현재가)로 산다.
++    - 엔진 실행 락 아래에서 발주 + apply_entry(source="bot_market_convert") (WO-8b 원자 경로와 같은 락).
++      부분 체결분이 있으면 (부분 체결 + 전환) 가중 평균가·합계 수량으로 등록한다.
++    반환: {"enabled", "converted", "reason", "current_price", "gap_pct", "max_gap_pct", "result"}
++    """
++    from config import UNFILLED_TO_MARKET_DEFAULT, UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT
++    with _active_engines_lock:
++        engine = _active_engines.get((user_id, ticker))
++    if engine is None:
++        return {"enabled": False, "converted": False, "reason": "엔진 미가동"}
++
++    cond = getattr(engine.strategy, "buy_conditions", None) or {}
++    enabled = bool(cond.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT))
++    max_gap = float(cond.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT))
++    out = {"enabled": enabled, "converted": False, "reason": "", "current_price": None, "gap_pct": None, "max_gap_pct": max_gap}
++    if not enabled:
++        out["reason"] = "미체결 시 시장가 전환 꺼짐"
++        return out
++
++    if price_fetcher is None:
++        from services.trading_control import get_current_price_from_upbit as price_fetcher
++    cur = price_fetcher(ticker)
++    if not cur or not limit_price:
++        out["reason"] = "현재가 조회 실패"
++        return out
++    gap = (float(cur) / float(limit_price) - 1.0) * 100.0
++    out.update(current_price=float(cur), gap_pct=gap)
++    if gap > max_gap:
++        out["reason"] = f"가격 차이 {gap:.2f}% > 허용 {max_gap:.2f}%"
++        logger.info(f"[UNFILLED-CONVERT] 전환 안 함 | uuid={orig_uuid} {out['reason']} 주문가={limit_price} 현재가={cur}")
++        return out
++
++    from zoneinfo import ZoneInfo as _ZI
++    now = datetime.now(_ZI("Asia/Seoul"))
++    conv_meta = {**(meta or {}), "unfilled_convert": True, "converted_from": orig_uuid}
++    for k in ("is_fixed_price_buy", "fixed_price_buy", "limit_price"):
++        conv_meta.pop(k, None)
++    with engine._execution_lock:
++        if engine.position.has_position and executed_qty <= 0:
++            out["reason"] = "이미 포지션 보유"
++            return out
++        result = engine.trader.buy_market(float(cur), ticker, ts=now, meta=conv_meta,
++                                          krw_amount=float(remaining_qty) * float(cur))
++        if not result:
++            out["reason"] = "시장가 매수 실패 (trader.buy_market 빈 결과)"
++            logger.warning(f"[UNFILLED-CONVERT] 시장가 매수 실패 | uuid={orig_uuid}")
++            return out
++        mqty, mprice = float(result.get("qty") or 0.0), float(result.get("price") or cur)
++        total = float(executed_qty) + mqty
++        avg = ((float(executed_qty) * float(executed_avg)) + mqty * mprice) / total if total > 0 else mprice
++        engine.position.apply_entry(qty=total, avg_price=avg, entry_bar=engine.bar_count, entry_ts=now,
++                                    source="bot_market_convert")
++        engine._pending_buy_uuid = None
++        engine._pending_buy_bar = None
++        engine._pending_buy_wait_bars = 3
++        try:
++            engine.position.set_pending(False)
++        except Exception:
++            pass
++    out.update(converted=True, reason="전환", result={"uuid": result.get("uuid"), "qty": mqty, "price": mprice})
++    logger.info(
++        f"✅ [UNFILLED-CONVERT] 시장가 전환 | from={orig_uuid} to={result.get('uuid')} 주문가={limit_price} 현재가={cur} "
++        f"차이={gap:.2f}% ≤ 허용 {max_gap:.2f}% | 시장가 qty={mqty:.6f} + 부분 체결 {executed_qty:.6f} → 진입 {total:.6f}@{avg:.4f}"
++    )
++    return out
++
++
+ class StrategyEngine:
+     """
+     증분 기반 전략 엔진 (Backtest 없음)
+@@ -1279,6 +1363,7 @@ class StrategyEngine:
+             # ✅ SP6 — 대기 봉 수 (사용자 conditions, 기본 3)
+             wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
+             wait_bars = max(1, min(5, wait_bars))  # 안전 클램프 1~5
++            meta["wait_bars"] = wait_bars  # ✅ WO-24: 미체결 취소 기록용 (주문 meta)
+             effective_interval_sec = self.interval_sec * wait_bars
+             logger.info(
+                 f"🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | "
+diff --git a/core/trader.py b/core/trader.py
+index 0cf8524..93249f2 100644
+--- a/core/trader.py
++++ b/core/trader.py
+@@ -511,7 +511,8 @@ class UpbitTrader:
+     # ---------------------------
+     # 매수 / 매도
+     # ---------------------------
+-    def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
++    def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None,
++                   krw_amount: Optional[float] = None) -> dict:
+         """
+         시장가 매수
+         - TEST 모드: 즉시 체결 + DB에 completed 기록
+@@ -544,6 +545,9 @@ class UpbitTrader:
+         # ✅ RATIO-HR: params JSON 최신 order_ratio 반영 (엔진 재시작 불필요)
+         risk_pct = self._current_risk_pct()
+         krw_to_use = math.floor(avail * risk_pct / (1 + MIN_FEE_RATIO))
++        # ✅ WO-24 (2026-10-05): 미체결 시장가 전환 — 남은 수량만큼의 KRW 로 제한 (지정 시에만, 기본 동작 무변경)
++        if krw_amount is not None:
++            krw_to_use = math.floor(min(float(krw_amount), avail / (1 + MIN_FEE_RATIO)))
+ 
+         if krw_to_use < 5000:
+             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
+diff --git a/engine/order_reconciler.py b/engine/order_reconciler.py
+index 8c2640e..ddc1e95 100644
+--- a/engine/order_reconciler.py
++++ b/engine/order_reconciler.py
+@@ -323,6 +323,13 @@ class OrderReconciler:
+                     exec_ts_iso=exec_ts_iso,
+                 )
+ 
++            # ✅ WO-24: 현재가 매수 timeout 취소 확정 → 매수 미체결 취소 기록 (+ 옵션이 켜져 있으면 시장가 전환)
++            if side == "BUY" and db_state == "CANCELED":
++                with self._lock:
++                    _p = dict(self._pending.get(uuid) or {})
++                if _p.get("timeout_cancel"):
++                    self._on_timeout_cancel_final(uuid, user_id, ticker, info, exec_volume, avg_price, _p)
++
+             with self._lock:
+                 self._pending.pop(uuid, None)
+ 
+@@ -347,6 +354,68 @@ class OrderReconciler:
+         except Exception as e:
+             logger.warning(f"[OR] progress update failed uuid={uuid}: {e}")
+ 
++    def _on_timeout_cancel_final(self, uuid, user_id, ticker, info, exec_volume, avg_price, pending):
++        """
++        ✅ WO-24 (2026-10-05): 현재가 매수(LIMIT BUY)가 대기 봉 timeout 으로 취소 확정됐을 때.
++        1) 옵션 "미체결 시 시장가 전환" 이 켜져 있으면 (강제 매수 제외) 남은 수량을 시장가로 전환 시도
++           (core.strategy_engine.convert_unfilled_limit_buy — 엔진 실행 락 아래 기존 시장가 매수 + apply_entry)
++        2) audit_trades 에 type='BUY_CANCELED'(화면 "⏱ 매수 미체결 취소") 1행: 주문가·주문 수량·체결 수량·대기·사유·uuid.
++           손익 집계(type='SELL')·매수 기록(type='BUY')에는 들어가지 않는다.
++        """
++        import json as _json
++        meta = pending.get("meta") or {}
++        tmo = pending.get("timeout_cancel") or {}
++        limit_price = float(meta.get("limit_price") or info.get("price") or 0.0)
++        try:
++            order_qty = float(info.get("volume") or 0.0)
++        except Exception:
++            order_qty = 0.0
++        exec_qty = float(exec_volume or 0.0)
++        remaining = max(order_qty - exec_qty, 0.0)
++        wait_bars = meta.get("wait_bars")
++        waited = float(tmo.get("elapsed") or 0.0)
++        is_force = (meta.get("reason") == "force_buy")
++        base_reason = (f"대기 {int(wait_bars)}봉 내 체결 없음" if wait_bars else f"대기 {waited:.0f}초 내 체결 없음")
++        if exec_qty > 0:
++            base_reason = (f"대기 {int(wait_bars)}봉 내 일부만 체결" if wait_bars else f"대기 {waited:.0f}초 내 일부만 체결")
++
++        conv = {"enabled": False, "converted": False, "reason": "강제 매수는 전환 대상 아님" if is_force else ""}
++        if not is_force and remaining > 0:
++            try:
++                from core.strategy_engine import convert_unfilled_limit_buy
++                conv = convert_unfilled_limit_buy(
++                    user_id=user_id, ticker=ticker, limit_price=limit_price, remaining_qty=remaining,
++                    executed_qty=exec_qty, executed_avg=float(avg_price or 0.0), orig_uuid=uuid, meta=meta,
++                )
++            except Exception as e:
++                conv = {"enabled": True, "converted": False, "reason": f"전환 처리 예외: {e}"}
++                logger.error(f"[OR] 미체결 시장가 전환 예외 uuid={uuid}: {e}", exc_info=True)
++
++        if conv.get("converted"):
++            outcome = f"→ 시장가 전환 (현재가 {conv.get('current_price')}, 차이 {conv.get('gap_pct', 0):.2f}% ≤ 허용 {conv.get('max_gap_pct', 0):.2f}%)"
++        elif conv.get("enabled"):
++            outcome = f"→ 전환 안 함 ({conv.get('reason')})"
++        else:
++            outcome = f"→ 취소 ({conv.get('reason') or '미체결 시 시장가 전환 꺼짐'})"
++        note = f"{base_reason} {outcome}"
++        try:
++            from services.db import insert_trade_audit
++            insert_trade_audit(
++                user_id=user_id, ticker=ticker, interval_sec=int(meta.get("interval_sec") or 60), bar=meta.get("bar") or 0,
++                kind="BUY_CANCELED", reason="BUY_CANCELED", price=limit_price, macd=meta.get("macd"), signal=meta.get("signal"),
++                entry_price=None, entry_bar=None, bars_held=None, tp=None, sl=None, highest=None, ts_pct=None, ts_armed=None,
++                bar_time=meta.get("bar_time"), qty=order_qty, note=note,
++                meta=_json.dumps({
++                    "uuid": uuid, "order_qty": order_qty, "executed_qty": exec_qty, "remaining_qty": remaining,
++                    "limit_price": limit_price, "wait_bars": wait_bars, "waited_sec": round(waited, 1),
++                    "timeout_sec": tmo.get("timeout_sec"), "orig_reason": meta.get("reason"),
++                    "convert": {k: v for k, v in conv.items() if k != "result"},
++                }, ensure_ascii=False, default=str),
++            )
++            logger.info(f"[OR] 매수 미체결 취소 기록 (audit_trades BUY_CANCELED) | uuid={uuid} {note}")
++        except Exception as e:
++            logger.error(f"[OR] 매수 미체결 취소 기록 실패 uuid={uuid}: {e}")
++
+     @staticmethod
+     def _final_timestamps(uuid, trades, exec_vol, db_state):
+         """
+@@ -507,6 +576,11 @@ class OrderReconciler:
+             logger.error(f"[OR] cancel_order 실패 uuid={uuid}: {e}")
+             return
+ 
++        # ✅ WO-24: timeout 취소 표식 — 취소 확정(_handle 'cancel') 때 BUY_CANCELED 기록·시장가 전환 판단에 사용
++        with self._lock:
++            if uuid in self._pending:
++                self._pending[uuid]["timeout_cancel"] = {"elapsed": float(elapsed), "timeout_sec": int(timeout_sec)}
++
+         # ✅ WO-8 (2026-09-12): reason=force_buy 구분 표기
+         _is_force = (meta.get("reason") == "force_buy")
+         _title_prefix = "⏱ [FORCE] 강제 매수(현재가) 미체결 → 자동 취소" if _is_force else "⏱ 현재가 매수 미체결 → 자동 취소"
+diff --git a/pages/audit_viewer.py b/pages/audit_viewer.py
+index d6cc067..01d9814 100644
+--- a/pages/audit_viewer.py
++++ b/pages/audit_viewer.py
+@@ -796,10 +796,12 @@ elif section == "sell":
+ elif section == "trades":
+     st.subheader(f"💹 체결 (audit_trades) - {INDICATOR_DISPLAY_NAME} 전략")
+     # ✅ WO-9 (e): 유형 필터 — 매수 / 매도 / 거절(발주 거절, 체결 아님)
+-    _kind_options = ["매수", "매도", "거절"]
++    # ✅ WO-24: "미체결 취소" = 현재가 매수가 대기 봉 안에 체결되지 않아 자동 취소된 건 (체결 아님)
++    _kind_options = ["매수", "매도", "거절", "미체결 취소"]
+     _kind_sel = st.multiselect(
+         "유형 필터", _kind_options, default=_kind_options, key="trades_kind_filter",
+-        help="거절 = 거래소가 봇 주문을 받지 않은 건 (체결 아님, 손익 집계 제외)",
++        help="거절 = 거래소가 봇 주문을 받지 않은 건 (체결 아님, 손익 집계 제외) · "
++             "미체결 취소 = 현재가 매수가 대기 봉 안에 체결되지 않아 자동 취소된 건 (체결 아님)",
+     )
+     df_tr = fetch_trades_audit(user_id, ticker=ticker or None, limit=rows) or []
+     if df_tr:
+@@ -908,10 +910,17 @@ elif section == "trades":
+             )
+ 
+         # ✅ WO-9 (e): 거절 행 옅은 붉은 배경 (아이콘 ⛔ + 글자와 함께 — 색만으로 구분하지 않음)
++        # ✅ WO-24: 미체결 취소 행 옅은 노란 배경 (아이콘 ⏱ + 글자와 함께 — 거절과 구분)
+         _reject_mask = (df_tr["_kind"] == "거절").tolist()
++        _unfilled_mask = (df_tr["_kind"] == "미체결 취소").tolist()
+ 
+         def _style_reject_rows(row):
+-            _bg = "background-color: rgba(229, 57, 53, 0.15)" if _reject_mask[row.name] else ""
++            if _reject_mask[row.name]:
++                _bg = "background-color: rgba(229, 57, 53, 0.15)"
++            elif _unfilled_mask[row.name]:
++                _bg = "background-color: rgba(251, 192, 45, 0.18)"
++            else:
++                _bg = ""
+             return [_bg] * len(row)
+ 
+         st.dataframe(
+diff --git a/pages/dashboard.py b/pages/dashboard.py
+index 9ebcc3e..bf21a2c 100644
+--- a/pages/dashboard.py
++++ b/pages/dashboard.py
+@@ -492,7 +492,7 @@ st.session_state.engine_started = engine_status
+ # ✅ 상단 정보
+ _hdr_col1, _hdr_col2 = st.columns([5, 1])
+ with _hdr_col1:
+-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.05.1145")
++    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.05.1526")
+ with _hdr_col2:
+     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
+     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
+diff --git a/pages/set_buy_sell_conditions.py b/pages/set_buy_sell_conditions.py
+index 34ef5b0..686d873 100644
+--- a/pages/set_buy_sell_conditions.py
++++ b/pages/set_buy_sell_conditions.py
+@@ -9,6 +9,8 @@ from config import (
+     STRATEGY_TYPES,         # ✅ 전략 리스트 (예: ["MACD", "EMA"])
+     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
+     PARAMS_JSON_FILENAME,   # ✅ 파라미터 파일명
++    UNFILLED_TO_MARKET_DEFAULT,             # ✅ WO-24: 미체결 시 시장가 전환 기본값
++    UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT,  # ✅ WO-24: 전환 허용 가격 차이 % 기본값
+ )
+ from engine.params import (
+     load_params,
+@@ -221,6 +223,13 @@ def load_conditions():
+             st.session_state["fixed_price_buy_wait_bars"] = int(
+                 buy_saved.get("fixed_price_buy_wait_bars", 3)
+             )
++            # ✅ WO-24: 미체결 시 시장가 전환 (없으면 config 기본값)
++            st.session_state["fixed_price_unfilled_to_market"] = bool(
++                buy_saved.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)
++            )
++            st.session_state["fixed_price_convert_max_gap_pct"] = float(
++                buy_saved.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)
++            )
+ 
+             # ✅ Stale Position 파라미터 로드
+             st.session_state["stale_hours"] = sell_saved.get("stale_hours", 1.0)
+@@ -251,6 +260,9 @@ def load_conditions():
+         st.session_state.setdefault("use_fixed_trailing", False)  # ✅ 고정폭 모드 기본값
+         # ✅ 2026-08-05: 고정가 매수 대기 봉수 기본값 (파일 없음 케이스, 파일 로드 케이스와 대칭)
+         st.session_state.setdefault("fixed_price_buy_wait_bars", 3)
++        # ✅ WO-24: 미체결 시 시장가 전환 기본값 (config)
++        st.session_state.setdefault("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)
++        st.session_state.setdefault("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)
+ 
+ 
+ # --- 상태 저장하기 ---
+@@ -269,6 +281,13 @@ def save_conditions():
+         conditions["buy"]["fixed_price_buy_wait_bars"] = int(
+             st.session_state.get("fixed_price_buy_wait_bars", 3)
+         )
++        # ✅ WO-24: 미체결 시 시장가 전환 + 허용 가격 차이 %
++        conditions["buy"]["fixed_price_unfilled_to_market"] = bool(
++            st.session_state.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)
++        )
++        conditions["buy"]["fixed_price_convert_max_gap_pct"] = float(
++            st.session_state.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)
++        )
+ 
+     # ✅ Stale Position 파라미터 추가 저장 (EMA 전략만)
+     if strategy_tag == "EMA" and st.session_state.get("stale_position_check", False):
+@@ -655,6 +674,31 @@ if len(BUY_FILTERS) > 0:
+             )
+             st.session_state["fixed_price_buy_wait_bars"] = int(wait_bars)
+ 
++            # ✅ WO-24: 미체결 시 시장가 전환 (기존 대기 시간 계산 재사용 — _h_interval)
++            _conv_on = st.checkbox(
++                "미체결 시 시장가 전환",
++                value=bool(st.session_state.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)),
++                key=f"input_fixed_price_unfilled_to_market_{strategy_tag}",
++            )
++            st.session_state["fixed_price_unfilled_to_market"] = bool(_conv_on)
++            _conv_gap = st.number_input(
++                "전환 허용 가격 차이 (%)",
++                min_value=0.0, max_value=5.0, step=0.1,
++                value=float(st.session_state.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)),
++                key=f"input_fixed_price_convert_max_gap_pct_{strategy_tag}",
++                disabled=not _conv_on,
++            )
++            st.session_state["fixed_price_convert_max_gap_pct"] = float(_conv_gap)
++            _wait_text = (
++                f" (현재 {_h_interval / 60:g}분봉 기준 대기 {int(wait_bars)}봉 ≈ {int(wait_bars) * _h_interval / 60:g}분)"
++                if _h_interval else ""
++            )
++            st.caption(
++                f"현재가 매수가 대기 봉 안에 체결되지 않으면 시장가로 전환합니다. "
++                f"현재가가 주문가보다 {float(_conv_gap):g}% 이상 높으면 전환하지 않고 취소합니다.{_wait_text}"
++                + ("" if _conv_on else " — 지금은 꺼져 있어 미체결이면 취소만 합니다.")
++            )
++
+             if mode != "LIVE":
+                 st.warning(
+                     f"⚠️ 현재 모드: **{mode}** — 현재가 매수는 **LIVE 모드 한정** 기능입니다. "
+diff --git a/services/db.py b/services/db.py
+index 65b5b9c..78cbda8 100644
+--- a/services/db.py
++++ b/services/db.py
+@@ -1661,6 +1661,7 @@ _TRADE_TYPE_DISPLAY = {
+     "SELL_REJECTED": "⛔ 매도 거절",
+     "BUY_REJECTED": "⛔ 매수 거절",
+     "HTS_SELL": "외부 매도",  # ✅ WO-22: 지갑 0 닫힘 기록 (앱 매도 등, 가격 미상 — 손익 집계 제외)
++    "BUY_CANCELED": "⏱ 매수 미체결 취소",  # ✅ WO-24: 현재가 매수 대기 봉 timeout 취소 (체결 아님 — 손익·매수 집계 제외)
+ }
+ 
+ 
+@@ -1670,10 +1671,12 @@ def is_reject_type(trade_type: str | None) -> bool:
+ 
+ 
+ def trade_kind(trade_type: str | None) -> str:
+-    """✅ WO-9 (e): 감사 로그 페이지 유형 필터 분류 — "매수" / "매도" / "거절" / "기타"."""
++    """✅ WO-9 (e): 감사 로그 페이지 유형 필터 분류 — "매수" / "매도" / "거절" / "미체결 취소"(WO-24) / "기타"."""
+     t = str(trade_type or "").upper()
+     if t.endswith("_REJECTED"):
+         return "거절"
++    if t == "BUY_CANCELED":
++        return "미체결 취소"
+     if t == "BUY":
+         return "매수"
+     if t in ("SELL", "HTS_SELL"):  # ✅ WO-22: 외부 매도도 "매도" 필터에 포함 (손익 집계는 type='SELL' 만 사용)
+diff --git a/services/notifier.py b/services/notifier.py
+index e2c2fdf..3a29466 100644
+--- a/services/notifier.py
++++ b/services/notifier.py
+@@ -166,6 +166,8 @@ def send(
+             timeout=_HTTP_TIMEOUT,
+         )
+         if resp.status_code == 200:
++            # ✅ WO-24 (2026-10-05): 발송 성공 1줄 — 토큰·채팅 ID 는 적지 않는다
++            logger.info(f"[NOTIFY] sent | kind={level} dedupe={dedupe_key}")
+             return True
+         logger.warning(
+             f"[NOTIFY] Telegram sendMessage 실패 status={resp.status_code} "
+diff --git a/services/trading_control.py b/services/trading_control.py
+index 6230e90..5b3b6d8 100644
+--- a/services/trading_control.py
++++ b/services/trading_control.py
+@@ -295,6 +295,7 @@ def force_buy_in(
+         meta["fixed_price_buy"] = True
+         wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
+         wait_bars = max(1, min(5, wait_bars))
++        meta["wait_bars"] = wait_bars  # ✅ WO-24: 미체결 취소 기록용 (주문 meta)
+         effective_interval_sec = interval_sec * wait_bars
+         logger.info(
+             f"🎯 [FIXED-PRICE][FORCE] 고정가 강제 매수 진입 | "
+diff --git a/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py b/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py
+new file mode 100644
+index 0000000..2213cd6
+--- /dev/null
++++ b/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py
+@@ -0,0 +1,214 @@
++"""
++✅ WO-24 회귀: 현재가 매수 미체결 취소 감사 기록 + 미체결 시 시장가 전환 옵션 + 알림 성공 로그 (2026-10-05)
++
++근거 (docs/plans/2026-10-05-urgent-buy-not-executed/report.md):
++- 10-04 14:15 봉 BUY 평가 통과(overall_ok=1) → 현재가 매수 763 지정가 → 대기 5봉(295초) 미체결 → 자동 취소 (orders 559).
++- 감사 로그 페이지에는 🟢 BUY 평가만 보이고 거래 기록이 없어 "신호는 떴는데 안 샀다" 로 보였다.
++처방:
++- 취소 확정 때 audit_trades type='BUY_CANCELED' ("⏱ 매수 미체결 취소") 1행 — 주문가·주문 수량·체결 수량·대기·사유·uuid.
++- 옵션 "미체결 시 시장가 전환"(기본 끔): 현재가 ≤ 주문가 × (1 + 허용 %) 이면 남은 수량을 기존 시장가 매수로, apply_entry 등록.
++- notifier 발송 성공 시 "[NOTIFY] sent | kind=… dedupe=…" 1줄.
++
++실행:
++    python3 -m unittest tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit -v
++"""
++from __future__ import annotations
++
++import json
++import shutil
++import sqlite3
++import sys
++import tempfile
++import threading
++import time
++import unittest
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import MagicMock, patch
++
++ROOT = Path(__file__).parent.parent.parent
++sys.path.insert(0, str(ROOT))
++
++U = "test_r_2026_10_05_wo24"
++T = "KRW-JTO"
++ORDER_QTY = "1063.46564595"
++META = {"bar": 332, "reason": "EMA_GC", "bar_time": "2026-10-04T14:15:00+09:00", "fixed_price_buy": True,
++        "is_fixed_price_buy": True, "interval_sec": 300, "limit_price": 763.0, "wait_bars": 5}
++
++
++class _DbCase(unittest.TestCase):
++    def setUp(self):
++        self.tmpdir = Path(tempfile.mkdtemp(prefix="wo24_"))
++        self.db_path = str(self.tmpdir / f"tradebot_{U}.db")
++        self._patchers = [
++            patch("services.init_db.get_db_path", return_value=self.db_path),
++            patch("services.db.get_db_path", return_value=self.db_path),
++            patch("services.notifier.send", MagicMock(return_value=True)),
++            # 시험은 네트워크에 의존하지 않는다: 실제 현재가 조회가 불리면 실패
++            patch("services.trading_control.get_current_price_from_upbit",
++                  MagicMock(side_effect=AssertionError("시험 중 실제 현재가 조회 금지"))),
++        ]
++        for p in self._patchers:
++            p.start()
++        from services.init_db import initialize_db, ensure_all_schemas
++        from services.db import ensure_schema
++        initialize_db(U)
++        ensure_all_schemas(U)
++        ensure_schema(U)
++        import core.strategy_engine as se
++        self.se = se
++        self._saved_engines = dict(se._active_engines)
++        se._active_engines.clear()
++
++    def tearDown(self):
++        self.se._active_engines.clear()
++        self.se._active_engines.update(self._saved_engines)
++        for p in self._patchers:
++            p.stop()
++        shutil.rmtree(self.tmpdir, ignore_errors=True)
++
++    def _sql(self, q, args=()):
++        con = sqlite3.connect(self.db_path)
++        r = con.execute(q, args).fetchall()
++        con.close()
++        return r
++
++    def _orc(self, uuid="u-559"):
++        from engine.order_reconciler import OrderReconciler
++        upbit = MagicMock()
++        upbit.get_balances.return_value = []
++        upbit.cancel_order.return_value = {"uuid": uuid, "state": "wait"}
++        orc = OrderReconciler(upbit)
++        con = sqlite3.connect(self.db_path)
++        con.execute("INSERT INTO orders (user_id, timestamp, ticker, side, price, volume, status, provider_uuid, state, requested_at, meta) "
++                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
++                    (U, "2026-10-04T14:16:12+09:00", T, "BUY", 763.0, 0, "requested", uuid, "REQUESTED",
++                     "2026-10-04T14:16:12+09:00", json.dumps(META)))
++        con.commit()
++        con.close()
++        orc._pending[uuid] = {"user_id": U, "ticker": T, "side": "BUY", "meta": dict(META), "enqueued_at": time.time() - 296.4}
++        return orc
++
++    def _engine(self, enabled, gap_pct=0.3):
++        from core.position_state import PositionState
++        eng = SimpleNamespace()
++        eng.strategy = SimpleNamespace(buy_conditions={"fixed_price_buy_enabled": True, "fixed_price_buy_wait_bars": 5,
++                                                       "fixed_price_unfilled_to_market": enabled,
++                                                       "fixed_price_convert_max_gap_pct": gap_pct})
++        eng._execution_lock = threading.Lock()
++        eng.position = PositionState()
++        eng.trader = MagicMock()
++        eng.trader.buy_market = MagicMock(side_effect=lambda price, ticker, ts=None, meta=None, krw_amount=None:
++                                          {"qty": round(krw_amount / price, 8), "price": price, "uuid": "m-conv"})
++        eng.bar_count = 337
++        eng._pending_buy_uuid, eng._pending_buy_bar, eng._pending_buy_wait_bars = "u-559", 332, 5
++        self.se._active_engines[(U, T)] = eng
++        return eng
++
++    def _timeout_then_cancel(self, orc, uuid="u-559", exec_vol="0", trades=None, avg="0"):
++        orc._maybe_cancel_fixed_price_buy(uuid)
++        orc._handle(uuid, {"state": "cancel", "volume": ORDER_QTY, "executed_volume": exec_vol, "avg_price": avg,
++                           "paid_fee": "0", "price": "763", "trades": trades or []})
++
++    def _canceled_rows(self):
++        return self._sql("SELECT type, reason, price, qty, note, meta, bar_time FROM audit_trades WHERE type='BUY_CANCELED'")
++
++
++class TestWo24(_DbCase):
++
++    def test_1_timeout_cancel_records_buy_canceled(self):
++        """(1) timeout 취소 확정 → BUY_CANCELED 1행: 주문가 763·주문 수량·체결 0·대기 5봉·사유·uuid."""
++        orc = self._orc()
++        self._timeout_then_cancel(orc)
++        rows = self._canceled_rows()
++        self.assertEqual(len(rows), 1)
++        typ, reason, price, qty, note, meta, bt = rows[0]
++        self.assertEqual((typ, reason, price, bt), ("BUY_CANCELED", "BUY_CANCELED", 763.0, "2026-10-04T14:15:00+09:00"))
++        self.assertAlmostEqual(qty, float(ORDER_QTY))
++        self.assertTrue(note.startswith("대기 5봉 내 체결 없음"), note)
++        m = json.loads(meta)
++        self.assertEqual((m["uuid"], m["executed_qty"], m["wait_bars"]), ("u-559", 0.0, 5))
++        self.assertGreaterEqual(m["waited_sec"], 295)
++        self.assertEqual(self._sql("SELECT state FROM orders WHERE provider_uuid='u-559'")[0][0], "CANCELED")
++
++    def test_2_partial_fill_then_cancel_records_executed_qty(self):
++        """(2) 부분 체결 300개 뒤 취소 → BUY_CANCELED 에 체결 수량 300, 사유 '일부만 체결'."""
++        orc = self._orc()
++        self._timeout_then_cancel(orc, exec_vol="300", avg="763",
++                                  trades=[{"created_at": "2026-10-04T14:18:00+09:00", "volume": "300", "funds": "228900", "fee": "0"}])
++        rows = self._canceled_rows()
++        self.assertEqual(len(rows), 1)
++        m = json.loads(rows[0][5])
++        self.assertEqual(m["executed_qty"], 300.0)
++        self.assertAlmostEqual(m["remaining_qty"], float(ORDER_QTY) - 300.0)
++        self.assertIn("일부만 체결", rows[0][4])
++
++    def test_3_option_off_cancel_only(self):
++        """(3) 옵션 끔 → 시장가 매수 없음, 취소만 (사유 '미체결 시 시장가 전환 꺼짐')."""
++        eng = self._engine(enabled=False)
++        orc = self._orc()
++        self._timeout_then_cancel(orc)
++        eng.trader.buy_market.assert_not_called()
++        self.assertFalse(eng.position.has_position)
++        self.assertIn("→ 취소 (미체결 시 시장가 전환 꺼짐)", self._canceled_rows()[0][4])
++
++    def test_4_option_on_small_gap_converts_once(self):
++        """(4) 옵션 켬·가격 차이 0.1% → 시장가 전환 1회 (KRW = 남은 수량 × 현재가), apply_entry 등록, pending 해제."""
++        eng = self._engine(enabled=True, gap_pct=0.3)
++        cur = 763.0 * 1.001
++        orc = self._orc()
++        with patch("services.trading_control.get_current_price_from_upbit", MagicMock(return_value=cur)), \
++                self.assertLogs("core.position_state", level="INFO") as cm:
++            self._timeout_then_cancel(orc)
++        eng.trader.buy_market.assert_called_once()
++        kw = eng.trader.buy_market.call_args.kwargs
++        self.assertAlmostEqual(kw["krw_amount"], float(ORDER_QTY) * cur, places=4)
++        self.assertTrue(kw["meta"]["unfilled_convert"])
++        self.assertEqual(kw["meta"]["converted_from"], "u-559")
++        self.assertTrue(eng.position.has_position)
++        self.assertAlmostEqual(eng.position.avg_price, cur)
++        self.assertTrue(any("[POSITION-APPLY] source=bot_market_convert" in m for m in cm.output))
++        self.assertIsNone(eng._pending_buy_uuid)
++        self.assertIn("→ 시장가 전환", self._canceled_rows()[0][4])
++
++    def test_5_option_on_large_gap_no_convert(self):
++        """(5) 옵션 켬·가격 차이 0.5% > 허용 0.3% → 전환 안 함, 사유 '가격 차이 0.50% > 허용 0.30%'."""
++        eng = self._engine(enabled=True, gap_pct=0.3)
++        orc = self._orc()
++        with patch("services.trading_control.get_current_price_from_upbit", MagicMock(return_value=763.0 * 1.005)):
++            self._timeout_then_cancel(orc)
++        eng.trader.buy_market.assert_not_called()
++        self.assertFalse(eng.position.has_position)
++        self.assertIn("가격 차이 0.50% > 허용 0.30%", self._canceled_rows()[0][4])
++
++    def test_6_audit_view_maps_new_type(self):
++        """(6) 감사 로그 표시 함수: BUY_CANCELED → '⏱ 매수 미체결 취소', 유형 필터 '미체결 취소' (거절과 구분)."""
++        from services.db import trade_type_display, trade_kind, is_reject_type
++        self.assertEqual(trade_type_display("BUY_CANCELED"), "⏱ 매수 미체결 취소")
++        self.assertEqual(trade_kind("BUY_CANCELED"), "미체결 취소")
++        self.assertFalse(is_reject_type("BUY_CANCELED"))
++        src = (ROOT / "pages" / "audit_viewer.py").read_text(encoding="utf-8")
++        self.assertIn('_kind_options = ["매수", "매도", "거절", "미체결 취소"]', src)
++
++    def test_7_notifier_success_log(self):
++        """(7) notifier 발송 성공 → '[NOTIFY] sent | kind=… dedupe=…' INFO 1줄, 토큰·채팅 ID 미기록."""
++        for p in list(self._patchers):
++            if getattr(p, "attribute", "") == "send":
++                p.stop()                       # 실제 send 를 시험 (네트워크·자격증명은 아래에서 패치)
++                self._patchers.remove(p)
++        import services.notifier as nt
++        resp = MagicMock(status_code=200, text="ok")
++        with patch.object(nt, "_get_credentials", return_value=("TOKEN-SECRET-123", "CHAT-999")), \
++                patch.object(nt, "_requests", MagicMock(post=MagicMock(return_value=resp))), \
++                patch.object(nt, "_should_skip_by_dedupe", return_value=False), \
++                self.assertLogs("services.notifier", level="INFO") as cm:
++            self.assertTrue(nt.send("WARNING", "제목", "본문", dedupe_key="fixed_buy_timeout:u-559"))
++        sent = [m for m in cm.output if "[NOTIFY] sent" in m]
++        self.assertEqual(len(sent), 1)
++        self.assertIn("[NOTIFY] sent | kind=WARNING dedupe=fixed_buy_timeout:u-559", sent[0])
++        self.assertNotIn("TOKEN-SECRET-123", "\n".join(cm.output))
++        self.assertNotIn("CHAT-999", "\n".join(cm.output))
++
++
++if __name__ == "__main__":
++    unittest.main()

@@ -1,0 +1,165 @@
+test_1_timeout_cancel_records_buy_canceled (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_1_timeout_cancel_records_buy_canceled)
+(1) timeout 취소 확정 → BUY_CANCELED 1행: 주문가 763·주문 수량·체결 0·대기 5봉·사유·uuid. ... 2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_audit_trades_bar_time OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_audit_settings_bar_time OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_audit_settings_unique OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_audit_buy_eval_bar_time OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_audit_sell_eval_bar_time OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_audit_backfill_columns OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_account_positions_meta OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_users_trading_paused OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_wo2_audit_columns OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_audit_trades_reject_columns OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 WARNING engine.order_reconciler | ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=u-559 elapsed=296.4s timeout=295s ticker=KRW-JTO
+2026-10-05 15:26:22 INFO engine.order_reconciler | [OR] cancel_order resp uuid=u-559: {'uuid': 'u-559', 'state': 'wait'}
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO engine.order_reconciler | [OR] final CANCELED uuid=u-559 user=test_r_2026_10_05_wo24 side=BUY vol=0.0 avg=0.0 fee=0.0 krw=None coin=None executed_at=None canceled_at=2026-10-05T15:26:22.699245+09:00
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+FAIL
+test_2_partial_fill_then_cancel_records_executed_qty (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_2_partial_fill_then_cancel_records_executed_qty)
+(2) 부분 체결 300개 뒤 취소 → BUY_CANCELED 에 체결 수량 300, 사유 '일부만 체결'. ... 2026-10-05 15:26:22 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 WARNING engine.order_reconciler | ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=u-559 elapsed=296.4s timeout=295s ticker=KRW-JTO
+2026-10-05 15:26:22 INFO engine.order_reconciler | [OR] cancel_order resp uuid=u-559: {'uuid': 'u-559', 'state': 'wait'}
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO engine.order_reconciler | [OR] final CANCELED uuid=u-559 user=test_r_2026_10_05_wo24 side=BUY vol=300.0 avg=763.0 fee=0.0 krw=None coin=None executed_at=2026-10-04T14:18:00+09:00 canceled_at=2026-10-05T15:26:22.825684+09:00
+2026-10-05 15:26:22 INFO engine.order_reconciler | [OR] audit_trades inserted: uuid=u-559 side=BUY px=763.0 vol=300.0
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+FAIL
+test_3_option_off_cancel_only (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_3_option_off_cancel_only)
+(3) 옵션 끔 → 시장가 매수 없음, 취소만 (사유 '미체결 시 시장가 전환 꺼짐'). ... 2026-10-05 15:26:22 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 WARNING engine.order_reconciler | ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=u-559 elapsed=296.4s timeout=295s ticker=KRW-JTO
+2026-10-05 15:26:22 INFO engine.order_reconciler | [OR] cancel_order resp uuid=u-559: {'uuid': 'u-559', 'state': 'wait'}
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO engine.order_reconciler | [OR] final CANCELED uuid=u-559 user=test_r_2026_10_05_wo24 side=BUY vol=0.0 avg=0.0 fee=0.0 krw=None coin=None executed_at=None canceled_at=2026-10-05T15:26:22.943793+09:00
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:22 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+ERROR
+test_4_option_on_small_gap_converts_once (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_4_option_on_small_gap_converts_once)
+(4) 옵션 켬·가격 차이 0.1% → 시장가 전환 1회 (KRW = 남은 수량 × 현재가), apply_entry 등록, pending 해제. ... 2026-10-05 15:26:23 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:23 WARNING engine.order_reconciler | ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=u-559 elapsed=296.4s timeout=295s ticker=KRW-JTO
+2026-10-05 15:26:23 INFO engine.order_reconciler | [OR] cancel_order resp uuid=u-559: {'uuid': 'u-559', 'state': 'wait'}
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:23 INFO engine.order_reconciler | [OR] final CANCELED uuid=u-559 user=test_r_2026_10_05_wo24 side=BUY vol=0.0 avg=0.0 fee=0.0 krw=None coin=None executed_at=None canceled_at=2026-10-05T15:26:23.063644+09:00
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+FAIL
+test_5_option_on_large_gap_no_convert (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_5_option_on_large_gap_no_convert)
+(5) 옵션 켬·가격 차이 0.5% > 허용 0.3% → 전환 안 함, 사유 '가격 차이 0.50% > 허용 0.30%'. ... 2026-10-05 15:26:23 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:23 WARNING engine.order_reconciler | ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=u-559 elapsed=296.4s timeout=295s ticker=KRW-JTO
+2026-10-05 15:26:23 INFO engine.order_reconciler | [OR] cancel_order resp uuid=u-559: {'uuid': 'u-559', 'state': 'wait'}
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:23 INFO engine.order_reconciler | [OR] final CANCELED uuid=u-559 user=test_r_2026_10_05_wo24 side=BUY vol=0.0 avg=0.0 fee=0.0 krw=None coin=None executed_at=None canceled_at=2026-10-05T15:26:23.193556+09:00
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+ERROR
+test_6_audit_view_maps_new_type (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_6_audit_view_maps_new_type)
+(6) 감사 로그 표시 함수: BUY_CANCELED → '⏱ 매수 미체결 취소', 유형 필터 '미체결 취소' (거절과 구분). ... 2026-10-05 15:26:23 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+FAIL
+test_7_notifier_success_log (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_7_notifier_success_log)
+(7) notifier 발송 성공 → '[NOTIFY] sent | kind=… dedupe=…' INFO 1줄, 토큰·채팅 ID 미기록. ... 2026-10-05 15:26:23 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-05 15:26:23 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_05_wo24)
+FAIL
+
+======================================================================
+ERROR: test_3_option_off_cancel_only (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_3_option_off_cancel_only)
+(3) 옵션 끔 → 시장가 매수 없음, 취소만 (사유 '미체결 시 시장가 전환 꺼짐').
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py", line 153, in test_3_option_off_cancel_only
+    self.assertIn("→ 취소 (미체결 시 시장가 전환 꺼짐)", self._canceled_rows()[0][4])
+                                                         ~~~~~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+
+======================================================================
+ERROR: test_5_option_on_large_gap_no_convert (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_5_option_on_large_gap_no_convert)
+(5) 옵션 켬·가격 차이 0.5% > 허용 0.3% → 전환 안 함, 사유 '가격 차이 0.50% > 허용 0.30%'.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py", line 182, in test_5_option_on_large_gap_no_convert
+    self.assertIn("가격 차이 0.50% > 허용 0.30%", self._canceled_rows()[0][4])
+                                                  ~~~~~~~~~~~~~~~~~~~~~^^^
+IndexError: list index out of range
+
+======================================================================
+FAIL: test_1_timeout_cancel_records_buy_canceled (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_1_timeout_cancel_records_buy_canceled)
+(1) timeout 취소 확정 → BUY_CANCELED 1행: 주문가 763·주문 수량·체결 0·대기 5봉·사유·uuid.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py", line 124, in test_1_timeout_cancel_records_buy_canceled
+    self.assertEqual(len(rows), 1)
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_2_partial_fill_then_cancel_records_executed_qty (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_2_partial_fill_then_cancel_records_executed_qty)
+(2) 부분 체결 300개 뒤 취소 → BUY_CANCELED 에 체결 수량 300, 사유 '일부만 체결'.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py", line 140, in test_2_partial_fill_then_cancel_records_executed_qty
+    self.assertEqual(len(rows), 1)
+AssertionError: 0 != 1
+
+======================================================================
+FAIL: test_4_option_on_small_gap_converts_once (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_4_option_on_small_gap_converts_once)
+(4) 옵션 켬·가격 차이 0.1% → 시장가 전환 1회 (KRW = 남은 수량 × 현재가), apply_entry 등록, pending 해제.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py", line 160, in test_4_option_on_small_gap_converts_once
+    with patch("services.trading_control.get_current_price_from_upbit", MagicMock(return_value=cur)), \
+  File "/Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/unittest/_log.py", line 84, in __exit__
+    self._raiseFailure(
+AssertionError: no logs of level INFO or higher triggered on core.position_state
+
+======================================================================
+FAIL: test_6_audit_view_maps_new_type (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_6_audit_view_maps_new_type)
+(6) 감사 로그 표시 함수: BUY_CANCELED → '⏱ 매수 미체결 취소', 유형 필터 '미체결 취소' (거절과 구분).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py", line 187, in test_6_audit_view_maps_new_type
+    self.assertEqual(trade_type_display("BUY_CANCELED"), "⏱ 매수 미체결 취소")
+AssertionError: 'BUY_CANCELED' != '⏱ 매수 미체결 취소'
+- BUY_CANCELED
++ ⏱ 매수 미체결 취소
+
+
+======================================================================
+FAIL: test_7_notifier_success_log (tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit.TestWo24.test_7_notifier_success_log)
+(7) notifier 발송 성공 → '[NOTIFY] sent | kind=… dedupe=…' INFO 1줄, 토큰·채팅 ID 미기록.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py", line 201, in test_7_notifier_success_log
+    with patch.object(nt, "_get_credentials", return_value=("TOKEN-SECRET-123", "CHAT-999")), \
+  File "/Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/unittest/_log.py", line 84, in __exit__
+    self._raiseFailure(
+AssertionError: no logs of level INFO or higher triggered on services.notifier
+
+----------------------------------------------------------------------
+Ran 7 tests in 2.412s
+
+FAILED (failures=5, errors=2)
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo24_l7t3uv0f/tradebot_test_r_2026_10_05_wo24.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo24_hy1y64p5/tradebot_test_r_2026_10_05_wo24.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo24_yvvluy82/tradebot_test_r_2026_10_05_wo24.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo24_fprtnabw/tradebot_test_r_2026_10_05_wo24.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo24_3nu8cbmu/tradebot_test_r_2026_10_05_wo24.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo24_pw_oaleq/tradebot_test_r_2026_10_05_wo24.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo24_1wcwmdb4/tradebot_test_r_2026_10_05_wo24.db

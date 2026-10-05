@@ -1,0 +1,37 @@
+== ① id 76229 / orders 559 취소 경위 (14:16 ~ 14:23)
+    2026-10-04 14:16:11 INFO core.strategy_engine | 📊 Bar#332 | ts=2026-10-04 05:15:00+00:00 | close=763.00 | ema_fast=761.97 | ema_slow=761.96 | ema_base=761.96 | action=BUY | pos=False
+    2026-10-04 14:16:11 INFO core.strategy_engine | 🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | close=763.0 ticker=KRW-JTO wait_bars=5 effective_timeout≈295s
+    2026-10-04 14:16:11 INFO core.trader | [BUY-LIMIT] plan close=763.0 rounded=763.0 krw_to_use=811830 qty=1063.46564595
+    2026-10-04 14:16:12 INFO core.trader | [BUY-LIMIT] ok=True status=201 error_name=None error_message=None
+    2026-10-04 14:16:13 INFO core.strategy_engine | 🎯 LIMIT BUY 등록(체결 대기) | price=763.0000 uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 bar=332 wait_bars=5
+    2026-10-04 14:20:11 INFO core.strategy_engine | 📊 Bar#333 | ts=2026-10-04 05:19:00+00:00 | close=764.00 | ema_fast=762.03 | ema_slow=761.98 | ema_base=761.98 | action=HOLD | pos=False
+    2026-10-04 14:21:09 WARNING engine.order_reconciler | ⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도 | uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 elapsed=296.4s timeout=295s ticker=KRW-JTO
+    2026-10-04 14:21:09 INFO engine.order_reconciler | [OR] cancel_order resp uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7: {'uuid': '33d218cf-a9b1-4683-a2bf-4a069bfd8bc7', 'side': 'bid', 'ord_type': 'limit', 'price': '763', 'state': 'wait', 'market': 'KRW-
+    2026-10-04 14:21:12 INFO engine.order_reconciler | [OR] final CANCELED uuid=33d218cf-a9b1-4683-a2bf-4a069bfd8bc7 user=mcmax33 side=BUY vol=0.0 avg=0.0 fee=0.0 krw=1624472.19923491 coin=None executed_at=None canceled_at=2026-10-04T14:21:12.764527+09:0
+   orders 559: (559, '2026-10-04T14:16:12.224046+09:00', 763.0, 0.0, 'CANCELED', 0.0, '2026-10-04T14:21:12.764527+09:00', '2026-10-04T14:21:12.969103+09:00', '{"bar": 332, "reason": "EMA_GC", "bar_time": "2026-10-04T14:15:00+09:00", "macd": 0.003455644868381569, "signal": -0.294612720973037, "ema_fast": 761.9666735498171, "ema_slow": 761.9632179049487, "fixed_price_buy": true, "is_fixed_price_buy": true, "interval_sec": 300, "limit_price": 763.0}')
+   직전 KRW 잔고(orders.current_krw 최근): (558, '2026-10-03T20:05:11.871765+09:00', 'SELL', 2982143.24732733, None)
+   14:00~14:20 audit_trades: [(1189, '2026-10-04T13:59:25.308527+09:00', 'KRW-STRAX', 'BUY', 15.6, 'HTS_BUY'), (1190, '2026-10-04T14:00:26.024202+09:00', 'KRW-ARK', 'BUY', 308.0, 'HTS_BUY')]
+
+== ② journal 'EMA Buy Signal' 전수 (2026-10-02 ~ 지금) ↔ audit_buy_eval
+    2026-10-02 03:40:11 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=732.32 slow=732.11
+    2026-10-02 03:40:12 INFO core.strategy_engine | 📊 Bar#286 | ts=2026-10-01 18:35:00+00:00 | close=747.00 | ema_fast=732.32 | ema_slow=732.11 | ema_base=732.11 | action=BUY | pos=False
+    2026-10-02 08:00:10 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=732.53 slow=732.50
+    2026-10-02 08:00:11 INFO core.strategy_engine | 📊 Bar#330 | ts=2026-10-01 22:55:00+00:00 | close=734.00 | ema_fast=732.53 | ema_slow=732.50 | ema_base=732.50 | action=BUY | pos=False
+    2026-10-04 14:16:10 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=761.97 slow=761.96
+    2026-10-04 14:16:11 INFO core.strategy_engine | 📊 Bar#332 | ts=2026-10-04 05:15:00+00:00 | close=763.00 | ema_fast=761.97 | ema_slow=761.96 | ema_base=761.96 | action=BUY | pos=False
+    2026-10-04 17:02:11 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=765.01 slow=764.97
+    2026-10-04 17:02:12 INFO core.strategy_engine | 📊 Bar#430 | ts=2026-10-04 08:01:00+00:00 | close=768.00 | ema_fast=765.01 | ema_slow=764.97 | ema_base=764.97 | action=BUY | pos=False
+    2026-10-04 23:05:11 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=755.89 slow=755.78
+    2026-10-04 23:05:12 INFO core.strategy_engine | 📊 Bar#651 | ts=2026-10-04 14:04:00+00:00 | close=761.00 | ema_fast=755.89 | ema_slow=755.78 | ema_base=755.78 | action=BUY | pos=False
+    2026-10-05 08:25:10 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=768.28 slow=768.22
+    2026-10-05 08:25:11 INFO core.strategy_engine | 📊 Bar#951 | ts=2026-10-04 23:24:00+00:00 | close=777.00 | ema_fast=768.28 | ema_slow=768.22 | ema_base=768.22 | action=BUY | pos=False
+
+== ③ audit_buy_eval 중 notes 에 'BUY' 가 들어간 행 / backfill 판정 (2026-10-02 ~)
+   열: ['id', 'timestamp', 'bar_time', 'ticker', 'interval_sec', 'bar', 'price', 'macd', 'signal', 'have_position', 'overall_ok', 'failed_keys', 'checks', 'notes', 'backfill_close', 'backfill_reason', 'backfill_at', 'backfill_type', 'prev_close', 'pending_created_at', 'pending_resolved_at', 'validation_passed', 'validation_reason', 'tentative_close', 'confirmed_close']
+    (75021, '2026-10-02T03:35:00+09:00', '2026-10-02T03:40:12.157886+09:00', 1, '🟢 BUY | Golden | bar=286')
+    (75063, '2026-10-02T07:55:00+09:00', '2026-10-02T08:00:12.017163+09:00', 1, '🟢 BUY | Golden | bar=330')
+    (76229, '2026-10-04T14:15:00+09:00', '2026-10-04T14:16:11.877515+09:00', 1, '🟢 BUY | Golden | bar=332')
+    (76327, '2026-10-04T17:01:00+09:00', '2026-10-04T17:02:12.255000+09:00', 1, '🟢 BUY | Golden | bar=430')
+    (76502, '2026-10-04T23:04:00+09:00', '2026-10-04T23:05:12.413606+09:00', 1, '🟢 BUY | Golden | bar=651')
+    (76768, '2026-10-05T08:24:00+09:00', '2026-10-05T08:25:11.873694+09:00', 1, '🟢 BUY | Golden | bar=951')
+   10-04 audit_buy_eval 행 수: (880, 3)
