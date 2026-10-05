@@ -1660,6 +1660,7 @@ REJECT_TYPES = ("SELL_REJECTED", "BUY_REJECTED")
 _TRADE_TYPE_DISPLAY = {
     "SELL_REJECTED": "⛔ 매도 거절",
     "BUY_REJECTED": "⛔ 매수 거절",
+    "HTS_SELL": "외부 매도",  # ✅ WO-22: 지갑 0 닫힘 기록 (앱 매도 등, 가격 미상 — 손익 집계 제외)
 }
 
 
@@ -1675,7 +1676,7 @@ def trade_kind(trade_type: str | None) -> str:
         return "거절"
     if t == "BUY":
         return "매수"
-    if t == "SELL":
+    if t in ("SELL", "HTS_SELL"):  # ✅ WO-22: 외부 매도도 "매도" 필터에 포함 (손익 집계는 type='SELL' 만 사용)
         return "매도"
     return "기타"
 
@@ -1837,18 +1838,11 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
                 return None
 
             result = {}
-            # SELECT 순서: price, [entry_bar], [entry_ts_iso]
-            idx = 0
-            if row[idx] is not None:
-                result["price"] = float(row[idx])
-            idx += 1
-            if "entry_bar" in cols:
-                if len(row) > idx and row[idx] is not None:
-                    result["entry_bar"] = int(row[idx])
-                idx += 1
-            # ✅ SP-PI-1: 진입 시각 복원 — orders 테이블에서 timestamp 계열 컬럼 반환
-            if len(row) > idx and row[idx] is not None:
-                result["entry_ts_iso"] = str(row[idx])
+            # SELECT 순서: price, [entry_bar], [entry_ts_iso], [executed_volume] — select_keys 와 같은 순서
+            conv = {"price": float, "entry_bar": int, "entry_ts_iso": str, "executed_volume": float}
+            for i, key in enumerate(select_keys):
+                if len(row) > i and row[i] is not None:
+                    result[key] = conv[key](row[i])
 
             return result if result else None
         except Exception as e:
@@ -1904,9 +1898,11 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
             select_cols = "COALESCE(avg_price, price) as price"
         else:
             select_cols = "price"
+        select_keys = ["price"]
 
         if "entry_bar" in cols:
             select_cols += ", entry_bar"
+            select_keys.append("entry_bar")
 
         # ✅ SP-PI-1: 진입 시각 복원
         # ✅ WO-20: COALESCE(executed_at, updated_at) — executed_at 이 비면 확정 갱신 시각(updated_at)으로 대신.
@@ -1916,6 +1912,33 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
             ts_keys = [c for c in ("created_at", "ts", "timestamp") if c in cols][:1]
         if ts_keys:
             select_cols += f", {_coalesce(ts_keys)}"
+            select_keys.append("entry_ts_iso")
+
+        # ✅ WO-22: 체결 수량 — 지갑 동기화 복원이 orders 를 쓸 때 지갑 수량과 같은지 확인용
+        if "executed_volume" in cols:
+            select_cols += ", executed_volume"
+            select_keys.append("executed_volume")
+
+        def _closed_by_external_sell(res: Optional[Dict[str, Any]]) -> bool:
+            """✅ WO-22: 이 BUY 뒤에 외부 매도(audit_trades type='HTS_SELL', 지갑 0 닫힘 기록)가 있으면 청산된 것."""
+            if not res or not res.get("entry_ts_iso"):
+                return False
+            try:
+                cur = conn.cursor()
+                row = cur.execute(
+                    "SELECT id, timestamp FROM audit_trades WHERE ticker = ? AND type = 'HTS_SELL' AND timestamp > ? "
+                    "ORDER BY timestamp LIMIT 1",
+                    (ticker, res["entry_ts_iso"]),
+                ).fetchone()
+                if row:
+                    logger.warning(
+                        f"[DB] last BUY already closed by external sell (HTS_SELL id={row[0]} ts={row[1]}) "
+                        f"→ returning None (WO-22)"
+                    )
+                    return True
+            except Exception as e:
+                logger.warning(f"[DB] HTS_SELL 확인 실패 (무시): {e}")
+            return False
 
         # ✅ B1 해결: 청산 검증 헬퍼 — 마지막 BUY 이후 SELL이 있으면 청산된 것으로 간주
         def _last_buy_closed_by_later_sell() -> bool:
@@ -1956,6 +1979,9 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
                 )
                 conn.close()
                 return None
+            if _closed_by_external_sell(result):
+                conn.close()
+                return None
             conn.close()
             return result
 
@@ -1969,6 +1995,9 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
             logger.warning(
                 "[DB] last BUY already closed by later SELL → returning None (B1)"
             )
+            conn.close()
+            return None
+        if result is not None and _closed_by_external_sell(result):
             conn.close()
             return None
         conn.close()
@@ -2001,9 +2030,10 @@ def get_last_open_buy_trade(user_id: str, ticker: str) -> Optional[Dict[str, Any
             ).fetchone()
             if not buy:
                 return None
+            # ✅ WO-22: 외부 매도(지갑 0 닫힘 기록, type='HTS_SELL')도 청산으로 본다
             sell = cur.execute(
                 "SELECT timestamp FROM audit_trades "
-                "WHERE ticker = ? AND type = 'SELL' AND timestamp > ? ORDER BY timestamp LIMIT 1",
+                "WHERE ticker = ? AND type IN ('SELL', 'HTS_SELL') AND timestamp > ? ORDER BY timestamp LIMIT 1",
                 (ticker, buy[0]),
             ).fetchone()
             if sell:

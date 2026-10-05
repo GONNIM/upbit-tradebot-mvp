@@ -211,8 +211,12 @@ class _FakeEngine:
         self.user_id = U
         self.ticker = TICKER
         self.bar_count = 200
+        self.interval_sec = 300
         # 첫 봉 [POSITION-SYNC] 와 같은 함수 그대로 사용
         self._reconcile_position_with_wallet = StrategyEngine._reconcile_position_with_wallet.__get__(self)
+        # ✅ WO-22: 진입가 1순위(Upbit 직접)·외부 매도 기록 보조 함수도 같은 것 사용 (trader 는 MagicMock → test_mode 참 → Upbit 직접 조회 생략)
+        self._fetch_upbit_avg_buy_price = StrategyEngine._fetch_upbit_avg_buy_price.__get__(self)
+        self._record_external_sell = StrategyEngine._record_external_sell.__get__(self)
 
 
 class TestBootSeedRecover(unittest.TestCase):
@@ -230,13 +234,13 @@ class TestBootSeedRecover(unittest.TestCase):
             self.assertEqual(eng.position.avg_price, 761.0)
             self.assertAlmostEqual(eng.position.qty, QTY)
             self.assertEqual(eng.position.entry_bar, 200, "첫 봉 복구와 같은 시점(워밍업 후 bar_count)")
-            self.assertTrue(any(f"[BOOT-SEED] source=upbit_avg_buy_price entry=761.0 qty={QTY:.6f}" in m
+            self.assertTrue(any(f"[BOOT-SEED] source=account_positions entry=761.0 qty={QTY:.6f}" in m
                                 for m in cm.output), cm.output)
             ns.assert_not_called()
             # 첫 봉: 같은 값 → "이미 일치 → 스킵" 1회
             with self.assertLogs("core.strategy_engine", level="INFO") as cm2:
                 self.assertIsNone(eng._reconcile_position_with_wallet())
-            self.assertTrue(any("[POSITION-SYNC] 이미 일치 → 스킵 (boot_seed source=upbit_avg_buy_price)" in m
+            self.assertTrue(any("[POSITION-SYNC] 이미 일치 → 스킵 (boot_seed source=account_positions)" in m
                                 for m in cm2.output))
             self.assertEqual(eng.position.avg_price, 761.0, "값 변경 없음")
             # 두 번째 봉부터는 스킵 로그 없음

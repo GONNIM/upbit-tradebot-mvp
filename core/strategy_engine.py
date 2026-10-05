@@ -474,6 +474,39 @@ class StrategyEngine:
             # 무해 (관찰 계층은 절대 매매 흐름 방해 X)
             logger.debug(f"[ENGINE] invariant snapshot 기록 실패 (무해): {e}")
 
+    def _fetch_upbit_avg_buy_price(self) -> Optional[float]:
+        """✅ WO-22: Upbit 잔고의 avg_buy_price 직접 조회 (LIVE 만, 실패 시 None — 기존 sync_from_wallet 2순위와 같은 방식)."""
+        if getattr(self.trader, "test_mode", True):
+            return None
+        try:
+            sym = self.ticker.split("-")[-1].strip().upper() if self.ticker else self.ticker
+            for b in (self.trader.upbit.get_balances() or []):
+                if str(b.get("currency", "")).upper() == sym:
+                    v = float(b.get("avg_buy_price") or 0.0)
+                    return v if v > 0 else None
+        except Exception as e:
+            logger.warning(f"[POSITION-SYNC] Upbit avg_buy_price 조회 실패: {e}")
+        return None
+
+    def _record_external_sell(self, qty, entry_price) -> None:
+        """
+        ✅ WO-22: 지갑 0 으로 포지션을 닫을 때 외부 매도 1행 (audit_trades type='HTS_SELL', 화면 "외부 매도").
+        가격은 알 수 없어 비워 둔다. type 이 'SELL' 이 아니므로 손익 집계(type='SELL')에는 들어가지 않는다.
+        """
+        try:
+            from services.db import insert_trade_audit
+            insert_trade_audit(
+                user_id=self.user_id, ticker=self.ticker, interval_sec=self.interval_sec, bar=self.bar_count,
+                kind="HTS_SELL", reason="HTS_SELL", price=None, macd=None, signal=None,
+                entry_price=float(entry_price) if entry_price is not None else None,
+                entry_bar=self.position.entry_bar, bars_held=None, tp=None, sl=None, highest=None,
+                ts_pct=None, ts_armed=None, qty=float(qty) if qty is not None else None,
+                note="외부 매도 — 지갑 잔고 0 감지 (앱 매도 등). 체결 가격은 알 수 없음",
+            )
+            logger.info(f"[POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty={qty} entry={entry_price}")
+        except Exception as e:
+            logger.error(f"[POSITION-SYNC] 외부 매도 기록 실패: {e}")
+
     def _reconcile_position_with_wallet(self) -> Optional[str]:
         """
         지갑 잔고 기반 PositionState 동기화
@@ -482,7 +515,7 @@ class StrategyEngine:
         - force_liquidate, 수동 거래 등 외부 요인에 대응
         - 매 봉마다 호출되어 방어적으로 상태 일관성 유지
 
-        Returns (WO-12 C7): 외부 매수 복구 성공 시 진입가 출처("upbit_avg_buy_price" / "last_open_buy"),
+        Returns (WO-12 C7, WO-22 이름 변경): 외부 매수 복구 성공 시 진입가 출처("upbit_avg" / "account_positions" / "orders"),
             그 외 None. 기존 호출부는 반환값을 쓰지 않는다 (동작 무변경).
         """
         try:
@@ -518,6 +551,9 @@ class StrategyEngine:
                         f"지갑 잔고={actual_balance:.6f} (거의 0) "
                         f"but memory shows has_position=True (qty={self.position.qty:.6f})"
                     )
+                    # ✅ WO-22: 외부 매도(앱 매도 등) 기록 — 가격은 알 수 없어 비워 둔다.
+                    #   get_last_open_buy_order / get_last_open_buy_trade 가 이 행을 보고 옛 봇 BUY 를 청산된 것으로 본다.
+                    self._record_external_sell(self.position.qty, self.position.avg_price)
                     # PositionState 강제 리셋 (매도 완료 처리)
                     self.position.close_position(ts=None, reason="position_sync_wallet_zero")  # ts는 None (정확한 시각 불명), WO-18 플래그 해제 사유
                     logger.info(
@@ -534,8 +570,11 @@ class StrategyEngine:
                         f"진입가 복구 시도 (1순위: Upbit avg_buy_price 캐시)..."
                     )
 
-                    # ✅ B1 해결: Upbit avg_buy_price 캐시(account_positions.entry_price)를 1순위로 사용.
-                    #            DB의 옛 BUY 차용은 청산 검증 후만 폴백.
+                    # ✅ WO-22 (2026-10-05): 진입가 우선순위
+                    #   1) Upbit avg_buy_price 직접 조회 (지금 지갑의 실제 평균가)
+                    #   2) account_positions.entry_price (Reconciler 가 1분마다 채우는 캐시 — 직전 매수면 아직 0 일 수 있음)
+                    #   3) orders 마지막 봇 BUY (마지막 수단) — 그 BUY 의 체결 수량이 지갑 수량과 같을 때만
+                    #   근거: 2026-10-05 10:59:05 앱 재매수(766) 를 앱 매도로 이미 청산된 봇 BUY(777) 로 복원 → STOP_LOSS 오매도
                     try:
                         from services.db import get_position_entry_price, get_last_open_buy_order
 
@@ -543,21 +582,37 @@ class StrategyEngine:
                         entry_bar = None
                         source = None
 
-                        # 1순위: Reconciler가 캐시한 Upbit avg_buy_price
-                        cached_avg = get_position_entry_price(self.user_id, self.ticker)
-                        if cached_avg is not None and cached_avg > 0:
-                            entry_price = float(cached_avg)
-                            source = "upbit_avg_buy_price"
+                        # 1순위: Upbit avg_buy_price 직접 조회 (LIVE 만)
+                        upbit_avg = self._fetch_upbit_avg_buy_price()
+                        if upbit_avg is not None and upbit_avg > 0:
+                            entry_price = float(upbit_avg)
+                            source = "upbit_avg"
 
-                        # 2순위(폴백): 봇의 마지막 미청산 BUY (청산 검증 포함된 get_last_open_buy_order)
+                        # 2순위: Reconciler 가 캐시한 account_positions.entry_price
+                        if entry_price is None:
+                            cached_avg = get_position_entry_price(self.user_id, self.ticker)
+                            if cached_avg is not None and cached_avg > 0:
+                                entry_price = float(cached_avg)
+                                source = "account_positions"
+
+                        # 3순위(마지막 수단): 봇의 마지막 미청산 BUY — 체결 수량이 지갑 수량과 같을 때만
                         if entry_price is None:
                             db_result = get_last_open_buy_order(self.ticker, self.user_id)
                             if db_result:
                                 ep = db_result.get("avg_price") or db_result.get("price")
-                                if ep is not None:
+                                buy_qty = db_result.get("executed_volume")
+                                if ep is not None and buy_qty is not None and abs(float(buy_qty) - actual_balance) <= max(1e-6, actual_balance * 1e-6):
                                     entry_price = float(ep)
                                     entry_bar = db_result.get("entry_bar")
-                                    source = "last_open_buy"
+                                    source = "orders"
+                                elif ep is not None:
+                                    logger.warning(
+                                        f"[POSITION-SYNC] orders 마지막 봇 BUY 수량 불일치 → 진입가로 쓰지 않음 | "
+                                        f"buy_qty={buy_qty} wallet={actual_balance:.6f} price={ep}"
+                                    )
+
+                        if entry_price is not None:
+                            logger.info(f"[POSITION-SYNC] entry_price={entry_price} (출처: {source})")
 
                         if entry_price is not None and entry_price > 0:
                             # ✅ SP-PI-1: P2 자동 복구 — apply_entry 통합 API 사용
