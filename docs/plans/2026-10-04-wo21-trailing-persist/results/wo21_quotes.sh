@@ -1,0 +1,28 @@
+#!/bin/bash
+# WO-21 코드 인용 생성 (로컬 HEAD, 읽기만)
+cd /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp || exit 1
+q() { echo; echo "### $1:$2-$3 — $4"; echo '```python'; sed -n "$2,$3p" "$1" | awk -v s="$2" '{printf "%5d  %s\n", s+NR-1, $0}'; echo '```'; }
+echo "# WO-21 코드 인용 (HEAD $(git rev-parse --short HEAD), 서버 e97dec6 과 엔진 코드 동일)"
+echo "## A1. 상태 변수와 변경 지점"
+q core/position_state.py 40 55 "초기값: highest_price None, trailing_armed False, trailing_fixed_amount None, trailing_activation_price None, highest_since_entry None"
+q core/position_state.py 250 261 "apply_entry: highest_price=avg, armed False, fixed·activation None, highest_since_entry=avg"
+q core/position_state.py 304 313 "close_position: 모두 초기화"
+q core/position_state.py 351 368 "update_highest_price: armed 일 때만 최고가 갱신"
+q core/position_state.py 410 428 "activate_trailing_stop: armed=True, highest=현재가"
+q core/position_state.py 460 471 "update_highest_since_entry (정체 포지션용)"
+q core/filters/sell_filters.py 273 345 "TrailingStopFilter: 익절 도달 → 무장·고정폭 계산, 신고가 갱신, 고정폭 판정"
+q core/strategy_incremental.py 1253 1256 "매 봉 update_highest_price"
+q core/strategy_engine.py 300 316 "HTS_BUY_ADD 로 평균가가 바뀌면 trailing 상태 리셋 (기존 정책)"
+echo "## A2. 저장 여부"
+q core/strategy_engine.py 1843 1863 "audit_sell_eval: highest=position.highest_price, ts_armed=False 고정 (HOLD 경로)"
+q core/strategy_engine.py 1924 1944 "audit_sell_eval: ts_armed=False 고정 (SELL 경로)"
+q services/invariant_monitor.py 115 148 "invariant_snapshots: trailing_armed·highest_price 기록 (system_health 표시용)"
+q services/invariant_monitor.py 154 180 "get_latest_snapshot: 읽는 곳은 pages/system_health.py 뿐"
+q services/db.py 2703 2730 "update_position_meta: meta JSON 통째 UPSERT"
+q engine/order_reconciler.py 619 630 "meta.locked_warned 읽기-수정-쓰기 (OR 스레드)"
+echo "## A3. 재시작 복원 경로"
+q engine/live_loop.py 631 667 "_BACKFILL_TRAILING_FIELDS 5개 + 백업·복원 함수 (BACKFILL 전용)"
+q engine/live_loop.py 1390 1396 "백업 호출: BACKFILL 루프 안에서만"
+q engine/live_loop.py 395 452 "_apply_boot_seed: apply_entry(source=boot_seed) → trailing 초기화"
+q engine/live_loop.py 776 790 "봇 주문 없음(앱 매수) 경로: trailing 필드 None 리셋 후 워밍업 뒤 지갑 기준 복원"
+q core/strategy_engine.py 556 580 "_reconcile_position_with_wallet: apply_entry(source=wallet_sync, entry_ts=now)"

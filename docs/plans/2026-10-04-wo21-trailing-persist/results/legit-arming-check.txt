@@ -1,0 +1,12 @@
+== 2026-10-02 08:00:00 ~ 2026-10-02 09:31:00
+2026-10-02 09:15:11 INFO core.position_state | 🔓 Trailing Stop ACTIVATED | entry=₩734 initial_highest=₩747
+2026-10-02 09:15:11 INFO core.filters.sell_filters | 🔒 고정 금액 폭 설정 | 활성화 수익=₩13 × 30% = ₩4
+2026-10-02 09:15:11 INFO core.filters.sell_filters | 🔄 AUTO-SWITCH: Take Profit 도달 (1.77%) → Trailing Stop 활성화 (고정폭) | 진입가=₩734 현재가=₩
+2026-10-02 09:30:11 INFO core.filters.sell_filters | 🔍 DEBUG [TRAILING_STOP_FIXED] highest=₩747, fixed_amount=₩4, stop_price=₩743, current=₩742, triggered=True
+   BACKFILL 줄: 0  누락 봉 평가: 0  run_live_loop start: 0
+== 2026-10-03 09:18:00 ~ 2026-10-03 20:06:00
+2026-10-03 18:55:11 INFO core.position_state | 🔓 Trailing Stop ACTIVATED | entry=₩710 initial_highest=₩722
+2026-10-03 18:55:11 INFO core.filters.sell_filters | 🔒 고정 금액 폭 설정 | 활성화 수익=₩12 × 30% = ₩4
+2026-10-03 18:55:11 INFO core.filters.sell_filters | 🔄 AUTO-SWITCH: Take Profit 도달 (1.69%) → Trailing Stop 활성화 (고정폭) | 진입가=₩710 현재가=₩
+2026-10-03 20:05:11 INFO core.filters.sell_filters | 🔍 DEBUG [TRAILING_STOP_FIXED] highest=₩734, fixed_amount=₩4, stop_price=₩730, current=₩727, triggered=True
+   BACKFILL 줄: 0  누락 봉 평가: 0  run_live_loop start: 0

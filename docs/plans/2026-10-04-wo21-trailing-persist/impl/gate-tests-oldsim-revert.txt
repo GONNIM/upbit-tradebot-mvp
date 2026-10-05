@@ -1,0 +1,33 @@
+worktree wo21_wt .env 개수: 0
+worktree wo21_wt_old .env 개수: 0
+=================== [A] 770b104 게이트 (.env 없음)
+✅ 회귀 테스트 290/290 통과 — 배포 진행 가능
+=================== [B] 770b104 WO-21 시험 (-v)
+(1) 합성 종가 열: 실시간 경로(update_highest_price → evaluate)와 재계산 결과가 봉마다 같다. ... ok
+(4) 앱 추가 매수가 섞인 포지션: 마지막 HTS_BUY_ADD 뒤 봉만 쓰고 평균가는 지갑 값(105)을 그대로 쓴다. ... ok
+(5) 시작점이 워밍업 봉 밖: 추가 REST 1회(필요 봉 수·end_ts) → 계산. 10회(2000봉) 초과·조회 실패 → 초기화 + WARNING 1줄. ... ok
+(6) 끝의 미확정(형성 중) 봉은 제외: 형성 중 봉 종가(110)는 무장 조건이지만 마감 전이면 쓰지 않는다. ... ok
+Ran 8 tests in 1.311s
+OK
+=================== [C] 구 코드 129c6df: 재시작 직후 상태 (재계산 없음)
+A 10-02 09:20:11 (09:10 봉까지): 재시작 직후 상태 (False, 734.0, None, None) | 재시작 전 실제(스냅샷) (True, 747.0, 3.9, 747.0) | 다름 → 무장 상태 소실
+A 10-02 09:30:11 (09:20 봉까지): 재시작 직후 상태 (False, 734.0, None, None) | 재시작 전 실제(스냅샷) (True, 747.0, 3.9, 747.0) | 다름 → 무장 상태 소실
+C 10-03 19:00:11 (18:50 봉까지): 재시작 직후 상태 (False, 710.0, None, None) | 재시작 전 실제(스냅샷) (True, 722.0, 3.6, 722.0) | 다름 → 무장 상태 소실
+C 10-03 20:05:11 (19:55 봉까지): 재시작 직후 상태 (False, 710.0, None, None) | 재시작 전 실제(스냅샷) (True, 734.0, 3.6, 722.0) | 다름 → 무장 상태 소실
+=================== [D] revert 770b104 (feat(wo21): 재시작 때 trailing 상태를 봉 종가로 재계산 + audit_s)
+충돌 파일: 없음
+변경 파일:
+ core/filters/sell_filters.py                       | 106 +--
+ core/position_state.py                             |  12 +-
+ core/strategy_engine.py                            |   6 +-
+ core/trailing_restore.py                           | 189 ----
+ engine/live_loop.py                                |  14 -
+ pages/dashboard.py                                 |   2 +-
+ services/db.py                                     |  31 -
+ .../regressions/fixtures/wo21_jto_5m_20260930.json | 330 -------
+ .../regressions/fixtures/wo21_jto_5m_20261002.json | 170 ----
+ .../regressions/fixtures/wo21_jto_5m_20261003.json | 962 ---------------------
+ .../test_r_2026_10_04_wo21_trailing_restore.py     | 224 -----
+ 11 files changed, 52 insertions(+), 1994 deletions(-)
+py_compile OK
+✅ 회귀 테스트 282/282 통과 — 배포 진행 가능

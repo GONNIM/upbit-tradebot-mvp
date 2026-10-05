@@ -1,0 +1,31 @@
+test_1_synthetic_replay_equals_realtime (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_1_synthetic_replay_equals_realtime)
+(1) 합성 종가 열: 실시간 경로(update_highest_price → evaluate)와 재계산 결과가 봉마다 같다. ... ok
+test_2_real_A_20261002 (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_2_real_A_20261002)
+(2) 실데이터 A: 10-02 08:00:14 봇 매수(734) ~ 09:30 매도. 무장은 09:15:11 실시간 평가(BACKFILL 없음). ... /private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo21_wt3/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py:38: ResourceWarning: unclosed file <_io.TextIOWrapper name='/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo21_wt3/tests/regressions/fixtures/wo21_jto_5m_20261002.json' mode='r' encoding='utf-8'>
+  d = json.load(open(FIX / name, encoding="utf-8"))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_3_real_B_20260930_no_pre_buy_bars (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_3_real_B_20260930_no_pre_buy_bars)
+(3) 실데이터 B: 09-30 16:47:09 앱 매수(761) 포지션을 19:44:28 재시작 시점에서 재계산 → 미무장. ... /private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo21_wt3/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py:38: ResourceWarning: unclosed file <_io.TextIOWrapper name='/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo21_wt3/tests/regressions/fixtures/wo21_jto_5m_20260930.json' mode='r' encoding='utf-8'>
+  d = json.load(open(FIX / name, encoding="utf-8"))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_3c_real_C_20261003 (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_3c_real_C_20261003)
+(3-C) 실데이터 C: 10-03 09:18:47 앱 매수(710) → 20:05 TRAILING_STOP_FIXED 매도. 전 구간 5분봉. ... /private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo21_wt3/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py:38: ResourceWarning: unclosed file <_io.TextIOWrapper name='/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo21_wt3/tests/regressions/fixtures/wo21_jto_5m_20261003.json' mode='r' encoding='utf-8'>
+  d = json.load(open(FIX / name, encoding="utf-8"))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_4_hts_buy_add_uses_bars_after_add_and_wallet_avg (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_4_hts_buy_add_uses_bars_after_add_and_wallet_avg)
+(4) 앱 추가 매수가 섞인 포지션: 마지막 HTS_BUY_ADD 뒤 봉만 쓰고 평균가는 지갑 값(105)을 그대로 쓴다. ... ok
+test_5_rest_extra_fetch_limit_and_failure (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_5_rest_extra_fetch_limit_and_failure)
+(5) 시작점이 워밍업 봉 밖: 추가 REST 1회(필요 봉 수·end_ts) → 계산. 10회(2000봉) 초과·조회 실패 → 초기화 + WARNING 1줄. ... ok
+test_6_unconfirmed_last_bar_excluded (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_6_unconfirmed_last_bar_excluded)
+(6) 끝의 미확정(형성 중) 봉은 제외: 형성 중 봉 종가(110)는 무장 조건이지만 마감 전이면 쓰지 않는다. ... ok
+test_7_audit_ts_armed_records_real_value (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_7_audit_ts_armed_records_real_value)
+(7) audit_sell_eval.ts_armed: 무장 봉 1(True), 비무장 봉 0(False). 구 코드는 항상 False. ... 2026-10-05 10:14:16 INFO core.position_state | ✅ [POSITION-APPLY] source=boot_seed qty=100.000000 entry=734.00 bar=330 ts=2026-10-02T08:00:14+09:00
+ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 1.343s
+
+OK

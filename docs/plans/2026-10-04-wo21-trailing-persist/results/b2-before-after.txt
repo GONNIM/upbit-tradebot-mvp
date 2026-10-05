@@ -1,0 +1,19 @@
+18:02 직전|2026-09-30 17:55:11|0|761.0|761.0|2026-09-30T16:50:05.825972+09:00
+18:02 직후 첫|2026-09-30 18:10:12|0|761.0|761.0|2026-09-30T18:10:11.809008+09:00
+19:44 직전|2026-09-30 19:25:10|1|774.0|761.0|2026-09-30T18:10:11.809008+09:00
+19:44 직후 첫|2026-09-30 19:50:10|0|761.0|761.0|2026-09-30T19:44:40.806841+09:00
+18:10~19:44 스냅샷 수|19|2026-09-30 19:25:10
+18:20~19:45 sell_eval 행|13
+2026-09-30 18:15:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-09-30 18:10:00 KST
+2026-09-30 18:15:12 INFO core.strategy_engine | 📊 Bar#201 | ts=2026-09-30 09:15:00+00:00 | close=759.00 | ema_fast=75
+2026-09-30 18:15:13 INFO core.strategy_engine | 📊 Bar#202 | ts=2026-09-30 09:10:00+00:00 | close=757.00 | ema_fast=75
+2026-09-30 18:20:00 INFO engine.live_loop | ⏰ [CLOCK-CLOSE] 봉 확정 감지 | ts=2026-09-30 18:15:00 KST
+2026-09-30 19:25:10 INFO core.strategy_engine | 📊 Bar#216 | ts=2026-09-30 10:20:00+00:00 | close=754.00 | ema_fast=75
+2026-09-30 19:50:10 INFO engine.live_loop | 🔄 [BACKFILL] 97개 누락 봉 평가 시작
+2026-09-30 19:50:10 INFO engine.live_loop | [BACKFILL] 지표 상태 백업 | prev_ema_fast=None prev_ema_slow=None
+2026-09-30 19:50:10 INFO engine.live_loop | 🔄 [BACKFILL] 누락 봉 평가 | ts=2026-09-29 18:10:00 KST | close=753
+2026-09-30 19:50:10 INFO core.strategy_engine | [BACKFILL] 버퍼 추가 스킵 (재평가 모드) | ts=2026-09-29 09:10:00+00:00 | close=753
+2026-09-30 19:50:10 INFO core.strategy_engine | 📊 Bar#200 | ts=2026-09-29 09:10:00+00:00 | close=753.00 | ema_fast=755.56 | ema_slow=756.87 | ema_b
+2026-09-30 19:50:10 INFO services.db | [AUDIT-UPDATE] SELL BACKFILL 재평가 2회+ | ticker=KRW-JTO | bar_time=2026-09-29T18:10:00+09:00 | prev_backf
+2026-09-30 19:50:10 INFO engine.live_loop | 🔄 [BACKFILL] 누락 봉 평가 | ts=2026-09-29 18:15:00 KST | close=755
+2026-09-30 19:50:10 INFO core.strategy_engine | [BACKFILL] 버퍼 추가 스킵 (재평가 모드) | ts=2026-09-29 09:15:00+00:00 | close=755

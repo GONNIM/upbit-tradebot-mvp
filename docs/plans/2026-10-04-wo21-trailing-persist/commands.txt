@@ -1,0 +1,23 @@
+WO-21 조사 실행 명령 (2026-10-04 KST). S=세션 scratchpad. 서버 명령은 모두 읽기 전용 (DB mode=ro, journalctl).
+
+## A. 코드 (로컬)
+grep -n "highest_price\|trailing_armed\|trailing_fixed_amount\|trailing_activation_price\|highest_since_entry" core/position_state.py
+sed -n 40,55p core/position_state.py ; sed -n 285,430p core/position_state.py
+sed -n "$(grep -n 'class TrailingStopFilter' core/filters/sell_filters.py | cut -d: -f1),+150p" core/filters/sell_filters.py
+grep -rn "highest_price\|trailing_armed\|trailing_fixed_amount\|trailing_activation_price\|highest_since_entry" core engine services pages
+sed -n 1840,1865p core/strategy_engine.py ; sed -n 1925,1945p core/strategy_engine.py ; grep -n "ts_armed=" core/strategy_engine.py services/db.py
+sed -n 60,80p services/invariant_monitor.py ; sed -n 115,150p services/invariant_monitor.py
+sed -n 288,318p core/strategy_engine.py ; sed -n 628,640p engine/live_loop.py
+grep -n "meta" services/db.py ; sed -n 2703,2830p services/db.py ; sed -n 610,632p engine/order_reconciler.py
+L=$(grep -n 'def _boot_seed_recover_from_wallet' engine/live_loop.py | cut -d: -f1); sed -n "${L},$((L+30))p" engine/live_loop.py
+bash $S/wo21_quotes.sh > docs/plans/2026-10-04-wo21-trailing-persist/code-quotes.md
+
+## B. 데이터 (서버)
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo21_b.py        # A2 meta·audit_sell_eval·invariant_snapshots, B1 기동·보유, B3 TRAILING 매도
+ssh root@orionhunter7.cafe24.com 'python3 -' < $S/wo21_b2.py       # B2 09-30 18:02·19:44 전후 상세
+ssh root@orionhunter7.cafe24.com "sqlite3 'file:...?mode=ro' \"invariant_snapshots 기동 직전·직후 1행씩 ...\"; journalctl ... 18:10:34~19:44:28 Bar# ; 19:44:28~19:50:40 BACKFILL"   # B2 전후 표
+
+## D. 묶음 (zip 미추적, 커밋 없음)
+(cd docs/plans/2026-10-04-wo21-trailing-persist && zip -qr wo21-invest-20261004.zip report.md code-quotes.md commands.txt results)
+unzip -l docs/plans/2026-10-04-wo21-trailing-persist/wo21-invest-20261004.zip
+git check-ignore -v docs/plans/2026-10-04-wo21-trailing-persist/wo21-invest-20261004.zip

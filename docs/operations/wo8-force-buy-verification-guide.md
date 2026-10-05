@@ -279,10 +279,11 @@ python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <
 
 | 번호 | 항목 | 확인 내용 |
 |---|---|---|
-| 8 | WO-20 boot_seed 복원 | 그 기동에서 ① `[POSITION-APPLY] source=boot_seed … ts=<시각>` 1줄과 `🔁 Position recovered \| avg_price=… (출처: wallet) …` 1줄 ② `[BOOT-SEED] 봇 주문의 체결 시각 없음` WARNING 0건, `P3 boot seed 시각 복원 실패` 0건 ③ ① 의 `ts` 가 그 포지션 매수 주문의 체결 시각(`orders.executed_at`, WO-20 이전 주문은 `updated_at`)과 같음 ④ ① 의 `avg_price` 가 지갑 값(직전 `[POS-SYNC] avg_price 복구 성공 … avg_price=…`)과 같음 ⑤ 첫 SELL 평가가 정상 진행(`[MIN_HOLDING_CHECK] bars_held=` 양수, audit 보정 시 `audit fallback=` 줄) |
+| 8 | WO-20 boot_seed 복원 | 그 기동에서 ① `[POSITION-APPLY] source=boot_seed … ts=<시각>` 1줄과 `🔁 Position recovered \| avg_price=… (출처: wallet) …` 1줄 ② `[BOOT-SEED] 봇 주문의 체결 시각 없음` WARNING 0건, `P3 boot seed 시각 복원 실패` 0건 ③ ① 의 `ts` 가 그 포지션 매수 주문의 체결 시각(`orders.executed_at`, WO-20 이전 주문은 `updated_at`)과 같음 ④ ① 의 `avg_price` 가 지갑 값(직전 `[POS-SYNC] avg_price 복구 성공 … avg_price=…`)과 같음 ⑤ 첫 SELL 평가가 정상 진행(`[MIN_HOLDING_CHECK] bars_held=` 양수, audit 보정 시 `audit fallback=` 줄) ⑥ **(WO-21 보강, 배포 뒤 적용)** 보유 중 재시작 시 `[TRAILING-RESTORE] armed=… peak=… fixed=… activation=… 기준 봉 n개 시작=…` 1줄이 있고(또는 `재계산 불가 → 초기화 \| 사유=…` 1줄), 그 armed·peak 가 재시작 직전 `invariant_snapshots` 의 `trailing_armed`·`highest_price` 와 일치 (스냅샷은 봉 평가 직전 기록 — 재시작 전 마지막 행) |
 
 - 같은 기동의 `[POS-SYNC] entry_ts 도 함께 복구 (sync 시각)` · `[POS-SYNC] avg_price 복구 성공` 은 WARNING 수준이지만 지갑 동기화의 정상 기록이다(이어서 boot_seed 가 entry_ts 를 주문 시각으로 덮는다). ② 의 "WARNING 0건" 대상이 아니다.
 - 정체 포지션 판정의 `entry_time=` 은 보유 시간이 기준 시간을 넘은 봉에서만 `[STALE_POSITION_CHECK]` 줄에 찍힌다. 그 전에는 ① 의 `ts` 로 판정한다.
+- ⑥ 대조 명령: `sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' "SELECT timestamp, trailing_armed, highest_price FROM invariant_snapshots WHERE ticker='KRW-JTO' AND timestamp < '<재시작 시각>' ORDER BY id DESC LIMIT 1;"` 와 journal `grep -F '[TRAILING-RESTORE]'`. 단, 재시작 직전 무장이 BACKFILL 오염(매수 전 봉 재평가)으로 생긴 것이면 일치하지 않는 것이 맞다 (WO-21 조사 보고 B2 정정 사례).
 
 ```bash
 ssh root@orionhunter7.cafe24.com "

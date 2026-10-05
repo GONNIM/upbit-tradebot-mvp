@@ -1,0 +1,128 @@
+test_1_synthetic_replay_equals_realtime (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_1_synthetic_replay_equals_realtime)
+(1) 합성 종가 열: 실시간 경로(update_highest_price → evaluate)와 재계산 결과가 봉마다 같다. ... ERROR
+test_2_real_A_20261002 (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_2_real_A_20261002)
+(2) 실데이터 A: 10-02 08:00:14 봇 매수(734) ~ 09:30 매도. 무장은 09:15:11 실시간 평가(BACKFILL 없음). ... /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py:38: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/fixtures/wo21_jto_5m_20261002.json' mode='r' encoding='utf-8'>
+  d = json.load(open(FIX / name, encoding="utf-8"))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ERROR
+test_3_real_B_20260930_no_pre_buy_bars (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_3_real_B_20260930_no_pre_buy_bars)
+(3) 실데이터 B: 09-30 16:47:09 앱 매수(761) 포지션을 19:44:28 재시작 시점에서 재계산 → 미무장. ... /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py:38: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/fixtures/wo21_jto_5m_20260930.json' mode='r' encoding='utf-8'>
+  d = json.load(open(FIX / name, encoding="utf-8"))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ERROR
+test_3c_real_C_20261003 (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_3c_real_C_20261003)
+(3-C) 실데이터 C: 10-03 09:18:47 앱 매수(710) → 20:05 TRAILING_STOP_FIXED 매도. 전 구간 5분봉. ... /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py:38: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/fixtures/wo21_jto_5m_20261003.json' mode='r' encoding='utf-8'>
+  d = json.load(open(FIX / name, encoding="utf-8"))
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ERROR
+test_4_hts_buy_add_uses_bars_after_add_and_wallet_avg (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_4_hts_buy_add_uses_bars_after_add_and_wallet_avg)
+(4) 앱 추가 매수가 섞인 포지션: 마지막 HTS_BUY_ADD 뒤 봉만 쓰고 평균가는 지갑 값(105)을 그대로 쓴다. ... ERROR
+test_5_rest_extra_fetch_limit_and_failure (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_5_rest_extra_fetch_limit_and_failure)
+(5) 시작점이 워밍업 봉 밖: 추가 REST 1회(필요 봉 수·end_ts) → 계산. 10회(2000봉) 초과·조회 실패 → 초기화 + WARNING 1줄. ... ERROR
+test_6_unconfirmed_last_bar_excluded (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_6_unconfirmed_last_bar_excluded)
+(6) 끝의 미확정(형성 중) 봉은 제외: 형성 중 봉 종가(110)는 무장 조건이지만 마감 전이면 쓰지 않는다. ... ERROR
+test_7_audit_ts_armed_records_real_value (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_7_audit_ts_armed_records_real_value)
+(7) audit_sell_eval.ts_armed: 무장 봉 1(True), 비무장 봉 0(False). 구 코드는 항상 False. ... 2026-10-04 17:30:50 INFO core.position_state | ✅ [POSITION-APPLY] source=boot_seed qty=100.000000 entry=734.00 bar=330 ts=2026-10-02T08:00:14+09:00
+FAIL
+
+======================================================================
+ERROR: test_1_synthetic_replay_equals_realtime (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_1_synthetic_replay_equals_realtime)
+(1) 합성 종가 열: 실시간 경로(update_highest_price → evaluate)와 재계산 결과가 봉마다 같다.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 95, in test_1_synthetic_replay_equals_realtime
+    from core.trailing_restore import replay_trailing
+ModuleNotFoundError: No module named 'core.trailing_restore'
+
+======================================================================
+ERROR: test_2_real_A_20261002 (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_2_real_A_20261002)
+(2) 실데이터 A: 10-02 08:00:14 봇 매수(734) ~ 09:30 매도. 무장은 09:15:11 실시간 평가(BACKFILL 없음).
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 118, in test_2_real_A_20261002
+    r = _restore(p, _filter(0.015), df, buy, now)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 73, in _restore
+    from core.trailing_restore import restore_trailing_on_boot
+ModuleNotFoundError: No module named 'core.trailing_restore'
+
+======================================================================
+ERROR: test_3_real_B_20260930_no_pre_buy_bars (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_3_real_B_20260930_no_pre_buy_bars)
+(3) 실데이터 B: 09-30 16:47:09 앱 매수(761) 포지션을 19:44:28 재시작 시점에서 재계산 → 미무장.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 131, in test_3_real_B_20260930_no_pre_buy_bars
+    r = _restore(p, _filter(0.010), df, "2026-09-30T16:47:09.091707+09:00", "2026-09-30T19:44:28+09:00",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 73, in _restore
+    from core.trailing_restore import restore_trailing_on_boot
+ModuleNotFoundError: No module named 'core.trailing_restore'
+
+======================================================================
+ERROR: test_3c_real_C_20261003 (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_3c_real_C_20261003)
+(3-C) 실데이터 C: 10-03 09:18:47 앱 매수(710) → 20:05 TRAILING_STOP_FIXED 매도. 전 구간 5분봉.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 146, in test_3c_real_C_20261003
+    r = _restore(p, _filter(0.015), df, buy, now, reason="HTS_BUY")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 73, in _restore
+    from core.trailing_restore import restore_trailing_on_boot
+ModuleNotFoundError: No module named 'core.trailing_restore'
+
+======================================================================
+ERROR: test_4_hts_buy_add_uses_bars_after_add_and_wallet_avg (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_4_hts_buy_add_uses_bars_after_add_and_wallet_avg)
+(4) 앱 추가 매수가 섞인 포지션: 마지막 HTS_BUY_ADD 뒤 봉만 쓰고 평균가는 지갑 값(105)을 그대로 쓴다.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 155, in test_4_hts_buy_add_uses_bars_after_add_and_wallet_avg
+    r = _restore(p, _filter(0.015), df, "2026-10-04T09:21:00+09:00", "2026-10-04T09:40:00+09:00",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 73, in _restore
+    from core.trailing_restore import restore_trailing_on_boot
+ModuleNotFoundError: No module named 'core.trailing_restore'
+
+======================================================================
+ERROR: test_5_rest_extra_fetch_limit_and_failure (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_5_rest_extra_fetch_limit_and_failure)
+(5) 시작점이 워밍업 봉 밖: 추가 REST 1회(필요 봉 수·end_ts) → 계산. 10회(2000봉) 초과·조회 실패 → 초기화 + WARNING 1줄.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 167, in test_5_rest_extra_fetch_limit_and_failure
+    r = _restore(p, _filter(0.015), warm, "2026-10-02T08:00:14+09:00", "2026-10-02T10:15:30+09:00", fetch=fetch)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 73, in _restore
+    from core.trailing_restore import restore_trailing_on_boot
+ModuleNotFoundError: No module named 'core.trailing_restore'
+
+======================================================================
+ERROR: test_6_unconfirmed_last_bar_excluded (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_6_unconfirmed_last_bar_excluded)
+(6) 끝의 미확정(형성 중) 봉은 제외: 형성 중 봉 종가(110)는 무장 조건이지만 마감 전이면 쓰지 않는다.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 193, in test_6_unconfirmed_last_bar_excluded
+    r = _restore(p, _filter(0.015), df, "2026-10-02T09:00:30+09:00", "2026-10-02T09:12:00+09:00")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 73, in _restore
+    from core.trailing_restore import restore_trailing_on_boot
+ModuleNotFoundError: No module named 'core.trailing_restore'
+
+======================================================================
+FAIL: test_7_audit_ts_armed_records_real_value (tests.regressions.test_r_2026_10_04_wo21_trailing_restore.TestWo21TrailingRestore.test_7_audit_ts_armed_records_real_value)
+(7) audit_sell_eval.ts_armed: 무장 봉 1(True), 비무장 봉 0(False). 구 코드는 항상 False.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py", line 220, in test_7_audit_ts_armed_records_real_value
+    self.assertEqual(seen, [False, True])
+AssertionError: Lists differ: [False, False] != [False, True]
+
+First differing element 1:
+False
+True
+
+- [False, False]
++ [False, True]
+
+----------------------------------------------------------------------
+Ran 8 tests in 1.823s
+
+FAILED (failures=1, errors=7)
