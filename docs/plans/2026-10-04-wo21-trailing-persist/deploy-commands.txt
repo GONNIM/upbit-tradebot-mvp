@@ -1,0 +1,32 @@
+WO-21 배포 실행 명령 (2026-10-05 KST). S=세션 scratchpad. 서버 명령은 pull·restart 외 모두 읽기 전용, 키 값 미출력.
+
+## 0. 배포 전 확인
+git fetch -q && git rev-parse --short origin/main                                   # ce65f29
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; git rev-parse --short HEAD; systemctl is-active tradebot; systemctl show tradebot -p ExecMainStartTimestamp -p NRestarts"   # e97dec6
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo21d_pre.py      # 이력·포지션(GET /v1/accounts)·사후 확인 9 대조(GET /v1/order)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 08:26:00' ... | grep -E 'LOCKED-QTY|POSITION-SYNC|...'"   # 564 포지션 행방 (09:40 LOCKED-QTY, 09:42 지갑 0)
+
+## 1. 배포
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull 2>&1 | tail -2 && git rev-parse --short HEAD && date '+restart_cmd %F %T' && systemctl restart tradebot && systemctl status tradebot --no-pager | head -5 && systemctl show tradebot -p ExecMainStartTimestamp && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"
+
+## 2. 관찰
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-05 10:54:58'" < $S/wo21d_obs.sh                     # 기동 직후 확인
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && venv/bin/python scripts/wo17s_verify_seed.py '2026-10-05 10:55:06' 769.9659 771.7653 1200 --interval minute1; venv/bin/python scripts/wo17s_verify_seed.py '2026-10-05 10:55:06' 769.9659 771.7653 | head -1"
+ssh -o ServerAliveInterval=60 root@orionhunter7.cafe24.com "sleep 1650; date '+%F %T'"                  # 관찰 종료 대기 (백그라운드)
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-05 10:54:58' '2026-10-05 11:24:59'" < $S/wo21d_obs.sh   # 2(a)~(f)
+(관찰 중 10:59 사건 → 정지·보고 → 운영자 결정: WO-21 통과, WO-22 분리)
+ssh root@orionhunter7.cafe24.com "journalctl ... 10:55:07~10:59:30 ..." ; '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo21d_closed.py   # 사건 근거
+
+## 3. 접속 구간
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 11:24:59' ... AUTO-RESUME·run_live_loop start·결함 태그·매매 건수; systemctl show ... NRestarts"   # → deploy/access.txt
+
+## 4. 문서·묶음
+(파일 도구로 가이드 사후 확증 8 ⑥ 적용 표기·9 결과·10 신설·점검 목록 1~10, deploy-report.md, deploy-commands.txt)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 10:54:58' --until '2026-10-05 14:09:00' ... | grep -E '...'" > deploy/journal-excerpt.txt
+git add docs/operations/wo8-force-buy-verification-guide.md ; git add -f docs/plans/2026-10-04-wo21-trailing-persist/(deploy-report.md deploy-commands.txt deploy)
+git status --short | grep -v '^??'
+git commit -F $S/wo21done_msg.txt
+git log --oneline origin/main..HEAD          # push 대상 1개
+git push origin main
+(scratchpad 묶음 폴더: report.md=deploy-report.md + 사건 증거 incident/ → wo21-deploy-20261005.zip, 미추적)
+서버 pull 없음.

@@ -1,0 +1,11 @@
+ create mode 100644 tests/regressions/fixtures/wo21_jto_5m_20261003.json
+ create mode 100644 tests/regressions/test_r_2026_10_04_wo21_trailing_restore.py
+ce65f29
+restart_cmd 2026-10-05 10:54:58
+● tradebot.service - Upbit Tradebot MVP v1
+     Loaded: loaded (/etc/systemd/system/tradebot.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/tradebot.service.d
+             └─override.conf, wo12-boot.conf
+     Active: active (running) since Mon 2026-10-05 10:54:59 KST; 17ms ago
+ExecMainStartTimestamp=Mon 2026-10-05 10:54:59 KST
+v1.2026.10.04.1731

@@ -1,0 +1,7 @@
+봉 간격: minute1 (출처: --interval 인자)
+마지막 확정 봉 KST: 2026-10-05 10:54  bars_long=1200
+로그        fast=769.9659 slow=771.7653
+800 재현    fast=769.9659 slow=771.7653  (로그와 차이 +0.0000 / +0.0000)
+1200 기준  fast=769.9659 slow=771.7666  (로그와 차이 +0.0000 / +0.0013)
+---
+봉 간격: minute1 (출처: params JSON /root/upbit-tradebot-mvp/mcmax33_latest_params_EMA.json)

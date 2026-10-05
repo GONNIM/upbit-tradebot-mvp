@@ -1,0 +1,20 @@
+14:08:49
+2026-10-05 14:08:13 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T10:55:05.632867+09:00 mode=LIVE
+AUTO-RESUME skip: 1 run_live_loop start: 0 Bar#: 97
+' ERROR ': 0
+'Traceback': 0
+'CRITICAL': 0
+'Missing file': 0
+'database is locked': 0
+'[POS-DESYNC] class=': 0
+'과거 봉 검증 실패': 0
+'불일치 발견': 0
+'[TRAILING-RESTORE]': 0
+'[LOCKED-QTY]': 0
+'[POSITION-SYNC]': 0
+'action=SELL': 0
+'action=BUY': 0
+'[OR] final': 0
+NRestarts=0
+ExecMainStartTimestamp=Mon 2026-10-05 10:54:59 KST
+ce65f29

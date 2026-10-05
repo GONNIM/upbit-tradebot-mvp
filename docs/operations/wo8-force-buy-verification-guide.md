@@ -135,7 +135,7 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ### 세션 개시 정기 점검 조회 명령
 
-> **세션 개시 정기 점검 목록 (2026-10-04 추가)**: 사후 확인 1~9, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령).
+> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10번 편입)**: 사후 확인 1~10, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령).
 
 ```bash
 ssh root@orionhunter7.cafe24.com "
@@ -279,7 +279,7 @@ python3 scripts/wo17s_verify_seed.py "<기동 [WARMUP] 시각 KST>" <ema_fast> <
 
 | 번호 | 항목 | 확인 내용 |
 |---|---|---|
-| 8 | WO-20 boot_seed 복원 | 그 기동에서 ① `[POSITION-APPLY] source=boot_seed … ts=<시각>` 1줄과 `🔁 Position recovered \| avg_price=… (출처: wallet) …` 1줄 ② `[BOOT-SEED] 봇 주문의 체결 시각 없음` WARNING 0건, `P3 boot seed 시각 복원 실패` 0건 ③ ① 의 `ts` 가 그 포지션 매수 주문의 체결 시각(`orders.executed_at`, WO-20 이전 주문은 `updated_at`)과 같음 ④ ① 의 `avg_price` 가 지갑 값(직전 `[POS-SYNC] avg_price 복구 성공 … avg_price=…`)과 같음 ⑤ 첫 SELL 평가가 정상 진행(`[MIN_HOLDING_CHECK] bars_held=` 양수, audit 보정 시 `audit fallback=` 줄) ⑥ **(WO-21 보강, 배포 뒤 적용)** 보유 중 재시작 시 `[TRAILING-RESTORE] armed=… peak=… fixed=… activation=… 기준 봉 n개 시작=…` 1줄이 있고(또는 `재계산 불가 → 초기화 \| 사유=…` 1줄), 그 armed·peak 가 재시작 직전 `invariant_snapshots` 의 `trailing_armed`·`highest_price` 와 일치 (스냅샷은 봉 평가 직전 기록 — 재시작 전 마지막 행) |
+| 8 | WO-20 boot_seed 복원 | 그 기동에서 ① `[POSITION-APPLY] source=boot_seed … ts=<시각>` 1줄과 `🔁 Position recovered \| avg_price=… (출처: wallet) …` 1줄 ② `[BOOT-SEED] 봇 주문의 체결 시각 없음` WARNING 0건, `P3 boot seed 시각 복원 실패` 0건 ③ ① 의 `ts` 가 그 포지션 매수 주문의 체결 시각(`orders.executed_at`, WO-20 이전 주문은 `updated_at`)과 같음 ④ ① 의 `avg_price` 가 지갑 값(직전 `[POS-SYNC] avg_price 복구 성공 … avg_price=…`)과 같음 ⑤ 첫 SELL 평가가 정상 진행(`[MIN_HOLDING_CHECK] bars_held=` 양수, audit 보정 시 `audit fallback=` 줄) ⑥ **(WO-21, 2026-10-05 10:54:59 배포 뒤 기동부터 적용)** 보유 중 재시작 시 `[TRAILING-RESTORE] armed=… peak=… fixed=… activation=… 기준 봉 n개 시작=…` 1줄이 있고(또는 `재계산 불가 → 초기화 \| 사유=…` 1줄), 그 armed·peak 가 재시작 직전 `invariant_snapshots` 의 `trailing_armed`·`highest_price` 와 일치 (스냅샷은 봉 평가 직전 기록 — 재시작 전 마지막 행) |
 
 - 같은 기동의 `[POS-SYNC] entry_ts 도 함께 복구 (sync 시각)` · `[POS-SYNC] avg_price 복구 성공` 은 WARNING 수준이지만 지갑 동기화의 정상 기록이다(이어서 boot_seed 가 entry_ts 를 주문 시각으로 덮는다). ② 의 "WARNING 0건" 대상이 아니다.
 - 정체 포지션 판정의 `entry_time=` 은 보유 시간이 기준 시간을 넘은 봉에서만 `[STALE_POSITION_CHECK]` 줄에 찍힌다. 그 전에는 ① 의 `ts` 로 판정한다.
@@ -315,6 +315,26 @@ ssh root@orionhunter7.cafe24.com "
   sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, side, state, executed_at, canceled_at, updated_at, provider_uuid FROM orders WHERE id > 558 ORDER BY id LIMIT 3;\"
 "
 # ② Upbit 대조는 조회 전용 스크립트(docs/plans/2026-10-02-wo20-executed-at/results/wo20_b3.py 와 같은 GET /v1/order)로 uuid 를 넣어 확인한다.
+```
+
+- 2026-10-05 확인 (WO-21 배포 0단계): 10-04 10:22:33 이후 확정 주문 6건 — 첫 확정 id 559 `CANCELED`(canceled_at 2026-10-04T14:21:12, trades 0, executed_at 없음 — 정상), FILLED 5건(id 560~564) 모두 `executed_at` 이 Upbit `trades[].created_at` 마지막 값과 **0.0초** 차이. `[OR] executed_at 대체` 0건. **사후 확증 9번 통과.**
+
+### 사후 확증 10번 (2026-10-05 WO-21 완결 시 편입)
+
+기준 시각은 WO-21 재시작 시각 `2026-10-05 10:54:58` 이다. 배포 뒤 첫 봇 포지션 1개를 본다. 로그 출처는 `journalctl -u tradebot` 이다.
+
+| 번호 | 항목 | 확인 내용 |
+|---|---|---|
+| 10 | WO-21 무장 로그·ts_armed | 배포 뒤 첫 봇 포지션에서 ① 무장 로그가 이전 형태로 1회 남음: `🔓 Trailing Stop ACTIVATED \| entry=₩… initial_highest=₩…` · `🔒 고정 금액 폭 설정 \| 활성화 수익=₩… × 30% = ₩…` · `🔄 AUTO-SWITCH: Take Profit 도달 (…%) → Trailing Stop 활성화 (고정폭) …` (재생은 로그를 남기지 않으므로 실시간 무장에서만) ② 무장 뒤 봉의 `audit_sell_eval.ts_armed` 가 1, 무장 전 봉은 0 |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  START='2026-10-05 10:54:58'
+  J(){ journalctl -u tradebot --since \"\$START\" --no-pager 2>/dev/null | sed -E 's/^.*\]: //'; }
+  echo '-- (10) 무장 로그 --'
+  J | grep -E 'Trailing Stop ACTIVATED|고정 금액 폭|AUTO-SWITCH' | head -6
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT bar_time, price, highest, ts_armed, triggered, trigger_key FROM audit_sell_eval WHERE ticker='KRW-JTO' AND timestamp >= '2026-10-05T10:54:58' ORDER BY id LIMIT 40;\"
+"
 ```
 
 ### 기동 이전 봉의 BUY 평가 근거 찾기 (2026-10-02 WO-19 편입)
