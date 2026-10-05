@@ -96,6 +96,7 @@
 ## 6. 묶음
 
 - `deploy-report.md` (이 문서), `deploy-commands.txt`
+- 정정: `deploy/observation-30min.txt` 가 첫 문서 커밋 `3b01141` 에는 0바이트로 들어갔다. 원본 출력에 서버 `cut -c` 가 한글 중간을 바이트 단위로 자른 깨진 바이트가 있었고, 로컬 grep 필터가 출력을 내지 않았다. 후속 커밋에서 같은 원본을 다시 변환해 넣었다. 깨진 글자 1곳은 `�` 로 바꿨다. 판정 수치는 그대로다.
 - `deploy/pre-check.txt` (0단계, 서버 reflog), `deploy/deploy.txt`, `deploy/observation-30min.txt`, `deploy/verify-seed.txt`
 - `deploy/match-1to1.txt` (상설 1:1 대조), `deploy/access.txt`, `deploy/journal-excerpt.txt`
 - 스크립트: `deploy/wo22d_pre.py`, `deploy/wo22d_obs.sh`, `deploy/wo22d_match.py`

@@ -1,0 +1,45 @@
+2026-10-05 15:48:54
+== 창: 2026-10-05 15:18:44 ~ 2026-10-05 15:48:45 | HEAD=3850794 active=active start=Mon 2026-10-05 15:18:45 KST 버전=v1.2026.10.05.1145
+== (a) 기동
+2026-10-05 15:18:51 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.1s capital≈3,024,675
+2026-10-05 15:18:51 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-05 15:18:51 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute1 interval=60sec
+2026-10-05 15:18:52 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=772.7931 ema_slow=769.1553 ema_base=769.1553 | 마지막 봉=2026-10-05 15:17:00 KST
+2026-10-05 15:18:52 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=198 inserted=1 updated_placeholder=1
+   BOOT-RESUME success 1  시드 long_history bars=800 1  sma200 0  긴 이력 시드 실패 0  감사 행 보존 1
+== (b) 재계산 경로 — 코드 존재 확인 후 건수
+/root/upbit-tradebot-mvp/core/trailing_restore.py:13:   초과·실패 시 초기 상태로 두고 "[TRAILING-RESTORE] 재계산 불가 → 초기화 
+/root/upbit-tradebot-mvp/core/trailing_restore.py:15:5. 결과는 "[TRAILING-RESTORE] armed=… peak=… fixed=… activation=… 기준 봉 n개 시�
+/root/upbit-tradebot-mvp/core/trailing_restore.py:102:    logger.warning(f"[TRAILING-RESTORE] 재계산 불가 → 초기화 | 사유={reason}")
+/root/upbit-tradebot-mvp/core/trailing_restore.py:132:        logger.info("[TRAILING-RESTORE] 건너뜀 | 사유=trailing 필터 꺼짐")
+/root/upbit-tradebot-mvp/core/trailing_restore.py:182:        f"[TRAILING-RESTORE] armed={position.trailing_armed} peak={_f(position.highest_price)} "
+/root/upbit-tradebot-mvp/engine/live_loop.py:1223:                        logger.warning(f"[TRAILING-RESTORE] 재계산 불가 → 초기화 | 사유=
+   [TRAILING-RESTORE] 전체 0  armed= 0  재계산 불가 0  예외 0  건너뜀 0
+   기동 포지션: POS-SYNC 0  boot_seed 0  BOOT-SEED 0
+== (d) 결함 태그
+   ' ERROR ': 0
+   'Traceback': 0
+   '[POS-DESYNC] class=': 0
+   'Upbit에 없는 timestamp': 0
+   '불일치 발견': 0
+   '과거 봉 검증 실패': 0
+   'database is locked': 0
+   '[LOCKED-QTY]': 0
+   'CRITICAL': 0
+   VERIFY WARNING 줄: 0  외부 스캐너(따로): Missing file 0  MediaFileStorageError 0
+== (e) Bar# / 조정 / BACKFILL
+   봉 확정 고유 30  Bar# 22  거래 없음 고유 8  처음·끝: 15:19:11 Bar#201 15:48:11 Bar#222 
+   조정 400 수신:      31 400 
+   BACKFILL '누락 봉 평가 시작' 0  '누락 봉 평가 |' 0  '미확정 봉 제외' 0
+== (f) 봇 매수·무장·ts_armed
+   EMA Buy Signal 0  action=BUY 0  action=SELL 0  [OR] final 0  ACTIVATED 0  AUTO-SWITCH 0
+== WO-22 경로 — 코드 존재 확인 후 건수
+506:            logger.info(f"[POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty={qty} entry={entry_price}")
+610:                                        f"[POSITION-SYNC] orders 마지막 봇 BUY 수량 불일치 → 진입가로 쓰지 않음 | "
+615:                            logger.info(f"[POSITION-SYNC] entry_price={entry_price} (출처: {source})")
+   [POSITION-SYNC] entry_price= 0  외부 매도 기록 0  수량 불일치 0  외부 매수 감지 0  강제 포지션 종료 0
+2026-10-05 15:30:56 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-BIRB | total(가용+묶임): 0.000000 → 1241.259372 (Δ=1241.259372) | 가용=1241.259372 묶임=0.000000 | avg_price=
+2026-10-05 15:32:58 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-BIRB | total(가용+묶임): 1241.259372 → 8599.807648 (Δ=7358.548276) | 가용=8599.807648 묶임=0.000000 | avg
+2026-10-05 15:36:03 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-SUI | total(가용+묶임): 0.000000 → 454.642926 (Δ=454.642926) | 가용=454.642926 묶임=0.000000 | avg_price=1657
+== 대시보드 접속 표식
+2026-10-05 15:36:13 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T15:18:51.222510+09:00 mode=LIVE
