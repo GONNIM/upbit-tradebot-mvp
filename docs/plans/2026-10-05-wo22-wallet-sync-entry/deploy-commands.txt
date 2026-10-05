@@ -1,0 +1,32 @@
+WO-22 배포 실행 명령 (2026-10-05 KST). S=세션 scratchpad. 서버 명령은 pull·restart 외 모두 읽기 전용, 키 값 미출력.
+
+## 0. 배포 전 확인
+git fetch -q && git rev-parse --short origin/main                                   # 3850794
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo22d_pre.py      # 이력·포지션(GET /v1/accounts)·사후 확인 9 대조(GET /v1/order)
+
+## 1. 배포
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull 2>&1 | tail -2 && git rev-parse --short HEAD && git merge-base --is-ancestor dfc075f HEAD && echo 'dfc075f 포함' && date '+restart_cmd %F %T' && systemctl restart tradebot && systemctl status tradebot --no-pager | head -5 && systemctl show tradebot -p ExecMainStartTimestamp && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"
+
+## 2. 관찰
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-05 15:18:44'" < $S/wo22d_obs.sh                     # 기동 직후 확인
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && venv/bin/python scripts/wo17s_verify_seed.py '<시드 시각>' 772.7931 769.1553 1200 --interval minute1"   # → deploy/verify-seed.txt
+ssh -o ServerAliveInterval=60 root@orionhunter7.cafe24.com "sleep 1740; date '+%F %T'"                  # 관찰 종료 대기 (백그라운드, 15:48:36 종료)
+ssh root@orionhunter7.cafe24.com "date '+%F %T'; bash -s -- '2026-10-05 15:18:44' '2026-10-05 15:48:45'" < $S/wo22d_obs.sh   # → deploy/observation-30min.txt
+ssh root@orionhunter7.cafe24.com "python3 - '2026-10-05 15:18:44' '2026-10-05 15:48:45'" < $S/wo22d_match.py                 # 상설 1:1 대조
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 15:35:00' --until '2026-10-05 15:38:00' --no-pager | grep -E 'AUTO-RESUME|HTS-DETECT|POSITION|...'; sqlite3 'file:…/tradebot_mcmax33.db?mode=ro' 'select * from account_positions'; … audit_trades since 15:18"   # 15:36 접속·다른 종목 앱 매수 확인
+
+## 3. 접속 구간 (운영자 접속 16:15)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 15:48:45' … | grep -E 'AUTO-RESUME|run_live_loop start|BOOT-RESUME'; … 결함 태그 건수; git rev-parse --short HEAD; systemctl show tradebot -p ExecMainStartTimestamp"
+ssh root@orionhunter7.cafe24.com "python3 - '2026-10-05 15:48:45' '2026-10-05 16:15:52'" < $S/wo22d_match.py                 # 접속 구간 1:1 대조 (참고)
+ssh root@orionhunter7.cafe24.com "git -C /root/upbit-tradebot-mvp reflog -3 --date=iso; systemctl show tradebot -p NRestarts"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-05 15:18:44' --until '2026-10-05 16:16:30' --no-pager | grep -E 'BOOT|WARMUP|…'"   # → deploy/journal-excerpt.txt
+
+## 4. 문서·묶음
+(파일 도구로 deploy-report.md, deploy-commands.txt, deploy/access.txt 작성)
+git add -f docs/plans/2026-10-05-wo22-wallet-sync-entry/(deploy-report.md deploy-commands.txt deploy/ 하위 파일 개별 지정)
+git status --short | grep -v '^??'
+git commit -F $S/wo22done_msg.txt
+git log --oneline origin/main..HEAD          # push 대상 확인 (WO-24 147efea · 5cf88ad + 이 커밋)
+git push origin main
+(wo22-deploy-20261005.zip, 미추적)
+서버 pull 없음.

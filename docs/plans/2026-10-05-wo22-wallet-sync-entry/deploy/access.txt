@@ -1,0 +1,23 @@
+WO-22 접속 구간 확인 (서버 읽기 전용, 조회 2026-10-05 16:15:52 KST)
+
+[관찰 창 안 접속 — 15:36, 우리 측 접속 아님]
+15:36:13 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T15:18:51.222510+09:00 mode=LIVE
+15:36:53 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+ - 같은 시간대 투자자 앱 매수 (다른 종목): 15:30:56 KRW-BIRB HTS_BUY, 15:32:58 KRW-BIRB HTS_BUY_ADD, 15:36:03 KRW-SUI HTS_BUY
+ - 접속 주체는 확인하지 못했다 (운영자 회신에 언급 없음). 같은 시각 앱 매수가 있어 투자자 접속으로 추정만 한다.
+
+[운영자 1회 접속]
+16:15:38 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T15:18:51.222510+09:00 mode=LIVE
+화면 버전: v1.2026.10.05.1145 (운영자 육안 확인)
+
+[15:18:44 이후 엔진 기동 횟수]
+'[BOOT] run_live_loop start' 1회 (15:18:51), NRestarts=0
+
+[15:48:45 ~ 16:15:52 (관찰 창 뒤)]
+Bar# 13
+결함 태그 (ERROR, Traceback, CRITICAL, POS-DESYNC, LOCKED-QTY, database is locked) 0
+run_live_loop start 0
+POSITION-SYNC / TRAILING-RESTORE / action=BUY|SELL 0
+1:1 대조: BUY 평가 통과 0, SELL 평가 발동 0, orders 0 (match-1to1.txt 아래쪽)
+
+서버 HEAD 3850794, ExecMainStartTimestamp=Mon 2026-10-05 15:18:45 KST

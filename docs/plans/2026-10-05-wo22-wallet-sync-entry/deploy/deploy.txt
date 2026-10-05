@@ -1,0 +1,12 @@
+ create mode 100644 docs/plans/2026-10-05-wo22-wallet-sync-entry/report.md
+ create mode 100644 tests/regressions/test_r_2026_10_05_wo22_wallet_sync_entry.py
+3850794
+dfc075f 포함
+restart_cmd 2026-10-05 15:18:44
+● tradebot.service - Upbit Tradebot MVP v1
+     Loaded: loaded (/etc/systemd/system/tradebot.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/tradebot.service.d
+             └─override.conf, wo12-boot.conf
+     Active: active (running) since Mon 2026-10-05 15:18:45 KST; 4ms ago
+ExecMainStartTimestamp=Mon 2026-10-05 15:18:45 KST
+v1.2026.10.05.1145

@@ -1,0 +1,30 @@
+Oct 05 15:18:49 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:49 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+Oct 05 15:18:51 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:51 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.1s capital≈3,024,675
+Oct 05 15:18:51 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:51.595 Thread 'run_live_loop_mcmax33_LIVE': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+Oct 05 15:18:51 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:51 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+Oct 05 15:18:51 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:51 INFO engine.live_loop | ✅ [HTS-DETECT] LIVE user mcmax33 registered for periodic balance sync (interval=60s)
+Oct 05 15:18:51 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:51 INFO engine.live_loop | [WARMUP] Required bars: 200
+Oct 05 15:18:51 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:51 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute1 interval=60sec
+Oct 05 15:18:51 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:51 INFO engine.live_loop | [WARMUP] REST 초기 데이터 요청 (attempt 1/5) | count=801 (마지막 봉 제거 예정)...
+Oct 05 15:18:52 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:52 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 성공 (attempt 1) | bars=801
+Oct 05 15:18:52 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:52 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 완료 | bars=801
+Oct 05 15:18:52 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:52 INFO engine.live_loop | [WARMUP] 형성 중 봉 제거 | ts=2026-10-05 15:18:00 KST elapsed=52s | 최종 봉 수=800 | 최종 마지막 봉=2026-10-05 15:17:00 KST
+Oct 05 15:18:52 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:52 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=772.7931 ema_slow=769.1553 ema_base=769.1553 | 마지막 봉=2026-10-05 15:17:00 KST
+Oct 05 15:18:52 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:18:52 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=198 inserted=1 updated_placeholder=1
+Oct 05 15:19:11 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:19:11 INFO core.strategy_engine | 📊 Bar#201 | ts=2026-10-05 06:18:00+00:00 | close=781.00 | ema_fast=773.06 | ema_slow=769.27 | ema_base=769.27 | action=HOLD | pos=False
+Oct 05 15:30:56 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:30:56 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-BIRB | total(가용+묶임): 0.000000 → 1241.259372 (Δ=1241.259372) | 가용=1241.259372 묶임=0.000000 | avg_price=87.2
+Oct 05 15:30:56 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:30:56 INFO services.db | 🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker=KRW-BIRB
+Oct 05 15:30:56 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:30:56 INFO engine.order_reconciler | ✅ [HTS-DETECT] audit_trades 기록 완료 | ticker=KRW-BIRB | reason=HTS_BUY | price=87.2
+Oct 05 15:31:11 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:31:11 INFO core.strategy_engine | 📊 Bar#210 | ts=2026-10-05 06:30:00+00:00 | close=772.00 | ema_fast=773.59 | ema_slow=769.78 | ema_base=769.78 | action=HOLD | pos=False
+Oct 05 15:32:58 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:32:58 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-BIRB | total(가용+묶임): 1241.259372 → 8599.807648 (Δ=7358.548276) | 가용=8599.807648 묶임=0.000000 | avg_price=87.2
+Oct 05 15:32:58 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:32:58 INFO services.db | 🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker=KRW-BIRB
+Oct 05 15:32:58 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:32:58 INFO engine.order_reconciler | ✅ [HTS-DETECT] audit_trades 기록 완료 | ticker=KRW-BIRB | reason=HTS_BUY_ADD | price=87.2
+Oct 05 15:36:03 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:36:03 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-SUI | total(가용+묶임): 0.000000 → 454.642926 (Δ=454.642926) | 가용=454.642926 묶임=0.000000 | avg_price=1657.0
+Oct 05 15:36:03 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:36:03 INFO services.db | 🔔 [HTS-DETECT] HTS 매수 플래그 설정 | ticker=KRW-SUI
+Oct 05 15:36:03 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:36:03 INFO engine.order_reconciler | ✅ [HTS-DETECT] audit_trades 기록 완료 | ticker=KRW-SUI | reason=HTS_BUY | price=1657.0
+Oct 05 15:36:13 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:36:13 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T15:18:51.222510+09:00 mode=LIVE
+Oct 05 15:36:53 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:36:53 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+Oct 05 15:36:53 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:36:53 INFO __main__ | [AuditViewer] base_ema_gap_enabled=False
+Oct 05 15:45:10 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:45:10 INFO core.strategy_engine | 📊 Bar#220 | ts=2026-10-05 06:44:00+00:00 | close=770.00 | ema_fast=772.89 | ema_slow=769.91 | ema_base=769.91 | action=HOLD | pos=False
+Oct 05 15:48:11 orionhunter7.cafe24.com python[2339272]: 2026-10-05 15:48:11 INFO core.strategy_engine | 📊 Bar#222 | ts=2026-10-05 06:47:00+00:00 | close=775.00 | ema_fast=772.93 | ema_slow=769.99 | ema_base=769.99 | action=HOLD | pos=False
+Oct 05 16:15:38 orionhunter7.cafe24.com python[2339272]: 2026-10-05 16:15:38 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T15:18:51.222510+09:00 mode=LIVE
