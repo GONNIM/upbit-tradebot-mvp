@@ -143,6 +143,90 @@ def execute_force_buy_limit_atomic(
     return result
 
 
+def convert_unfilled_limit_buy(
+    *,
+    user_id: str,
+    ticker: str,
+    limit_price: float,
+    remaining_qty: float,
+    executed_qty: float,
+    executed_avg: float,
+    orig_uuid: str,
+    meta: "Dict[str, Any]",
+    price_fetcher=None,
+) -> "Dict[str, Any]":
+    """
+    ✅ WO-24 (2026-10-05): 현재가 매수가 대기 봉 안에 체결되지 않아 취소 확정됐을 때 "미체결 시 시장가 전환".
+
+    - 옵션: buy_conditions.fixed_price_unfilled_to_market (없으면 config.UNFILLED_TO_MARKET_DEFAULT),
+            buy_conditions.fixed_price_convert_max_gap_pct (없으면 config.UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT, %)
+    - 현재가 ≤ 주문가 × (1 + 허용 %) 일 때만 남은 수량을 기존 시장가 매수(trader.buy_market, KRW = 남은 수량 × 현재가)로 산다.
+    - 엔진 실행 락 아래에서 발주 + apply_entry(source="bot_market_convert") (WO-8b 원자 경로와 같은 락).
+      부분 체결분이 있으면 (부분 체결 + 전환) 가중 평균가·합계 수량으로 등록한다.
+    반환: {"enabled", "converted", "reason", "current_price", "gap_pct", "max_gap_pct", "result"}
+    """
+    from config import UNFILLED_TO_MARKET_DEFAULT, UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT
+    with _active_engines_lock:
+        engine = _active_engines.get((user_id, ticker))
+    if engine is None:
+        return {"enabled": False, "converted": False, "reason": "엔진 미가동"}
+
+    cond = getattr(engine.strategy, "buy_conditions", None) or {}
+    enabled = bool(cond.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT))
+    max_gap = float(cond.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT))
+    out = {"enabled": enabled, "converted": False, "reason": "", "current_price": None, "gap_pct": None, "max_gap_pct": max_gap}
+    if not enabled:
+        out["reason"] = "미체결 시 시장가 전환 꺼짐"
+        return out
+
+    if price_fetcher is None:
+        from services.trading_control import get_current_price_from_upbit as price_fetcher
+    cur = price_fetcher(ticker)
+    if not cur or not limit_price:
+        out["reason"] = "현재가 조회 실패"
+        return out
+    gap = (float(cur) / float(limit_price) - 1.0) * 100.0
+    out.update(current_price=float(cur), gap_pct=gap)
+    if gap > max_gap:
+        out["reason"] = f"가격 차이 {gap:.2f}% > 허용 {max_gap:.2f}%"
+        logger.info(f"[UNFILLED-CONVERT] 전환 안 함 | uuid={orig_uuid} {out['reason']} 주문가={limit_price} 현재가={cur}")
+        return out
+
+    from zoneinfo import ZoneInfo as _ZI
+    now = datetime.now(_ZI("Asia/Seoul"))
+    conv_meta = {**(meta or {}), "unfilled_convert": True, "converted_from": orig_uuid}
+    for k in ("is_fixed_price_buy", "fixed_price_buy", "limit_price"):
+        conv_meta.pop(k, None)
+    with engine._execution_lock:
+        if engine.position.has_position and executed_qty <= 0:
+            out["reason"] = "이미 포지션 보유"
+            return out
+        result = engine.trader.buy_market(float(cur), ticker, ts=now, meta=conv_meta,
+                                          krw_amount=float(remaining_qty) * float(cur))
+        if not result:
+            out["reason"] = "시장가 매수 실패 (trader.buy_market 빈 결과)"
+            logger.warning(f"[UNFILLED-CONVERT] 시장가 매수 실패 | uuid={orig_uuid}")
+            return out
+        mqty, mprice = float(result.get("qty") or 0.0), float(result.get("price") or cur)
+        total = float(executed_qty) + mqty
+        avg = ((float(executed_qty) * float(executed_avg)) + mqty * mprice) / total if total > 0 else mprice
+        engine.position.apply_entry(qty=total, avg_price=avg, entry_bar=engine.bar_count, entry_ts=now,
+                                    source="bot_market_convert")
+        engine._pending_buy_uuid = None
+        engine._pending_buy_bar = None
+        engine._pending_buy_wait_bars = 3
+        try:
+            engine.position.set_pending(False)
+        except Exception:
+            pass
+    out.update(converted=True, reason="전환", result={"uuid": result.get("uuid"), "qty": mqty, "price": mprice})
+    logger.info(
+        f"✅ [UNFILLED-CONVERT] 시장가 전환 | from={orig_uuid} to={result.get('uuid')} 주문가={limit_price} 현재가={cur} "
+        f"차이={gap:.2f}% ≤ 허용 {max_gap:.2f}% | 시장가 qty={mqty:.6f} + 부분 체결 {executed_qty:.6f} → 진입 {total:.6f}@{avg:.4f}"
+    )
+    return out
+
+
 class StrategyEngine:
     """
     증분 기반 전략 엔진 (Backtest 없음)
@@ -1279,6 +1363,7 @@ class StrategyEngine:
             # ✅ SP6 — 대기 봉 수 (사용자 conditions, 기본 3)
             wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
             wait_bars = max(1, min(5, wait_bars))  # 안전 클램프 1~5
+            meta["wait_bars"] = wait_bars  # ✅ WO-24: 미체결 취소 기록용 (주문 meta)
             effective_interval_sec = self.interval_sec * wait_bars
             logger.info(
                 f"🎯 [FIXED-PRICE] 고정가 매수 모드 진입 | "

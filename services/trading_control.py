@@ -295,6 +295,7 @@ def force_buy_in(
         meta["fixed_price_buy"] = True
         wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
         wait_bars = max(1, min(5, wait_bars))
+        meta["wait_bars"] = wait_bars  # ✅ WO-24: 미체결 취소 기록용 (주문 meta)
         effective_interval_sec = interval_sec * wait_bars
         logger.info(
             f"🎯 [FIXED-PRICE][FORCE] 고정가 강제 매수 진입 | "

@@ -66,6 +66,11 @@ AUDIT_BUY_COOLDOWN_BARS = 0     # 동일 상태에서 최소 대기 bar 수 (0 =
 AUDIT_SELL_SAMPLE_N = 60         # (SELL 평가 샘플링 간격; 필요 시)
 AUDIT_SELL_COOLDOWN_BARS = 0    # SELL 평가 쿨다운 (0 = 샘플링 제거)
 
+# ✅ WO-24 (2026-10-05): 현재가 매수 미체결 시 시장가 전환 — 설정 파일에 값이 없을 때의 기본값.
+#   기본값(켬/끔)은 운영자 결정이 올 때까지 끔. 결정이 오면 아래 한 줄만 바꾼다.
+UNFILLED_TO_MARKET_DEFAULT = False
+UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT = 0.3   # 전환 허용 가격 차이 % (현재가 ≤ 주문가 × (1 + 0.3%) 일 때만 전환)
+
 # 엔진 실행 모드: 
 # - "BACKTEST" : 지금처럼 _run_backtest_once만 사용
 # - "REPLAY"   : run_replay_on_dataframe(...) 기반으로 동작

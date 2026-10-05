@@ -796,10 +796,12 @@ elif section == "sell":
 elif section == "trades":
     st.subheader(f"💹 체결 (audit_trades) - {INDICATOR_DISPLAY_NAME} 전략")
     # ✅ WO-9 (e): 유형 필터 — 매수 / 매도 / 거절(발주 거절, 체결 아님)
-    _kind_options = ["매수", "매도", "거절"]
+    # ✅ WO-24: "미체결 취소" = 현재가 매수가 대기 봉 안에 체결되지 않아 자동 취소된 건 (체결 아님)
+    _kind_options = ["매수", "매도", "거절", "미체결 취소"]
     _kind_sel = st.multiselect(
         "유형 필터", _kind_options, default=_kind_options, key="trades_kind_filter",
-        help="거절 = 거래소가 봇 주문을 받지 않은 건 (체결 아님, 손익 집계 제외)",
+        help="거절 = 거래소가 봇 주문을 받지 않은 건 (체결 아님, 손익 집계 제외) · "
+             "미체결 취소 = 현재가 매수가 대기 봉 안에 체결되지 않아 자동 취소된 건 (체결 아님)",
     )
     df_tr = fetch_trades_audit(user_id, ticker=ticker or None, limit=rows) or []
     if df_tr:
@@ -908,10 +910,17 @@ elif section == "trades":
             )
 
         # ✅ WO-9 (e): 거절 행 옅은 붉은 배경 (아이콘 ⛔ + 글자와 함께 — 색만으로 구분하지 않음)
+        # ✅ WO-24: 미체결 취소 행 옅은 노란 배경 (아이콘 ⏱ + 글자와 함께 — 거절과 구분)
         _reject_mask = (df_tr["_kind"] == "거절").tolist()
+        _unfilled_mask = (df_tr["_kind"] == "미체결 취소").tolist()
 
         def _style_reject_rows(row):
-            _bg = "background-color: rgba(229, 57, 53, 0.15)" if _reject_mask[row.name] else ""
+            if _reject_mask[row.name]:
+                _bg = "background-color: rgba(229, 57, 53, 0.15)"
+            elif _unfilled_mask[row.name]:
+                _bg = "background-color: rgba(251, 192, 45, 0.18)"
+            else:
+                _bg = ""
             return [_bg] * len(row)
 
         st.dataframe(

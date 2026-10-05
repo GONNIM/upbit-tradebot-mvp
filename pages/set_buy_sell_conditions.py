@@ -9,6 +9,8 @@ from config import (
     STRATEGY_TYPES,         # ✅ 전략 리스트 (예: ["MACD", "EMA"])
     DEFAULT_STRATEGY_TYPE,  # ✅ 기본 전략 타입
     PARAMS_JSON_FILENAME,   # ✅ 파라미터 파일명
+    UNFILLED_TO_MARKET_DEFAULT,             # ✅ WO-24: 미체결 시 시장가 전환 기본값
+    UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT,  # ✅ WO-24: 전환 허용 가격 차이 % 기본값
 )
 from engine.params import (
     load_params,
@@ -221,6 +223,13 @@ def load_conditions():
             st.session_state["fixed_price_buy_wait_bars"] = int(
                 buy_saved.get("fixed_price_buy_wait_bars", 3)
             )
+            # ✅ WO-24: 미체결 시 시장가 전환 (없으면 config 기본값)
+            st.session_state["fixed_price_unfilled_to_market"] = bool(
+                buy_saved.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)
+            )
+            st.session_state["fixed_price_convert_max_gap_pct"] = float(
+                buy_saved.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)
+            )
 
             # ✅ Stale Position 파라미터 로드
             st.session_state["stale_hours"] = sell_saved.get("stale_hours", 1.0)
@@ -251,6 +260,9 @@ def load_conditions():
         st.session_state.setdefault("use_fixed_trailing", False)  # ✅ 고정폭 모드 기본값
         # ✅ 2026-08-05: 고정가 매수 대기 봉수 기본값 (파일 없음 케이스, 파일 로드 케이스와 대칭)
         st.session_state.setdefault("fixed_price_buy_wait_bars", 3)
+        # ✅ WO-24: 미체결 시 시장가 전환 기본값 (config)
+        st.session_state.setdefault("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)
+        st.session_state.setdefault("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)
 
 
 # --- 상태 저장하기 ---
@@ -268,6 +280,13 @@ def save_conditions():
     if st.session_state.get("fixed_price_buy_enabled", False):
         conditions["buy"]["fixed_price_buy_wait_bars"] = int(
             st.session_state.get("fixed_price_buy_wait_bars", 3)
+        )
+        # ✅ WO-24: 미체결 시 시장가 전환 + 허용 가격 차이 %
+        conditions["buy"]["fixed_price_unfilled_to_market"] = bool(
+            st.session_state.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)
+        )
+        conditions["buy"]["fixed_price_convert_max_gap_pct"] = float(
+            st.session_state.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)
         )
 
     # ✅ Stale Position 파라미터 추가 저장 (EMA 전략만)
@@ -654,6 +673,31 @@ if len(BUY_FILTERS) > 0:
                 ),
             )
             st.session_state["fixed_price_buy_wait_bars"] = int(wait_bars)
+
+            # ✅ WO-24: 미체결 시 시장가 전환 (기존 대기 시간 계산 재사용 — _h_interval)
+            _conv_on = st.checkbox(
+                "미체결 시 시장가 전환",
+                value=bool(st.session_state.get("fixed_price_unfilled_to_market", UNFILLED_TO_MARKET_DEFAULT)),
+                key=f"input_fixed_price_unfilled_to_market_{strategy_tag}",
+            )
+            st.session_state["fixed_price_unfilled_to_market"] = bool(_conv_on)
+            _conv_gap = st.number_input(
+                "전환 허용 가격 차이 (%)",
+                min_value=0.0, max_value=5.0, step=0.1,
+                value=float(st.session_state.get("fixed_price_convert_max_gap_pct", UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT)),
+                key=f"input_fixed_price_convert_max_gap_pct_{strategy_tag}",
+                disabled=not _conv_on,
+            )
+            st.session_state["fixed_price_convert_max_gap_pct"] = float(_conv_gap)
+            _wait_text = (
+                f" (현재 {_h_interval / 60:g}분봉 기준 대기 {int(wait_bars)}봉 ≈ {int(wait_bars) * _h_interval / 60:g}분)"
+                if _h_interval else ""
+            )
+            st.caption(
+                f"현재가 매수가 대기 봉 안에 체결되지 않으면 시장가로 전환합니다. "
+                f"현재가가 주문가보다 {float(_conv_gap):g}% 이상 높으면 전환하지 않고 취소합니다.{_wait_text}"
+                + ("" if _conv_on else " — 지금은 꺼져 있어 미체결이면 취소만 합니다.")
+            )
 
             if mode != "LIVE":
                 st.warning(

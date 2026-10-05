@@ -323,6 +323,13 @@ class OrderReconciler:
                     exec_ts_iso=exec_ts_iso,
                 )
 
+            # ✅ WO-24: 현재가 매수 timeout 취소 확정 → 매수 미체결 취소 기록 (+ 옵션이 켜져 있으면 시장가 전환)
+            if side == "BUY" and db_state == "CANCELED":
+                with self._lock:
+                    _p = dict(self._pending.get(uuid) or {})
+                if _p.get("timeout_cancel"):
+                    self._on_timeout_cancel_final(uuid, user_id, ticker, info, exec_volume, avg_price, _p)
+
             with self._lock:
                 self._pending.pop(uuid, None)
 
@@ -346,6 +353,68 @@ class OrderReconciler:
             )
         except Exception as e:
             logger.warning(f"[OR] progress update failed uuid={uuid}: {e}")
+
+    def _on_timeout_cancel_final(self, uuid, user_id, ticker, info, exec_volume, avg_price, pending):
+        """
+        ✅ WO-24 (2026-10-05): 현재가 매수(LIMIT BUY)가 대기 봉 timeout 으로 취소 확정됐을 때.
+        1) 옵션 "미체결 시 시장가 전환" 이 켜져 있으면 (강제 매수 제외) 남은 수량을 시장가로 전환 시도
+           (core.strategy_engine.convert_unfilled_limit_buy — 엔진 실행 락 아래 기존 시장가 매수 + apply_entry)
+        2) audit_trades 에 type='BUY_CANCELED'(화면 "⏱ 매수 미체결 취소") 1행: 주문가·주문 수량·체결 수량·대기·사유·uuid.
+           손익 집계(type='SELL')·매수 기록(type='BUY')에는 들어가지 않는다.
+        """
+        import json as _json
+        meta = pending.get("meta") or {}
+        tmo = pending.get("timeout_cancel") or {}
+        limit_price = float(meta.get("limit_price") or info.get("price") or 0.0)
+        try:
+            order_qty = float(info.get("volume") or 0.0)
+        except Exception:
+            order_qty = 0.0
+        exec_qty = float(exec_volume or 0.0)
+        remaining = max(order_qty - exec_qty, 0.0)
+        wait_bars = meta.get("wait_bars")
+        waited = float(tmo.get("elapsed") or 0.0)
+        is_force = (meta.get("reason") == "force_buy")
+        base_reason = (f"대기 {int(wait_bars)}봉 내 체결 없음" if wait_bars else f"대기 {waited:.0f}초 내 체결 없음")
+        if exec_qty > 0:
+            base_reason = (f"대기 {int(wait_bars)}봉 내 일부만 체결" if wait_bars else f"대기 {waited:.0f}초 내 일부만 체결")
+
+        conv = {"enabled": False, "converted": False, "reason": "강제 매수는 전환 대상 아님" if is_force else ""}
+        if not is_force and remaining > 0:
+            try:
+                from core.strategy_engine import convert_unfilled_limit_buy
+                conv = convert_unfilled_limit_buy(
+                    user_id=user_id, ticker=ticker, limit_price=limit_price, remaining_qty=remaining,
+                    executed_qty=exec_qty, executed_avg=float(avg_price or 0.0), orig_uuid=uuid, meta=meta,
+                )
+            except Exception as e:
+                conv = {"enabled": True, "converted": False, "reason": f"전환 처리 예외: {e}"}
+                logger.error(f"[OR] 미체결 시장가 전환 예외 uuid={uuid}: {e}", exc_info=True)
+
+        if conv.get("converted"):
+            outcome = f"→ 시장가 전환 (현재가 {conv.get('current_price')}, 차이 {conv.get('gap_pct', 0):.2f}% ≤ 허용 {conv.get('max_gap_pct', 0):.2f}%)"
+        elif conv.get("enabled"):
+            outcome = f"→ 전환 안 함 ({conv.get('reason')})"
+        else:
+            outcome = f"→ 취소 ({conv.get('reason') or '미체결 시 시장가 전환 꺼짐'})"
+        note = f"{base_reason} {outcome}"
+        try:
+            from services.db import insert_trade_audit
+            insert_trade_audit(
+                user_id=user_id, ticker=ticker, interval_sec=int(meta.get("interval_sec") or 60), bar=meta.get("bar") or 0,
+                kind="BUY_CANCELED", reason="BUY_CANCELED", price=limit_price, macd=meta.get("macd"), signal=meta.get("signal"),
+                entry_price=None, entry_bar=None, bars_held=None, tp=None, sl=None, highest=None, ts_pct=None, ts_armed=None,
+                bar_time=meta.get("bar_time"), qty=order_qty, note=note,
+                meta=_json.dumps({
+                    "uuid": uuid, "order_qty": order_qty, "executed_qty": exec_qty, "remaining_qty": remaining,
+                    "limit_price": limit_price, "wait_bars": wait_bars, "waited_sec": round(waited, 1),
+                    "timeout_sec": tmo.get("timeout_sec"), "orig_reason": meta.get("reason"),
+                    "convert": {k: v for k, v in conv.items() if k != "result"},
+                }, ensure_ascii=False, default=str),
+            )
+            logger.info(f"[OR] 매수 미체결 취소 기록 (audit_trades BUY_CANCELED) | uuid={uuid} {note}")
+        except Exception as e:
+            logger.error(f"[OR] 매수 미체결 취소 기록 실패 uuid={uuid}: {e}")
 
     @staticmethod
     def _final_timestamps(uuid, trades, exec_vol, db_state):
@@ -506,6 +575,11 @@ class OrderReconciler:
         except Exception as e:
             logger.error(f"[OR] cancel_order 실패 uuid={uuid}: {e}")
             return
+
+        # ✅ WO-24: timeout 취소 표식 — 취소 확정(_handle 'cancel') 때 BUY_CANCELED 기록·시장가 전환 판단에 사용
+        with self._lock:
+            if uuid in self._pending:
+                self._pending[uuid]["timeout_cancel"] = {"elapsed": float(elapsed), "timeout_sec": int(timeout_sec)}
 
         # ✅ WO-8 (2026-09-12): reason=force_buy 구분 표기
         _is_force = (meta.get("reason") == "force_buy")

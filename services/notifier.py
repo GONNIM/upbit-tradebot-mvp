@@ -166,6 +166,8 @@ def send(
             timeout=_HTTP_TIMEOUT,
         )
         if resp.status_code == 200:
+            # ✅ WO-24 (2026-10-05): 발송 성공 1줄 — 토큰·채팅 ID 는 적지 않는다
+            logger.info(f"[NOTIFY] sent | kind={level} dedupe={dedupe_key}")
             return True
         logger.warning(
             f"[NOTIFY] Telegram sendMessage 실패 status={resp.status_code} "

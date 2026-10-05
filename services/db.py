@@ -1661,6 +1661,7 @@ _TRADE_TYPE_DISPLAY = {
     "SELL_REJECTED": "⛔ 매도 거절",
     "BUY_REJECTED": "⛔ 매수 거절",
     "HTS_SELL": "외부 매도",  # ✅ WO-22: 지갑 0 닫힘 기록 (앱 매도 등, 가격 미상 — 손익 집계 제외)
+    "BUY_CANCELED": "⏱ 매수 미체결 취소",  # ✅ WO-24: 현재가 매수 대기 봉 timeout 취소 (체결 아님 — 손익·매수 집계 제외)
 }
 
 
@@ -1670,10 +1671,12 @@ def is_reject_type(trade_type: str | None) -> bool:
 
 
 def trade_kind(trade_type: str | None) -> str:
-    """✅ WO-9 (e): 감사 로그 페이지 유형 필터 분류 — "매수" / "매도" / "거절" / "기타"."""
+    """✅ WO-9 (e): 감사 로그 페이지 유형 필터 분류 — "매수" / "매도" / "거절" / "미체결 취소"(WO-24) / "기타"."""
     t = str(trade_type or "").upper()
     if t.endswith("_REJECTED"):
         return "거절"
+    if t == "BUY_CANCELED":
+        return "미체결 취소"
     if t == "BUY":
         return "매수"
     if t in ("SELL", "HTS_SELL"):  # ✅ WO-22: 외부 매도도 "매도" 필터에 포함 (손익 집계는 type='SELL' 만 사용)

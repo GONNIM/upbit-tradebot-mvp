@@ -511,7 +511,8 @@ class UpbitTrader:
     # ---------------------------
     # 매수 / 매도
     # ---------------------------
-    def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None) -> dict:
+    def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None,
+                   krw_amount: Optional[float] = None) -> dict:
         """
         시장가 매수
         - TEST 모드: 즉시 체결 + DB에 completed 기록
@@ -544,6 +545,9 @@ class UpbitTrader:
         # ✅ RATIO-HR: params JSON 최신 order_ratio 반영 (엔진 재시작 불필요)
         risk_pct = self._current_risk_pct()
         krw_to_use = math.floor(avail * risk_pct / (1 + MIN_FEE_RATIO))
+        # ✅ WO-24 (2026-10-05): 미체결 시장가 전환 — 남은 수량만큼의 KRW 로 제한 (지정 시에만, 기본 동작 무변경)
+        if krw_amount is not None:
+            krw_to_use = math.floor(min(float(krw_amount), avail / (1 + MIN_FEE_RATIO)))
 
         if krw_to_use < 5000:
             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
