@@ -1,0 +1,55 @@
+== 창: 2026-10-02 00:00:00 ~ 2026-10-06 13:22:39 | journal 첫 줄: 2026-10-02 00:00:00 | 줄 수 824463
+== 코드 존재 확인 (서버 파일)
+   '[PAUSE] 실주문 스킵' core/strategy_engine.py: 1
+   '주문 진행 중 → 매수 액션 대기' core/strategy_engine.py: 1
+   '[POLLUTED] 지표 오염 상태' core/strategy_engine.py: 1
+   '이미 포지션 보유 중 → BUY 무시' core/strategy_engine.py: 1
+   '[PENDING-REGISTER] 매수 지연 등록' core/strategy_engine.py: 1
+   '[PENDING-EXPIRE]' core/strategy_engine.py: 1
+   '[PENDING-RESOLVE] 유효성 불성립' core/strategy_engine.py: 1
+   '호가 라운딩 실패' core/trader.py: 1
+   '호가 라운딩 비정상' core/trader.py: 1
+   '활성 KRW 잔고 0' core/trader.py: 1
+   '[BUY-LIMIT] {err}' core/trader.py: 3
+   '계산된 수량 0' core/trader.py: 1
+   '[BUY] 주문 불가: 잔고=' core/trader.py: 1
+   '[BUY] 실거래 최소 주문금액 미만' core/trader.py: 1
+   '잔고 부족 중단' core/trader.py: 1
+== journal 건수
+   'EMA Buy Signal': 7
+   'action=BUY': 7
+   '[PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action=BUY': 0
+   '주문 진행 중 → 매수 액션 대기': 0
+   '[POLLUTED] 지표 오염 상태': 0
+   '이미 포지션 보유 중 → BUY 무시': 0
+   '[PENDING-REGISTER] 매수 지연 등록': 0
+   '[PENDING-EXPIRE]': 0
+   '[PENDING-RESOLVE] 유효성 불성립': 0
+   '[BUY-LIMIT] 호가 라운딩 실패': 0
+   '[BUY-LIMIT] 호가 라운딩 비정상': 0
+   '[BUY-LIMIT] 활성 KRW 잔고 0': 0
+   '[BUY-LIMIT] 활성 KRW 부족': 1
+   '[BUY-LIMIT] 계산된 수량 0': 0
+   '[BUY] 주문 불가: 잔고=': 0
+   '[BUY] 실거래 최소 주문금액 미만': 0
+   '잔고 부족 중단': 0
+   '[BUY-LIMIT] plan': 6
+   '[BUY] plan': 0
+   '❌ BUY 실패': 1
+   '[DRY-RUN] buy_': 0
+== 발생 줄 (차단 분기)
+2026-10-06 05:37:12 WARNING core.trader | [BUY-LIMIT] 활성 KRW 부족: 가용=1 계산=0 (최소 5,000 미만)
+2026-10-06 05:37:13 WARNING core.strategy_engine | ❌ BUY 실패
+== audit_buy_eval 통과 행 (KRW-JTO, 실시간, 2026-10-02 00:00:00 이후)
+7
+75021|2026-10-02T03:35:00+09:00|2026-10-02T03:40:12.157886+09:00
+75063|2026-10-02T07:55:00+09:00|2026-10-02T08:00:12.017163+09:00
+76229|2026-10-04T14:15:00+09:00|2026-10-04T14:16:11.877515+09:00
+76327|2026-10-04T17:01:00+09:00|2026-10-04T17:02:12.255000+09:00
+76502|2026-10-04T23:04:00+09:00|2026-10-04T23:05:12.413606+09:00
+76768|2026-10-05T08:24:00+09:00|2026-10-05T08:25:11.873694+09:00
+77602|2026-10-06T05:36:00+09:00|2026-10-06T05:37:12.231279+09:00
+== audit_trades BUY_REJECTED (2026-10-02 00:00:00 이후)
+== audit_buy_eval blocked 주석 (state_polluted 등)
+21|validation_passed|INTEGER|0||0
+22|validation_reason|TEXT|0||0

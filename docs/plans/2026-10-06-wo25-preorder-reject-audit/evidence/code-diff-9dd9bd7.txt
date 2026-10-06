@@ -1,0 +1,597 @@
+commit 9dd9bd74498eaa529c6bebbfd4280c44ae97a441
+Author: GONNIM <suauncle@gmail.com>
+Date:   Tue Oct 6 13:27:19 2026 +0900
+
+    feat(wo25): BUY 평가 통과 뒤 주문 전 봇 안 차단을 audit_trades BUY_REJECTED 로 기록 (v1.2026.10.05.1526 → v1.2026.10.06.1326)
+    
+    - core/trader.py: _audit_reject(note=…) 인자 추가, _audit_preorder_reject 신설 (meta.stage='pre_order', error_name=분기 코드).
+      buy_limit: 호가 라운딩 실패·이탈, KRW 0, KRW 부족(최소 5,000 미만), 수량 0 / buy_market: KRW 0, 최소 주문액 미만 → BUY_REJECTED 1행.
+    - core/strategy_engine.py: _audit_buy_blocked 신설. execute: 매매 일시중지(BUY 만)·앞선 주문 진행 중·지표 오염,
+      _execute_buy: 이미 보유, _audit_wo2_resolution: 지연 매수 미발주(SUPERSEDED·MAX_WAIT_EXCEEDED·SIGNAL_INVERTED) → BUY_REJECTED 1행.
+    - 사유는 사람이 읽는 문구 (예: "매수 가능 KRW 부족 (가용 1원, 주문 비율 적용 주문액 0원 < 최소 5,000원) — 현재가 매수 주문 전 차단").
+    - 판정식·필터·발주·알림 무변경. 감사 로그 페이지는 기존 ⛔ 매수 거절·'거절 사유' 열을 그대로 쓴다 (화면 코드 무변경).
+    - 근거: 10-06 05:37 BUY 평가 통과(77602) 뒤 가용 KRW 1원으로 미발주 — 알림만, 감사 기록 없음.
+    - tests: test_r_2026_10_06_wo25_preorder_reject_audit (17건, 구 코드 13건 실패).
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/core/strategy_engine.py b/core/strategy_engine.py
+index 9d19179..cf597f5 100644
+--- a/core/strategy_engine.py
++++ b/core/strategy_engine.py
+@@ -1059,12 +1059,22 @@ class StrategyEngine:
+         # 근거: docs/plans/2026-07-16-trading-pause/plan.md ("BUY + SELL 모두 중지")
+         if get_trading_paused(self.user_id):
+             logger.info(f"⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action={action.value}")
++            if action == Action.BUY:
++                self._audit_buy_blocked(  # ✅ WO-25
++                    bar.ts, indicators, price=bar.close, code="trading_paused",
++                    note="매매 일시중지 상태 — 매수 주문 전 차단",
++                )
+             return
+ 
+         if action == Action.BUY:
+             # ✅ WO-2: 매수 경로에서만 pending_order 검사. 매도는 이 검사를 건너뛴다.
+             if self.position.pending_order:
+                 logger.warning("⏳ 주문 진행 중 → 매수 액션 대기 (매도 경로는 별도 검사 없음)")
++                self._audit_buy_blocked(  # ✅ WO-25
++                    bar.ts, indicators, price=bar.close, code="order_in_progress",
++                    note="앞선 매수 주문이 진행 중(체결 대기) — 새 매수 주문 전 차단",
++                    extra={"pending_buy_uuid": getattr(self, "_pending_buy_uuid", None)},
++                )
+                 return
+ 
+             # ✅ WO-1 선행 1: state_polluted 게이트 — 신규 매수만 차단, 매도 경로는 계속 실행
+@@ -1087,6 +1097,10 @@ class StrategyEngine:
+                     )
+                 except Exception as _annotate_exc:
+                     logger.warning(f"[POLLUTED] audit annotate 예외 무시: {_annotate_exc}")
++                self._audit_buy_blocked(  # ✅ WO-25
++                    bar.ts, indicators, price=bar.close, code="state_polluted",
++                    note="지표 오염 상태(재시작 전까지 신규 매수 금지) — 매수 주문 전 차단",
++                )
+                 return  # 매수 미실행
+             self._execute_buy_or_defer(bar, indicators)
+         elif action == Action.SELL or action == Action.CLOSE:
+@@ -1287,6 +1301,50 @@ class StrategyEngine:
+                 return float(_bar.close)
+         return None
+ 
++    # ✅ WO-25 (2026-10-06): WO-2 지연 매수가 발주 없이 끝난 사유 → 사람이 읽는 문구
++    _WO2_BLOCK_NOTES = {
++        "SUPERSEDED": "지연 매수 대기 중 새 매수 신호로 교체 — 이전 신호의 매수 주문 전 취소",
++        "MAX_WAIT_EXCEEDED": "지연 매수 대기 시간 초과 — 매수 주문 전 취소",
++        "SIGNAL_INVERTED": "확정 종가로 다시 확인한 결과 매수 신호 불성립 — 매수 주문 전 취소",
++    }
++
++    def _audit_buy_blocked(
++        self,
++        bar_ts,
++        indicators: Optional[Dict[str, Any]],
++        *,
++        code: str,
++        note: str,
++        price: Optional[float] = None,
++        extra: Optional[Dict[str, Any]] = None,
++    ) -> None:
++        """
++        ✅ WO-25 (2026-10-06): BUY 평가 통과(action=BUY) 뒤 주문 요청 전에 엔진이 매수를 막은 경우
++        audit_trades type='BUY_REJECTED' 1행 (감사 로그 ⛔ 매수 거절). 판정·발주 흐름은 바꾸지 않는다.
++        meta 는 _execute_buy 와 같은 모양 (bar·reason·bar_time·지표). 기록 실패는 삼킨다.
++        """
++        try:
++            from zoneinfo import ZoneInfo
++            ind = indicators or {}
++            buy_reason = getattr(self.strategy, "last_buy_reason", None) or (
++                "GOLDEN_CROSS" if self.strategy_type == "MACD" else "EMA_GC"
++            )
++            meta = {
++                "bar": self.bar_count,
++                "reason": buy_reason,
++                "bar_time": bar_ts.astimezone(ZoneInfo("Asia/Seoul")).isoformat() if bar_ts is not None else None,
++                "macd": ind.get("macd"),
++                "signal": ind.get("signal"),
++                "ema_fast": ind.get("ema_fast"),
++                "ema_slow": ind.get("ema_slow"),
++                "interval_sec": self.interval_sec,
++            }
++            self.trader._audit_preorder_reject(
++                ticker=self.ticker, price=price, meta=meta, code=code, note=note, extra=extra,
++            )
++        except Exception as e:
++            logger.warning(f"[AUDIT-REJECT] 엔진 주문 전 차단 기록 예외 무시: {e} | code={code}")
++
+     def _audit_wo2_resolution(
+         self,
+         bar_ts,
+@@ -1296,6 +1354,13 @@ class StrategyEngine:
+         resolved_at,
+     ) -> None:
+         """WO-2 재판정 결과를 audit_buy_eval 에 UPDATE 반영."""
++        # ✅ WO-25: 발주 없이 끝난 지연 매수(취소·교체·불성립)는 audit_trades BUY_REJECTED 로도 남긴다.
++        if validation_passed == 0:
++            _code = str(validation_reason or "UNKNOWN")
++            self._audit_buy_blocked(
++                bar_ts, None, price=confirmed_close, code=f"wo2_{_code.lower()}",
++                note=self._WO2_BLOCK_NOTES.get(_code, f"지연 매수 취소 ({_code}) — 매수 주문 전 취소"),
++            )
+         try:
+             from zoneinfo import ZoneInfo
+             from services.db import update_buy_eval_wo2_resolution
+@@ -1326,6 +1391,10 @@ class StrategyEngine:
+         """
+         if self.position.has_position:
+             logger.warning("⛔ 이미 포지션 보유 중 → BUY 무시")
++            self._audit_buy_blocked(  # ✅ WO-25
++                bar.ts, indicators, price=bar.close, code="already_holding",
++                note="이미 포지션 보유 중 — 매수 주문 전 차단",
++            )
+             return
+ 
+         # 매수 실행
+diff --git a/core/trader.py b/core/trader.py
+index 93249f2..c60188e 100644
+--- a/core/trader.py
++++ b/core/trader.py
+@@ -456,9 +456,11 @@ class UpbitTrader:
+         call: Optional[Dict[str, Any]] = None,
+         meta: Optional[Dict[str, Any]] = None,
+         extra: Optional[Dict[str, Any]] = None,
++        note: Optional[str] = None,
+     ) -> None:
+         """
+         ✅ WO-9 (e) (2026-09-30): 거래소 발주 거절을 audit_trades 에 기록.
++        ✅ WO-25 (2026-10-06): note 를 주면 그 문구를 그대로 쓴다 (주문 전 봇 안 차단 — 업비트 응답 없음).
+ 
+         - type = 'SELL_REJECTED' / 'BUY_REJECTED' (BUY/SELL 과 구분 → 손익·체결 집계 제외)
+         - reason = 신호 사유 (EMA_DC, STOP_LOSS, EMA_GC, force_buy 등)
+@@ -498,7 +500,7 @@ class UpbitTrader:
+                 bar_time=m.get("bar_time"),
+                 settings_history_id=self._get_settings_history_id(),
+                 qty=float(qty) if qty is not None else None,
+-                note=reject_note(err_summary),
++                note=note or reject_note(err_summary),
+                 meta=_json.dumps(err_meta, ensure_ascii=False, default=str),
+             )
+             logger.warning(
+@@ -508,6 +510,30 @@ class UpbitTrader:
+         except Exception as e:
+             logger.error(f"[AUDIT-REJECT] 기록 실패: {e} | side={side} ticker={ticker}")
+ 
++    def _audit_preorder_reject(
++        self,
++        *,
++        ticker: str,
++        price: Optional[float],
++        meta: Optional[Dict[str, Any]],
++        code: str,
++        note: str,
++        extra: Optional[Dict[str, Any]] = None,
++    ) -> None:
++        """
++        ✅ WO-25 (2026-10-06): 주문 요청([UPBIT-ORDER]) 전에 봇 안에서 매수를 막은 경우를
++        audit_trades type='BUY_REJECTED' 로 기록 (감사 로그 페이지 ⛔ 매수 거절 행, 손익 집계 제외).
++        - code: 차단 분기 식별자 (meta.error_name), note: 사람이 읽는 사유 (감사 로그 note 칸)
++        - 판정·발주 흐름은 바꾸지 않는다. 기록 실패는 삼킨다.
++        """
++        _extra = {"stage": "pre_order", "error_name": code}
++        if extra:
++            _extra.update(extra)
++        self._audit_reject(
++            side="BUY", ticker=ticker, price=price, qty=None,
++            err_summary=code, call=None, meta=meta, extra=_extra, note=note,
++        )
++
+     # ---------------------------
+     # 매수 / 매도
+     # ---------------------------
+@@ -537,6 +563,11 @@ class UpbitTrader:
+         avail = self._krw_balance()
+         if avail <= 0:
+             logger.warning(f"[BUY] 주문 불가: 잔고={avail:.4f}")
++            self._audit_preorder_reject(  # ✅ WO-25
++                ticker=ticker, price=price, meta=meta, code="krw_zero",
++                note=f"매수 가능 KRW 없음 (가용 {avail:,.0f}원) — 시장가 매수 주문 전 차단",
++                extra={"avail_krw": avail, "order_type": "market"},
++            )
+             return {}
+ 
+         # 🔧 위험비율 적용 + 원 단위 내림 (수수료 차감 후에도 잔고 부족이 안 되도록
+@@ -551,6 +582,12 @@ class UpbitTrader:
+ 
+         if krw_to_use < 5000:
+             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
++            self._audit_preorder_reject(  # ✅ WO-25
++                ticker=ticker, price=price, meta=meta, code="krw_below_min",
++                note=(f"매수 가능 KRW 부족 (가용 {avail:,.0f}원, 주문 비율 적용 주문액 {krw_to_use:,.0f}원 "
++                      f"< 최소 5,000원) — 시장가 매수 주문 전 차단"),
++                extra={"avail_krw": avail, "krw_to_use": krw_to_use, "risk_pct": risk_pct, "order_type": "market"},
++            )
+             return {}
+ 
+         qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
+@@ -905,6 +942,11 @@ class UpbitTrader:
+             rounded_price = float(_round_price_to_tick(float(price)))
+         except Exception as e:
+             logger.error(f"[BUY-LIMIT] 호가 라운딩 실패: {e}")
++            self._audit_preorder_reject(  # ✅ WO-25
++                ticker=ticker, price=price, meta=meta, code="tick_round_error",
++                note=f"주문가 호가 단위 계산 실패 ({e}) — 현재가 매수 주문 전 차단",
++                extra={"order_type": "limit"},
++            )
+             return {}
+ 
+         if rounded_price <= 0 or abs(rounded_price - float(price)) / max(float(price), 1e-9) > 0.005:
+@@ -931,6 +973,12 @@ class UpbitTrader:
+                 "ERROR",
+                 f"❌ 현재가 매수 거부 ({ticker}): {err}",
+             )
++            self._audit_preorder_reject(  # ✅ WO-25
++                ticker=ticker, price=price, meta=meta, code="tick_out_of_range",
++                note=(f"주문가 호가 단위 이탈 (요청가 {float(price):,.4f} → 조정가 {rounded_price:,.2f}, "
++                      f"0.5% 초과) — 현재가 매수 주문 전 차단"),
++                extra={"rounded_price": rounded_price, "order_type": "limit"},
++            )
+             return {}
+ 
+         # KRW 잔고 + 금액 계산 (buy_market 과 동일 공식)
+@@ -958,6 +1006,11 @@ class UpbitTrader:
+                 "WARNING",
+                 f"❌ 현재가 매수 잔고 부족 ({ticker}): 가용 KRW=0",
+             )
++            self._audit_preorder_reject(  # ✅ WO-25
++                ticker=ticker, price=price, meta=meta, code="krw_zero",
++                note=f"매수 가능 KRW 없음 (가용 {avail:,.0f}원) — 현재가 매수 주문 전 차단",
++                extra={"avail_krw": avail, "order_type": "limit"},
++            )
+             return {}
+ 
+         # ✅ RATIO-HR: 지정가 매수도 최신 order_ratio 반영
+@@ -987,11 +1040,22 @@ class UpbitTrader:
+                 "WARNING",
+                 f"❌ 현재가 매수 잔고 부족 ({ticker}): {err}",
+             )
++            self._audit_preorder_reject(  # ✅ WO-25
++                ticker=ticker, price=price, meta=meta, code="krw_below_min",
++                note=(f"매수 가능 KRW 부족 (가용 {avail:,.0f}원, 주문 비율 적용 주문액 {krw_to_use:,.0f}원 "
++                      f"< 최소 5,000원) — 현재가 매수 주문 전 차단"),
++                extra={"avail_krw": avail, "krw_to_use": krw_to_use, "risk_pct": risk_pct, "order_type": "limit"},
++            )
+             return {}
+ 
+         qty = round(krw_to_use / (rounded_price * (1 + MIN_FEE_RATIO)), 8)
+         if qty <= 0:
+             logger.warning(f"[BUY-LIMIT] 계산된 수량 0 — price={rounded_price} krw={krw_to_use}")
++            self._audit_preorder_reject(  # ✅ WO-25
++                ticker=ticker, price=price, meta=meta, code="qty_zero",
++                note=f"주문 수량 계산 결과 0 (주문가 {rounded_price:,.2f}원, 주문액 {krw_to_use:,.0f}원) — 현재가 매수 주문 전 차단",
++                extra={"rounded_price": rounded_price, "krw_to_use": krw_to_use, "order_type": "limit"},
++            )
+             return {}
+ 
+         logger.info(
+diff --git a/pages/dashboard.py b/pages/dashboard.py
+index bf21a2c..c0bc7d3 100644
+--- a/pages/dashboard.py
++++ b/pages/dashboard.py
+@@ -492,7 +492,7 @@ st.session_state.engine_started = engine_status
+ # ✅ 상단 정보
+ _hdr_col1, _hdr_col2 = st.columns([5, 1])
+ with _hdr_col1:
+-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.05.1526")
++    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.06.1326")
+ with _hdr_col2:
+     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
+     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
+diff --git a/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py b/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py
+new file mode 100644
+index 0000000..682f99f
+--- /dev/null
++++ b/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py
+@@ -0,0 +1,306 @@
++"""
++✅ WO-25 회귀: BUY 평가 통과 뒤 주문 요청 전 봇 안 차단 → audit_trades BUY_REJECTED (2026-10-06)
++
++근거 (docs/plans/2026-10-05-wo24-unfilled-buy-audit/deploy-report.md "창 뒤 사건" 2):
++- 10-06 05:37 KRW-JTO BUY 평가 통과(overall_ok=1, id 77602) → 현재가 매수 진입 →
++  `[BUY-LIMIT] 활성 KRW 부족: 가용=1 계산=0 (최소 5,000 미만)` → 알림만, audit_trades 0행.
++  감사 로그 페이지에는 🟢 BUY 평가만 보이고 왜 안 샀는지가 없었다.
++처방 (판정식·필터·발주 무변경):
++- 평가 통과 뒤 [UPBIT-ORDER] 요청 전의 모든 차단 분기에서 audit_trades type='BUY_REJECTED' 1행.
++  note = 사람이 읽는 사유 (감사 로그 '거절 사유' 열), meta.stage='pre_order', meta.error_name=분기 코드.
++
++실행:
++    python3 -m unittest tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit -v
++"""
++from __future__ import annotations
++
++import json
++import shutil
++import sqlite3
++import sys
++import tempfile
++import unittest
++from datetime import datetime, timezone
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import MagicMock, patch
++
++ROOT = Path(__file__).parent.parent.parent
++sys.path.insert(0, str(ROOT))
++
++U = "test_r_2026_10_06_wo25"
++T = "KRW-JTO"
++META = {"bar": 709, "reason": "EMA_GC", "bar_time": "2026-10-06T05:36:00+09:00",
++        "macd": None, "signal": None, "ema_fast": 770.28, "ema_slow": 770.16, "fixed_price_buy": True, "wait_bars": 5}
++BAR_TS = datetime(2026, 10, 5, 20, 36, tzinfo=timezone.utc)  # = 10-06 05:36 KST
++
++
++def _ok_call(uuid="u-ok"):
++    return {"ok": True, "status": 201, "data": {"uuid": uuid}, "error_name": None, "error_message": None,
++            "exception": None, "body": None}
++
++
++class _DbCase(unittest.TestCase):
++    def setUp(self):
++        self.tmpdir = Path(tempfile.mkdtemp(prefix="wo25_"))
++        self.db_path = str(self.tmpdir / f"tradebot_{U}.db")
++        self._patchers = [
++            patch("services.init_db.get_db_path", return_value=self.db_path),
++            patch("services.db.get_db_path", return_value=self.db_path),
++            patch("services.notifier.send", MagicMock(return_value=True)),
++            # 시험은 네트워크·실주문에 의존하지 않는다: 바뀌지 않은 발주가 불리면 실패
++            patch("core.trader._upbit_buy_limit", MagicMock(side_effect=AssertionError("시험 중 실제 지정가 주문 금지"))),
++            patch("core.trader._upbit_buy_market", MagicMock(side_effect=AssertionError("시험 중 실제 시장가 주문 금지"))),
++        ]
++        for p in self._patchers:
++            p.start()
++        from services.init_db import initialize_db, ensure_all_schemas
++        from services.db import ensure_schema
++        initialize_db(U)
++        ensure_all_schemas(U)
++        ensure_schema(U)
++
++    def tearDown(self):
++        for p in self._patchers:
++            p.stop()
++        shutil.rmtree(self.tmpdir, ignore_errors=True)
++
++    def _rows(self, where="type='BUY_REJECTED'"):
++        with sqlite3.connect(self.db_path) as c:
++            c.row_factory = sqlite3.Row
++            return [dict(r) for r in c.execute(f"SELECT * FROM audit_trades WHERE {where} ORDER BY id").fetchall()]
++
++    def _one(self, code):
++        rows = self._rows()
++        self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
++        r = rows[0]
++        m = json.loads(r["meta"])
++        self.assertEqual(m.get("stage"), "pre_order")
++        self.assertEqual(m.get("error_name"), code)
++        self.assertEqual(r["ticker"], T)
++        return r, m
++
++    def _trader(self):
++        from core.trader import UpbitTrader
++        with patch("core.trader.pyupbit.Upbit", MagicMock()):
++            tr = UpbitTrader(U, risk_pct=0.5, test_mode=False)
++        tr._get_settings_history_id = lambda: None
++        return tr
++
++    def _engine(self, *, paused=False, pending=False, polluted=False, holding=False):
++        """execute()·_execute_buy()·_audit_wo2_resolution() 에 필요한 최소 속성만 갖춘 엔진."""
++        from core.strategy_engine import StrategyEngine
++        eng = object.__new__(StrategyEngine)
++        eng.user_id, eng.ticker, eng.bar_count, eng.interval_sec = U, T, 709, 60
++        eng.strategy_type = "EMA"
++        eng.strategy = SimpleNamespace(last_buy_reason="EMA_GC", buy_conditions={"fixed_price_buy_enabled": True})
++        eng.trader = self._trader()
++        eng.position = SimpleNamespace(pending_order=pending, has_position=holding,
++                                       set_pending=MagicMock(), open_position=MagicMock())
++        eng.indicators = SimpleNamespace(state_polluted=polluted)
++        eng._pending_buy_uuid = "u-prev" if pending else None
++        eng._paused = paused
++        return eng
++
++    def _bar(self, close=779.0):
++        from core.strategy_engine import Bar
++        return Bar(ts=BAR_TS, open=close, high=close, low=close, close=close, volume=1.0,
++                   is_closed=True, is_confirmed=True, source="TEST")
++
++
++# ─────────────────────────────────────────────────────────────
++# 지시 (1)~(4)
++# ─────────────────────────────────────────────────────────────
++class TestWo25Core(_DbCase):
++
++    def test_1_krw_shortage_limit_buy_records_reject(self):
++        """(1) 10-06 05:37 재현: 현재가 매수, 가용 1원 → BUY_REJECTED 1행·사유 문자열."""
++        tr = self._trader()
++        with patch.object(tr, "_krw_balance", return_value=1.0), patch.object(tr, "_current_risk_pct", return_value=0.5):
++            self.assertEqual(tr.buy_limit(779.0, T, meta=dict(META), interval_sec=300), {})
++        r, m = self._one("krw_below_min")
++        self.assertIn("매수 가능 KRW 부족 (가용 1원", r["note"])
++        self.assertIn("< 최소 5,000원", r["note"])
++        self.assertEqual(r["reason"], "EMA_GC")
++        self.assertEqual(r["bar_time"], "2026-10-06T05:36:00+09:00")
++        self.assertAlmostEqual(r["price"], 779.0)
++        self.assertEqual(m.get("avail_krw"), 1.0)
++        self.assertEqual(m.get("order_type"), "limit")
++
++    def test_2_surge_block_is_evaluation_stage_no_reject_row(self):
++        """(2) 급등 차단은 평가 단계(overall_ok=0, failed_keys=SURGE_FILTER) — 평가 통과 뒤 분기가 아님.
++        조사 A: strategy_incremental.py on_bar 에서 필터가 막으면 Action.HOLD → execute 조기 반환.
++        → BUY_REJECTED 행을 만들지 않는다 (감사 로그 BUY 평가 행의 failed_keys 로 이미 보임)."""
++        from core.filters.buy_filters import SlowEmaSurgeFilter
++        from core.strategy_engine import Action
++        f = SlowEmaSurgeFilter(threshold_pct=0.015)
++        f.set_enabled(True)
++        res = f.evaluate(bar=SimpleNamespace(close=800.0, ts=BAR_TS), ema_slow=770.0)  # +3.9% > 1.5%
++        self.assertTrue(res.should_block)
++        self.assertEqual(res.reason, "SURGE_FILTER")
++        eng = self._engine()
++        with patch("core.strategy_engine.get_trading_paused", return_value=False):
++            eng.execute(Action.HOLD, self._bar(), dict(META))
++        self.assertEqual(self._rows(), [], "급등 차단(HOLD)은 BUY_REJECTED 를 만들지 않음")
++
++    def test_3_normal_order_path_no_reject_row(self):
++        """(3) 정상 주문 경로(지정가·시장가)에는 BUY_REJECTED 행 없음."""
++        tr = self._trader()
++        with patch.object(tr, "_krw_balance", return_value=1_000_000.0), \
++             patch.object(tr, "_current_risk_pct", return_value=0.5), \
++             patch("core.trader._upbit_buy_limit", return_value=_ok_call("u-limit")), \
++             patch("core.trader._upbit_buy_market", return_value=_ok_call("u-market")), \
++             patch("engine.reconciler_singleton.get_reconciler", return_value=MagicMock()):
++            r1 = tr.buy_limit(779.0, T, meta=dict(META), interval_sec=300)
++            r2 = tr.buy_market(779.0, T, meta=dict(META))
++        self.assertTrue(r1.get("limit_pending"))
++        self.assertEqual(r2.get("uuid"), "u-market")
++        self.assertEqual(self._rows(), [], "정상 발주에는 거절 행 없음")
++
++    def test_4_audit_page_shows_preorder_reject(self):
++        """(4) 감사 로그 페이지 표시 매핑: ⛔ 매수 거절 + '거절 사유' 열에 note 그대로 + 거절 필터."""
++        tr = self._trader()
++        with patch.object(tr, "_krw_balance", return_value=1.0), patch.object(tr, "_current_risk_pct", return_value=0.5):
++            tr.buy_limit(779.0, T, meta=dict(META), interval_sec=300)
++        from services.db import trade_type_display, trade_kind, is_reject_type
++        self.assertEqual(trade_type_display("BUY_REJECTED"), "⛔ 매수 거절")
++        self.assertEqual(trade_kind("BUY_REJECTED"), "거절")
++        self.assertTrue(is_reject_type("BUY_REJECTED"))
++        from streamlit.testing.v1 import AppTest
++        at = AppTest.from_file(str(ROOT / "pages" / "audit_viewer.py"), default_timeout=60)
++        at.query_params["user_id"] = U
++        at.query_params["tab"] = "trades"
++        at.query_params["mode"] = "LIVE"
++        at.query_params["ticker"] = "JTO"
++        at.session_state["user_id"] = U
++        at.run()
++        self.assertEqual([e.value for e in at.exception], [], "렌더 예외 없어야 함")
++        df = at.dataframe[0].value
++        rej = df[df["type"] == "⛔ 매수 거절"]
++        self.assertEqual(len(rej), 1)
++        self.assertIn("매수 가능 KRW 부족 (가용 1원", rej.iloc[0]["거절 사유"])
++        flt = next(m for m in at.multiselect if m.label == "유형 필터")
++        flt.set_value(["거절"]).run()
++        self.assertEqual(at.dataframe[0].value["type"].tolist(), ["⛔ 매수 거절"])
++
++
++# ─────────────────────────────────────────────────────────────
++# 조사 A 의 분기마다 1건 — 트레이더 (주문 전)
++# ─────────────────────────────────────────────────────────────
++class TestWo25TraderBranches(_DbCase):
++
++    def test_limit_krw_zero(self):
++        tr = self._trader()
++        with patch.object(tr, "_krw_balance", return_value=0.0):
++            self.assertEqual(tr.buy_limit(779.0, T, meta=dict(META)), {})
++        r, _ = self._one("krw_zero")
++        self.assertIn("매수 가능 KRW 없음 (가용 0원)", r["note"])
++
++    def test_limit_tick_out_of_range(self):
++        tr = self._trader()
++        with patch("core.trader._round_price_to_tick", return_value=800.0):  # 779 → 800 (+2.7%)
++            self.assertEqual(tr.buy_limit(779.0, T, meta=dict(META)), {})
++        r, m = self._one("tick_out_of_range")
++        self.assertIn("주문가 호가 단위 이탈", r["note"])
++        self.assertEqual(m.get("rounded_price"), 800.0)
++
++    def test_limit_tick_round_error(self):
++        tr = self._trader()
++        with patch("core.trader._round_price_to_tick", side_effect=ValueError("tick")):
++            self.assertEqual(tr.buy_limit(779.0, T, meta=dict(META)), {})
++        r, _ = self._one("tick_round_error")
++        self.assertIn("주문가 호가 단위 계산 실패", r["note"])
++
++    def test_limit_qty_zero(self):
++        tr = self._trader()
++        with patch("core.trader._round_price_to_tick", side_effect=lambda p: p), \
++             patch.object(tr, "_krw_balance", return_value=1_000_000.0), \
++             patch.object(tr, "_current_risk_pct", return_value=0.5):
++            self.assertEqual(tr.buy_limit(1e14, T, meta=dict(META)), {})
++        r, _ = self._one("qty_zero")
++        self.assertIn("주문 수량 계산 결과 0", r["note"])
++
++    def test_market_krw_zero(self):
++        tr = self._trader()
++        with patch.object(tr, "_krw_balance", return_value=0.0):
++            self.assertEqual(tr.buy_market(779.0, T, meta=dict(META)), {})
++        r, m = self._one("krw_zero")
++        self.assertIn("시장가 매수 주문 전 차단", r["note"])
++        self.assertEqual(m.get("order_type"), "market")
++
++    def test_market_krw_below_min(self):
++        tr = self._trader()
++        with patch.object(tr, "_krw_balance", return_value=6_000.0), patch.object(tr, "_current_risk_pct", return_value=0.5):
++            self.assertEqual(tr.buy_market(779.0, T, meta=dict(META)), {})
++        r, _ = self._one("krw_below_min")
++        self.assertIn("매수 가능 KRW 부족 (가용 6,000원, 주문 비율 적용 주문액 2,998원", r["note"])
++
++
++# ─────────────────────────────────────────────────────────────
++# 조사 A 의 분기마다 1건 — 엔진 (평가 통과 뒤, 트레이더 호출 전)
++# ─────────────────────────────────────────────────────────────
++class TestWo25EngineBranches(_DbCase):
++
++    def _exec_buy(self, eng, paused=False):
++        from core.strategy_engine import Action
++        with patch("core.strategy_engine.get_trading_paused", return_value=paused), \
++             patch("core.strategy_engine.annotate_buy_eval_blocked", MagicMock()):
++            eng.execute(Action.BUY, self._bar(), dict(META))
++
++    def test_engine_trading_paused(self):
++        self._exec_buy(self._engine(), paused=True)
++        r, _ = self._one("trading_paused")
++        self.assertIn("매매 일시중지", r["note"])
++        self.assertEqual(r["bar_time"], "2026-10-06T05:36:00+09:00")
++
++    def test_engine_paused_sell_not_recorded(self):
++        """일시중지 중 SELL 액션은 BUY_REJECTED 를 만들지 않음 (매수 전용)."""
++        from core.strategy_engine import Action
++        eng = self._engine()
++        with patch("core.strategy_engine.get_trading_paused", return_value=True):
++            eng.execute(Action.SELL, self._bar(), dict(META))
++        self.assertEqual(self._rows(), [])
++
++    def test_engine_order_in_progress(self):
++        self._exec_buy(self._engine(pending=True))
++        r, m = self._one("order_in_progress")
++        self.assertIn("앞선 매수 주문이 진행 중", r["note"])
++        self.assertEqual(m.get("pending_buy_uuid"), "u-prev")
++
++    def test_engine_state_polluted(self):
++        self._exec_buy(self._engine(polluted=True))
++        r, _ = self._one("state_polluted")
++        self.assertIn("지표 오염 상태", r["note"])
++
++    def test_engine_already_holding(self):
++        eng = self._engine(holding=True)
++        eng._execute_buy(self._bar(), dict(META))
++        r, _ = self._one("already_holding")
++        self.assertIn("이미 포지션 보유 중", r["note"])
++
++    def test_engine_wo2_deferred_buy_not_ordered(self):
++        """WO-2 지연 매수가 발주 없이 끝난 3사유 → 각 1행. 통과(1)는 행 없음."""
++        eng = self._engine()
++        now = datetime.now(timezone.utc)
++        with patch("services.db.update_buy_eval_wo2_resolution", MagicMock()):
++            eng._audit_wo2_resolution(BAR_TS, 1, None, 779.0, now)
++            self.assertEqual(self._rows(), [], "유효성 통과는 거절 아님")
++            for reason in ("SUPERSEDED", "MAX_WAIT_EXCEEDED", "SIGNAL_INVERTED"):
++                eng._audit_wo2_resolution(BAR_TS, 0, reason, 779.0, now)
++        rows = self._rows()
++        self.assertEqual([json.loads(r["meta"])["error_name"] for r in rows],
++                         ["wo2_superseded", "wo2_max_wait_exceeded", "wo2_signal_inverted"])
++        self.assertIn("새 매수 신호로 교체", rows[0]["note"])
++        self.assertIn("대기 시간 초과", rows[1]["note"])
++        self.assertIn("매수 신호 불성립", rows[2]["note"])
++
++    def test_reject_rows_excluded_from_buy_aggregates(self):
++        """주문 전 거절 행은 type='BUY' 집계(최근 봇 매수 판정)에 섞이지 않음."""
++        self._exec_buy(self._engine(pending=True))
++        from services.db import has_recent_bot_buy_for_ticker
++        self.assertEqual(len(self._rows("type='BUY'")), 0)
++        self.assertFalse(has_recent_bot_buy_for_ticker(U, T))
++
++
++if __name__ == "__main__":
++    unittest.main()

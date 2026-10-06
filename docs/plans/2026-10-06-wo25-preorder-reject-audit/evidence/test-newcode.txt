@@ -1,0 +1,154 @@
+test_1_krw_shortage_limit_buy_records_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_1_krw_shortage_limit_buy_records_reject)
+(1) 10-06 05:37 재현: 현재가 매수, 가용 1원 → BUY_REJECTED 1행·사유 문자열. ... 2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_audit_trades_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_audit_settings_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_audit_settings_unique OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_audit_buy_eval_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_audit_sell_eval_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_audit_backfill_columns OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_account_positions_meta OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_users_trading_paused OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_wo2_audit_columns OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_audit_trades_reject_columns OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 WARNING core.trader | [BUY-LIMIT] 활성 KRW 부족: 가용=1 계산=0 (최소 5,000 미만)
+2026-10-06 13:29:03 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=krw_below_min
+ok
+test_2_surge_block_is_evaluation_stage_no_reject_row (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_2_surge_block_is_evaluation_stage_no_reject_row)
+(2) 급등 차단은 평가 단계(overall_ok=0, failed_keys=SURGE_FILTER) — 평가 통과 뒤 분기가 아님. ... 2026-10-06 13:29:03 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+ok
+test_3_normal_order_path_no_reject_row (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_3_normal_order_path_no_reject_row)
+(3) 정상 주문 경로(지정가·시장가)에는 BUY_REJECTED 행 없음. ... 2026-10-06 13:29:03 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO core.trader | [BUY-LIMIT] plan close=779.0 rounded=779.0 krw_to_use=499750 qty=641.20699599
+2026-10-06 13:29:03 INFO core.trader | [BUY-LIMIT] ok=True status=201 error_name=None error_message=None
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:03 INFO core.trader | [BUY] plan krw_to_use=499750.0000 price=779.00000000 risk_pct=0.5000 fee=0.0005 -> qty=641.20699599
+2026-10-06 13:29:03 INFO core.trader | [BUY-LIVE] attempt #1/3 ok=True status=201 error_name=None error_message=None
+2026-10-06 13:29:03 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+ok
+test_4_audit_page_shows_preorder_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4_audit_page_shows_preorder_reject)
+(4) 감사 로그 페이지 표시 매핑: ⛔ 매수 거절 + '거절 사유' 열에 note 그대로 + 거절 필터. ... 2026-10-06 13:29:04 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:04 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:04 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:04 WARNING core.trader | [BUY-LIMIT] 활성 KRW 부족: 가용=1 계산=0 (최소 5,000 미만)
+2026-10-06 13:29:04 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=krw_below_min
+2026-10-06 13:29:04.061 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2026-10-06 13:29:04.061 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2026-10-06 13:29:04 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=None, session=, final=MACD
+2026-10-06 13:29:04 INFO engine.params | [LiveParams] params file not found: test_r_2026_10_06_wo25_latest_params_MACD.json
+2026-10-06 13:29:05 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=None, session=MACD, final=MACD
+2026-10-06 13:29:05 INFO engine.params | [LiveParams] params file not found: test_r_2026_10_06_wo25_latest_params_MACD.json
+ok
+test_engine_already_holding (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_already_holding) ... 2026-10-06 13:29:05 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:05 WARNING core.strategy_engine | ⛔ 이미 포지션 보유 중 → BUY 무시
+2026-10-06 13:29:05 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=already_holding
+ok
+test_engine_order_in_progress (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_order_in_progress) ... 2026-10-06 13:29:05 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:05 WARNING core.strategy_engine | ⏳ 주문 진행 중 → 매수 액션 대기 (매도 경로는 별도 검사 없음)
+2026-10-06 13:29:05 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=order_in_progress
+ok
+test_engine_paused_sell_not_recorded (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_paused_sell_not_recorded)
+일시중지 중 SELL 액션은 BUY_REJECTED 를 만들지 않음 (매수 전용). ... 2026-10-06 13:29:05 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:05 INFO core.strategy_engine | ⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action=SELL
+ok
+test_engine_state_polluted (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_state_polluted) ... 2026-10-06 13:29:05 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:05 ERROR core.strategy_engine | 🚫 [POLLUTED] 지표 오염 상태 — 신규 매수 차단 | ticker=KRW-JTO bar=709 | 재시작(WARMUP 재시드)으로만 해제 가능
+2026-10-06 13:29:05 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=state_polluted
+ok
+test_engine_trading_paused (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_trading_paused) ... 2026-10-06 13:29:05 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:05 INFO core.strategy_engine | ⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action=BUY
+2026-10-06 13:29:05 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=trading_paused
+ok
+test_engine_wo2_deferred_buy_not_ordered (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_wo2_deferred_buy_not_ordered)
+WO-2 지연 매수가 발주 없이 끝난 3사유 → 각 1행. 통과(1)는 행 없음. ... 2026-10-06 13:29:05 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:05 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:05 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=wo2_superseded
+2026-10-06 13:29:05 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=wo2_max_wait_exceeded
+2026-10-06 13:29:05 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=wo2_signal_inverted
+ok
+test_reject_rows_excluded_from_buy_aggregates (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_reject_rows_excluded_from_buy_aggregates)
+주문 전 거절 행은 type='BUY' 집계(최근 봇 매수 판정)에 섞이지 않음. ... 2026-10-06 13:29:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:06 WARNING core.strategy_engine | ⏳ 주문 진행 중 → 매수 액션 대기 (매도 경로는 별도 검사 없음)
+2026-10-06 13:29:06 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=order_in_progress
+ok
+test_limit_krw_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_krw_zero) ... 2026-10-06 13:29:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:06 WARNING core.trader | [BUY-LIMIT] 활성 KRW 잔고 0 — 현재가 매수 불가
+2026-10-06 13:29:06 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=krw_zero
+ok
+test_limit_qty_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_qty_zero) ... 2026-10-06 13:29:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:06 WARNING core.trader | [BUY-LIMIT] 계산된 수량 0 — price=100000000000000.0 krw=499750
+2026-10-06 13:29:06 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=100000000000000.0 qty=None code=qty_zero
+ok
+test_limit_tick_out_of_range (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_tick_out_of_range) ... 2026-10-06 13:29:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:06 ERROR core.trader | [BUY-LIMIT] 호가 라운딩 비정상: 원가=779.0 조정가=800.0
+2026-10-06 13:29:06 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=tick_out_of_range
+ok
+test_limit_tick_round_error (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_tick_round_error) ... 2026-10-06 13:29:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:06 ERROR core.trader | [BUY-LIMIT] 호가 라운딩 실패: tick
+2026-10-06 13:29:06 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=tick_round_error
+ok
+test_market_krw_below_min (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_market_krw_below_min) ... 2026-10-06 13:29:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:06 WARNING core.trader | [BUY] 실거래 최소 주문금액 미만: 2998.00 KRW
+2026-10-06 13:29:06 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=krw_below_min
+ok
+test_market_krw_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_market_krw_zero) ... 2026-10-06 13:29:06 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:29:06 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:29:06 WARNING core.trader | [BUY] 주문 불가: 잔고=0.0000
+2026-10-06 13:29:06 WARNING core.trader | [AUDIT-REJECT] BUY_REJECTED 기록 | ticker=KRW-JTO reason=EMA_GC price=779.0 qty=None code=krw_zero
+ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 5.526s
+
+OK
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25__1x00zxd/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_2ok_qhij/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_bn69vpoc/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_ipzd9cbw/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_be95ug8q/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_g0x42wbx/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_tq6uabqa/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_pwq59whw/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_2ezmnx45/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_0nwoeh26/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_npysj0va/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_v7m6gtsu/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_6zmb2la5/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_r2ospny5/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_7sq17z3e/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_1uhg2rpe/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_zxs8y31w/tradebot_test_r_2026_10_06_wo25.db

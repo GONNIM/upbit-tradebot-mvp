@@ -1,0 +1,287 @@
+test_1_krw_shortage_limit_buy_records_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_1_krw_shortage_limit_buy_records_reject)
+(1) 10-06 05:37 재현: 현재가 매수, 가용 1원 → BUY_REJECTED 1행·사유 문자열. ... 2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_orders_extended_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_audit_trades_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_audit_settings_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_audit_settings_unique OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_audit_buy_eval_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_audit_sell_eval_bar_time OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_audit_backfill_columns OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_account_positions_meta OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_accounts_locked OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_account_positions_locked OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_account_positions_entry_price OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_engine_status_last_mode OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_users_trading_paused OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_wo2_audit_columns OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_audit_trades_reject_columns OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 WARNING core.trader | [BUY-LIMIT] 활성 KRW 부족: 가용=1 계산=0 (최소 5,000 미만)
+FAIL
+test_2_surge_block_is_evaluation_stage_no_reject_row (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_2_surge_block_is_evaluation_stage_no_reject_row)
+(2) 급등 차단은 평가 단계(overall_ok=0, failed_keys=SURGE_FILTER) — 평가 통과 뒤 분기가 아님. ... 2026-10-06 13:26:43 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+ok
+test_3_normal_order_path_no_reject_row (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_3_normal_order_path_no_reject_row)
+(3) 정상 주문 경로(지정가·시장가)에는 BUY_REJECTED 행 없음. ... 2026-10-06 13:26:43 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO core.trader | [BUY-LIMIT] plan close=779.0 rounded=779.0 krw_to_use=499750 qty=641.20699599
+2026-10-06 13:26:43 INFO core.trader | [BUY-LIMIT] ok=True status=201 error_name=None error_message=None
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 INFO core.trader | [BUY] plan krw_to_use=499750.0000 price=779.00000000 risk_pct=0.5000 fee=0.0005 -> qty=641.20699599
+2026-10-06 13:26:43 INFO core.trader | [BUY-LIVE] attempt #1/3 ok=True status=201 error_name=None error_message=None
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+ok
+test_4_audit_page_shows_preorder_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4_audit_page_shows_preorder_reject)
+(4) 감사 로그 페이지 표시 매핑: ⛔ 매수 거절 + '거절 사유' 열에 note 그대로 + 거절 필터. ... 2026-10-06 13:26:43 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:43 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:43 WARNING core.trader | [BUY-LIMIT] 활성 KRW 부족: 가용=1 계산=0 (최소 5,000 미만)
+2026-10-06 13:26:44.011 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2026-10-06 13:26:44.012 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+2026-10-06 13:26:44 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=None, session=, final=MACD
+2026-10-06 13:26:44 INFO engine.params | [LiveParams] params file not found: test_r_2026_10_06_wo25_latest_params_MACD.json
+ERROR
+test_engine_already_holding (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_already_holding) ... 2026-10-06 13:26:44 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:44 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:44 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:44 WARNING core.strategy_engine | ⛔ 이미 포지션 보유 중 → BUY 무시
+FAIL
+test_engine_order_in_progress (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_order_in_progress) ... 2026-10-06 13:26:45 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:45 WARNING core.strategy_engine | ⏳ 주문 진행 중 → 매수 액션 대기 (매도 경로는 별도 검사 없음)
+FAIL
+test_engine_paused_sell_not_recorded (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_paused_sell_not_recorded)
+일시중지 중 SELL 액션은 BUY_REJECTED 를 만들지 않음 (매수 전용). ... 2026-10-06 13:26:45 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:45 INFO core.strategy_engine | ⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action=SELL
+ok
+test_engine_state_polluted (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_state_polluted) ... 2026-10-06 13:26:45 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:45 ERROR core.strategy_engine | 🚫 [POLLUTED] 지표 오염 상태 — 신규 매수 차단 | ticker=KRW-JTO bar=709 | 재시작(WARMUP 재시드)으로만 해제 가능
+FAIL
+test_engine_trading_paused (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_trading_paused) ... 2026-10-06 13:26:45 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:45 INFO core.strategy_engine | ⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action=BUY
+FAIL
+test_engine_wo2_deferred_buy_not_ordered (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_wo2_deferred_buy_not_ordered)
+WO-2 지연 매수가 발주 없이 끝난 3사유 → 각 1행. 통과(1)는 행 없음. ... 2026-10-06 13:26:45 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:45 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+FAIL
+test_reject_rows_excluded_from_buy_aggregates (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_reject_rows_excluded_from_buy_aggregates)
+주문 전 거절 행은 type='BUY' 집계(최근 봇 매수 판정)에 섞이지 않음. ... 2026-10-06 13:26:46 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:46 WARNING core.strategy_engine | ⏳ 주문 진행 중 → 매수 액션 대기 (매도 경로는 별도 검사 없음)
+ok
+test_limit_krw_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_krw_zero) ... 2026-10-06 13:26:46 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:46 WARNING core.trader | [BUY-LIMIT] 활성 KRW 잔고 0 — 현재가 매수 불가
+FAIL
+test_limit_qty_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_qty_zero) ... 2026-10-06 13:26:46 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:46 WARNING core.trader | [BUY-LIMIT] 계산된 수량 0 — price=100000000000000.0 krw=499750
+FAIL
+test_limit_tick_out_of_range (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_tick_out_of_range) ... 2026-10-06 13:26:46 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:46 ERROR core.trader | [BUY-LIMIT] 호가 라운딩 비정상: 원가=779.0 조정가=800.0
+FAIL
+test_limit_tick_round_error (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_tick_round_error) ... 2026-10-06 13:26:46 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:46 ERROR core.trader | [BUY-LIMIT] 호가 라운딩 실패: tick
+FAIL
+test_market_krw_below_min (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_market_krw_below_min) ... 2026-10-06 13:26:46 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:46 WARNING core.trader | [BUY] 실거래 최소 주문금액 미만: 2998.00 KRW
+FAIL
+test_market_krw_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_market_krw_zero) ... 2026-10-06 13:26:46 INFO services.init_db | [migrate] added orders.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] added audit_trades.settings_history_id (INTEGER)
+2026-10-06 13:26:46 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=test_r_2026_10_06_wo25)
+2026-10-06 13:26:46 WARNING core.trader | [BUY] 주문 불가: 잔고=0.0000
+FAIL
+
+======================================================================
+ERROR: test_4_audit_page_shows_preorder_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4_audit_page_shows_preorder_reject)
+(4) 감사 로그 페이지 표시 매핑: ⛔ 매수 거절 + '거절 사유' 열에 note 그대로 + 거절 필터.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 178, in test_4_audit_page_shows_preorder_reject
+    df = at.dataframe[0].value
+         ~~~~~~~~~~~~^^^
+  File "/Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/site-packages/streamlit/testing/v1/element_tree.py", line 230, in __getitem__
+    return self._list[idx]
+           ~~~~~~~~~~^^^^^
+IndexError: list index out of range
+
+======================================================================
+FAIL: test_1_krw_shortage_limit_buy_records_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_1_krw_shortage_limit_buy_records_reject)
+(1) 10-06 05:37 재현: 현재가 매수, 가용 1원 → BUY_REJECTED 1행·사유 문자열.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 121, in test_1_krw_shortage_limit_buy_records_reject
+    r, m = self._one("krw_below_min")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=krw_below_min)
+
+======================================================================
+FAIL: test_engine_already_holding (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_already_holding)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 278, in test_engine_already_holding
+    r, _ = self._one("already_holding")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=already_holding)
+
+======================================================================
+FAIL: test_engine_order_in_progress (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_order_in_progress)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 266, in test_engine_order_in_progress
+    r, m = self._one("order_in_progress")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=order_in_progress)
+
+======================================================================
+FAIL: test_engine_state_polluted (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_state_polluted)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 272, in test_engine_state_polluted
+    r, _ = self._one("state_polluted")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=state_polluted)
+
+======================================================================
+FAIL: test_engine_trading_paused (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_trading_paused)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 252, in test_engine_trading_paused
+    r, _ = self._one("trading_paused")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=trading_paused)
+
+======================================================================
+FAIL: test_engine_wo2_deferred_buy_not_ordered (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25EngineBranches.test_engine_wo2_deferred_buy_not_ordered)
+WO-2 지연 매수가 발주 없이 끝난 3사유 → 각 1행. 통과(1)는 행 없음.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 291, in test_engine_wo2_deferred_buy_not_ordered
+    self.assertEqual([json.loads(r["meta"])["error_name"] for r in rows],
+AssertionError: Lists differ: [] != ['wo2_superseded', 'wo2_max_wait_exceeded', 'wo2_signal_inverted']
+
+Second list contains 3 additional elements.
+First extra element 0:
+'wo2_superseded'
+
+- []
++ ['wo2_superseded', 'wo2_max_wait_exceeded', 'wo2_signal_inverted']
+
+======================================================================
+FAIL: test_limit_krw_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_krw_zero)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 196, in test_limit_krw_zero
+    r, _ = self._one("krw_zero")
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=krw_zero)
+
+======================================================================
+FAIL: test_limit_qty_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_qty_zero)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 220, in test_limit_qty_zero
+    r, _ = self._one("qty_zero")
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=qty_zero)
+
+======================================================================
+FAIL: test_limit_tick_out_of_range (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_tick_out_of_range)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 203, in test_limit_tick_out_of_range
+    r, m = self._one("tick_out_of_range")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=tick_out_of_range)
+
+======================================================================
+FAIL: test_limit_tick_round_error (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_limit_tick_round_error)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 211, in test_limit_tick_round_error
+    r, _ = self._one("tick_round_error")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=tick_round_error)
+
+======================================================================
+FAIL: test_market_krw_below_min (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_market_krw_below_min)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 235, in test_market_krw_below_min
+    r, _ = self._one("krw_below_min")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=krw_below_min)
+
+======================================================================
+FAIL: test_market_krw_zero (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25TraderBranches.test_market_krw_zero)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 227, in test_market_krw_zero
+    r, m = self._one("krw_zero")
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25_wt_old/tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py", line 75, in _one
+    self.assertEqual(len(rows), 1, f"BUY_REJECTED 1행이어야 함 (code={code})")
+AssertionError: 0 != 1 : BUY_REJECTED 1행이어야 함 (code=krw_zero)
+
+----------------------------------------------------------------------
+Ran 17 tests in 6.950s
+
+FAILED (failures=12, errors=1)
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25__vuy54oc/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_4idg13j7/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_ssbrvpzg/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_jmon11uq/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_jxm51m3y/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_gc0mdoo_/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_z8aq6f2z/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_oqo_121x/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_rziqmshs/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_e_ur7w2d/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_fbkwjm2v/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_fqxipvpu/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_bkf00jnm/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_wo0tbraf/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_71ujj4x7/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_lsyx7rgu/tradebot_test_r_2026_10_06_wo25.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/wo25_ewldrxd2/tradebot_test_r_2026_10_06_wo25.db

@@ -1,0 +1,32 @@
+WO-25 실행 명령 원문 (2026-10-06 KST). S=세션 scratchpad. 서버는 조사 A 집계만 읽기 (journal, DB mode=ro). pull·재시작 없음.
+
+[A] 조사
+sed -n 1040,1440p core/strategy_engine.py ; sed -n 514,862p core/trader.py ; sed -n 863,1010p core/trader.py      # 분기 읽기
+grep -n 'surge\|Surge' core/strategy_incremental.py ; sed -n 925,975p core/strategy_incremental.py ; sed -n 1755,1900p core/strategy_engine.py   # 급등 필터 = 평가 단계
+git show b37c7a0:core/strategy_engine.py | grep -nF '<패턴>' ; git show b37c7a0:core/trader.py | grep -nF '<패턴>'   # 구 코드 행 번호
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-02 00:00:00'" < $S/wo25_count.sh > $S/wo25_count_raw.txt   # → evidence/server-branch-counts.txt (원본 바이트 정리: python 으로 '**' 줄 제거)
+
+[B] 구현 (파일 도구 Edit): core/trader.py, core/strategy_engine.py
+python3 -c "…replace('bar.ts, indicators, code=', 'bar.ts, indicators, price=bar.close, code=')…"   # 엔진 호출 4곳에 price 인자
+python3 -m py_compile core/strategy_engine.py core/trader.py
+
+[C] 시험
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit   # 새 코드 17 OK
+git worktree add --detach $S/wo25_wt_old b37c7a0 ; ln -s <repo>/.streamlit $S/wo25_wt_old/.streamlit ; cp tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py $S/wo25_wt_old/tests/regressions/
+(cd $S/wo25_wt_old && env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit -v > $S/wo25_oldcode.txt 2>&1)   # 구 코드 failures=12 errors=1
+git worktree remove --force $S/wo25_wt_old
+
+[D] 버전·커밋·관문
+date '+%Y.%m.%d.%H%M'    # 2026.10.06.1326
+sed -i '' 's/v1\.2026\.10\.05\.1526")/v1.2026.10.06.1326")/' pages/dashboard.py ; grep -n 'v1.2026' pages/dashboard.py | head -1
+python3 -m py_compile core/trader.py core/strategy_engine.py pages/dashboard.py tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py
+git add core/trader.py core/strategy_engine.py pages/dashboard.py tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py ; git status --short | grep -v '^??'
+git commit -q -F $S/wo25_msg.txt     # 9dd9bd7
+bash $S/wo25_check.sh > $S/wo25_check_out.txt 2>&1      # 게이트 319/319, 단독 revert 충돌 없음, 302/302 (스크립트: evidence/wo25_check.sh)
+
+[근거·문서]
+git show 9dd9bd7 > evidence/code-diff-9dd9bd7.txt
+env … python3 -m unittest tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit -v > evidence/test-newcode.txt 2>&1
+(파일 도구: a-branches.csv, plan.md, report.md, commands.txt, docs/operations/terminology.md BUY_REJECTED(pre_order) 행)
+git add -f (파일 개별 지정) ; git status --short | grep -v '^??' ; git commit -F $S/wo25docs_msg.txt ; git log --oneline origin/main..HEAD ; git push origin main
+(wo25-impl-20261006.zip, 미추적)

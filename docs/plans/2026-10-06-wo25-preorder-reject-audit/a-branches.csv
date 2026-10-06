@@ -1,0 +1,22 @@
+구분,위치(구 코드 b37c7a0),분기,사유 문자열(로그),알림,구 코드 감사 기록,10-02~10-06 13:22 발생,WO-25 처리(code),WO-25 위치(9dd9bd7)
+엔진,core/strategy_engine.py:1060,매매 일시중지 (PAUSE-1),"⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action=BUY",없음,없음 (logs 도 없음),0,BUY_REJECTED trading_paused (BUY 만),core/strategy_engine.py:1063
+엔진,core/strategy_engine.py:1066,앞선 주문 진행 중 (pending_order),"⏳ 주문 진행 중 → 매수 액션 대기",없음,없음,0,BUY_REJECTED order_in_progress,core/strategy_engine.py:1073
+엔진,core/strategy_engine.py:1074,지표 오염 (state_polluted),"🚫 [POLLUTED] 지표 오염 상태 — 신규 매수 차단",없음,audit_buy_eval 주석만 (annotate_buy_eval_blocked STATE_POLLUTED) — audit_trades 없음,0,BUY_REJECTED state_polluted (주석 유지),core/strategy_engine.py:1100
+엔진,core/strategy_engine.py:1108,미확정 봉 → WO-2 지연 등록 (차단 아님 — 대기),"[PENDING-REGISTER] 매수 지연 등록",없음,audit_buy_eval validation_* (해소 시),0,해소 결과로 처리 (아래 3행),—
+엔진,core/strategy_engine.py:1161,WO-2 지연 매수 교체 (SUPERSEDED),"[PENDING-SUPERSEDE] 기존 대기 매수 취소",없음,audit_buy_eval validation_reason 만,0,BUY_REJECTED wo2_superseded,core/strategy_engine.py:1360 (_audit_wo2_resolution)
+엔진,core/strategy_engine.py:1199,WO-2 지연 상한 초과 (MAX_WAIT_EXCEEDED),"[PENDING-EXPIRE] 지연 상한 초과 → 취소",없음,audit_buy_eval validation_reason 만,0,BUY_REJECTED wo2_max_wait_exceeded,core/strategy_engine.py:1360
+엔진,core/strategy_engine.py:1227·1242,WO-2 재확인 불성립·예외 (SIGNAL_INVERTED),"[PENDING-RESOLVE] 유효성 불성립 → 취소 / 유효성 확인 예외 → 취소",없음,audit_buy_eval validation_reason 만,0,BUY_REJECTED wo2_signal_inverted,core/strategy_engine.py:1360
+엔진,core/strategy_engine.py:1327,이미 포지션 보유,"⛔ 이미 포지션 보유 중 → BUY 무시",없음,없음,0,BUY_REJECTED already_holding,core/strategy_engine.py:1394
+트레이더(지정가),core/trader.py:882,dry-run (실주문 억제 — 차단 아님),"[DRY-RUN] buy_limit 실 주문 억제",없음,없음,0,대상 아님 (검증 모드),—
+트레이더(지정가),core/trader.py:899,TEST 모드 → 시장가로 넘김 (차단 아님),"[BUY-LIMIT] TEST 모드 — buy_market으로 폴백",없음,—,0,대상 아님,—
+트레이더(지정가),core/trader.py:907,호가 라운딩 계산 실패 (예외),"[BUY-LIMIT] 호가 라운딩 실패: …",없음,없음,0,BUY_REJECTED tick_round_error,core/trader.py:945
+트레이더(지정가),core/trader.py:910,호가 단위 이탈 (0.5% 초과),"[BUY-LIMIT] 호가 라운딩 비정상: 원가=… 조정가=…",CRITICAL fixed_buy_tick,logs 테이블만,0,BUY_REJECTED tick_out_of_range,core/trader.py:976
+트레이더(지정가),core/trader.py:938,KRW 잔고 0,"[BUY-LIMIT] 활성 KRW 잔고 0 — 현재가 매수 불가",WARNING fixed_buy_balance_zero,logs 테이블만,0,BUY_REJECTED krw_zero,core/trader.py:1009
+트레이더(지정가),core/trader.py:966,KRW 부족 (주문 비율 적용 주문액 < 5,000),"[BUY-LIMIT] 활성 KRW 부족: 가용=… 계산=… (최소 5,000 미만)",WARNING fixed_buy_balance,logs 테이블만,1 (2026-10-06 05:37:12 가용=1 계산=0),BUY_REJECTED krw_below_min,core/trader.py:1043
+트레이더(지정가),core/trader.py:993,계산 수량 0,"[BUY-LIMIT] 계산된 수량 0 — price=… krw=…",없음,없음,0,BUY_REJECTED qty_zero,core/trader.py:1054
+트레이더(시장가),core/trader.py:524,dry-run (실주문 억제 — 차단 아님),"[DRY-RUN] buy_market 실 주문 억제",없음,없음,0,대상 아님 (검증 모드),—
+트레이더(시장가),core/trader.py:538,KRW 잔고 0,"[BUY] 주문 불가: 잔고=…",없음,없음,0,BUY_REJECTED krw_zero,core/trader.py:566
+트레이더(시장가),core/trader.py:552,최소 주문금액 미만,"[BUY] 실거래 최소 주문금액 미만: … KRW",없음,없음,0,BUY_REJECTED krw_below_min,core/trader.py:585
+트레이더(시장가),core/trader.py:633,재시도 직전 KRW 재확인 부족 (시도 루프 안),"[BUY-LIVE] attempt #… 잔고 부족 중단 → 활성 KRW 부족: …",CRITICAL buy_reject,이미 BUY_REJECTED (WO-9 최종 실패 경로) + orders FAILED,0,변경 없음 (이미 기록),—
+평가 단계(참고),core/strategy_incremental.py:949·1276,급등 필터 (SURGE_FILTER) — 평가 통과 전 차단,"(HOLD) audit_buy_eval failed_keys=[SURGE_FILTER], checks.filter_*",없음,audit_buy_eval overall_ok=0 로 기록,— (평가 통과 행이 아님),대상 아님 — 평가 통과 뒤 분기가 아님,—
+평가 단계(참고),core/strategy_engine.py:866·991,BACKFILL 재평가 — 주문 생략 (설계),"[BACKFILL] 실제 주문 건너뜀 (감사 로그만 기록)",없음,audit_buy_eval backfill_* 열,—,대상 아님 — 실시간 평가가 아님,—

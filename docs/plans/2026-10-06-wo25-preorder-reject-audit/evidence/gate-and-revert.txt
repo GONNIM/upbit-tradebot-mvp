@@ -1,0 +1,17 @@
+worktree wo25_wt .env 개수: 0
+worktree wo25_wt_old2 .env 개수: 0
+=================== [A] 9dd9bd7 게이트 (.env 없음)
+✅ 회귀 테스트 319/319 통과 — 배포 진행 가능
+=================== [B] 9dd9bd7 WO-25 시험 (-v)
+Ran 17 tests in 4.330s
+OK
+=================== [D] revert 9dd9bd7 (feat(wo25): BUY 평가 통과 뒤 주문 전 봇 안 차단을 audit_trades )
+충돌 파일: 없음
+변경 파일:
+ core/strategy_engine.py                            |  69 -----
+ core/trader.py                                     |  66 +----
+ pages/dashboard.py                                 |   2 +-
+ ...test_r_2026_10_06_wo25_preorder_reject_audit.py | 306 ---------------------
+ 4 files changed, 2 insertions(+), 441 deletions(-)
+py_compile OK
+✅ 회귀 테스트 302/302 통과 — 배포 진행 가능
