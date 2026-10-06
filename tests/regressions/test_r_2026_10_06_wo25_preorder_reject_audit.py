@@ -157,15 +157,7 @@ class TestWo25Core(_DbCase):
         self.assertEqual(r2.get("uuid"), "u-market")
         self.assertEqual(self._rows(), [], "정상 발주에는 거절 행 없음")
 
-    def test_4_audit_page_shows_preorder_reject(self):
-        """(4) 감사 로그 페이지 표시 매핑: ⛔ 매수 거절 + '거절 사유' 열에 note 그대로 + 거절 필터."""
-        tr = self._trader()
-        with patch.object(tr, "_krw_balance", return_value=1.0), patch.object(tr, "_current_risk_pct", return_value=0.5):
-            tr.buy_limit(779.0, T, meta=dict(META), interval_sec=300)
-        from services.db import trade_type_display, trade_kind, is_reject_type
-        self.assertEqual(trade_type_display("BUY_REJECTED"), "⛔ 매수 거절")
-        self.assertEqual(trade_kind("BUY_REJECTED"), "거절")
-        self.assertTrue(is_reject_type("BUY_REJECTED"))
+    def _render(self):
         from streamlit.testing.v1 import AppTest
         at = AppTest.from_file(str(ROOT / "pages" / "audit_viewer.py"), default_timeout=60)
         at.query_params["user_id"] = U
@@ -175,12 +167,67 @@ class TestWo25Core(_DbCase):
         at.session_state["user_id"] = U
         at.run()
         self.assertEqual([e.value for e in at.exception], [], "렌더 예외 없어야 함")
+        return at
+
+    def _exchange_reject(self):
+        """WO-9 거래소 거절 행 (meta 에 stage 없음, 업비트 오류 코드)."""
+        tr = self._trader()
+        call = {"ok": False, "status": 400, "data": None, "error_name": "insufficient_funds_bid",
+                "error_message": "주문가능한 금액(KRW)이 부족합니다.", "exception": None, "body": None}
+        with patch.object(tr, "_krw_balance", return_value=1_000_000.0), \
+             patch.object(tr, "_current_risk_pct", return_value=0.5), \
+             patch("core.trader._upbit_buy_limit", return_value=call):
+            self.assertEqual(tr.buy_limit(779.0, T, meta=dict(META), interval_sec=300), {})
+
+    def test_4_audit_page_shows_preorder_reject(self):
+        """(4) 감사 로그 페이지 표시 매핑 (WO-25 문구 수정 반영): ⛔ 주문 전 차단 + '거절 사유' 열 note + "주문 전 차단" 필터."""
+        tr = self._trader()
+        with patch.object(tr, "_krw_balance", return_value=1.0), patch.object(tr, "_current_risk_pct", return_value=0.5):
+            tr.buy_limit(779.0, T, meta=dict(META), interval_sec=300)
+        from services.db import trade_type_display, trade_kind, is_reject_type, trade_kind_row, trade_type_display_row
+        r = self._rows()[0]
+        self.assertTrue(is_reject_type("BUY_REJECTED"), "손익·체결 집계 제외 판정은 그대로")
+        self.assertEqual(trade_kind_row(r["type"], r["meta"]), "주문 전 차단")
+        self.assertEqual(trade_type_display_row(r["type"], r["meta"]), "⛔ 주문 전 차단")
+        self.assertEqual(trade_type_display("BUY_REJECTED"), "⛔ 매수 거절", "기존 함수는 그대로 (대시보드 등)")
+        self.assertEqual(trade_kind("BUY_REJECTED"), "거절")
+        at = self._render()
         df = at.dataframe[0].value
-        rej = df[df["type"] == "⛔ 매수 거절"]
+        rej = df[df["type"] == "⛔ 주문 전 차단"]
         self.assertEqual(len(rej), 1)
         self.assertIn("매수 가능 KRW 부족 (가용 1원", rej.iloc[0]["거절 사유"])
         flt = next(m for m in at.multiselect if m.label == "유형 필터")
-        flt.set_value(["거절"]).run()
+        self.assertIn("주문 전 차단", flt.options)
+        flt.set_value(["주문 전 차단"]).run()
+        self.assertEqual(at.dataframe[0].value["type"].tolist(), ["⛔ 주문 전 차단"])
+        next(m for m in at.multiselect if m.label == "유형 필터").set_value(["거절"]).run()
+        self.assertEqual(len(at.dataframe[0].value), 0, "거래소 거절 필터에는 주문 전 차단 행이 섞이지 않음")
+
+    def test_4a_preorder_row_new_warning_text(self):
+        """(a) pre_order 행 → 새 경고 문구, 거래소 거절 문구는 나오지 않음. 필터 도움말 두 경우 구분."""
+        tr = self._trader()
+        with patch.object(tr, "_krw_balance", return_value=1.0), patch.object(tr, "_current_risk_pct", return_value=0.5):
+            tr.buy_limit(779.0, T, meta=dict(META), interval_sec=300)
+        at = self._render()
+        warns = [w.value for w in at.warning]
+        self.assertTrue(any("⛔ 주문 전 차단 1건 — 봇이 주문 전에 매수를 중단했습니다. 사유 열을 확인하세요." in w for w in warns), warns)
+        self.assertFalse(any("거래소가 봇 주문을 받지 않았습니다" in w for w in warns), warns)
+        hlp = next(m for m in at.multiselect if m.label == "유형 필터").help
+        self.assertIn("거절 = 거래소가 봇 주문을 받지 않은 건", hlp)
+        self.assertIn("주문 전 차단 = 봇이 주문 전에 매수를 중단한 건", hlp)
+
+    def test_4b_exchange_reject_row_keeps_old_text(self):
+        """(b) 거래소 거절 행(WO-9) → 기존 문구·⛔ 매수 거절 그대로, 새 문구 없음."""
+        self._exchange_reject()
+        r = self._rows()[0]
+        self.assertNotEqual(json.loads(r["meta"]).get("stage"), "pre_order")
+        at = self._render()
+        warns = [w.value for w in at.warning]
+        self.assertTrue(any("⛔ 발주 거절 1건 — 거래소가 봇 주문을 받지 않았습니다" in w for w in warns), warns)
+        self.assertFalse(any("봇이 주문 전에 매수를 중단했습니다" in w for w in warns), warns)
+        df = at.dataframe[0].value
+        self.assertEqual(df[df["type"] == "⛔ 매수 거절"].shape[0], 1)
+        next(m for m in at.multiselect if m.label == "유형 필터").set_value(["거절"]).run()
         self.assertEqual(at.dataframe[0].value["type"].tolist(), ["⛔ 매수 거절"])
 
 

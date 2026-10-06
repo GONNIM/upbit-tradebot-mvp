@@ -8,6 +8,7 @@ from services.db import fetch_buy_eval, fetch_trades_audit  # 기존 제공 함�
 
 from services.db import fetch_buy_eval, fetch_trades_audit, get_account
 from services.db import TRADES_AUDIT_COLUMNS, trade_kind, trade_type_display  # ✅ WO-9 (e)
+from services.db import PREORDER_KIND, trade_kind_row, trade_type_display_row  # ✅ WO-25: 주문 전 차단 구분
 from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-3
 from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
@@ -797,10 +798,12 @@ elif section == "trades":
     st.subheader(f"💹 체결 (audit_trades) - {INDICATOR_DISPLAY_NAME} 전략")
     # ✅ WO-9 (e): 유형 필터 — 매수 / 매도 / 거절(발주 거절, 체결 아님)
     # ✅ WO-24: "미체결 취소" = 현재가 매수가 대기 봉 안에 체결되지 않아 자동 취소된 건 (체결 아님)
-    _kind_options = ["매수", "매도", "거절", "미체결 취소"]
+    # ✅ WO-25: "주문 전 차단" = BUY 평가는 통과했지만 봇이 주문 요청 전에 매수를 중단한 건 (BUY_REJECTED, meta.stage=pre_order)
+    _kind_options = ["매수", "매도", "거절", PREORDER_KIND, "미체결 취소"]
     _kind_sel = st.multiselect(
         "유형 필터", _kind_options, default=_kind_options, key="trades_kind_filter",
-        help="거절 = 거래소가 봇 주문을 받지 않은 건 (체결 아님, 손익 집계 제외) · "
+        help="거절 = 거래소가 봇 주문을 받지 않은 건 (체결 아님, 손익 집계 제외)\n\n"
+             "주문 전 차단 = 봇이 주문 전에 매수를 중단한 건 (주문 없음, 손익 집계 제외)\n\n"
              "미체결 취소 = 현재가 매수가 대기 봉 안에 체결되지 않아 자동 취소된 건 (체결 아님)",
     )
     df_tr = fetch_trades_audit(user_id, ticker=ticker or None, limit=rows) or []
@@ -809,7 +812,8 @@ elif section == "trades":
             df_tr = pd.DataFrame(df_tr, columns=TRADES_AUDIT_COLUMNS)
 
         # ✅ WO-9 (e): 거절 행 식별 → 필터 적용 → ⛔ 표시
-        df_tr["_kind"] = df_tr["type"].apply(trade_kind)
+        # ✅ WO-25: 행 단위 분류 — BUY_REJECTED 중 meta.stage=pre_order 는 "주문 전 차단"
+        df_tr["_kind"] = [trade_kind_row(_t, _m) for _t, _m in zip(df_tr["type"], df_tr["meta"])]
         _show_kinds = set(_kind_sel) | {"기타"}
         df_tr = df_tr[df_tr["_kind"].isin(_show_kinds)].reset_index(drop=True)
         _n_reject = int((df_tr["_kind"] == "거절").sum())
@@ -818,7 +822,12 @@ elif section == "trades":
                 f"⛔ 발주 거절 {_n_reject}건 — 거래소가 봇 주문을 받지 않았습니다 (체결 아님). "
                 f"'거절 사유' 열을 확인하세요."
             )
-        df_tr["type"] = df_tr["type"].apply(trade_type_display)
+        _n_preorder = int((df_tr["_kind"] == PREORDER_KIND).sum())
+        if _n_preorder:
+            st.warning(
+                f"⛔ 주문 전 차단 {_n_preorder}건 — 봇이 주문 전에 매수를 중단했습니다. 사유 열을 확인하세요."
+            )
+        df_tr["type"] = [trade_type_display_row(_t, _m) for _t, _m in zip(df_tr["type"], df_tr["meta"])]
 
         # ✅ bar_time이 NULL인 경우에만 계산 (하위 호환성)
         if "bar_time" in df_tr.columns and df_tr["bar_time"].isna().any():
@@ -911,7 +920,7 @@ elif section == "trades":
 
         # ✅ WO-9 (e): 거절 행 옅은 붉은 배경 (아이콘 ⛔ + 글자와 함께 — 색만으로 구분하지 않음)
         # ✅ WO-24: 미체결 취소 행 옅은 노란 배경 (아이콘 ⏱ + 글자와 함께 — 거절과 구분)
-        _reject_mask = (df_tr["_kind"] == "거절").tolist()
+        _reject_mask = df_tr["_kind"].isin(["거절", PREORDER_KIND]).tolist()  # ✅ WO-25: 주문 전 차단도 붉은 배경
         _unfilled_mask = (df_tr["_kind"] == "미체결 취소").tolist()
 
         def _style_reject_rows(row):

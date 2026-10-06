@@ -188,7 +188,8 @@ class TestWo24(_DbCase):
         self.assertEqual(trade_kind("BUY_CANCELED"), "미체결 취소")
         self.assertFalse(is_reject_type("BUY_CANCELED"))
         src = (ROOT / "pages" / "audit_viewer.py").read_text(encoding="utf-8")
-        self.assertIn('_kind_options = ["매수", "매도", "거절", "미체결 취소"]', src)
+        # WO-25 (2026-10-06): "주문 전 차단"(PREORDER_KIND) 선택지가 거절 뒤에 추가됨 — 미체결 취소는 그대로 유지
+        self.assertIn('_kind_options = ["매수", "매도", "거절", PREORDER_KIND, "미체결 취소"]', src)
 
     def test_7_notifier_success_log(self):
         """(7) notifier 발송 성공 → '[NOTIFY] sent | kind=… dedupe=…' INFO 1줄, 토큰·채팅 ID 미기록."""

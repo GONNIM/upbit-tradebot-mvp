@@ -1689,6 +1689,32 @@ def trade_type_display(trade_type: str | None) -> str:
     return _TRADE_TYPE_DISPLAY.get(str(trade_type or "").upper(), trade_type or "-")
 
 
+# ✅ WO-25 (2026-10-06): 주문 전 봇 안 차단 (BUY_REJECTED + meta.stage='pre_order') — 거래소 거절(WO-9)과 구분 표시
+PREORDER_KIND = "주문 전 차단"
+PREORDER_DISPLAY = "⛔ 주문 전 차단"
+
+
+def is_preorder_reject(trade_type: str | None, meta: Any) -> bool:
+    """BUY_REJECTED 행의 meta(JSON 문자열 또는 dict) stage 가 'pre_order' 인지. 파싱 실패는 False (기존 거절로 취급)."""
+    if str(trade_type or "").upper() != "BUY_REJECTED" or not meta:
+        return False
+    try:
+        m = meta if isinstance(meta, dict) else json.loads(meta)
+        return isinstance(m, dict) and m.get("stage") == "pre_order"
+    except Exception:
+        return False
+
+
+def trade_kind_row(trade_type: str | None, meta: Any = None) -> str:
+    """✅ WO-25: 행 단위 유형 — 주문 전 차단이면 "주문 전 차단", 아니면 trade_kind 그대로."""
+    return PREORDER_KIND if is_preorder_reject(trade_type, meta) else trade_kind(trade_type)
+
+
+def trade_type_display_row(trade_type: str | None, meta: Any = None) -> str:
+    """✅ WO-25: 행 단위 표시 — 주문 전 차단이면 "⛔ 주문 전 차단", 아니면 trade_type_display 그대로."""
+    return PREORDER_DISPLAY if is_preorder_reject(trade_type, meta) else trade_type_display(trade_type)
+
+
 def fetch_trades_audit(user_id: str, ticker: str | None = None, limit=500):
     """audit_trades 조회. 반환 튜플 열 순서 = TRADES_AUDIT_COLUMNS."""
     where = " WHERE 1=1"
