@@ -456,9 +456,11 @@ class UpbitTrader:
         call: Optional[Dict[str, Any]] = None,
         meta: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
+        note: Optional[str] = None,
     ) -> None:
         """
         ✅ WO-9 (e) (2026-09-30): 거래소 발주 거절을 audit_trades 에 기록.
+        ✅ WO-25 (2026-10-06): note 를 주면 그 문구를 그대로 쓴다 (주문 전 봇 안 차단 — 업비트 응답 없음).
 
         - type = 'SELL_REJECTED' / 'BUY_REJECTED' (BUY/SELL 과 구분 → 손익·체결 집계 제외)
         - reason = 신호 사유 (EMA_DC, STOP_LOSS, EMA_GC, force_buy 등)
@@ -498,7 +500,7 @@ class UpbitTrader:
                 bar_time=m.get("bar_time"),
                 settings_history_id=self._get_settings_history_id(),
                 qty=float(qty) if qty is not None else None,
-                note=reject_note(err_summary),
+                note=note or reject_note(err_summary),
                 meta=_json.dumps(err_meta, ensure_ascii=False, default=str),
             )
             logger.warning(
@@ -507,6 +509,30 @@ class UpbitTrader:
             )
         except Exception as e:
             logger.error(f"[AUDIT-REJECT] 기록 실패: {e} | side={side} ticker={ticker}")
+
+    def _audit_preorder_reject(
+        self,
+        *,
+        ticker: str,
+        price: Optional[float],
+        meta: Optional[Dict[str, Any]],
+        code: str,
+        note: str,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        ✅ WO-25 (2026-10-06): 주문 요청([UPBIT-ORDER]) 전에 봇 안에서 매수를 막은 경우를
+        audit_trades type='BUY_REJECTED' 로 기록 (감사 로그 페이지 ⛔ 매수 거절 행, 손익 집계 제외).
+        - code: 차단 분기 식별자 (meta.error_name), note: 사람이 읽는 사유 (감사 로그 note 칸)
+        - 판정·발주 흐름은 바꾸지 않는다. 기록 실패는 삼킨다.
+        """
+        _extra = {"stage": "pre_order", "error_name": code}
+        if extra:
+            _extra.update(extra)
+        self._audit_reject(
+            side="BUY", ticker=ticker, price=price, qty=None,
+            err_summary=code, call=None, meta=meta, extra=_extra, note=note,
+        )
 
     # ---------------------------
     # 매수 / 매도
@@ -537,6 +563,11 @@ class UpbitTrader:
         avail = self._krw_balance()
         if avail <= 0:
             logger.warning(f"[BUY] 주문 불가: 잔고={avail:.4f}")
+            self._audit_preorder_reject(  # ✅ WO-25
+                ticker=ticker, price=price, meta=meta, code="krw_zero",
+                note=f"매수 가능 KRW 없음 (가용 {avail:,.0f}원) — 시장가 매수 주문 전 차단",
+                extra={"avail_krw": avail, "order_type": "market"},
+            )
             return {}
 
         # 🔧 위험비율 적용 + 원 단위 내림 (수수료 차감 후에도 잔고 부족이 안 되도록
@@ -551,6 +582,12 @@ class UpbitTrader:
 
         if krw_to_use < 5000:
             logger.warning(f"[BUY] 실거래 최소 주문금액 미만: {krw_to_use:.2f} KRW")
+            self._audit_preorder_reject(  # ✅ WO-25
+                ticker=ticker, price=price, meta=meta, code="krw_below_min",
+                note=(f"매수 가능 KRW 부족 (가용 {avail:,.0f}원, 주문 비율 적용 주문액 {krw_to_use:,.0f}원 "
+                      f"< 최소 5,000원) — 시장가 매수 주문 전 차단"),
+                extra={"avail_krw": avail, "krw_to_use": krw_to_use, "risk_pct": risk_pct, "order_type": "market"},
+            )
             return {}
 
         qty = round(krw_to_use / (price * (1 + MIN_FEE_RATIO)), 8)
@@ -905,6 +942,11 @@ class UpbitTrader:
             rounded_price = float(_round_price_to_tick(float(price)))
         except Exception as e:
             logger.error(f"[BUY-LIMIT] 호가 라운딩 실패: {e}")
+            self._audit_preorder_reject(  # ✅ WO-25
+                ticker=ticker, price=price, meta=meta, code="tick_round_error",
+                note=f"주문가 호가 단위 계산 실패 ({e}) — 현재가 매수 주문 전 차단",
+                extra={"order_type": "limit"},
+            )
             return {}
 
         if rounded_price <= 0 or abs(rounded_price - float(price)) / max(float(price), 1e-9) > 0.005:
@@ -930,6 +972,12 @@ class UpbitTrader:
                 self.user_id,
                 "ERROR",
                 f"❌ 현재가 매수 거부 ({ticker}): {err}",
+            )
+            self._audit_preorder_reject(  # ✅ WO-25
+                ticker=ticker, price=price, meta=meta, code="tick_out_of_range",
+                note=(f"주문가 호가 단위 이탈 (요청가 {float(price):,.4f} → 조정가 {rounded_price:,.2f}, "
+                      f"0.5% 초과) — 현재가 매수 주문 전 차단"),
+                extra={"rounded_price": rounded_price, "order_type": "limit"},
             )
             return {}
 
@@ -957,6 +1005,11 @@ class UpbitTrader:
                 self.user_id,
                 "WARNING",
                 f"❌ 현재가 매수 잔고 부족 ({ticker}): 가용 KRW=0",
+            )
+            self._audit_preorder_reject(  # ✅ WO-25
+                ticker=ticker, price=price, meta=meta, code="krw_zero",
+                note=f"매수 가능 KRW 없음 (가용 {avail:,.0f}원) — 현재가 매수 주문 전 차단",
+                extra={"avail_krw": avail, "order_type": "limit"},
             )
             return {}
 
@@ -987,11 +1040,22 @@ class UpbitTrader:
                 "WARNING",
                 f"❌ 현재가 매수 잔고 부족 ({ticker}): {err}",
             )
+            self._audit_preorder_reject(  # ✅ WO-25
+                ticker=ticker, price=price, meta=meta, code="krw_below_min",
+                note=(f"매수 가능 KRW 부족 (가용 {avail:,.0f}원, 주문 비율 적용 주문액 {krw_to_use:,.0f}원 "
+                      f"< 최소 5,000원) — 현재가 매수 주문 전 차단"),
+                extra={"avail_krw": avail, "krw_to_use": krw_to_use, "risk_pct": risk_pct, "order_type": "limit"},
+            )
             return {}
 
         qty = round(krw_to_use / (rounded_price * (1 + MIN_FEE_RATIO)), 8)
         if qty <= 0:
             logger.warning(f"[BUY-LIMIT] 계산된 수량 0 — price={rounded_price} krw={krw_to_use}")
+            self._audit_preorder_reject(  # ✅ WO-25
+                ticker=ticker, price=price, meta=meta, code="qty_zero",
+                note=f"주문 수량 계산 결과 0 (주문가 {rounded_price:,.2f}원, 주문액 {krw_to_use:,.0f}원) — 현재가 매수 주문 전 차단",
+                extra={"rounded_price": rounded_price, "krw_to_use": krw_to_use, "order_type": "limit"},
+            )
             return {}
 
         logger.info(

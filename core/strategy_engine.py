@@ -1059,12 +1059,22 @@ class StrategyEngine:
         # 근거: docs/plans/2026-07-16-trading-pause/plan.md ("BUY + SELL 모두 중지")
         if get_trading_paused(self.user_id):
             logger.info(f"⏸️  [PAUSE] 실주문 스킵 (감사로그·지표는 유지) | action={action.value}")
+            if action == Action.BUY:
+                self._audit_buy_blocked(  # ✅ WO-25
+                    bar.ts, indicators, price=bar.close, code="trading_paused",
+                    note="매매 일시중지 상태 — 매수 주문 전 차단",
+                )
             return
 
         if action == Action.BUY:
             # ✅ WO-2: 매수 경로에서만 pending_order 검사. 매도는 이 검사를 건너뛴다.
             if self.position.pending_order:
                 logger.warning("⏳ 주문 진행 중 → 매수 액션 대기 (매도 경로는 별도 검사 없음)")
+                self._audit_buy_blocked(  # ✅ WO-25
+                    bar.ts, indicators, price=bar.close, code="order_in_progress",
+                    note="앞선 매수 주문이 진행 중(체결 대기) — 새 매수 주문 전 차단",
+                    extra={"pending_buy_uuid": getattr(self, "_pending_buy_uuid", None)},
+                )
                 return
 
             # ✅ WO-1 선행 1: state_polluted 게이트 — 신규 매수만 차단, 매도 경로는 계속 실행
@@ -1087,6 +1097,10 @@ class StrategyEngine:
                     )
                 except Exception as _annotate_exc:
                     logger.warning(f"[POLLUTED] audit annotate 예외 무시: {_annotate_exc}")
+                self._audit_buy_blocked(  # ✅ WO-25
+                    bar.ts, indicators, price=bar.close, code="state_polluted",
+                    note="지표 오염 상태(재시작 전까지 신규 매수 금지) — 매수 주문 전 차단",
+                )
                 return  # 매수 미실행
             self._execute_buy_or_defer(bar, indicators)
         elif action == Action.SELL or action == Action.CLOSE:
@@ -1287,6 +1301,50 @@ class StrategyEngine:
                 return float(_bar.close)
         return None
 
+    # ✅ WO-25 (2026-10-06): WO-2 지연 매수가 발주 없이 끝난 사유 → 사람이 읽는 문구
+    _WO2_BLOCK_NOTES = {
+        "SUPERSEDED": "지연 매수 대기 중 새 매수 신호로 교체 — 이전 신호의 매수 주문 전 취소",
+        "MAX_WAIT_EXCEEDED": "지연 매수 대기 시간 초과 — 매수 주문 전 취소",
+        "SIGNAL_INVERTED": "확정 종가로 다시 확인한 결과 매수 신호 불성립 — 매수 주문 전 취소",
+    }
+
+    def _audit_buy_blocked(
+        self,
+        bar_ts,
+        indicators: Optional[Dict[str, Any]],
+        *,
+        code: str,
+        note: str,
+        price: Optional[float] = None,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        ✅ WO-25 (2026-10-06): BUY 평가 통과(action=BUY) 뒤 주문 요청 전에 엔진이 매수를 막은 경우
+        audit_trades type='BUY_REJECTED' 1행 (감사 로그 ⛔ 매수 거절). 판정·발주 흐름은 바꾸지 않는다.
+        meta 는 _execute_buy 와 같은 모양 (bar·reason·bar_time·지표). 기록 실패는 삼킨다.
+        """
+        try:
+            from zoneinfo import ZoneInfo
+            ind = indicators or {}
+            buy_reason = getattr(self.strategy, "last_buy_reason", None) or (
+                "GOLDEN_CROSS" if self.strategy_type == "MACD" else "EMA_GC"
+            )
+            meta = {
+                "bar": self.bar_count,
+                "reason": buy_reason,
+                "bar_time": bar_ts.astimezone(ZoneInfo("Asia/Seoul")).isoformat() if bar_ts is not None else None,
+                "macd": ind.get("macd"),
+                "signal": ind.get("signal"),
+                "ema_fast": ind.get("ema_fast"),
+                "ema_slow": ind.get("ema_slow"),
+                "interval_sec": self.interval_sec,
+            }
+            self.trader._audit_preorder_reject(
+                ticker=self.ticker, price=price, meta=meta, code=code, note=note, extra=extra,
+            )
+        except Exception as e:
+            logger.warning(f"[AUDIT-REJECT] 엔진 주문 전 차단 기록 예외 무시: {e} | code={code}")
+
     def _audit_wo2_resolution(
         self,
         bar_ts,
@@ -1296,6 +1354,13 @@ class StrategyEngine:
         resolved_at,
     ) -> None:
         """WO-2 재판정 결과를 audit_buy_eval 에 UPDATE 반영."""
+        # ✅ WO-25: 발주 없이 끝난 지연 매수(취소·교체·불성립)는 audit_trades BUY_REJECTED 로도 남긴다.
+        if validation_passed == 0:
+            _code = str(validation_reason or "UNKNOWN")
+            self._audit_buy_blocked(
+                bar_ts, None, price=confirmed_close, code=f"wo2_{_code.lower()}",
+                note=self._WO2_BLOCK_NOTES.get(_code, f"지연 매수 취소 ({_code}) — 매수 주문 전 취소"),
+            )
         try:
             from zoneinfo import ZoneInfo
             from services.db import update_buy_eval_wo2_resolution
@@ -1326,6 +1391,10 @@ class StrategyEngine:
         """
         if self.position.has_position:
             logger.warning("⛔ 이미 포지션 보유 중 → BUY 무시")
+            self._audit_buy_blocked(  # ✅ WO-25
+                bar.ts, indicators, price=bar.close, code="already_holding",
+                note="이미 포지션 보유 중 — 매수 주문 전 차단",
+            )
             return
 
         # 매수 실행
