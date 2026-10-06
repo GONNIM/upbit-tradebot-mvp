@@ -1,0 +1,14 @@
+2026-10-06 07:43:24 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T16:44:52.154155+09:00 mode=LIVE
+2026-10-06 07:43:50 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 07:45:04 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 07:46:11 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 07:47:37 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 07:48:33 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T16:44:52.154155+09:00 mode=LIVE
+2026-10-06 07:49:19 INFO services.settings_history | [settings_history] recorded id=194 user_id=mcmax33 source_page=set_buy_sell_conditions strategy_type=EMA params=Y conditions=Y app_version=v1.2026.10.05.1526 note=None
+2026-10-06 07:49:21 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ⚡ Hot-reload triggered snapshot at 2026-10-06T07:49:00+09:00
+2026-10-06 07:50:00 INFO engine.live_loop | 🔄 [PARAMS-RELOAD] 조건 파일 변경 반영 완료 | tp=1.00% sl=1.00% ts=0.3 use_fixed=True
+2026-10-06 07:52:22 INFO services.settings_history | [settings_history] recorded id=195 user_id=mcmax33 source_page=set_buy_sell_conditions strategy_type=EMA params=Y conditions=Y app_version=v1.2026.10.05.1526 note=None
+2026-10-06 07:52:26 INFO engine.live_loop | [SETTINGS-SNAPSHOT] ⚡ Hot-reload triggered snapshot at 2026-10-06T07:52:00+09:00
+2026-10-06 07:53:00 INFO engine.live_loop | 🔄 [PARAMS-RELOAD] 조건 파일 변경 반영 완료 | tp=1.00% sl=1.00% ts=0.3 use_fixed=True
+== settings_history 193~195
+Error: in prepare, database is locked (5)

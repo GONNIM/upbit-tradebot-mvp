@@ -1,0 +1,23 @@
+조회 2026-10-06 13:05:49
+195|195
+193|2026-10-05T16:44:52.554835+09:00|strategy_init|v1.2026.10.05.1526
+194|2026-10-06T07:49:19.075283+09:00|set_buy_sell_conditions|v1.2026.10.05.1526
+195|2026-10-06T07:52:22.390300+09:00|set_buy_sell_conditions|v1.2026.10.05.1526
+286db8b90a76885589e9266b3130dd0d8a7cd4e3bea6bbe40c51133d8967442d  mcmax33_EMA_buy_sell_conditions.json
+mcmax33_EMA_buy_sell_conditions.json mtime=2026-10-06 07:52:22.384458876 +0900 size=655
+NRestarts=0
+ExecMainStartTimestamp=Mon 2026-10-05 16:44:46 KST
+4ad8bf3
+1
+Oct 06 07:43:50 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:43:50 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+Oct 06 07:43:50 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:43:50 INFO __main__ | [AuditViewer] base_ema_gap_enabled=False
+Oct 06 07:45:04 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:45:04 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+Oct 06 07:45:04 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:45:04 INFO __main__ | [AuditViewer] base_ema_gap_enabled=False
+Oct 06 07:46:11 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:46:11 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+Oct 06 07:46:11 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:46:11 INFO __main__ | [AuditViewer] base_ema_gap_enabled=False
+Oct 06 07:47:37 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:47:37 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+Oct 06 07:47:37 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:47:37 INFO __main__ | [AuditViewer] base_ema_gap_enabled=False
+Oct 06 07:48:33 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:48:33 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T16:44:52.154155+09:00 mode=LIVE
+Oct 06 07:49:19 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:49:19 INFO services.settings_history | [settings_history] recorded id=194 user_id=mcmax33 source_page=set_buy_sell_conditions strategy_type=EMA params=Y conditions=Y app
+Oct 06 07:52:22 orionhunter7.cafe24.com python[2341482]: 2026-10-06 07:52:22 INFO services.settings_history | [settings_history] recorded id=195 user_id=mcmax33 source_page=set_buy_sell_conditions strategy_type=EMA params=Y conditions=Y app
+Oct 06 13:04:55 orionhunter7.cafe24.com python[2341482]: 2026-10-06 13:04:55 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T16:44:52.154155+09:00 mode=LIVE

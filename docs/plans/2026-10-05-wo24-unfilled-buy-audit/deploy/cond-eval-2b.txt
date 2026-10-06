@@ -1,0 +1,7 @@
+config.py 상수 (ast): {'UNFILLED_TO_MARKET_DEFAULT': False, 'UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT': 0.3}
+사용 파일: mcmax33_EMA_buy_sell_conditions.json | sha256=693d982be7e095937a993bab7f821954bf4f12f36d03923211739e69d45c46b6 mtime=2026-10-04 19:15:41.239854 size=510
+buy 키 목록: ['above_base_ema', 'bullish_candle', 'ema_gc', 'fixed_price_buy_enabled', 'fixed_price_buy_wait_bars', 'surge_filter_enabled', 'surge_threshold_pct']
+  fixed_price_unfilled_to_market 키 존재: False | fixed_price_convert_max_gap_pct 키 존재: False
+계산 결과: 미체결 시 시장가 전환 = False | 전환 허용 가격 차이 % = 0.3
+기대값 일치: True
+실행 뒤 파일: sha256=693d982be7e095937a993bab7f821954bf4f12f36d03923211739e69d45c46b6 mtime=2026-10-04 19:15:41.239854 | 변경 없음: True

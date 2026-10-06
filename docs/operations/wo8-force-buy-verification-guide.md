@@ -57,6 +57,8 @@ ssh root@orionhunter7.cafe24.com \
 배포 시각으로부터 30분 창(2026-09-12 17:24:07 ~ 17:54:07) 결함 태그 부재.
 
 > **배포 관찰 상설 항목 (2026-10-05 추가)**: 모든 배포의 30분 관찰에 "BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조(통과·체결·취소·미요청 수)" 표를 넣는다 (`wo22d_match.py '<시작>' '<끝>'`).
+>
+> **설정 불변 기준 (2026-10-06 WO-24 배포 판정으로 정정)**: `settings_history` 행 수와 운영 설정 파일(`{user}_{EMA}_buy_sell_conditions.json`)의 sha256·수정 시각은 **운영자 접속 전후로 불변**이어야 한다. 이것으로 "페이지 열기만으로는 저장되지 않음" 을 확인한다. 기동 때마다 `strategy_init` 1행이 기록되는 것은 기존 동작이다. 투자자가 저장 버튼으로 바꾼 설정(`source_page=set_buy_sell_conditions`·`set_config`)은 어긋남이 아니다. 저장 시각, id, 바뀐 키를 별도로 기록한다 (2026-10-06 07:49·07:52 id 194·195 사례).
 
 | 태그 | 대상 | 목표 |
 |---|---|---|
@@ -137,7 +139,7 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ### 세션 개시 정기 점검 조회 명령
 
-> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10번 편입)**: 사후 확인 1~10, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령), **BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조**(상설, 2026-10-05 추가 — 점검 창 안 `audit_buy_eval.overall_ok=1`·`audit_sell_eval.triggered=1` 행마다 봉 시작 ~ 뒤 2봉 안 orders 를 "체결·취소·미요청" 으로 분류해 수를 표로 적는다. 대조 스크립트: `docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy/wo22d_match.py`).
+> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10~12번·10-06 13번 편입)**: 사후 확인 1~13, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령), **BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조**(상설, 2026-10-05 추가 — 점검 창 안 `audit_buy_eval.overall_ok=1`·`audit_sell_eval.triggered=1` 행마다 봉 시작 ~ 뒤 2봉 안 orders 를 "체결·취소·미요청" 으로 분류해 수를 표로 적는다. 대조 스크립트: `docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy/wo22d_match.py`).
 >
 > **이전 미체결 취소 확인 (WO-24 배포 전 구간)**: WO-24 배포 전의 현재가 매수 미체결 취소는 audit_trades 에 기록이 없다. `orders.state='CANCELED'` 이고 `executed_volume=0` 인 BUY 행(봇 주문)으로 확인한다 (예: 2026-10-04 14:16 orders 559 — `docs/plans/2026-10-05-urgent-buy-not-executed/report.md`). WO-24 배포 뒤부터는 감사 로그 페이지 "⏱ 매수 미체결 취소" 행으로 보인다.
 
@@ -338,6 +340,42 @@ ssh root@orionhunter7.cafe24.com "
   echo '-- (10) 무장 로그 --'
   J | grep -E 'Trailing Stop ACTIVATED|고정 금액 폭|AUTO-SWITCH' | head -6
   sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT bar_time, price, highest, ts_armed, triggered, trigger_key FROM audit_sell_eval WHERE ticker='KRW-JTO' AND timestamp >= '2026-10-05T10:54:58' ORDER BY id LIMIT 40;\"
+"
+```
+
+### 사후 확증 11·12번 (2026-10-05 WO-24 배포 시 편입)
+
+기준 시각은 WO-22 재시작 `2026-10-05 15:18:44` (11번)과 WO-24 재시작 `2026-10-05 16:44:46` (12번)이다. 로그 출처는 `journalctl -u tradebot` 이다. 해당 사건이 처음 생겼을 때 1회 본다.
+
+| 번호 | 항목 | 확인 내용 |
+|---|---|---|
+| 11 | WO-22 진입가 출처·외부 매도 기록 | ① KRW-JTO 포지션이 지갑 동기화로 생기면 `[POSITION-SYNC] entry_price=… (출처: …)` 1줄. 출처는 `upbit_avg` 가 먼저다. 없을 때만 `account_positions`, 수량이 맞을 때만 `orders` 를 쓴다. ② 앱 전량 매도로 지갑이 0 이 되면 `[POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL)` 1줄과 audit_trades `type='HTS_SELL'` 1행. price 는 비어 있고 손익 집계에서 빠진다. 감사 로그 페이지에 "외부 매도" 로 보인다. |
+| 12 | WO-24 미체결 취소 기록 | 첫 현재가 매수 미체결 취소 때 ① `⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도` 다음 `[OR] 매수 미체결 취소 기록 (audit_trades BUY_CANCELED)` 1줄 ② audit_trades `type='BUY_CANCELED'` 1행. price 는 주문가, qty 는 주문 수량, note 는 "대기 N봉 내 체결 없음" + 전환 결과다. 옵션이 꺼져 있으면 "→ 취소 (미체결 시 시장가 전환 꺼짐)". ③ 감사 로그 페이지 유형 필터 "미체결 취소" 에서 옅은 노란 행 "⏱ 매수 미체결 취소" 로 보인다. ④ 같은 uuid 의 orders 행이 `state=CANCELED`. |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  J(){ journalctl -u tradebot --since \"\$1\" --no-pager 2>/dev/null | sed -E 's/^.*\]: //'; }
+  echo '-- (11) 진입가 출처·외부 매도 --'
+  J '2026-10-05 15:18:44' | grep -E '\[POSITION-SYNC\] (entry_price=|외부 매도 기록|orders 마지막 봇 BUY 수량 불일치)' | head -6
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, ticker, type, price, qty FROM audit_trades WHERE type='HTS_SELL' AND timestamp >= '2026-10-05T15:18:44' ORDER BY id;\"
+  echo '-- (12) 미체결 취소 --'
+  J '2026-10-05 16:44:46' | grep -E 'LIMIT BUY timeout|매수 미체결 취소 기록|UNFILLED-CONVERT' | head -6
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, ticker, price, qty, note FROM audit_trades WHERE type='BUY_CANCELED' ORDER BY id;\"
+"
+```
+
+### 사후 확증 13번 (2026-10-06 WO-24 완결 시 편입)
+
+투자자가 2026-10-06 07:49:19 설정 저장(settings_history id 194)으로 "미체결 시 시장가 전환" 을 켰다 (허용 0.3%). 기준 시각은 이 시각이다.
+
+| 번호 | 항목 | 확인 내용 |
+|---|---|---|
+| 13 | 미체결 시 시장가 전환 (켜짐) | 켜진 상태에서 첫 현재가 매수가 timeout 될 때 아래를 본다. ① `⏱ [OR] LIMIT BUY timeout 도달 → cancel 시도` 다음 `[UNFILLED-CONVERT]` 로그. 전환됐으면 `✅ [UNFILLED-CONVERT] 시장가 전환 \| from=… to=…`, 가격 차이가 허용을 넘었으면 `[UNFILLED-CONVERT] 전환 안 함 \| … 가격 차이 x% > 허용 y%`. ② 전환됐으면 시장가 매수 orders 1행(meta `unfilled_convert`·`converted_from`)과 `[POSITION-APPLY]` 등록 (`source=bot_market_convert`). ③ audit_trades `BUY_CANCELED` 행의 note 에 "→ 시장가 전환 (현재가 …, 차이 x% ≤ 허용 y%)" 또는 "→ 전환 안 함 (…)". |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  journalctl -u tradebot --since '2026-10-06 07:49:19' --no-pager | sed -E 's/^.*\]: //' | grep -E 'LIMIT BUY timeout|UNFILLED-CONVERT|POSITION-APPLY|매수 미체결 취소 기록' | head -8
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, price, qty, note FROM audit_trades WHERE type='BUY_CANCELED' AND timestamp >= '2026-10-06T07:49:19' ORDER BY id;\"
 "
 ```
 

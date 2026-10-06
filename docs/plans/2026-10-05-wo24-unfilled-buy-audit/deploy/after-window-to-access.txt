@@ -1,0 +1,60 @@
+== 창: 2026-10-05 17:14:47 ~ 2026-10-06 13:05:38 | HEAD=4ad8bf3 active=active start=Mon 2026-10-05 16:44:46 KST 버전=v1.2026.10.05.1526
+== (a) 기동
+   BOOT-RESUME success 0  시드 long_history bars=800 0  sma200 0  긴 이력 시드 실패 0  감사 행 보존 0
+== (b) 재계산 경로 — 코드 존재 확인 후 건수
+/root/upbit-tradebot-mvp/core/trailing_restore.py:13:   초과·실패 시 초기 상태로 두고 "[TRAILING-RESTORE] 재계산 불가 → 초기화 
+/root/upbit-tradebot-mvp/core/trailing_restore.py:15:5. 결과는 "[TRAILING-RESTORE] armed=… peak=… fixed=… activation=… 기준 봉 n개 시�
+/root/upbit-tradebot-mvp/core/trailing_restore.py:102:    logger.warning(f"[TRAILING-RESTORE] 재계산 불가 → 초기화 | 사유={reason}")
+/root/upbit-tradebot-mvp/core/trailing_restore.py:132:        logger.info("[TRAILING-RESTORE] 건너뜀 | 사유=trailing 필터 꺼짐")
+/root/upbit-tradebot-mvp/core/trailing_restore.py:182:        f"[TRAILING-RESTORE] armed={position.trailing_armed} peak={_f(position.highest_price)} "
+/root/upbit-tradebot-mvp/engine/live_loop.py:1223:                        logger.warning(f"[TRAILING-RESTORE] 재계산 불가 → 초기화 | 사유=
+   [TRAILING-RESTORE] 전체 0  armed= 0  재계산 불가 0  예외 0  건너뜀 0
+   기동 포지션: POS-SYNC 0  boot_seed 0  BOOT-SEED 0
+== (d) 결함 태그
+   ' ERROR ': 1
+   'Traceback': 0
+   '[POS-DESYNC] class=': 0
+   'Upbit에 없는 timestamp': 0
+   '불일치 발견': 0
+   '과거 봉 검증 실패': 0
+   'database is locked': 1
+   '[LOCKED-QTY]': 0
+   'CRITICAL': 0
+   VERIFY WARNING 줄: 0  외부 스캐너(따로): Missing file 0  MediaFileStorageError 0
+== (e) Bar# / 조정 / BACKFILL
+   봉 확정 고유 1191  Bar# 762  거래 없음 고유 429  처음·끝: 17:15:05 Bar#226 13:05:11 Bar#987 
+   조정 400 수신:    1210 400 
+   BACKFILL '누락 봉 평가 시작' 0  '누락 봉 평가 |' 0  '미확정 봉 제외' 0
+== (f) 봇 매수·무장·ts_armed
+   EMA Buy Signal 1  action=BUY 1  action=SELL 0  [OR] final 0  ACTIVATED 0  AUTO-SWITCH 0
+2026-10-06 05:37:11 INFO core.strategy_incremental | 🔔 EMA Buy Signal | fast=770.28 slow=770.16
+2026-10-06 05:37:12 INFO core.strategy_engine | 📊 Bar#709 | ts=2026-10-05 20:36:00+00:00 | close=779.00 | ema_fast=770.28 | ema_slow=770.16 | ema_base=770.16 | action=BUY | pos=False
+== WO-22 경로 — 코드 존재 확인 후 건수
+590:            logger.info(f"[POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty={qty} entry={entry_price}")
+694:                                        f"[POSITION-SYNC] orders 마지막 봇 BUY 수량 불일치 → 진입가로 쓰지 않음 | "
+699:                            logger.info(f"[POSITION-SYNC] entry_price={entry_price} (출처: {source})")
+   [POSITION-SYNC] entry_price= 0  외부 매도 기록 0  수량 불일치 0  외부 매수 감지 0  강제 포지션 종료 0
+2026-10-05 20:48:33 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-BLEND | total(가용+묶임): 0.000000 → 7500.000000 (Δ=7500.000000) | 가용=7500.000000 묶임=0.000000 | avg_price
+2026-10-05 20:49:34 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-BLEND | total(가용+묶임): 7500.000000 → 14215.926805 (Δ=6715.926805) | 가용=14215.926805 묶임=0.000000 | 
+2026-10-05 20:50:34 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-BLEND | total(가용+묶임): 14215.926805 → 16380.757345 (Δ=2164.830540) | 가용=16380.757345 묶임=0.000000 |
+2026-10-05 21:06:41 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-TOKAMAK | total(가용+묶임): 0.000000 → 797.040332 (Δ=797.040332) | 가용=797.040332 묶임=0.000000 | avg_price=
+2026-10-05 21:10:44 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-TOKAMAK | total(가용+묶임): 797.040332 → 1680.322351 (Δ=883.282018) | 가용=1680.322351 묶임=0.000000 | av
+2026-10-05 21:26:56 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-TOKAMAK | total(가용+묶임): 1680.322351 → 2495.305497 (Δ=814.983146) | 가용=2495.305497 묶임=0.000000 | a
+2026-10-05 22:18:32 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-BLEND | total(가용+묶임): 16380.757345 → 18796.861258 (Δ=2416.103913) | 가용=2416.103913 묶임=16380.75734
+2026-10-06 08:13:40 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY 감지 | ticker=KRW-BIRB | total(가용+묶임): 0.000000 → 447.127354 (Δ=447.127354) | 가용=447.127354 묶임=0.000000 | avg_price=87.
+2026-10-06 08:23:45 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-BIRB | total(가용+묶임): 447.127354 → 6788.688031 (Δ=6341.560677) | 가용=6788.688031 묶임=0.000000 | avg_
+2026-10-06 08:28:47 WARNING engine.order_reconciler | 🔔 [HTS-DETECT] HTS_BUY_ADD 감지 | ticker=KRW-BIRB | total(가용+묶임): 6788.688031 → 14571.816030 (Δ=7783.127999) | 가용=14571.816030 묶임=0.000000 | a
+== WO-24 경로 — 코드 존재 확인 후 건수
+170:            logger.info(f"[NOTIFY] sent | kind={level} dedupe={dedupe_key}")
+415:            logger.info(f"[OR] 매수 미체결 취소 기록 (audit_trades BUY_CANCELED) | uuid={uuid} {note}")
+192:        logger.info(f"[UNFILLED-CONVERT] 전환 안 함 | uuid={orig_uuid} {out['reason']} 주문가={limit_price} 현재가={cur}")
+208:            logger.warning(f"[UNFILLED-CONVERT] 시장가 매수 실패 | uuid={orig_uuid}")
+224:        f"✅ [UNFILLED-CONVERT] 시장가 전환 | from={orig_uuid} to={result.get('uuid')} 주문가={limit_price} 현재가={cur} "
+   [NOTIFY] sent 2  BUY_CANCELED 기록 0  [UNFILLED-CONVERT] 0  LIMIT BUY timeout 0  [NOTIFY] 경고(전체) 2
+2026-10-06 05:37:12 INFO services.notifier | [NOTIFY] sent | kind=WARNING dedupe=ema_gc:KRW-JTO
+2026-10-06 05:37:13 INFO services.notifier | [NOTIFY] sent | kind=WARNING dedupe=fixed_buy_balance:KRW-JTO
+   토큰·채팅 ID 노출 검사: bot 토큰 형식 0  chat_id= 0
+== 대시보드 접속 표식
+2026-10-06 07:43:24 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T16:44:52.154155+09:00 mode=LIVE
+2026-10-06 07:48:33 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T16:44:52.154155+09:00 mode=LIVE
+2026-10-06 13:04:55 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-05T16:44:52.154155+09:00 mode=LIVE

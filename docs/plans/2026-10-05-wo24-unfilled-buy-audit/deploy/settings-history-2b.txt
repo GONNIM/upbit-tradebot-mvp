@@ -1,0 +1,12 @@
+조회 2026-10-05 16:45:45
+193|193
+strategy_init|1
+193|2026-10-05T16:44:52.554835+09:00|strategy_init|v1.2026.10.05.1526|strategy 객체 재초기화 — 활성 운영 conditions 기록
+693d982be7e095937a993bab7f821954bf4f12f36d03923211739e69d45c46b6  mcmax33_EMA_buy_sell_conditions.json
+mcmax33_EMA_buy_sell_conditions.json mtime=2026-10-04 19:15:41.239853504 +0900 size=510
+Oct 05 16:44:52 orionhunter7.cafe24.com python[2341482]: 2026-10-05 16:44:52 INFO services.settings_history | [settings_history] recorded id=193 user_id=mcmax33 source_page=strategy_init strategy_type=EMA params=Y conditions=Y app_version=v1.2026.10.05.1526 note='strategy 객체 재초기화 — 활성 운영 conditions 기록'
+Oct 05 16:44:52 orionhunter7.cafe24.com python[2341482]: 2026-10-05 16:44:52 INFO services.settings_history | [settings_history] strategy_init id=193 applied_at=2026-10-05T16:44:52 + 이전 0 row 일괄 applied_at 채움
+Oct 05 16:44:52 orionhunter7.cafe24.com python[2341482]: 2026-10-05 16:44:52 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+Oct 05 16:44:52 orionhunter7.cafe24.com python[2341482]: 2026-10-05 16:44:52 INFO engine.live_loop | [전략 초기화] Loaded buy conditions: {'ema_gc': True, 'above_base_ema': False, 'bullish_candle': False, 'surge_filter_enabled': True, 'fixed_price_buy_enabled': True, 'surge_threshold_pct': 0.015, 'fixed_price_buy_wait_bars': 5}
+Oct 05 16:44:52 orionhunter7.cafe24.com python[2341482]: 2026-10-05 16:44:52 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+Oct 05 16:45:02 orionhunter7.cafe24.com python[2341482]: 2026-10-05 16:45:02 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json

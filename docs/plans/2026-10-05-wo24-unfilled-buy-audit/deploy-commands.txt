@@ -1,0 +1,42 @@
+WO-24 배포 실행 명령 (2026-10-05 ~ 10-06 KST). S=세션 scratchpad. 서버 명령은 pull·restart 외 모두 읽기 전용, 키 값 미출력.
+
+## 0. 배포 전 확인
+git fetch -q; git rev-parse --short origin/main                                    # 4ad8bf3
+grep -n 'UNFILLED_TO_MARKET_DEFAULT\|UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT' config.py ; git show origin/main:config.py | grep -n 'UNFILLED_TO_MARKET_DEFAULT =\|UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT ='
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; git rev-parse --short HEAD; systemctl is-active tradebot; systemctl show tradebot -p ExecMainStartTimestamp -p NRestarts; git status --short | head -5"   # 3850794
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo24d_pre.py      # 포지션·이력·settings_history (16:34)
+ssh root@orionhunter7.cafe24.com "sqlite3 'file:…/tradebot_mcmax33.db?mode=ro' 'select id, saved_at, source_page, strategy_type, app_version, note from settings_history order by id desc limit 12'; journalctl -u tradebot --since '2026-10-04 00:00' --no-pager | grep -E 'BOOT-RESUME\] success|settings_history\] (recorded|…)'"   # 기동마다 strategy_init 기록 확인 → 운영자 질의 → 기준 정정
+(위반 1회) grep -n 'strategy_init' -r --include=*.py . | grep -v tests | head     # zsh no matches found, 미실행
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; date; sqlite3 … 'select count(*), max(id) from settings_history'; sqlite3 … 'select source_page, count(*) from settings_history group by source_page order by 2 desc'; sha256sum mcmax33_EMA_buy_sell_conditions.json mcmax33_buy_sell_conditions.json mcmax33_MACD_buy_sell_conditions.json; stat -c '%n mtime=%y size=%s' …; grep -c 'unfilled_to_market\|convert_max_gap' mcmax33_EMA_buy_sell_conditions.json"   # 16:44:32
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo24d_pre.py      # 포지션 재확인 (16:44)
+
+## 1. 배포
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull 2>&1 | tail -2 && git rev-parse --short HEAD && git merge-base --is-ancestor 147efea HEAD && echo '147efea 포함' && date '+restart_cmd %F %T' && systemctl restart tradebot && systemctl status tradebot --no-pager | head -5 && systemctl show tradebot -p ExecMainStartTimestamp && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"
+
+## 2. 관찰
+ssh -o ServerAliveInterval=60 root@orionhunter7.cafe24.com "sleep 1790; date '+%F %T'"     # 백그라운드 대기 (서버 쪽 연결 종료로 시각 미출력)
+ssh root@orionhunter7.cafe24.com "date '+%F %T'; bash -s -- '2026-10-05 16:44:46'" < $S/wo24d_obs.sh          # 기동 직후
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo24d_cond_eval.py           # 2(b) 읽기 전용 계산
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; date; sqlite3 … 'select count(*), max(id) from settings_history'; sqlite3 … 'select source_page, count(*) from settings_history where id>192 group by source_page'; sqlite3 … 'select id, saved_at, source_page, app_version, note from settings_history where id>192'; sha256sum mcmax33_EMA_buy_sell_conditions.json; stat …; journalctl -u tradebot --since '2026-10-05 16:44:46' --until '2026-10-05 16:45:30' --no-pager | grep -E 'settings_history\]|\[COND\]|Loaded buy conditions'"
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && venv/bin/python scripts/wo17s_verify_seed.py '2026-10-05 16:44:53' 775.1452 771.5786 1200 --interval minute1"
+ssh root@orionhunter7.cafe24.com "date '+%F %T'; bash -s -- '2026-10-05 16:44:46' '2026-10-05 17:14:47'" < $S/wo24d_obs.sh   # 30분 창 (10-06 13:05 실행)
+ssh root@orionhunter7.cafe24.com "python3 - '2026-10-05 16:44:46' '2026-10-05 17:14:47'" < $S/wo22d_match.py              # 상설 1:1 대조
+
+## 3. 접속 구간 (운영자 접속 10-06 13:04)
+ssh root@orionhunter7.cafe24.com "bash -s -- '2026-10-05 17:14:47' '2026-10-06 13:05:38'" < $S/wo24d_obs.sh
+ssh root@orionhunter7.cafe24.com "python3 - '2026-10-05 17:14:47' '2026-10-06 13:05:38'" < $S/wo22d_match.py
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; sqlite3 … settings_history count·id>192; sha256sum·stat 설정 파일; systemctl show … NRestarts; git rev-parse --short HEAD; journalctl … | grep -cF '[BOOT] run_live_loop start'; journalctl --since '2026-10-05 17:14:47' … | grep -E 'AUTO-RESUME|AuditViewer|set_buy_sell|Strategy detection'"
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; cat mcmax33_EMA_buy_sell_conditions.json; sqlite3 … conditions_json buy (193~195); journalctl 05:36:50~05:38:30; journalctl ' ERROR |database is locked'"
+ssh root@orionhunter7.cafe24.com "sqlite3 … conditions_json sell·params_json (193~195); audit_trades JTO since 17:14:47; audit_buy_eval 77602; journalctl 07:49~07:54 COND·settings; journalctl 03:48~03:51"
+(운영자 판정 수령: 3단계 통과, 되돌리기 없음)
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-06 03:47:00' --until '2026-10-06 03:53:30' … | grep -E 'periodic sync|…'; … grep -c 'periodic sync failed' since 10-01"   # 03:50:13 성공 확인
+ssh … journal 07:43~07:54 + settings_history 193~195 → deploy/settings-saves-0749-0752.txt
+ssh … journal 05:37:00~05:37:15 + 03:47~03:53 periodic sync → deploy/event-0537-and-0349.txt
+ssh … journal 16:44:46~16:45:30 기동 → deploy/journal-boot.txt
+
+## 4. 문서·묶음
+(파일 도구로 가이드 사후 확인 11~13·정기 점검 1~13·설정 불변 기준 정정, investor-notice-log #3, backlog 1행, deploy-report.md, deploy-commands.txt)
+git add -f (파일 개별 지정) ; git status --short | grep -v '^??'
+git commit -F $S/wo24done_msg.txt ; git log --oneline origin/main..HEAD ; git push origin main
+(wo24-deploy-20261005.zip, 미추적)
+서버 pull 없음.

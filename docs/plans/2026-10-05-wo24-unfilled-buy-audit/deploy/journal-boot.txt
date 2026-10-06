@@ -1,0 +1,23 @@
+2026-10-05 16:44:50 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=mcmax33)
+2026-10-05 16:44:50 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-05 16:44:51 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=default)
+2026-10-05 16:44:52 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=mcmax33)
+2026-10-05 16:44:52 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=5.6s capital≈3,027,702
+2026-10-05 16:44:52 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=mcmax33)
+2026-10-05 16:44:52 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-05 16:44:52 INFO services.settings_history | [settings_history] recorded id=193 user_id=mcmax33 source_page=strategy_init strategy_type=EMA params=Y conditions=Y app_version=v1.2026.10.05.1526 note='strategy 객체 재초기화 — 활성 운영 conditions 기록'
+2026-10-05 16:44:52 INFO services.settings_history | [settings_history] strategy_init id=193 applied_at=2026-10-05T16:44:52 + 이전 0 row 일괄 applied_at 채움
+2026-10-05 16:44:52 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-05 16:44:52 INFO engine.live_loop | [전략 초기화] Loaded buy conditions: {'ema_gc': True, 'above_base_ema': False, 'bullish_candle': False, 'surge_filter_enabled': True, 'fixed_price_buy_enabled': True, 'surge_threshold_pct': 0.015, 'fixed_price_buy_wait_bars': 5}
+2026-10-05 16:44:52 INFO engine.live_loop | [WARMUP] Required bars: 200
+2026-10-05 16:44:52 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-05 16:44:52 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute1 interval=60sec
+2026-10-05 16:44:52 INFO engine.live_loop | [WARMUP] REST 초기 데이터 요청 (attempt 1/5) | count=801 (마지막 봉 제거 예정)...
+2026-10-05 16:44:53 INFO services.notifier | [NOTIFY] sent | kind=INFO dedupe=boot_resume:mcmax33:success
+2026-10-05 16:44:53 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 성공 (attempt 1) | bars=801
+2026-10-05 16:44:53 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 완료 | bars=801
+2026-10-05 16:44:53 INFO engine.live_loop | [WARMUP] 형성 중 봉 제거 | ts=2026-10-05 16:44:00 KST elapsed=53s | 최종 봉 수=800 | 최종 마지막 봉=2026-10-05 16:43:00 KST
+2026-10-05 16:44:53 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=775.1452 ema_slow=771.5786 ema_base=771.5786 | 마지막 봉=2026-10-05 16:43:00 KST
+2026-10-05 16:44:53 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=200 inserted=0 updated_placeholder=0
+2026-10-05 16:45:02 INFO engine.live_loop | [COND] loaded: mcmax33_EMA_buy_sell_conditions.json
+2026-10-05 16:45:11 INFO services.init_db | [migrate] ensure_settings_history_schema OK (user_id=mcmax33)
