@@ -1,0 +1,39 @@
+WO-25 문구 수정(B)·배포 실행 명령 (2026-10-06 KST). S=세션 scratchpad. 서버 명령은 pull·restart 외 모두 읽기 전용, 키 값 미출력.
+
+## B. 문구 수정
+(위반 1회) grep -n … -r --include=*.py . | …        # zsh no matches found, 미실행
+grep -rn 'trade_kind\|trade_type_display\|is_reject_type' pages services core engine | grep -v 'def '
+(파일 도구 Edit) services/db.py — is_preorder_reject / trade_kind_row / trade_type_display_row
+python3 -c "…pages/audit_viewer.py 문자열 치환…"   # help 의 \n 이 실제 줄바꿈 → py_compile 실패 → 파일 도구 Edit 로 정정
+python3 -m py_compile pages/audit_viewer.py services/db.py
+(파일 도구 Edit) tests WO-25 (4)(4a)(4b), WO-24 (6), docs/operations/terminology.md
+env UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= python3 -m unittest tests.regressions.test_r_2026_09_30_wo9_reject_audit_roundtrip tests.regressions.test_r_2026_10_05_wo24_unfilled_buy_audit tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit   # 37 OK
+date '+%H%M' ; sed -i '' "s/v1\.2026\.10\.06\.1326\")/v1.2026.10.06.1440\")/" pages/dashboard.py
+git add services/db.py pages/audit_viewer.py pages/dashboard.py tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py tests/regressions/test_r_2026_10_05_wo24_unfilled_buy_audit.py docs/operations/terminology.md
+git status --short | grep -v '^??' ; git commit -q -F $S/wo25b_msg.txt      # 33a5d9e
+bash $S/wo25b_check.sh > $S/wo25b_check_out.txt 2>&1     # → deploy/b-gate-oldcode-revert.txt
+git log --oneline origin/main..HEAD ; git push origin main
+
+## A. 투자자 통보 문안
+python3 -c "…investor-notice-log.md #3 의 '미기재' 문구를 원문으로 치환 (assert count==1)…"
+
+## C. 배포
+### 0
+git fetch -q ; git rev-parse --short origin/main      # 33a5d9e
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; echo HEAD …; systemctl is-active tradebot; systemctl show tradebot -p ExecMainStartTimestamp -p NRestarts; sqlite3 '…?mode=ro' 'select count(*), max(id) from settings_history'; sha256sum mcmax33_EMA_buy_sell_conditions.json; stat …"
+ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -' < $S/wo25d_pre.py      # 포지션·KRW(GET /v1/accounts)·order_ratio
+### 1
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp && git pull 2>&1 | tail -2 && git rev-parse --short HEAD && git merge-base --is-ancestor 9dd9bd7 HEAD && git merge-base --is-ancestor 33a5d9e HEAD && echo '9dd9bd7·33a5d9e 포함' && date '+restart_cmd %F %T' && systemctl restart tradebot && systemctl status tradebot --no-pager | head -5 && systemctl show tradebot -p ExecMainStartTimestamp && grep -o 'v1\.2026\.[0-9.]*' pages/dashboard.py | head -1"
+### 2
+sleep 1810; date '+%F %T'        # 로컬 백그라운드 대기
+ssh root@orionhunter7.cafe24.com "date '+%F %T'; bash -s -- '2026-10-06 14:45:05'" < $S/wo25d_obs.sh                    # 기동 직후
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; …settings_history…; sha256sum …; stat …; venv/bin/python scripts/wo17s_verify_seed.py '2026-10-06 14:45:13' 769.0666 772.8641 1200 --interval minute1"
+ssh root@orionhunter7.cafe24.com "date '+%F %T'; bash -s -- '2026-10-06 14:45:05' '2026-10-06 15:15:06'" < $S/wo25d_obs.sh
+ssh root@orionhunter7.cafe24.com "python3 - '2026-10-06 14:45:05' '2026-10-06 15:15:06'" < $S/wo22d_match.py
+### 3 (운영자 접속 15:16)
+ssh root@orionhunter7.cafe24.com "cd /root/upbit-tradebot-mvp; journalctl … --since '2026-10-06 15:15:06' | grep -E 'AUTO-RESUME|AuditViewer\] Strategy|settings_history\] recorded|run_live_loop start'; … run_live_loop start 건수; systemctl show …; git rev-parse --short HEAD; settings_history; sha256sum; stat; 결함 태그; AUDIT-REJECT·EMA Buy Signal 건수; audit_trades *_REJECTED 건수"
+ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-06 14:45:05' --until '2026-10-06 15:21:00' … | grep -E 'BOOT|WARMUP|…'"   # → deploy/journal-excerpt.txt
+### 5
+(파일 도구) 가이드 사후 확인 14·정기 점검 1~14, deploy-report.md, deploy-commands.txt
+git add -f (파일 개별 지정) ; git status --short | grep -v '^??' ; git commit -F $S/wo25done_msg.txt ; git log --oneline origin/main..HEAD ; git push origin main
+(wo25-deploy-20261006.zip, 미추적)

@@ -1,0 +1,44 @@
+worktree wo25b_wt .env 개수: 0
+worktree wo25b_wt_old .env 개수: 0
+=================== [A] 33a5d9e 게이트 (.env 없음)
+✅ 회귀 테스트 321/321 통과 — 배포 진행 가능
+=================== [B] 33a5d9e WO-25 시험 + WO-9·WO-24 페이지 시험
+Ran 37 tests in 44.404s
+OK
+=================== [C] B 전 코드 7141d77 에서 새 시험 파일 (문구 시험 실패 확인)
+test_4_audit_page_shows_preorder_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4_audit_page_shows_preorder_reject)
+test_4a_preorder_row_new_warning_text (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4a_preorder_row_new_warning_text)
+test_4b_exchange_reject_row_keeps_old_text (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4b_exchange_reject_row_keeps_old_text)
+ERROR: test_4_audit_page_shows_preorder_reject (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4_audit_page_shows_preorder_reject)
+ImportError: cannot import name 'trade_kind_row' from 'services.db' (/private/tmp/claude-501/-Users-gonnim-Project-MVP-Source-upbit-tradebot-mvp/9339ae21-5ead-4004-a49c-c5714e34e251/scratchpad/wo25b_wt_old/services/db.py
+FAIL: test_4a_preorder_row_new_warning_text (tests.regressions.test_r_2026_10_06_wo25_preorder_reject_audit.TestWo25Core.test_4a_preorder_row_new_warning_text)
+AssertionError: False is not true : ["⛔ 발주 거절 1건 — 거래소가 봇 주문을 받지 않았습니다 (체결 아님). '거절 사유' 열을 확인하세요."]
+Ran 19 tests in 8.874s
+FAILED (failures=1, errors=1)
+=================== [D] revert 33a5d9e + 7141d77 + 9dd9bd7 함께 (새 것부터)
+revert 종료 코드: 0
+충돌 파일: 없음
+변경 파일:
+ core/trader.py                                     |  66 +--
+ docs/operations/terminology.md                     |   2 -
+ .../a-branches.csv                                 |  22 -
+ .../commands.txt                                   |  32 --
+ .../evidence/code-diff-9dd9bd7.txt                 | 597 ---------------------
+ .../evidence/gate-and-revert.txt                   |  17 -
+ .../evidence/server-branch-counts.txt              |  55 --
+ .../evidence/test-newcode.txt                      | 154 ------
+ .../evidence/test-oldcode-failures.txt             | 287 ----------
+ .../evidence/wo25_check.sh                         |  36 --
+ .../evidence/wo25_count.sh                         |  30 --
+ .../git-log.txt                                    |   6 -
+ .../2026-10-06-wo25-preorder-reject-audit/plan.md  |  76 ---
+ .../report.md                                      | 165 ------
+ pages/audit_viewer.py                              |  19 +-
+ pages/dashboard.py                                 |   2 +-
+ services/db.py                                     |  26 -
+ .../test_r_2026_10_05_wo24_unfilled_buy_audit.py   |   3 +-
+ ...test_r_2026_10_06_wo25_preorder_reject_audit.py | 353 ------------
+ 20 files changed, 8 insertions(+), 2009 deletions(-)
+되돌린 뒤 버전: v1.2026.10.05.1526
+py_compile OK
+✅ 회귀 테스트 302/302 통과 — 배포 진행 가능

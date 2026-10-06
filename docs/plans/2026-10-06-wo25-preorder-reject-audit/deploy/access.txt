@@ -1,0 +1,21 @@
+조회 2026-10-06 15:20:31
+2026-10-06 15:16:29 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-06T14:45:12.471409+09:00 mode=LIVE
+2026-10-06 15:16:41 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:16:52 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:05 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:13 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:16 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:23 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:31 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:19:38 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:19:51 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+run_live_loop start(14:45:05 이후): 1
+NRestarts=0
+ExecMainStartTimestamp=Tue 2026-10-06 14:45:06 KST
+33a5d9e
+196|196
+286db8b90a76885589e9266b3130dd0d8a7cd4e3bea6bbe40c51133d8967442d  mcmax33_EMA_buy_sell_conditions.json
+mcmax33_EMA_buy_sell_conditions.json mtime=2026-10-06 07:52:22.384458876 +0900 size=655
+결함 태그(15:15:06 이후): 0
+BUY_REJECTED·EMA Buy Signal(14:45:05 이후): 0
+0

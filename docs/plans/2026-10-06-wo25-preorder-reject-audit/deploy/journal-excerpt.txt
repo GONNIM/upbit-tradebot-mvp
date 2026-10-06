@@ -1,0 +1,28 @@
+2026-10-06 14:45:10 INFO engine.boot_resume | [BOOT-RESUME] start | known=['default', 'gon1972', 'mcmax33'] targets=['mcmax33']
+2026-10-06 14:45:12 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.3s capital≈3,036,847
+2026-10-06 14:45:12 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-06 14:45:12 INFO services.settings_history | [settings_history] recorded id=196 user_id=mcmax33 source_page=strategy_init strategy_type=EMA params=Y conditions=Y app_version=v1.2026.10.06.1440 note='strategy 객체 재초기화 — 활성 운영 conditions 기록'
+2026-10-06 14:45:12 INFO services.settings_history | [settings_history] strategy_init id=196 applied_at=2026-10-06T14:45:12 + 이전 2 row 일괄 applied_at 채움
+2026-10-06 14:45:13 INFO engine.live_loop | [전략 초기화] Loaded buy conditions: {'ema_gc': True, 'above_base_ema': False, 'bullish_candle': False, 'surge_filter_enabled': True, 'fixed_price_buy_enabled': True, 'surge_threshold_pct': 0.015, 'fixed_price_buy_wait_bars': 5, 'fixed_price_unfilled_
+2026-10-06 14:45:13 INFO engine.live_loop | [WARMUP] Required bars: 200
+2026-10-06 14:45:13 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute1 interval=60sec
+2026-10-06 14:45:13 INFO engine.live_loop | [WARMUP] REST 초기 데이터 요청 (attempt 1/5) | count=801 (마지막 봉 제거 예정)...
+2026-10-06 14:45:13 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 성공 (attempt 1) | bars=801
+2026-10-06 14:45:13 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 완료 | bars=801
+2026-10-06 14:45:13 INFO engine.live_loop | [WARMUP] 마지막 봉 확정 (유지) | ts=2026-10-06 14:43:00 KST | 봉 수=801
+2026-10-06 14:45:13 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=769.0666 ema_slow=772.8641 ema_base=772.8641 | 마지막 봉=2026-10-06 14:43:00 KST
+2026-10-06 14:45:13 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=200 inserted=0 updated_placeholder=0
+2026-10-06 14:45:14 INFO services.notifier | [NOTIFY] sent | kind=INFO dedupe=boot_resume:mcmax33:success
+2026-10-06 14:47:11 INFO core.strategy_engine | 📊 Bar#201 | ts=2026-10-06 05:46:00+00:00 | close=768.00 | ema_fast=769.03 | ema_slow=772.82 | ema_base=772.82 | action=HOLD | pos=False
+2026-10-06 15:03:10 INFO core.strategy_engine | 📊 Bar#210 | ts=2026-10-06 06:02:00+00:00 | close=762.00 | ema_fast=767.59 | ema_slow=772.02 | ema_base=772.02 | action=HOLD | pos=False
+2026-10-06 15:14:10 INFO core.strategy_engine | 📊 Bar#217 | ts=2026-10-06 06:13:00+00:00 | close=763.00 | ema_fast=766.44 | ema_slow=771.34 | ema_base=771.34 | action=HOLD | pos=False
+2026-10-06 15:16:29 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-06T14:45:12.471409+09:00 mode=LIVE
+2026-10-06 15:16:41 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:16:52 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:05 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:13 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:16 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:23 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:17:31 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:19:38 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-06 15:19:51 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA

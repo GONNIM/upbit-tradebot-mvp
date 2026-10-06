@@ -1,0 +1,33 @@
+HEAD 4ad8bf3
+active
+NRestarts=0
+ExecMainStartTimestamp=Mon 2026-10-05 16:44:46 KST
+195|195
+286db8b90a76885589e9266b3130dd0d8a7cd4e3bea6bbe40c51133d8967442d  mcmax33_EMA_buy_sell_conditions.json
+mcmax33_EMA_buy_sell_conditions.json mtime=2026-10-06 07:52:22.384458876 +0900 size=655
+조회 시각 2026-10-06T14:44:55+09:00
+== 10-05 16:44:46 이후 orders
+   건수: 0
+   마지막 주문: (565, '2026-10-05T10:59:06.272007+09:00', 'KRW-JTO', 'SELL', 'FILLED')
+== 10-05 16:44:46 이후 audit_trades
+    (1206, '2026-10-05T20:48:33.550605+09:00', 'KRW-BLEND', 'BUY', 92.6, 'HTS_BUY')
+    (1207, '2026-10-05T20:49:34.013299+09:00', 'KRW-BLEND', 'BUY', 92.55712048, 'HTS_BUY_ADD')
+    (1208, '2026-10-05T20:50:34.428800+09:00', 'KRW-BLEND', 'BUY', 92.52314022, 'HTS_BUY_ADD')
+    (1209, '2026-10-05T21:06:41.895607+09:00', 'KRW-TOKAMAK', 'BUY', 508.0, 'HTS_BUY')
+    (1210, '2026-10-05T21:10:44.624993+09:00', 'KRW-TOKAMAK', 'BUY', 508.0, 'HTS_BUY_ADD')
+    (1211, '2026-10-05T21:26:56.206851+09:00', 'KRW-TOKAMAK', 'BUY', 508.0, 'HTS_BUY_ADD')
+    (1212, '2026-10-05T22:18:33.002037+09:00', 'KRW-BLEND', 'BUY', 92.49445831, 'HTS_BUY_ADD')
+    (1213, '2026-10-06T08:13:40.312007+09:00', 'KRW-BIRB', 'BUY', 87.2, 'HTS_BUY')
+    (1214, '2026-10-06T08:23:45.027478+09:00', 'KRW-BIRB', 'BUY', 86.91975908, 'HTS_BUY_ADD')
+    (1215, '2026-10-06T08:28:47.098633+09:00', 'KRW-BIRB', 'BUY', 86.90920532, 'HTS_BUY_ADD')
+    (1216, '2026-10-06T11:30:36.834876+09:00', 'KRW-BIRB', 'BUY', 86.38152869, 'HTS_BUY_ADD')
+== settings_history
+   행 수 / 마지막 id: (195, 195)
+   마지막 행: [(0, 'id', 'INTEGER', 0, None, 1), (1, 'user_id', 'TEXT', 1, None, 0), (2, 'saved_at', 'TEXT', 1, None, 0), (3, 'source_page', 'TEXT', 1, None, 0), (4, 'strategy_type', 'TEXT', 1, None, 0), (5, 'params_json', 'TEXT', 0, None, 0), (6, 'conditions_json', 'TEXT', 0, None, 0), (7, 'app_version', 'TEXT', 0, None, 0), (8, 'note', 'TEXT', 0, None, 0), (9, 'applied_at', 'TEXT', 0, None, 0)]
+== KRW-JTO 포지션
+   account_positions: [(0.0, 0.0, 0.0, '{"locked_warned": true}', '2026-10-06T14:44:43.765936+09:00')]
+   Upbit /v1/accounts KRW: [{'currency': 'KRW', 'balance': '0.59003382', 'locked': '0'}]
+   params order_ratio: 0.5
+   Upbit /v1/accounts http 200 JTO: [] (행 없음 = 0)
+== 사후 확인 9 선행 대조 (10-05 16:44:46 이후 확정 주문)
+   해당 사건 없음

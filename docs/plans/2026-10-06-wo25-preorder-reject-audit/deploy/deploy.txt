@@ -1,0 +1,12 @@
+ create mode 100644 docs/plans/2026-10-06-wo25-preorder-reject-audit/report.md
+ create mode 100644 tests/regressions/test_r_2026_10_06_wo25_preorder_reject_audit.py
+33a5d9e
+9dd9bd7·33a5d9e 포함
+restart_cmd 2026-10-06 14:45:05
+● tradebot.service - Upbit Tradebot MVP v1
+     Loaded: loaded (/etc/systemd/system/tradebot.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/tradebot.service.d
+             └─override.conf, wo12-boot.conf
+     Active: active (running) since Tue 2026-10-06 14:45:06 KST; 4ms ago
+ExecMainStartTimestamp=Tue 2026-10-06 14:45:06 KST
+v1.2026.10.06.1440

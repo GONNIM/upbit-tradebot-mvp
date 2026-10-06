@@ -139,7 +139,7 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ### 세션 개시 정기 점검 조회 명령
 
-> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10~12번·10-06 13번 편입)**: 사후 확인 1~13, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령), **BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조**(상설, 2026-10-05 추가 — 점검 창 안 `audit_buy_eval.overall_ok=1`·`audit_sell_eval.triggered=1` 행마다 봉 시작 ~ 뒤 2봉 안 orders 를 "체결·취소·미요청" 으로 분류해 수를 표로 적는다. 대조 스크립트: `docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy/wo22d_match.py`).
+> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10~12번·10-06 13~14번 편입)**: 사후 확인 1~14, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령), **BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조**(상설, 2026-10-05 추가 — 점검 창 안 `audit_buy_eval.overall_ok=1`·`audit_sell_eval.triggered=1` 행마다 봉 시작 ~ 뒤 2봉 안 orders 를 "체결·취소·미요청" 으로 분류해 수를 표로 적는다. 대조 스크립트: `docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy/wo22d_match.py`).
 >
 > **이전 미체결 취소 확인 (WO-24 배포 전 구간)**: WO-24 배포 전의 현재가 매수 미체결 취소는 audit_trades 에 기록이 없다. `orders.state='CANCELED'` 이고 `executed_volume=0` 인 BUY 행(봇 주문)으로 확인한다 (예: 2026-10-04 14:16 orders 559 — `docs/plans/2026-10-05-urgent-buy-not-executed/report.md`). WO-24 배포 뒤부터는 감사 로그 페이지 "⏱ 매수 미체결 취소" 행으로 보인다.
 
@@ -376,6 +376,21 @@ ssh root@orionhunter7.cafe24.com "
 ssh root@orionhunter7.cafe24.com "
   journalctl -u tradebot --since '2026-10-06 07:49:19' --no-pager | sed -E 's/^.*\]: //' | grep -E 'LIMIT BUY timeout|UNFILLED-CONVERT|POSITION-APPLY|매수 미체결 취소 기록' | head -8
   sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, price, qty, note FROM audit_trades WHERE type='BUY_CANCELED' AND timestamp >= '2026-10-06T07:49:19' ORDER BY id;\"
+"
+```
+
+### 사후 확증 14번 (2026-10-06 WO-25 배포 시 편입)
+
+기준 시각은 WO-25 재시작 `2026-10-06 14:45:05` 이다. 로그 출처는 `journalctl -u tradebot` 이다. 배포 시점의 매수 가능 KRW 는 0.59원(주문 비율 0.5)이었다. 따라서 KRW 가 채워지기 전 첫 매수 신호에서는 `krw_below_min` 행이 생길 것으로 예상한다.
+
+| 번호 | 항목 | 확인 내용 |
+|---|---|---|
+| 14 | WO-25 주문 전 차단 기록 | 첫 주문 전 차단 때 아래를 본다. ① 차단 로그 (예: `[BUY-LIMIT] 활성 KRW 부족: …`) 다음 `[AUDIT-REJECT] BUY_REJECTED 기록 \| … code=<분기>` 1줄. ② audit_trades `type='BUY_REJECTED'` 1행: meta `stage='pre_order'`, `error_name`=분기 코드, note 는 "… — 현재가 매수 주문 전 차단" 같은 사유 문구, bar_time 은 평가 통과 봉과 같다. ③ 감사 로그 페이지에서 유형 "⛔ 주문 전 차단", 경고 "⛔ 주문 전 차단 N건 — 봇이 주문 전에 매수를 중단했습니다. 사유 열을 확인하세요.", 유형 필터 "주문 전 차단" 으로 보인다. 거래소 거절 행(⛔ 매수/매도 거절)의 기존 문구 "거래소가 봇 주문을 받지 않았습니다" 는 그대로다. ④ 상설 1:1 대조의 "미요청" 행마다 같은 봉의 BUY_REJECTED(pre_order) 행이 있어야 한다. |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  journalctl -u tradebot --since '2026-10-06 14:45:05' --no-pager | sed -E 's/^.*\]: //' | grep -E 'AUDIT-REJECT|BUY-LIMIT\] 활성|❌ BUY 실패|EMA Buy Signal' | head -8
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, bar_time, reason, json_extract(meta,'\$.stage'), json_extract(meta,'\$.error_name'), note FROM audit_trades WHERE type='BUY_REJECTED' AND timestamp >= '2026-10-06T14:45:05' ORDER BY id;\"
 "
 ```
 

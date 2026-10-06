@@ -1,0 +1,10 @@
+조회 2026-10-06 14:45:35
+196|196
+196|2026-10-06T14:45:12.880329+09:00|strategy_init|v1.2026.10.06.1440
+286db8b90a76885589e9266b3130dd0d8a7cd4e3bea6bbe40c51133d8967442d  mcmax33_EMA_buy_sell_conditions.json
+mcmax33_EMA_buy_sell_conditions.json mtime=2026-10-06 07:52:22.384458876 +0900 size=655
+봉 간격: minute1 (출처: --interval 인자)
+마지막 확정 봉 KST: 2026-10-06 14:43  bars_long=1200
+로그        fast=769.0666 slow=772.8641
+800 재현    fast=769.0666 slow=772.8641  (로그와 차이 +0.0000 / +0.0000)
+1200 기준  fast=769.0666 slow=772.8648  (로그와 차이 +0.0000 / +0.0007)

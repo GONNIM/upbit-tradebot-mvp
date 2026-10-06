@@ -1,0 +1,65 @@
+2026-10-06 14:45:26
+== 창: 2026-10-06 14:45:05 ~ 2026-10-06 14:45:26 | HEAD=33a5d9e active=active start=Tue 2026-10-06 14:45:06 KST 버전=v1.2026.10.06.1440
+== (a) 기동
+2026-10-06 14:45:12 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=6.3s capital≈3,036,847
+2026-10-06 14:45:12 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-06 14:45:13 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute1 interval=60sec
+2026-10-06 14:45:13 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=769.0666 ema_slow=772.8641 ema_base=772.8641 | 마지막 봉=2026-10-06 14:43:00 KST
+2026-10-06 14:45:13 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=200 inserted=0 updated_placeholder=0
+   BOOT-RESUME success 1  시드 long_history bars=800 1  sma200 0  긴 이력 시드 실패 0  감사 행 보존 1
+== (b) 재계산 경로 — 코드 존재 확인 후 건수
+/root/upbit-tradebot-mvp/core/trailing_restore.py:13:   초과·실패 시 초기 상태로 두고 "[TRAILING-RESTORE] 재계산 불가 → 초기화 
+/root/upbit-tradebot-mvp/core/trailing_restore.py:15:5. 결과는 "[TRAILING-RESTORE] armed=… peak=… fixed=… activation=… 기준 봉 n개 시�
+/root/upbit-tradebot-mvp/core/trailing_restore.py:102:    logger.warning(f"[TRAILING-RESTORE] 재계산 불가 → 초기화 | 사유={reason}")
+/root/upbit-tradebot-mvp/core/trailing_restore.py:132:        logger.info("[TRAILING-RESTORE] 건너뜀 | 사유=trailing 필터 꺼짐")
+/root/upbit-tradebot-mvp/core/trailing_restore.py:182:        f"[TRAILING-RESTORE] armed={position.trailing_armed} peak={_f(position.highest_price)} "
+/root/upbit-tradebot-mvp/engine/live_loop.py:1223:                        logger.warning(f"[TRAILING-RESTORE] 재계산 불가 → 초기화 | 사유=
+   [TRAILING-RESTORE] 전체 0  armed= 0  재계산 불가 0  예외 0  건너뜀 0
+   기동 포지션: POS-SYNC 0  boot_seed 0  BOOT-SEED 0
+== (d) 결함 태그
+   ' ERROR ': 0
+   'Traceback': 0
+   '[POS-DESYNC] class=': 0
+   'Upbit에 없는 timestamp': 0
+   '불일치 발견': 0
+   '과거 봉 검증 실패': 0
+   'database is locked': 0
+   '[LOCKED-QTY]': 0
+   'CRITICAL': 0
+   VERIFY WARNING 줄: 0  외부 스캐너(따로): Missing file 0  MediaFileStorageError 0
+== (e) Bar# / 조정 / BACKFILL
+   봉 확정 고유 0  Bar# 0  거래 없음 고유 0  처음·끝: 
+   조정 400 수신: 
+   BACKFILL '누락 봉 평가 시작' 0  '누락 봉 평가 |' 0  '미확정 봉 제외' 0
+== (f) 봇 매수·무장·ts_armed
+   EMA Buy Signal 0  action=BUY 0  action=SELL 0  [OR] final 0  ACTIVATED 0  AUTO-SWITCH 0
+== WO-22 경로 — 코드 존재 확인 후 건수
+590:            logger.info(f"[POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty={qty} entry={entry_price}")
+694:                                        f"[POSITION-SYNC] orders 마지막 봇 BUY 수량 불일치 → 진입가로 쓰지 않음 | "
+699:                            logger.info(f"[POSITION-SYNC] entry_price={entry_price} (출처: {source})")
+   [POSITION-SYNC] entry_price= 0  외부 매도 기록 0  수량 불일치 0  외부 매수 감지 0  강제 포지션 종료 0
+== WO-24 경로 — 코드 존재 확인 후 건수
+170:            logger.info(f"[NOTIFY] sent | kind={level} dedupe={dedupe_key}")
+415:            logger.info(f"[OR] 매수 미체결 취소 기록 (audit_trades BUY_CANCELED) | uuid={uuid} {note}")
+192:        logger.info(f"[UNFILLED-CONVERT] 전환 안 함 | uuid={orig_uuid} {out['reason']} 주문가={limit_price} 현재가={cur}")
+208:            logger.warning(f"[UNFILLED-CONVERT] 시장가 매수 실패 | uuid={orig_uuid}")
+224:        f"✅ [UNFILLED-CONVERT] 시장가 전환 | from={orig_uuid} to={result.get('uuid')} 주문가={limit_price} 현재가={cur} "
+   [NOTIFY] sent 1  BUY_CANCELED 기록 0  [UNFILLED-CONVERT] 0  LIMIT BUY timeout 0  [NOTIFY] 경고(전체) 1
+2026-10-06 14:45:14 INFO services.notifier | [NOTIFY] sent | kind=INFO dedupe=boot_resume:mcmax33:success
+   토큰·채팅 ID 노출 검사: bot 토큰 형식 0  chat_id= 0
+== WO-25 경로 — 코드 존재 확인 후 건수
+566:            self._audit_preorder_reject(  # ✅ WO-25
+585:            self._audit_preorder_reject(  # ✅ WO-25
+945:            self._audit_preorder_reject(  # ✅ WO-25
+976:            self._audit_preorder_reject(  # ✅ WO-25
+1009:            self._audit_preorder_reject(  # ✅ WO-25
+1043:            self._audit_preorder_reject(  # ✅ WO-25
+1054:            self._audit_preorder_reject(  # ✅ WO-25
+1063:                self._audit_buy_blocked(  # ✅ WO-25
+1073:                self._audit_buy_blocked(  # ✅ WO-25
+1100:                self._audit_buy_blocked(  # ✅ WO-25
+1360:            self._audit_buy_blocked(
+1394:            self._audit_buy_blocked(  # ✅ WO-25
+507:                f"[AUDIT-REJECT] {side.upper()}_REJECTED 기록 | ticker={ticker} "
+   [AUDIT-REJECT] BUY_REJECTED 기록 0  [BUY-LIMIT] 활성 KRW 부족 0  [BUY-LIMIT] plan 0  ❌ BUY 실패 0  [AUDIT-REJECT] 기록 실패 0  엔진 주문 전 차단 기록 예외 0
+== 대시보드 접속 표식
