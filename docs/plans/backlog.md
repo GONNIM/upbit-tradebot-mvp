@@ -19,6 +19,10 @@
 | 10 | WO-20 | orders.executed_at 미기록으로 boot_seed 미동작 + 복원 조회 정렬(executed_at 오름차순) 결함 → 확정 시 executed_at·canceled_at 기록, COALESCE 정렬·시각, boot_seed 평균가 지갑 유지, 문구 WARNING | **완결 (2026-10-04 10:22:33 `e97dec6` 배포, 코드 `986c9b0`, v1.2026.10.02.2241)** — 정렬 신·구 같은 id, `[OR] executed_at 대체` 0. 첫 체결 확정 대조는 사후 확증 9번 (`docs/plans/2026-10-02-wo20-executed-at/deploy-report.md`) | WO-19 |
 | 11 | — | 1분봉 전환 점검 (10-03 21:03:47 설정 페이지 저장 → 1분봉 재워밍업) + 시드 검증 스크립트 봉 간격 인자화 | **완결 (2026-10-04 `f2383ea`)** — 엔진 결함 없음 (`docs/plans/2026-10-04-interval-m1-check/report.md`) | WO-20 |
 | 12 | — | 서버 비밀 파일 권한 점검 | **완결 (2026-10-04 `c6400fc` + 마감 커밋)** — `.env`·`secrets.toml` 600, `.env.bak` 600 → 삭제, 규칙 v2.14 (`docs/plans/2026-10-04-interval-m1-check/secret-report.md`, `docs/operations/server-optimization.md`) | — |
+| 13 | WO-22 | 지갑 동기화 복원 진입가 우선순위(Upbit 평균가 → 캐시 → 수량 일치 시 orders) + 지갑 0 닫힘 외부 매도(HTS_SELL) 기록 (10-05 10:59 사건) | **완결 (2026-10-05 15:18:45 `3850794` 배포, 코드 `dfc075f`, v1.2026.10.05.1145)** — 0~3 통과, 투자자 통보 완료 2026-10-06 (`docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy-report.md`) | WO-21 |
+| 14 | WO-23 | WO-22 조사 잔여: ② HTS 감지 경쟁 조건, ③ `locked_warned` 메타 잔존, 감사 로그 열 이름 | **보류 (2026-10-06)** — 조사 지시 보류, 정기 점검 뒤 결정 | WO-22 |
+| 15 | WO-24 | 현재가 매수 미체결 취소 감사 기록(BUY_CANCELED) + 미체결 시 시장가 전환 옵션(기본 끔) + 알림 성공 로그 | **완결 (2026-10-05 16:44:46 `4ad8bf3` 배포, 코드 `147efea`, v1.2026.10.05.1526)** — 0~3 통과(3단계 설정 기준 정정, 투자자 07:49 옵션 켬), 투자자 통보 완료 2026-10-06 (`docs/plans/2026-10-05-wo24-unfilled-buy-audit/deploy-report.md`) | WO-22 |
+| 16 | WO-25 | BUY 평가 통과 뒤 주문 전 봇 안 차단을 BUY_REJECTED(stage=pre_order)로 기록 + 감사 로그 "주문 전 차단" 구분 표시 | **완결 (2026-10-06 14:45:06 `33a5d9e` 배포, 코드 `9dd9bd7`·`33a5d9e`, v1.2026.10.06.1440)** — 0~3 통과, 필터 표시 운영자 확인, 투자자 통보 완료 2026-10-06. 첫 실제 기록은 사후 확인 14 (`docs/plans/2026-10-06-wo25-preorder-reject-audit/deploy-report.md`) | WO-24 |
 | 장기 | — | 엔진을 Streamlit 과 분리한 별도 프로세스 (WO-12 계획서 C안) | 등록만 (보류) | WO-12 운영 안정 확인 뒤 |
 
 ### 보류 항목 (2026-10-04 기준, 구현은 항목별 승인)
