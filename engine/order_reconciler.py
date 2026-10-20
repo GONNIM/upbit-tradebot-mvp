@@ -524,7 +524,8 @@ class OrderReconciler:
                         ts_pct=meta.get("ts_pct"),
                         ts_armed=meta.get("ts_armed"),
                         timestamp=None,  # ✅ 실시간 체결 시각 (now_kst())
-                        bar_time=meta.get("bar_time")  # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
+                        bar_time=meta.get("bar_time"),  # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
+                        note=meta.get("audit_note"),  # ✅ WO-26: "약매수 진입 · 익절 x%" / "약매수 포지션 · 기준 x%"
                     )
                     logger.info(f"[OR] audit_trades inserted: uuid={uuid} side={side} px={avg_px} vol={exec_vol}")
                 except Exception as e:

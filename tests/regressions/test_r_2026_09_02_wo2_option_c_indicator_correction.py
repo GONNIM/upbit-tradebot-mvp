@@ -93,7 +93,8 @@ class TestIndicatorCorrection(unittest.TestCase):
 
         # ✅ WO-17 (P): 재시드(부분 재계산) 없음, 확정 종가로 증분 1회
         engine.indicators.recompute_from_changed_ts.assert_not_called()
-        engine.indicators.update_incremental.assert_called_once_with(802.0)
+        # ✅ WO-26 (2026-10-20): 봉 시각도 함께 넘긴다 (마지막 D/C 시각 기록용) — 확정 종가 증분 1회는 그대로
+        engine.indicators.update_incremental.assert_called_once_with(802.0, confirmed_bar.ts)
 
 
 if __name__ == '__main__':

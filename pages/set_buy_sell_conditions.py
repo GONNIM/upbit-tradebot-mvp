@@ -12,6 +12,12 @@ from config import (
     UNFILLED_TO_MARKET_DEFAULT,             # ✅ WO-24: 미체결 시 시장가 전환 기본값
     UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT,  # ✅ WO-24: 전환 허용 가격 차이 % 기본값
 )
+from core.weak_entry import (  # ✅ WO-26: 약매수 차단 필터 설정 (엔진과 같은 해석·범위 보정)
+    load_weak_entry_settings,
+    dump_weak_entry_settings,
+    weak_entry_summary,
+    WEAK_ENTRY_MODE_LABELS,
+)
 from engine.params import (
     load_params,
     save_params,
@@ -145,6 +151,7 @@ EMA_BUY_STRATEGY = {
 
 EMA_BUY_FILTERS = {
     "surge_filter_enabled": "🚫 급등 차단 필터 (Slow EMA 대비 급등 시 매수 차단)",
+    "weak_entry_filter_enabled": "🐢 약매수 차단 필터 (데드크로스 직후 골든크로스 매수 제한)",  # ✅ WO-26
     "fixed_price_buy_enabled": "🎯 현재가 매수 (LIVE 전용 · 끄면 시장가 매수)",
 }
 
@@ -217,6 +224,9 @@ def load_conditions():
             # ✅ Surge Filter 파라미터 로드 (EMA 전략만)
             st.session_state["surge_threshold_pct"] = buy_saved.get("surge_threshold_pct", 0.01)
 
+            # ✅ WO-26: 약매수 차단 필터 4개 (없는 키는 config 기본값 — 엔진과 같은 해석)
+            st.session_state.update(load_weak_entry_settings(buy_saved))
+
             # ✅ 2026-08-05: 고정가 매수 대기 봉수 세션 로드 (누락 결함 봉쇄)
             # 이 로드가 없으면 페이지 진입 시 세션이 default(3) 으로 초기화되어
             # 파일 저장값(예: 5) 과 어긋남 → 사용자가 화면에서 본 값과 실제 활성값 불일치.
@@ -252,6 +262,9 @@ def load_conditions():
         # ✅ 기본값 설정 (params 연동)
         st.session_state.setdefault("ticker_input", default_ticker)
         st.session_state.setdefault("surge_threshold_pct", 0.01)
+        # ✅ WO-26: 약매수 차단 필터 기본값 (config)
+        for _wk, _wv in load_weak_entry_settings({}).items():
+            st.session_state.setdefault(_wk, _wv)
         st.session_state.setdefault("stale_hours", 1.0)
         st.session_state.setdefault("stale_threshold_pct", 0.01)
         st.session_state.setdefault("take_profit_pct", default_tp_pct)
@@ -275,6 +288,10 @@ def save_conditions():
     # ✅ Surge Filter 파라미터 추가 저장 (EMA 전략만)
     if strategy_tag == "EMA" and st.session_state.get("surge_filter_enabled", False):
         conditions["buy"]["surge_threshold_pct"] = st.session_state.get("surge_threshold_pct", 0.01)
+
+    # ✅ WO-26: 약매수 차단 필터 4개 (EMA 전략, 켬/끔과 무관하게 저장 — 다시 켤 때 값 보존)
+    if strategy_tag == "EMA":
+        conditions["buy"].update(dump_weak_entry_settings(dict(st.session_state)))
 
     # ✅ SP6 — Fixed Price Buy 대기 봉 수 (활성화 시 저장, 기본 3)
     if st.session_state.get("fixed_price_buy_enabled", False):
@@ -641,6 +658,56 @@ if len(BUY_FILTERS) > 0:
                 f"🚫 현재 설정: Slow EMA 대비 **{surge_threshold_pct:.1f}%** 이상 상승 시 매수 차단"
             )
 
+        # ✅ WO-26 (2026-10-20): 약매수 차단 필터 파라미터 (급등 차단 블록과 같은 모양, EMA 전략 + 켬일 때)
+        if strategy_tag == "EMA" and st.session_state.get("weak_entry_filter_enabled", False):
+            st.markdown("#### ⚙️ 약매수 차단 필터 파라미터")
+            st.caption("데드크로스 뒤 설정 시간 안에 난 골든크로스를 약매수로 봅니다")
+
+            _weak_hours = st.number_input(
+                "D/C 뒤 G/C 허용 시간 (시간)",
+                min_value=0.0, max_value=6.0, step=0.5,
+                value=float(st.session_state.get("weak_entry_window_hours", 2.0)),
+                key=f"input_weak_entry_window_hours_{strategy_tag}",
+                help="직전 데드크로스 봉부터 골든크로스 봉까지 이 시간 이내면 약매수입니다. 0이면 필터를 끈 것과 같습니다.",
+            )
+            st.session_state["weak_entry_window_hours"] = float(_weak_hours)
+
+            _mode_keys = list(WEAK_ENTRY_MODE_LABELS.keys())
+            _cur_mode = st.session_state.get("weak_entry_mode", "block")
+            _weak_mode = st.radio(
+                "약매수 처리",
+                options=_mode_keys,
+                index=_mode_keys.index(_cur_mode) if _cur_mode in _mode_keys else 0,
+                format_func=lambda m: WEAK_ENTRY_MODE_LABELS[m],
+                horizontal=True,
+                key=f"input_weak_entry_mode_{strategy_tag}",
+            )
+            st.session_state["weak_entry_mode"] = _weak_mode
+
+            _weak_tp = st.number_input(
+                "축소 익절 기준 (%)",
+                min_value=0.3, max_value=1.5, step=0.1,
+                value=min(1.5, max(0.3, float(st.session_state.get("weak_entry_tp_pct", 0.005)) * 100.0)),
+                key=f"input_weak_entry_tp_pct_{strategy_tag}",
+                disabled=(_weak_mode != "reduce_tp"),
+                help="'익절 기준 축소'일 때만 씁니다. 수익 추적 매도도 이 수익률에서 무장됩니다.",
+            )
+            if _weak_mode == "reduce_tp":
+                st.session_state["weak_entry_tp_pct"] = round(float(_weak_tp), 1) / 100.0
+
+            st.caption(
+                f"데드크로스 뒤 {float(_weak_hours):g}시간 안에 골든크로스가 나면 약매수로 봅니다. "
+                f"익절 기준 축소를 고르면 그 매수는 {float(_weak_tp):g}% 수익에서 익절(또는 수익 추적 매도 무장)합니다. "
+                "수익 추적 매도는 이 경우 고정폭이 매우 작아 사실상 즉시 매도에 가깝습니다."
+            )
+            if float(_weak_hours) <= 0:
+                st.warning("⚠️ 0시간은 필터를 끈 것과 같습니다 (약매수로 보는 경우가 없음).")
+            st.info(
+                f"🐢 현재 설정: D/C 뒤 **{float(_weak_hours):g}시간** 안의 G/C → "
+                + ("**매수 안 함**" if _weak_mode == "block"
+                   else f"**익절 {float(_weak_tp):g}%** (수익 추적 매도도 {float(_weak_tp):g}%에서 무장, 고정폭 약 1호가)")
+            )
+
         # ✅ Fixed Price Buy 안내 UI (전략 공통 · 활성화 시)
         if st.session_state.get("fixed_price_buy_enabled", False):
             st.markdown("#### ⚙️ 현재가 매수 동작 안내")
@@ -914,6 +981,8 @@ with col1:
             if key == "surge_filter_enabled" and st.session_state.get(key, False):
                 surge_pct = st.session_state.get("surge_threshold_pct", 0.01) * 100
                 st.caption(f"   └─ 임계값: {surge_pct:.1f}%")
+            if key == "weak_entry_filter_enabled" and st.session_state.get(key, False):  # ✅ WO-26
+                st.caption(f"   └─ {weak_entry_summary(load_weak_entry_settings(dict(st.session_state)))}")
             # ✅ 2026-08-05: 현재가 매수 대기 봉수 표시 (요약 섹션 누락 봉쇄)
             # ✅ WO-11 fixup (2026-09-30): 대기 시간 = 봉 수 × 실제 봉 간격 (1분봉 가정 ×60 제거).
             #   interval_sec 출처는 WO-8 과 동일 — engine/params.py interval_sec 속성.

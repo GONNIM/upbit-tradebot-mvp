@@ -1868,7 +1868,7 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
 
             result = {}
             # SELECT 순서: price, [entry_bar], [entry_ts_iso], [executed_volume] — select_keys 와 같은 순서
-            conv = {"price": float, "entry_bar": int, "entry_ts_iso": str, "executed_volume": float}
+            conv = {"price": float, "entry_bar": int, "entry_ts_iso": str, "executed_volume": float, "provider_uuid": str}
             for i, key in enumerate(select_keys):
                 if len(row) > i and row[i] is not None:
                     result[key] = conv[key](row[i])
@@ -1947,6 +1947,11 @@ def get_last_open_buy_order(ticker: str, user_id: str) -> Optional[Dict[str, Any
         if "executed_volume" in cols:
             select_cols += ", executed_volume"
             select_keys.append("executed_volume")
+
+        # ✅ WO-26: 주문 uuid — 약매수 표식(meta.weak_entry.order_uuid)이 이 BUY 의 것인지 대조용
+        if "provider_uuid" in cols:
+            select_cols += ", provider_uuid"
+            select_keys.append("provider_uuid")
 
         def _closed_by_external_sell(res: Optional[Dict[str, Any]]) -> bool:
             """✅ WO-22: 이 BUY 뒤에 외부 매도(audit_trades type='HTS_SELL', 지갑 0 닫힘 기록)가 있으면 청산된 것."""
@@ -2427,6 +2432,8 @@ def sync_all_positions_from_balances(user_id: str, balances: list[dict[str, Any]
                 logger.info(f"[DB] sync_all_positions cleared: {ticker} → active=0, locked=0, entry_price=0")
                 # ✅ WO-18: 보유 0 → hts_buy 플래그도 지움 (있을 때만 [HTS-FLAG] 로그)
                 clear_position_hts_flag(user_id, ticker, reason="sync_all_positions_cleared")
+                # ✅ WO-26: 보유 0 → 약매수 표식도 지움 (있을 때만 [WEAK-ENTRY] 로그)
+                clear_position_weak_entry(user_id, ticker, reason="sync_all_positions_cleared")
 
     except Exception as e:
         logger.warning(f"[DB] sync_all_positions clear stale positions failed: {e}")
@@ -2866,6 +2873,71 @@ def clear_position_hts_flag(user_id: str, ticker: str, reason: str, log: bool = 
     except Exception as e:
         logger.error(f"[HTS-FLAG] clear failed | reason={reason} | ticker={ticker} | {e}")
         return False
+
+
+def set_position_weak_entry(user_id: str, ticker: str, weak_entry: Dict[str, Any]) -> bool:
+    """
+    ✅ WO-26 (2026-10-20): account_positions.meta.weak_entry 기록 (read-modify-write, 다른 키 보존).
+    weak_entry = {"tp", "elapsed_min", "window_h", "order_uuid", "bar_time"}. 반환: 성공 여부
+    """
+    try:
+        meta = get_position_meta(user_id, ticker) or {}
+        meta["weak_entry"] = dict(weak_entry)
+        update_position_meta(user_id, ticker, meta)
+        return True
+    except Exception as e:
+        logger.error(f"[WEAK-ENTRY] meta 기록 실패 | ticker={ticker} | {e}")
+        return False
+
+
+def clear_position_weak_entry(user_id: str, ticker: str, reason: str, log: bool = True) -> bool:
+    """
+    ✅ WO-26: account_positions.meta.weak_entry 삭제 (clear_position_hts_flag 와 같은 모양).
+    반환: 실제로 지웠으면 True (없었으면 False, 로그 없음)
+    """
+    try:
+        meta = get_position_meta(user_id, ticker) or {}
+        if "weak_entry" not in meta:
+            return False
+        meta.pop("weak_entry", None)
+        update_position_meta(user_id, ticker, meta)
+        if log:
+            logger.info(f"[WEAK-ENTRY] cleared | reason={reason} | ticker={ticker}")
+        return True
+    except Exception as e:
+        logger.error(f"[WEAK-ENTRY] clear failed | reason={reason} | ticker={ticker} | {e}")
+        return False
+
+
+def clear_stale_weak_entries(user_id: str) -> int:
+    """
+    ✅ WO-26: 기동 시 정합 검사 — 보유 0(가용+묶임) 인데 meta.weak_entry 가 남은 행의 표식을 지운다.
+    (보유 중인 행은 boot_seed / wallet_sync 복원 단계에서 마지막 봇 BUY uuid 와 대조한다.) 반환: 지운 행 수
+    """
+    cleared = 0
+    try:
+        with get_db(user_id) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT ticker, meta, COALESCE(virtual_coin, 0), COALESCE(virtual_coin_locked, 0) "
+                "FROM account_positions WHERE user_id = ?",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+        for ticker, meta_json, coin, locked in rows:
+            try:
+                meta = json.loads(meta_json) if meta_json else {}
+            except Exception:
+                continue
+            if "weak_entry" not in meta:
+                continue
+            if float(coin) + float(locked) > 0:
+                continue
+            if clear_position_weak_entry(user_id, ticker, reason="boot_reconcile"):
+                cleared += 1
+    except Exception as e:
+        logger.error(f"[WEAK-ENTRY] 기동 정합 검사 실패 | user_id={user_id} | {e}")
+    return cleared
 
 
 def _has_recent_hts_buy_audit(user_id: str, ticker: str, within_seconds: int) -> bool:

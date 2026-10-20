@@ -11,6 +11,12 @@ from core.position_state import PositionState
 logger = logging.getLogger(__name__)
 
 
+def effective_take_profit(position, default_pct: float) -> float:
+    """✅ WO-26 (2026-10-20): 포지션의 약매수 익절 덮어쓰기(take_profit_override)가 있으면 그 값, 없으면 필터 기준."""
+    override = getattr(position, "take_profit_override", None)
+    return float(override) if override is not None else default_pct
+
+
 class StopLossFilter(BaseFilter):
     """
     손절 (Stop Loss) 필터
@@ -184,28 +190,30 @@ class TakeProfitFilter(BaseFilter):
                 details=f"PnL calculation failed (avg_price={position.avg_price})"
             )
 
-        take_profit_triggered = pnl_pct >= self.take_profit_pct
+        tp = effective_take_profit(position, self.take_profit_pct)  # ✅ WO-26: 약매수 포지션은 축소 기준
+        take_profit_triggered = pnl_pct >= tp
 
         logger.info(
             f"🔍 DEBUG [TAKE_PROFIT_CHECK] "
             f"enable_take_profit=True, "
             f"take_profit_triggered={take_profit_triggered}, "
             f"pnl_pct={pnl_pct:.2%}, "
-            f"threshold={self.take_profit_pct:.2%}, "
+            f"threshold={tp:.2%}"
+            f"{' (약매수 덮어쓰기)' if tp != self.take_profit_pct else ''}, "
             f"current_price={current_price}"
         )
 
         if take_profit_triggered:
             logger.info(
-                f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={self.take_profit_pct:.2%}"
+                f"🎯 Take Profit triggered | pnl={pnl_pct:.2%} tp={tp:.2%}"
             )
             return FilterResult(
                 should_block=True,
                 reason="TAKE_PROFIT",
-                details=f"Take profit triggered: {pnl_pct:.2%} (threshold: {self.take_profit_pct:.2%})",
+                details=f"Take profit triggered: {pnl_pct:.2%} (threshold: {tp:.2%})",
                 metadata={
                     'pnl_pct': pnl_pct,
-                    'threshold': self.take_profit_pct,
+                    'threshold': tp,
                     'current_price': current_price
                 }
             )
@@ -268,7 +276,8 @@ class TrailingStopFilter(BaseFilter):
                     details=f"PnL calculation failed (avg_price={position.avg_price})"
                 )
 
-            if pnl_pct is not None and pnl_pct >= self.take_profit_pct:
+            # ✅ WO-26: 약매수 포지션은 축소 기준에서 무장 (재시작 재계산 core/trailing_restore.py 도 이 함수 사용)
+            if pnl_pct is not None and pnl_pct >= effective_take_profit(position, self.take_profit_pct):
                 # Take Profit 도달 → Trailing Stop 활성화
                 position.activate_trailing_stop(current_price, log=log)
 

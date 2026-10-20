@@ -71,6 +71,13 @@ AUDIT_SELL_COOLDOWN_BARS = 0    # SELL 평가 쿨다운 (0 = 샘플링 제거)
 UNFILLED_TO_MARKET_DEFAULT = False
 UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT = 0.3   # 전환 허용 가격 차이 % (현재가 ≤ 주문가 × (1 + 0.3%) 일 때만 전환)
 
+# ✅ WO-26 (2026-10-20): 약매수 차단 필터 — 설정 파일(buy_conditions)에 값이 없을 때의 기본값.
+#   Fable 결정: 처리 방식 기본 "매수 안 함"(block), 시간 2시간, 축소 익절 0.5% (측정 report.md A-6).
+WEAK_ENTRY_FILTER_ENABLED_DEFAULT = False
+WEAK_ENTRY_WINDOW_HOURS_DEFAULT = 2.0      # D/C 뒤 G/C 허용 시간 (0~6, 0.5 단위)
+WEAK_ENTRY_MODE_DEFAULT = "block"          # "block" = 매수 안 함 / "reduce_tp" = 익절 기준 축소
+WEAK_ENTRY_TP_PCT_DEFAULT = 0.005          # 축소 익절 기준 (0.003~0.015, 0.001 단위)
+
 # 엔진 실행 모드: 
 # - "BACKTEST" : 지금처럼 _run_backtest_once만 사용
 # - "REPLAY"   : run_replay_on_dataframe(...) 기반으로 동작

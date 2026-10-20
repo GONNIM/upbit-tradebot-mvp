@@ -54,6 +54,11 @@ class PositionState:
         # ✅ Issue #17: HTS 매수 감지용 메타데이터
         self.metadata: dict = {}  # {"hts_buy": True, "src": "manual", ...}
 
+        # ✅ WO-26 (2026-10-20): 약매수 포지션의 익절 기준 덮어쓰기 (예: 0.005). None = 전략 기본 익절.
+        #   TakeProfitFilter 판정·TrailingStopFilter 무장이 우선 사용. apply_entry 는 건드리지 않는다
+        #   (진입 경로가 apply_entry 뒤에 설정·복원 — core/weak_entry.py). 청산·앱 추가 매수 때 지운다.
+        self.take_profit_override: Optional[float] = None
+
     @property
     def has_position(self) -> bool:
         """
@@ -314,6 +319,32 @@ class PositionState:
 
         # ✅ WO-18: 보유 0 → hts_buy 플래그 해제 (메모리 + DB)
         self._clear_hts_flag(reason)
+
+        # ✅ WO-26: 보유 0 → 약매수 표식·익절 덮어쓰기 해제 (메모리 + DB)
+        self.clear_weak_entry(reason)
+
+    def clear_weak_entry(self, reason: str):
+        """
+        ✅ WO-26 (2026-10-20): take_profit_override 와 metadata·account_positions.meta 의 weak_entry 를 함께 지운다.
+        둘 중 하나라도 지웠으면 [WEAK-ENTRY] cleared 1줄. (청산 · 앱 추가 매수 · 복원 불일치 공용)
+        """
+        mem_cleared = self.take_profit_override is not None
+        self.take_profit_override = None
+        if isinstance(self.metadata, dict) and self.metadata.pop("weak_entry", None) is not None:
+            mem_cleared = True
+        db_cleared = False
+        user_id = getattr(self.trader, "user_id", None) if self.trader is not None else None
+        if user_id and self.ticker:
+            try:
+                from services.db import clear_position_weak_entry
+                db_cleared = clear_position_weak_entry(user_id, self.ticker, reason=reason, log=False)
+            except Exception as e:
+                logger.error(f"[WEAK-ENTRY] clear failed | reason={reason} | ticker={self.ticker} | {e}")
+        if mem_cleared or db_cleared:
+            logger.info(
+                f"[WEAK-ENTRY] cleared | reason={reason} | ticker={self.ticker} "
+                f"memory={mem_cleared} db={db_cleared}"
+            )
 
     def _clear_hts_flag(self, reason: str):
         """

@@ -106,6 +106,10 @@ class IndicatorState:
         self.initialized = False
         self.bar_count = 0
 
+        # ✅ WO-26 (2026-10-20): 마지막 데드크로스 봉 시각 (매도 EMA 쌍 기준, 약매수 판정용).
+        #   update_incremental(close, ts) 에 ts 가 들어올 때만 기록. 시드 직후 None (모름 = 일반 매수).
+        self.last_dead_cross_ts = None
+
     def seed_from_closes(self, closes: List[float], quiet: bool = False) -> bool:
         """
         초기 시드 (SMA로 시작)
@@ -162,6 +166,7 @@ class IndicatorState:
         self.prev_ema_slow_buy = None
         self.prev_ema_fast_sell = None
         self.prev_ema_slow_sell = None
+        self.last_dead_cross_ts = None  # ✅ WO-26: 새 시드 = 직전 D/C 모름
 
         self.initialized = True
 
@@ -182,21 +187,25 @@ class IndicatorState:
             )
         return True
 
-    def seed_long_history(self, closes: List[float], base_len: int = 200) -> bool:
+    def seed_long_history(self, closes: List[float], base_len: int = 200, timestamps: Optional[List[Any]] = None) -> bool:
         """
         ✅ WO-17 (S) (2026-10-01): 긴 이력 증분 시드.
         처음 base_len 봉으로 seed_from_closes(SMA 시작) 한 뒤 나머지 봉을 update_incremental 로 순서대로 반영한다
         (실시간 증분과 같은 식). 200봉 SMA 시드는 장기 EMA 와 (fast−slow) 간격이 최대 9.3원 달랐고
         기동 13회 중 3회는 부호가 반대였다(G4 측정). 800봉이면 장기 기준과 0.02원 이내.
         시드 직후 상태 모양은 seed_from_closes 와 같게 맞춘다(prev_* = None, bar_count = 0).
+        ✅ WO-26 (2026-10-20): timestamps(closes 와 같은 길이)를 주면 재생 중 마지막 D/C 봉 시각을
+        last_dead_cross_ts 에 남긴다(마지막 prev_* 초기화에서 지우지 않음). 주지 않으면 None.
         반환: 성공 여부 (len(closes) < base_len 또는 seed 실패 시 False — 호출부가 200봉 SMA 로 폴백)
         """
         if len(closes) < base_len:
             return False
+        if timestamps is not None and len(timestamps) != len(closes):
+            timestamps = None
         if not self.seed_from_closes(closes[:base_len], quiet=True):
             return False
-        for c in closes[base_len:]:
-            self.update_incremental(c)
+        for i, c in enumerate(closes[base_len:], start=base_len):
+            self.update_incremental(c, timestamps[i] if timestamps is not None else None)
         self.prev_macd = None
         self.prev_signal = None
         self.prev_ema_fast = None
@@ -213,13 +222,14 @@ class IndicatorState:
     #   꼬리가 시드 필요 수 이상이면 SMA 재시드 + 현재 봉 이중 반영 + prev_ema 초기화가 일어날 수 있어 경로를 없앤다.
     #   조정 변경 시 지표는 update_incremental 만 (core/strategy_engine.py on_new_bar_confirmed).
 
-    def update_incremental(self, close: float):
+    def update_incremental(self, close: float, ts: Any = None):
         """
         새 봉 1개 기준으로 증분 갱신
         ★ 핵심: 전체 재계산 없이 이전 값만 이용
 
         Args:
             close: 새 봉의 종가
+            ts: 봉 시각 (✅ WO-26). 주면 매도 EMA 쌍 데드크로스일 때 last_dead_cross_ts 에 기록
         """
         if not self.initialized:
             logger.warning("⚠️ Indicator not initialized. Call seed_from_closes() first.")
@@ -257,7 +267,21 @@ class IndicatorState:
         self.signal = self.alpha_macd_signal * self.macd + (1 - self.alpha_macd_signal) * self.signal
         self.hist = self.macd - self.signal
 
+        # ✅ WO-26: 매도 EMA 쌍 데드크로스 (strategy_incremental 의 ema_dead_cross 와 같은 식) → 봉 시각 기록
+        if ts is not None and self._sell_pair_dead_cross():
+            self.last_dead_cross_ts = ts
+
         self.bar_count += 1
+
+    def _sell_pair_dead_cross(self) -> bool:
+        """✅ WO-26: 매도 판단에 쓰는 EMA 쌍(별도 EMA 면 *_sell, 아니면 공통)의 데드크로스 여부."""
+        if self.use_separate_ema:
+            pf, ps, f, s = self.prev_ema_fast_sell, self.prev_ema_slow_sell, self.ema_fast_sell, self.ema_slow_sell
+        else:
+            pf, ps, f, s = self.prev_ema_fast, self.prev_ema_slow, self.ema_fast, self.ema_slow
+        if pf is None or ps is None or f is None or s is None:
+            return False
+        return pf >= ps and f < s
 
     def get_snapshot(self, is_buy_eval: bool = True) -> Dict[str, Any]:
         """
@@ -303,6 +327,7 @@ class IndicatorState:
             "prev_ema_slow": prev_ema_slow,
             # 메타
             "bar_count": self.bar_count,
+            "last_dead_cross_ts": self.last_dead_cross_ts,  # ✅ WO-26: 약매수 판정용 (None = 모름)
             # 디버깅용: 매수/매도 별도 EMA 전체 노출
             "use_separate_ema": self.use_separate_ema,
             "ema_fast_buy": self.ema_fast_buy if self.use_separate_ema else None,

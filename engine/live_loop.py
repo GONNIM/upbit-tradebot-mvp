@@ -211,7 +211,9 @@ def _seed_warmup_indicators(indicators, initial_df: pd.DataFrame, long_bars: int
     """
     closes = initial_df["Close"].tolist()
     if len(closes) >= long_bars:
-        if indicators.seed_long_history(closes[-long_bars:], base_len=min_hist):
+        # ✅ WO-26: 봉 시각도 넘겨 재생 중 마지막 D/C 시각을 찾는다 (폴백 시드는 None = 직전 D/C 모름)
+        if indicators.seed_long_history(closes[-long_bars:], base_len=min_hist,
+                                        timestamps=list(initial_df.index[-long_bars:])):
             return True, "long_history", "", initial_df.iloc[-min_hist:]
         reason = "long_seed_failed"
     else:
@@ -388,6 +390,16 @@ def _seed_entry_price_from_db(ticker: str, user_id: str) -> Optional[Dict[str, A
         return None
 
 
+def _restore_weak_entry_safe(position, source: str):
+    """✅ WO-26: 약매수 표식 복원 (예외는 삼키고 ERROR 1줄 — 복원 실패 시 일반 익절 기준)."""
+    try:
+        from core.weak_entry import restore_weak_entry
+        return restore_weak_entry(position, source=source)
+    except Exception as e:
+        logger.error(f"[WEAK-ENTRY] {source} 복원 실패: {e}")
+        return None
+
+
 def _apply_boot_seed(position, db_result: Dict[str, Any], actual_qty: float) -> bool:
     """기동 시 봇 주문 기록으로 보유 포지션의 진입 시각·진입 봉을 복원 (P3 boot_seed).
 
@@ -435,6 +447,8 @@ def _apply_boot_seed(position, db_result: Dict[str, Any], actual_qty: float) -> 
             entry_ts=entry_ts,
             source="boot_seed",
         )
+        # ✅ WO-26: 약매수 표식 복원 (마지막 봇 BUY uuid 일치 시만) — restore_trailing_on_boot 보다 앞
+        _restore_weak_entry_safe(position, "boot_seed")
         logger.info(
             f"🔁 Position recovered | avg_price={avg_price} (출처: {avg_src}) order_price={order_price} "
             f"qty={actual_qty:.6f} entry_bar={entry_bar} entry_ts={entry_ts.isoformat()}"
@@ -548,6 +562,9 @@ def _maybe_reload_params(*, user_id, params_ref, strategy, cond_path, mtime_stat
                     strategy.use_fixed_trailing = bool(sell_c.get("use_fixed_trailing", False))
                 strategy.buy_conditions = buy_c
                 strategy.sell_conditions = sell_c
+                # ✅ WO-26: 약매수 필터도 같은 조건으로 다시 만든다 (보유 포지션의 익절 덮어쓰기는 유지)
+                if hasattr(strategy, "_apply_weak_entry_conditions"):
+                    strategy._apply_weak_entry_conditions(buy_c)
 
                 # 필터 인스턴스 임계값 갱신 (sell_filter_manager.filters 순회)
                 try:
@@ -638,6 +655,42 @@ _BACKFILL_TRAILING_FIELDS = (
 )
 
 
+def _config_applied_line(buy_conditions: Optional[dict], sell_conditions: Optional[dict]) -> str:
+    """
+    ✅ WO-26 (2026-10-20, 백로그 "기동 시 설정 키·적용값 로그"): 조건 파일 키와 config 기본값으로 채운 키를
+    한 줄로 만든다. 표기: 키=값 (파일에 없어 기본값을 쓴 키는 키=값*). 값은 엔진이 쓰는 해석과 같다.
+    """
+    from config import UNFILLED_TO_MARKET_DEFAULT, UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT
+    from core.strategy_incremental import IncrementalEMAStrategy
+    bc = dict(buy_conditions or {})
+    sc = dict(sell_conditions or {})
+    weak_applied = IncrementalEMAStrategy.weak_entry_settings(bc)
+    defaults = {
+        "fixed_price_unfilled_to_market": UNFILLED_TO_MARKET_DEFAULT,
+        "fixed_price_convert_max_gap_pct": UNFILLED_TO_MARKET_MAX_GAP_PCT_DEFAULT,
+        **IncrementalEMAStrategy.weak_entry_settings({}),
+    }
+    parts = []
+    for k in sorted(set(bc) | set(defaults)):
+        v = weak_applied[k] if k in weak_applied else bc.get(k, defaults.get(k))
+        parts.append(f"{k}={v}{'' if k in bc else '*'}")
+    sell_parts = [f"{k}={sc[k]}" for k in sorted(sc)]
+    return f"[CONFIG] 적용값 (*=기본값) | buy: {' '.join(parts)} | sell: {' '.join(sell_parts)}"
+
+
+def _backup_dead_cross_ts(indicators) -> Dict[str, Any]:
+    """
+    ✅ WO-26 (2026-10-20): BACKFILL 전 마지막 D/C 시각 백업 (Issue #11 지표 백업 dict 에 합친다).
+    재평가 봉에서 난 D/C 가 실시간 약매수 판정을 오염시키지 않게 한다.
+    """
+    return {"last_dead_cross_ts": getattr(indicators, "last_dead_cross_ts", None)}
+
+
+def _restore_dead_cross_ts(indicators, saved: Dict[str, Any]) -> None:
+    """✅ WO-26: BACKFILL 뒤 마지막 D/C 시각 복원 (지표 복원 try 안에서 함께 — 실패하면 지표 오염 상태와 같은 처리)."""
+    indicators.last_dead_cross_ts = saved["last_dead_cross_ts"]
+
+
 def _backup_trailing_state(position) -> Dict[str, Any]:
     """
     ✅ WO-14 E1 (2026-10-01): BACKFILL 전 Trailing 상태 백업.
@@ -708,6 +761,13 @@ def run_live_loop(
             logger.info(f"[HTS-FLAG] 기동 정합 검사 완료 | user_id={user_id} cleared={_hts_cleared}")
         except Exception as e:
             logger.warning(f"[HTS-FLAG] 기동 정합 검사 실패 | user_id={user_id} | {e}")
+        # ✅ WO-26: 보유 0 인데 약매수 표식(meta.weak_entry)이 남은 행 정리
+        try:
+            from services.db import clear_stale_weak_entries
+            _weak_cleared = clear_stale_weak_entries(user_id)
+            logger.info(f"[WEAK-ENTRY] 기동 정합 검사 완료 | user_id={user_id} cleared={_weak_cleared}")
+        except Exception as e:
+            logger.warning(f"[WEAK-ENTRY] 기동 정합 검사 실패 | user_id={user_id} | {e}")
 
     # ✅ P1 — 설정 History 시드 (idempotent). 사용자가 한 번도 명시 저장한 적 없는
     # 새 (user_id, strategy_tag) 조합에 첫 active_settings_id 를 확보.
@@ -859,6 +919,11 @@ def run_live_loop(
         )
 
         logger.info(f"[EMA 전략] use_base_ema={use_base_ema_filter}")
+        # ✅ WO-26: 기동 시 설정 키와 적용값 1줄 (파일에 없는 키는 config 기본값, * 표시)
+        try:
+            logger.info(_config_applied_line(buy_conditions, sell_conditions))
+        except Exception as e:
+            logger.warning(f"[CONFIG] 적용값 로그 실패: {e}")
     else:
         raise ValueError(f"Unknown strategy type: {strategy_tag}")
 
@@ -1151,12 +1216,14 @@ def run_live_loop(
                     f"[WARMUP] 시드 방식=long_history bars={_long_bars} "
                     f"ema_fast={indicators.ema_fast_buy if indicators.use_separate_ema else indicators.ema_fast:.4f} "
                     f"ema_slow={indicators.ema_slow_buy if indicators.use_separate_ema else indicators.ema_slow:.4f} "
-                    f"ema_base={indicators.ema_base:.4f} | 마지막 봉={format_kst(initial_df.index[-1])}"
+                    f"ema_base={indicators.ema_base:.4f} | 마지막 봉={format_kst(initial_df.index[-1])} | "
+                    f"직전 D/C={format_kst(indicators.last_dead_cross_ts) if indicators.last_dead_cross_ts is not None else f'없음({_long_bars}봉 안)'}"
                 )
             elif _seed_ok:
                 _why = _seed_fallback_reason or _reason
                 logger.warning(f"[WARMUP] 긴 이력 시드 실패 → 200봉 SMA 폴백 | 사유={_why}")
-                logger.info(f"[WARMUP] 시드 방식=sma200 bars={len(initial_df)}")
+                logger.info(f"[WARMUP] 시드 방식=sma200 bars={len(initial_df)}"
+                            f" | 직전 D/C 알 수 없음 → 약매수 판정 안 함(일반 매수)")  # ✅ WO-26 결정 3 (같은 줄)
                 try:
                     from services.notifier import send as _notify, LEVEL_WARNING
                     _notify(
@@ -1403,6 +1470,7 @@ def run_live_loop(
                                         'prev_ema_fast_sell': engine.indicators.prev_ema_fast_sell,
                                         'prev_ema_slow_sell': engine.indicators.prev_ema_slow_sell,
                                     })
+                                saved_indicators.update(_backup_dead_cross_ts(engine.indicators))  # ✅ WO-26
 
                                 # ✅ WO-14 E1: Trailing 상태 백업 (BACKFILL 은 포지션 상태를 바꾸지 않음)
                                 saved_trailing = _backup_trailing_state(engine.position)
@@ -1505,6 +1573,7 @@ def run_live_loop(
                                             engine.indicators.prev_ema_slow_buy = saved_indicators['prev_ema_slow_buy']
                                             engine.indicators.prev_ema_fast_sell = saved_indicators['prev_ema_fast_sell']
                                             engine.indicators.prev_ema_slow_sell = saved_indicators['prev_ema_slow_sell']
+                                        _restore_dead_cross_ts(engine.indicators, saved_indicators)  # ✅ WO-26
 
                                         # ✅ WO-1 추가 A + 추가 C 설계 제약 #3: 복원 성공 로그 (info 레벨, 백업 로그와 쌍)
                                         prev_fast_str = f"{engine.indicators.prev_ema_fast:.2f}" if engine.indicators.prev_ema_fast is not None else "None"

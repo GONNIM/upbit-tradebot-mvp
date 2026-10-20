@@ -11,7 +11,7 @@ import logging
 
 # ✅ 필터 시스템 import
 from core.filters import BuyFilterManager, SellFilterManager
-from core.filters.buy_filters import SlowEmaSurgeFilter
+from core.filters.buy_filters import SlowEmaSurgeFilter, WeakEntryFilter  # ✅ WO-26
 from core.filters.sell_filters import (
     StopLossFilter,
     TakeProfitFilter,
@@ -654,6 +654,10 @@ class IncrementalEMAStrategy:
             self.ema_surge_threshold_pct = ema_surge_threshold_pct
             logger.info(f"[EMA Strategy] Surge Filter from params.json (backward compatibility)")
 
+        # ✅ WO-26: 약매수 차단 필터 (buy_conditions, 없으면 config 기본값)
+        self.last_weak_entry: Optional[Dict[str, Any]] = None
+        self._apply_weak_entry_conditions(self.buy_conditions)
+
         logger.info(
             f"[EMA Strategy] Buy conditions: "
             f"ema_gc={self.enable_ema_gc}, "
@@ -721,6 +725,38 @@ class IncrementalEMAStrategy:
         surge_filter = SlowEmaSurgeFilter(threshold_pct=self.ema_surge_threshold_pct)
         surge_filter.set_enabled(self.ema_surge_filter_enabled)
         self.buy_filter_manager.register(surge_filter)
+
+    @staticmethod
+    def weak_entry_settings(buy_conditions: Optional[dict]) -> Dict[str, Any]:
+        """✅ WO-26: buy_conditions 의 약매수 설정 4개 (없는 키는 config 기본값). 설정 페이지·기동 로그와 같은 해석."""
+        from config import (
+            WEAK_ENTRY_FILTER_ENABLED_DEFAULT, WEAK_ENTRY_WINDOW_HOURS_DEFAULT,
+            WEAK_ENTRY_MODE_DEFAULT, WEAK_ENTRY_TP_PCT_DEFAULT,
+        )
+        bc = buy_conditions or {}
+        return {
+            "weak_entry_filter_enabled": bool(bc.get("weak_entry_filter_enabled", WEAK_ENTRY_FILTER_ENABLED_DEFAULT)),
+            "weak_entry_window_hours": float(bc.get("weak_entry_window_hours", WEAK_ENTRY_WINDOW_HOURS_DEFAULT)),
+            "weak_entry_mode": str(bc.get("weak_entry_mode", WEAK_ENTRY_MODE_DEFAULT)),
+            "weak_entry_tp_pct": float(bc.get("weak_entry_tp_pct", WEAK_ENTRY_TP_PCT_DEFAULT)),
+        }
+
+    def _apply_weak_entry_conditions(self, buy_conditions: Optional[dict]) -> Dict[str, Any]:
+        """
+        ✅ WO-26: 약매수 필터를 buy_conditions 로 (다시) 만든다. 생성자·hot reload(reload_conditions) 공용.
+        BuyFilterManager 에는 넣지 않는다 (매수 조건 통과 직후 on_bar 에서 직접 호출).
+        반환: 이전 설정값 (변경 감지용)
+        """
+        old = getattr(self, "weak_entry_cfg", None) or {}
+        cfg = self.weak_entry_settings(buy_conditions)
+        self.weak_entry_cfg = cfg
+        self.weak_entry_filter = WeakEntryFilter(
+            window_hours=cfg["weak_entry_window_hours"],
+            mode=cfg["weak_entry_mode"],
+            weak_tp_pct=cfg["weak_entry_tp_pct"],
+        )
+        self.weak_entry_filter.set_enabled(cfg["weak_entry_filter_enabled"])
+        return old
 
     def _register_sell_filters(self):
         """매도 필터 등록 (카테고리 순서대로 실행됨).
@@ -870,6 +906,13 @@ class IncrementalEMAStrategy:
                 changes["ema_surge_threshold_pct"] = (self.ema_surge_threshold_pct, new_val)
                 self.ema_surge_threshold_pct = new_val
 
+        # === ✅ WO-26 약매수 필터 — 새 매수부터 적용. 이미 보유한 포지션의 익절 덮어쓰기(take_profit_override)는
+        #     진입 때 정해진 값을 유지한다 (포지션 상태라 필터 재구성과 무관).
+        _old_weak = self._apply_weak_entry_conditions(buy_conditions)
+        for k, v in self.weak_entry_cfg.items():
+            if k in _old_weak and _old_weak[k] != v:
+                changes[k] = (_old_weak[k], v)
+
         # conditions 자체 갱신 (다른 키들도 보존)
         self.buy_conditions = buy_conditions
         self.sell_conditions = sell_conditions
@@ -935,6 +978,7 @@ class IncrementalEMAStrategy:
         if not position.has_position:
             # ✅ 필터 결과 초기화 (감사로그용)
             self.last_buy_filter_result = None
+            self.last_weak_entry = None  # ✅ WO-26
 
             # ✅ 매수 필터 체크 (Surge Filter 등)
             # ⚠️ 중요: Base EMA GAP 전략은 급락 매수 전략이므로 필터 미적용
@@ -1044,6 +1088,26 @@ class IncrementalEMAStrategy:
                     return Action.HOLD
             else:
                 logger.info(f"⏭️ Bullish Candle disabled")
+
+            # ✅ WO-26: 약매수 차단 필터 — 모든 매수 조건 통과 직후 직접 호출 (설계 B-1)
+            if self.weak_entry_filter.is_enabled():
+                weak = self.weak_entry_filter.evaluate(
+                    bar_ts=bar.ts,
+                    last_dead_cross_ts=indicators.get("last_dead_cross_ts"),
+                )
+                if weak.should_block:
+                    self.last_buy_filter_result = weak  # 감사 로그: failed_keys=[WEAK_ENTRY_FILTER]
+                    logger.warning(f"🚫 [WEAK-ENTRY] {weak.details} → 매수 안 함")
+                    return Action.HOLD
+                if weak.metadata and weak.metadata.get("weak_entry"):
+                    self.last_weak_entry = {
+                        "tp": weak.metadata["tp"],
+                        "elapsed_min": weak.metadata["elapsed_min"],
+                        "window_h": weak.metadata["window_h"],
+                    }
+                    logger.warning(f"🐢 [WEAK-ENTRY] {weak.details} → 매수 진행 (익절 기준 축소)")
+                else:
+                    logger.info(f"[WEAK-ENTRY] {weak.details}")
 
             # 모든 조건 통과 시 매수
             logger.info(

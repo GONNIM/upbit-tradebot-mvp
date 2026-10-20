@@ -434,6 +434,7 @@ class UpbitTrader:
                 timestamp=None,  # ✅ 실시간 체결 시각 (now_kst() 자동)
                 bar_time=meta.get("bar_time"),  # ✅ 해당 봉의 시각
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                note=meta.get("audit_note"),  # ✅ WO-26: 약매수 진입·포지션 비고 (없으면 None)
             )
 
             # 운영 로그

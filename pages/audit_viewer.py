@@ -9,6 +9,7 @@ from services.db import fetch_buy_eval, fetch_trades_audit  # 기존 제공 함�
 from services.db import fetch_buy_eval, fetch_trades_audit, get_account
 from services.db import TRADES_AUDIT_COLUMNS, trade_kind, trade_type_display  # ✅ WO-9 (e)
 from services.db import PREORDER_KIND, trade_kind_row, trade_type_display_row  # ✅ WO-25: 주문 전 차단 구분
+from core.weak_entry import weak_entry_display  # ✅ WO-26: 약매수 차단·진입 표시
 from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-NAV-3
 from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
@@ -298,7 +299,8 @@ if section == "buy":
 
         # ✅ 필터 정보 추출 (감사로그 상세 정보)
         def _extract_buy_filter_info(checks):
-            if isinstance(checks, dict) and 'filter_metadata' in checks:
+            # ✅ WO-26: 급등 차단 metadata 일 때만 급등 칸을 채운다 (약매수 metadata 에는 surge_pct 없음)
+            if isinstance(checks, dict) and isinstance(checks.get('filter_metadata'), dict) and 'surge_pct' in checks['filter_metadata']:
                 meta = checks['filter_metadata']
                 surge_pct = meta.get('surge_pct', 0)
                 threshold_pct = meta.get('threshold_pct', 0)
@@ -323,6 +325,10 @@ if section == "buy":
 
         filter_info = df_buy["checks"].apply(_extract_buy_filter_info)
         df_buy = pd.concat([df_buy, filter_info.apply(pd.Series)], axis=1)
+        # ✅ WO-26: 약매수 차단 / 약매수 진입 표시 칸
+        df_buy["weak_entry_display"] = [
+            weak_entry_display(_fk, _ck) for _fk, _ck in zip(df_buy["failed_keys"], df_buy["checks"])
+        ]
 
         # ✅ bar_time이 NULL인 경우에만 계산 (하위 호환성)
         if "bar_time" in df_buy.columns and df_buy["bar_time"].isna().any():
@@ -517,6 +523,7 @@ if section == "buy":
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                     "have_position", "overall_ok",
+                    "weak_entry_display",  # ✅ WO-26: 약매수 차단·진입
                     # ✅ 필터 정보 컬럼 추가
                     "surge_actual", "surge_threshold", "surge_diff", "surge_price", "surge_ema_slow", "filter_blocked",
                     "failed_keys", "checks", "notes", "interval_sec"
@@ -530,6 +537,8 @@ if section == "buy":
                     rename_map["signal_icon"] = "신호"
                 if "via_backfill_display" in df_buy_display.columns:
                     rename_map["via_backfill_display"] = "재평가"
+                if "weak_entry_display" in df_buy_display.columns:
+                    rename_map["weak_entry_display"] = "약매수"  # ✅ WO-26
                 if rename_map:
                     df_buy_display = df_buy_display.rename(columns=rename_map)
 
@@ -863,6 +872,13 @@ elif section == "trades":
 
         df_tr = _term_display_df(df_tr)  # ✅ WO-11: 옛 용어 → 새 용어 (표시만, DB 무변경)
 
+        # ✅ WO-26: note 는 거절·미체결 행이면 '거절 사유', 매수·매도 행이면 '비고'(약매수 진입·포지션) 칸에 보인다
+        if "note" in df_tr.columns:
+            _note_is_reason = df_tr["_kind"].isin(["거절", PREORDER_KIND, "미체결 취소"]).tolist()
+            _notes = df_tr["note"].tolist()
+            df_tr["memo"] = [None if r else n for n, r in zip(_notes, _note_is_reason)]
+            df_tr["note"] = [n if r else None for n, r in zip(_notes, _note_is_reason)]
+
         # ✅ params.base_ema_gap_enabled로 판단 (dashboard 차트와 동일한 조건 사용)
         if is_gap_mode:
             # ✅ Base EMA GAP 전략: 간소화된 체결 테이블
@@ -871,7 +887,7 @@ elif section == "trades":
 
             # ✅ Base EMA GAP 전용 컬럼 순서 (delta 제거, 핵심 정보만)
             column_order = [
-                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "price", "qty",
+                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "memo", "price", "qty",
                 "entry_price", "bars_held", "tp", "sl", "highest"
             ]
             column_order = [col for col in column_order if col in df_tr_display.columns]
@@ -886,6 +902,7 @@ elif section == "trades":
                 "type": "유형",
                 "reason": "사유",
                 "note": "거절 사유",
+                "memo": "비고",  # ✅ WO-26: 약매수 진입·포지션 비고
                 "price": "체결가",
                 "qty": "시도수량",
                 "entry_price": "진입가",
@@ -907,7 +924,7 @@ elif section == "trades":
 
             # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
             column_order = [
-                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "price", "qty", "delta",
+                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "memo", "price", "qty", "delta",
                 "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                 "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                 "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed", "interval_sec"
@@ -915,7 +932,7 @@ elif section == "trades":
             # 존재하는 컬럼만 필터링
             column_order = [col for col in column_order if col in df_tr_display.columns]
             df_tr_display = df_tr_display[column_order].rename(
-                columns={"note": "거절 사유", "qty": "시도수량"}
+                columns={"note": "거절 사유", "memo": "비고", "qty": "시도수량"}  # ✅ WO-26: memo = 약매수 비고
             )
 
         # ✅ WO-9 (e): 거절 행 옅은 붉은 배경 (아이콘 ⛔ + 글자와 함께 — 색만으로 구분하지 않음)

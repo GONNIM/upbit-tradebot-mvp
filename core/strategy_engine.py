@@ -6,6 +6,7 @@ from core.candle_buffer import CandleBuffer, Bar
 from core.indicator_state import IndicatorState
 from core.position_state import PositionState
 from core.strategy_action import Action
+from core.filters.buy_filters import WEAK_ENTRY_FILTER_REASON, weak_entry_note, weak_position_note  # ✅ WO-26
 from core.trader import UpbitTrader
 from services.db import insert_buy_eval, insert_sell_eval, estimate_bars_held_from_audit, get_trading_paused, annotate_buy_eval_blocked
 from typing import Optional, Dict, Any
@@ -212,6 +213,12 @@ def convert_unfilled_limit_buy(
         avg = ((float(executed_qty) * float(executed_avg)) + mqty * mprice) / total if total > 0 else mprice
         engine.position.apply_entry(qty=total, avg_price=avg, entry_bar=engine.bar_count, entry_ts=now,
                                     source="bot_market_convert")
+        # ✅ WO-26: 미체결 시장가 전환 확정 — 원 주문 meta 의 약매수 표식을 전환 주문 uuid 로 옮긴다
+        if conv_meta.get("weak_entry"):
+            from core.weak_entry import record_weak_entry
+            record_weak_entry(engine.position, conv_meta["weak_entry"], result.get("uuid"), conv_meta.get("bar_time"),
+                              user_id=user_id, ticker=ticker)
+        engine._pending_buy_weak = None
         engine._pending_buy_uuid = None
         engine._pending_buy_bar = None
         engine._pending_buy_wait_bars = 3
@@ -318,6 +325,8 @@ class StrategyEngine:
         self._pending_buy_bar: Optional[int] = None
         # ✅ SP6 — 대기 봉 수 (사용자 conditions, 기본 3)
         self._pending_buy_wait_bars: int = 3
+        # ✅ WO-26: 지정가 매수 대기 중 약매수 표식 (weak_entry dict, bar_time) — 체결 확정 때 기록
+        self._pending_buy_weak = None
 
         # ✅ SP-PI-2: OrderReconciler LIMIT BUY 전량 체결 콜백 등록
         # LIVE 모드 한정 — TEST 모드는 reconciler 미가동
@@ -397,6 +406,8 @@ class StrategyEngine:
                         f"old_highest={old_highest} old_since_entry={old_since_entry} "
                         f"→ 모두 None. 다음 봉부터 새 avg 기준 추적 재개."
                     )
+                    # ✅ WO-26: 같은 정책 — 섞인 평균가 포지션에는 약매수 축소 익절을 적용하지 않는다
+                    self.position.clear_weak_entry(reason="hts_buy_add")
                 logger.warning(
                     f"✅ [HTS-DETECT-CALLBACK] position_state.avg_price 동기화 완료 | "
                     f"reason={reason} | old_avg={old_avg} → new_avg={avg_price:.6f} | "
@@ -445,6 +456,16 @@ class StrategyEngine:
             except Exception as e:
                 logger.error(f"[LIMIT-FILL] apply_entry 실패 uuid={uuid}: {e}", exc_info=True)
                 return
+
+            # ✅ WO-26: 지정가 체결 확정 — 약매수면 override + 포지션 meta
+            _pw = getattr(self, "_pending_buy_weak", None)
+            if _pw:
+                try:
+                    from core.weak_entry import record_weak_entry
+                    record_weak_entry(self.position, _pw[0], uuid, _pw[1], user_id=self.user_id, ticker=self.ticker)
+                except Exception as e:
+                    logger.error(f"[WEAK-ENTRY] 지정가 체결 기록 실패 uuid={uuid}: {e}", exc_info=True)
+            self._pending_buy_weak = None
 
             # ✅ pending 해제 — _maybe_release_limit_pending 이 다시 발동하지 않도록
             self._pending_buy_uuid = None
@@ -713,6 +734,13 @@ class StrategyEngine:
                                 entry_ts=_p2_entry_ts,
                                 source="wallet_sync",
                             )
+                            # ✅ WO-26: 약매수 표식 복원 (마지막 봇 BUY uuid 일치 시만, 불일치면 삭제·WARNING)
+                            try:
+                                from core.weak_entry import restore_weak_entry
+                                restore_weak_entry(self.position, source="wallet_sync",
+                                                   user_id=self.user_id, ticker=self.ticker)
+                            except Exception as _we:
+                                logger.error(f"[WEAK-ENTRY] wallet_sync 복원 실패: {_we}")
                             logger.info(
                                 f"✅ [POSITION-SYNC] 자동 복구 성공 (source={source}, api=apply_entry): "
                                 f"qty={actual_balance:.6f}, entry_price={entry_price:.2f}, "
@@ -773,7 +801,7 @@ class StrategyEngine:
         self._maybe_release_limit_pending()
 
         # 2. 지표 증분 갱신 ★ 핵심: 전체 재계산 없음
-        self.indicators.update_incremental(bar.close)
+        self.indicators.update_incremental(bar.close, bar.ts)  # ✅ WO-26: 봉 시각 → 마지막 D/C 시각
 
         # 3. 전략 평가 및 실행 (스레드 락으로 원자적 보장)
         # ✅ Issue #10: audit 로깅과 execution 사이 position 상태 변경 방지
@@ -910,7 +938,7 @@ class StrategyEngine:
                 f"bar_count={self.bar_count}"
             )
             # 증분 업데이트만
-            self.indicators.update_incremental(bar.close)
+            self.indicators.update_incremental(bar.close, bar.ts)  # ✅ WO-26: 봉 시각 → 마지막 D/C 시각
 
         elif changed_count > 0:
             # ✅ WO-17 (P) P1 (2026-10-01): 재시드 없이 증분만.
@@ -922,12 +950,12 @@ class StrategyEngine:
                 f"changed={changed_count} | "
                 f"range: {min(changed_ts)} ~ {max(changed_ts)}"
             )
-            self.indicators.update_incremental(bar.close)
+            self.indicators.update_incremental(bar.close, bar.ts)  # ✅ WO-26: 봉 시각 → 마지막 D/C 시각
 
         else:
             # ✅ 변경 없음 → 증분 업데이트만
             logger.debug(f"[ENGINE] 변경 없음 → 증분 업데이트 | bar_count={self.bar_count}")
-            self.indicators.update_incremental(bar.close)
+            self.indicators.update_incremental(bar.close, bar.ts)  # ✅ WO-26: 봉 시각 → 마지막 D/C 시각
 
         # 3. 전략 평가 및 실행 (스레드 락으로 원자적 보장)
         # ✅ Issue #10: audit 로깅과 execution 사이 position 상태 변경 방지
@@ -1420,6 +1448,12 @@ class StrategyEngine:
             "ema_slow": indicators.get("ema_slow"),
         }
 
+        # ✅ WO-26: 약매수 진입(익절 기준 축소) — orders.meta 에 함께 저장, 체결 확정 시 override·포지션 meta 로 옮긴다
+        _weak = getattr(self.strategy, "last_weak_entry", None)
+        if _weak:
+            meta["weak_entry"] = dict(_weak)
+            meta["audit_note"] = weak_entry_note(_weak["tp"])  # 매수 행 비고 (audit_trades.note)
+
         # ✅ 고정가 매수 분기: LIVE 모드 + buy_conditions.fixed_price_buy_enabled
         _buy_cond = getattr(self.strategy, "buy_conditions", None) or {}
         fixed_price_mode = (
@@ -1463,6 +1497,8 @@ class StrategyEngine:
                 # ✅ SP6 — 대기 봉 수 기록 (pending 해제 시점 판단용)
                 self._pending_buy_wait_bars = int(_buy_cond.get("fixed_price_buy_wait_bars", 3) or 3)
                 self._pending_buy_wait_bars = max(1, min(5, self._pending_buy_wait_bars))
+                # ✅ WO-26: 체결 확정(_on_limit_fill) 때 약매수 표식을 옮기기 위해 보관
+                self._pending_buy_weak = (dict(meta["weak_entry"]), meta.get("bar_time")) if meta.get("weak_entry") else None
                 logger.info(
                     f"🎯 LIMIT BUY 등록(체결 대기) | price={result['price']:.4f} "
                     f"uuid={result.get('uuid')} bar={self.bar_count} "
@@ -1477,6 +1513,11 @@ class StrategyEngine:
                 self.bar_count,
                 bar.ts
             )
+            # ✅ WO-26: 시장가 체결 확정 — 약매수면 override + 포지션 meta
+            if meta.get("weak_entry"):
+                from core.weak_entry import record_weak_entry
+                record_weak_entry(self.position, meta["weak_entry"], result.get("uuid"), meta.get("bar_time"),
+                                  user_id=self.user_id, ticker=self.ticker)
             logger.info(
                 f"✅ BUY 체결 | qty={result['qty']:.6f} price={result['price']:.2f} "
                 f"bar={self.bar_count}"
@@ -1535,6 +1576,9 @@ class StrategyEngine:
             "macd": indicators.get("macd"),
             "signal": indicators.get("signal"),
         }
+        # ✅ WO-26: 약매수 포지션 매도 행 비고
+        if self.position.take_profit_override is not None:
+            meta["audit_note"] = weak_position_note(self.position.take_profit_override)
 
         result = self.trader.sell_market(
             self.position.qty,
@@ -1890,6 +1934,11 @@ class StrategyEngine:
                             if filter_res.should_block:
                                 failed_keys_list = [filter_res.reason]
 
+                        # ✅ WO-26: 약매수 차단은 메모에 사유 문구 ("약매수 차단 (D/C 뒤 n분, 기준 h시간)")
+                        _hold_note = "NO_SIGNAL"
+                        if failed_keys_list == [WEAK_ENTRY_FILTER_REASON]:
+                            _hold_note = self.strategy.last_buy_filter_result.details or WEAK_ENTRY_FILTER_REASON
+
                         # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                         # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
                         bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
@@ -1905,7 +1954,7 @@ class StrategyEngine:
                             overall_ok=False,
                             failed_keys=failed_keys_list,
                             checks=buy_checks,
-                            notes=f"{cross_status} | NO_SIGNAL | bar={self.bar_count}",
+                            notes=f"{cross_status} | {_hold_note} | bar={self.bar_count}",
                             bar_time=bar_ts_kst.isoformat(),
                             is_backfill=is_backfill,  # ✅ WO-1: BACKFILL 경로 시 backfill_* 컬럼만 UPDATE
                         )
@@ -1924,6 +1973,13 @@ class StrategyEngine:
                             if filter_res.metadata:
                                 buy_checks["filter_metadata"] = filter_res.metadata
 
+                        # ✅ WO-26: 약매수 진입(익절 기준 축소) 비고
+                        _buy_note = ""
+                        _weak = getattr(self.strategy, "last_weak_entry", None)
+                        if _weak:
+                            buy_checks["weak_entry"] = dict(_weak)
+                            _buy_note = f" | {weak_entry_note(_weak['tp'])}"
+
                         # ✅ bar.ts는 UTC timezone-aware → KST로 변환
                         # ✅ UTC → KST 변환 (replace가 아닌 astimezone 사용)
                         bar_ts_kst = bar.ts.astimezone(ZoneInfo("Asia/Seoul"))
@@ -1939,7 +1995,7 @@ class StrategyEngine:
                             overall_ok=True,
                             failed_keys=[],
                             checks=buy_checks,
-                            notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}",
+                            notes=f"🟢 BUY | {cross_status} | bar={self.bar_count}{_buy_note}",
                             bar_time=bar_ts_kst.isoformat(),
                             is_backfill=is_backfill,  # ✅ WO-1: BACKFILL 경로 시 backfill_* 컬럼만 UPDATE
                         )
@@ -1958,6 +2014,9 @@ class StrategyEngine:
                     _audit_tp = self.take_profit
                 if not isinstance(_audit_sl, (int, float)):
                     _audit_sl = self.stop_loss
+                # ✅ WO-26: 약매수 포지션이면 실제 필터가 쓰는 축소 익절 기준으로 기록
+                if self.position.take_profit_override is not None:
+                    _audit_tp = self.position.take_profit_override
                 tp_price = entry_price * (1 + _audit_tp) if entry_price else None
                 sl_price = entry_price * (1 - _audit_sl) if entry_price else None
                 bars_held = self.position.get_bars_held(self.bar_count)
