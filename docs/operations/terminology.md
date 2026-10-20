@@ -32,6 +32,10 @@
 | audit_trades `type = BUY_REJECTED` / `SELL_REJECTED` (meta `stage` 없음) | ⛔ 매수 거절 / ⛔ 매도 거절 | WO-9 (2026-09-30). 거래소가 봇 주문을 받지 않은 기록이다 (meta 에 업비트 오류 코드). 유형 필터 "거절", 경고 문구 "거래소가 봇 주문을 받지 않았습니다" 는 그대로다 |
 | audit_trades `type = BUY_CANCELED` | ⏱ 매수 미체결 취소 | WO-24 (2026-10-05). 현재가 매수 주문이 대기 봉 안에 체결되지 않아 봇이 자동 취소한 기록. 체결이 아니므로 손익·매수 집계에 넣지 않는다. 감사 로그 페이지 유형 필터 "미체결 취소", 옅은 노란 배경(거절 ⛔ 의 붉은 배경과 구분) |
 | `buy.fixed_price_unfilled_to_market` / `buy.fixed_price_convert_max_gap_pct` | 미체결 시 시장가 전환 / 전환 허용 가격 차이 (%) | WO-24. 현재가 매수가 대기 봉 안에 체결되지 않으면 남은 수량을 시장가로 산다. 현재가가 주문가보다 허용 % 이상 높으면 전환하지 않고 취소한다. 기본 끔(운영자 결정 대기), 허용 기본 0.3% |
+| `buy.weak_entry_filter_enabled` / `weak_entry_window_hours` / `weak_entry_mode` / `weak_entry_tp_pct` | **약매수** 차단 필터 / D/C 뒤 G/C 허용 시간 / 약매수 처리(매수 안 함 · 익절 기준 축소) / 축소 익절 기준 (%) | WO-26 (2026-10-20). **약매수** = 직전 데드크로스(매도에 쓰는 EMA 쌍) 봉부터 설정 시간(기본 2시간, 0~6) 안에 난 골든크로스로 하는 매수. 처리 기본값 "매수 안 함"(`block`), 축소 익절 기본 0.5% (0.3~1.5). 직전 데드크로스를 알 수 없으면(긴 이력 시드 폴백 등) 일반 매수 |
+| audit_buy_eval `failed_keys = ["WEAK_ENTRY_FILTER"]` | **약매수 차단** (BUY 평가 표 "약매수" 칸·메모 "약매수 차단 (D/C 뒤 n분, 기준 h시간)") | WO-26. 처리 방식 "매수 안 함"일 때 매수하지 않은 기록 |
+| audit_buy_eval `checks.weak_entry` · audit_trades 매수 행 `note` | **약매수 진입** · 익절 x% (BUY 평가 "약매수" 칸·메모, 체결 표 "비고" 칸) | WO-26. 처리 방식 "익절 기준 축소"로 산 매수. 이 포지션은 익절·수익 추적 매도 무장을 x% 에서 한다(고정폭 매우 작음). 앱 추가 매수로 평균가가 바뀌면 일반 기준으로 돌아간다 |
+| audit_trades 매도 행 `note` "약매수 포지션 · 기준 x%" | 약매수 포지션 (체결 표 "비고" 칸) | WO-26. 약매수 진입 포지션의 매도. 매도 사유(TAKE_PROFIT·TRAILING_STOP 등)는 기존과 같다 |
 | 로그 태그 `[FIXED-PRICE]`, `[BUY-LIMIT]`, `[LIMIT-FILL]` | (화면 노출 없음) | 태그 유지 — 운영 문서 grep 과 연동 |
 | dedupe 키 `fixed_buy_*` | (화면 노출 없음) | 키 유지 |
 

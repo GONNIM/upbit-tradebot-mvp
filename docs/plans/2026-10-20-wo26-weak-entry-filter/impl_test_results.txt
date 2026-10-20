@@ -1,0 +1,79 @@
+# WO-26 구현 시험 결과 (2026-10-20, 로컬, .env 격리: env -i + 더미 키 + 텔레그램 빈 값)
+
+## 1. WO-26 시험 18건 — 구 코드(8d75b57 코드 파일) / 새 코드(035a552)
+===== 구 코드 (코드 파일만 8d75b57 기준으로 되돌림) =====
+test_01_block_within_window ... FAIL  BUY != HOLD
+test_02_outside_window_buys ... ERROR AttributeError: 'IncrementalEMAStrategy' object has no attribute 'last_weak_entry'
+test_03_reduce_tp_records_override_and_meta ... ERROR AttributeError: 'IncrementalEMAStrategy' object has no attribute 'last_weak_entry'
+test_03b_buy_eval_note ... FAIL  '약매수 진입 · 익절 0.5%' not found in '🟢 BUY | Golden | bar=100'
+test_04_take_profit_uses_override ... FAIL  False is not true
+test_04b_sell_row_note ... ERROR KeyError: 'audit_note'
+test_05_trailing_arms_at_override ... FAIL  False is not true
+test_06_restore_match_and_mismatch ... ERROR ImportError: cannot import name 'set_position_weak_entry' from 'services.db' (/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/services/db.py)
+test_06b_wallet_sync_restore ... ERROR ImportError: cannot import name 'set_position_weak_entry' from 'services.db' (/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/services/db.py)
+test_07_hts_buy_add_and_close_clear ... ERROR ModuleNotFoundError: No module named 'core.weak_entry'
+test_08_seed_long_history_last_dc_matches_realtime ... ERROR TypeError: IndicatorState.seed_long_history() got an unexpected keyword argument 'timestamps'
+test_09_backfill_preserves_last_dc ... ERROR ImportError: cannot import name '_backup_dead_cross_ts' from 'engine.live_loop' (/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/engine/live_loop.py)
+test_10_fallback_seed_unknown ... ERROR AttributeError: 'IndicatorState' object has no attribute 'last_dead_cross_ts'
+test_11_settings_roundtrip_and_reload ... ERROR ModuleNotFoundError: No module named 'core.weak_entry'
+test_12_measured_gc_list ... ERROR ImportError: cannot import name 'WeakEntryFilter' from 'core.filters.buy_filters' (/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/core/filters/buy_filters.py)
+test_r1_settings_block_rendered_and_saved ... FAIL  '🐢 약매수 차단 필터 (데드크로스 직후 골든크로스 매수 제한)' not found in ['🟢 EMA Golden Cross', '📈 Price > Base EMA', '📈 Bullish Candle', '🚫 급등 차단 필터 (Slow EMA 대비 급등 시 매수 차단
+test_r2_settings_old_file_defaults ... ERROR StopIteration: 
+test_r3_audit_viewer_weak_columns ... FAIL  '약매수' not found in Index(['신호', '재평가', 'timestamp', 'bar_time', 'ticker', 'bar', 'price', 'delta',
+Ran 18 | failures=6 errors=12 | FAILED
+===== 새 코드 복원 (035a552) =====
+ M docs/operations/terminology.md
+test_01_block_within_window ... ok
+test_02_outside_window_buys ... ok
+test_03_reduce_tp_records_override_and_meta ... ok
+test_03b_buy_eval_note ... ok
+test_04_take_profit_uses_override ... ok
+test_04b_sell_row_note ... ok
+test_05_trailing_arms_at_override ... ok
+test_06_restore_match_and_mismatch ... ok
+test_06b_wallet_sync_restore ... ok
+test_07_hts_buy_add_and_close_clear ... ok
+test_08_seed_long_history_last_dc_matches_realtime ... ok
+test_09_backfill_preserves_last_dc ... ok
+test_10_fallback_seed_unknown ... ok
+test_11_settings_roundtrip_and_reload ... ok
+test_12_measured_gc_list ... ok
+test_r1_settings_block_rendered_and_saved ... ok
+test_r2_settings_old_file_defaults ... ok
+test_r3_audit_viewer_weak_columns ... ok
+Ran 18 | failures=0 errors=0 | OK
+
+## 2. 회귀 관문 (scripts/regression_gate.sh, 035a552)
+▶ UI 페이지 top-level import 게이트 (pages/*.py)...
+  ✅ 모든 pages/*.py top-level import OK
+▶ typing 심볼 정적 검증 (pages/*.py + core, engine, services)...
+  ✅ 모든 pages/*.py typing 심볼 임포트 OK
+✅ 회귀 테스트 339/339 통과 — 배포 진행 가능
+
+## 3. 단독 되돌리기 (git revert --no-commit 035a552 → 관문 → git revert --abort)
+revert 035a552 적용: 충돌 없음
+M  config.py
+M  core/filters/buy_filters.py
+M  core/filters/sell_filters.py
+M  core/indicator_state.py
+M  core/position_state.py
+M  core/strategy_engine.py
+M  core/strategy_incremental.py
+M  core/trader.py
+D  core/weak_entry.py
+ M docs/operations/terminology.md
+M  engine/live_loop.py
+M  engine/order_reconciler.py
+M  pages/audit_viewer.py
+M  pages/dashboard.py
+M  pages/set_buy_sell_conditions.py
+M  services/db.py
+D  tests/regressions/fixtures/wo26_m1_1000.csv
+M  tests/regressions/test_r_2026_09_02_wo2_option_c_indicator_correction.py
+D  tests/regressions/test_r_2026_10_20_wo26_weak_entry_filter.py
+495:    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.06.1440")
+gate_exit=0
+✅ 회귀 테스트 321/321 통과 — 배포 진행 가능
+revert --abort → HEAD 035a552
+ M docs/operations/terminology.md
+terminology.md 미커밋 변경 보존

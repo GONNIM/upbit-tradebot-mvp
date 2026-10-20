@@ -52,3 +52,46 @@ ssh root@orionhunter7.cafe24.com "journalctl -u tradebot --since '2026-10-17 08:
 cp $S/wo26_measure_out.txt $D/
 cd $D && zip -X wo26-m1-20261020.zip report.md wo26_events.csv wo26_gc_outcomes.csv wo26_measure_out.txt wo26m1_fetch.py wo26m1_export.sh wo26m1_measure.py commands.txt
 ls -l $D/wo26-m1-20261020.zip ; unzip -l $D/wo26-m1-20261020.zip
+
+########################################################################
+# WO-26 2부 — 문서 커밋 + 구현 (2026-10-20 16:4x ~ 17:3x KST, 서버 무변경)
+# 여러 줄 텍스트(커밋 메시지·스크립트·시험)는 전부 파일 도구로 작성. heredoc 미사용.
+# ENV = env -i PATH="$PATH" HOME="$HOME" UPBIT_ACCESS=dummy UPBIT_SECRET=dummy TELEGRAM_BOT_TOKEN= TELEGRAM_CHAT_ID= (TELEGRAM_CHAT_ID_* 빈 값)
+########################################################################
+
+## 1부. 문서 커밋
+git check-ignore -v $D/<각 파일>       # commands.txt(*.txt)·wo26m1_export.sh(*.sh) 무시 규칙, zip 은 docs/plans/*/*.zip
+pdffonts $D/prd.pdf                    # NotoSansCJKkr Bold/Regular emb=yes
+git add $D/report.md $D/wo26_events.csv $D/wo26_gc_outcomes.csv $D/wo26m1_fetch.py $D/wo26m1_measure.py $D/prd.md docs/plans/backlog.md
+git add -f $D/prd.pdf $D/commands.txt $D/wo26m1_export.sh ; git status --short | grep -v '^??'
+git commit -q -F $S/msg_docs.txt ; git push        # 8d75b57 (97c5c1c..8d75b57)
+
+## 2부. 코드 읽기 (발췌)
+sed -n 1040,1090p · 775,880p core/strategy_incremental.py ; sed -n 1840,1990p · 150,240p · 405,450p · 1440,1560p · 600,690p core/strategy_engine.py
+sed -n 330,440p · 460,560p engine/order_reconciler.py ; sed -n 2760,2960p · 1880,2050p services/db.py ; sed -n 57,140p · 318,345p core/position_state.py
+sed -n 517,585p · 800,880p · 925,1000p · 1380,1545p engine/live_loop.py ; grep/sed pages/audit_viewer.py · pages/set_buy_sell_conditions.py
+
+## 3. 구현 (파일 도구 Edit/Write, sed 는 한 줄 치환만)
+sed -i '' 's|self\.indicators\.update_incremental(bar\.close)$|…(bar.close, bar.ts)  # ✅ WO-26 …|' core/strategy_engine.py   # 첫 시도는 구분자 / 와 D/C 충돌로 실패 → | 구분자로 재실행
+sed -i '' 's|"note": "거절 사유",|…|' pages/audit_viewer.py   # 두 번째 자리까지 바뀌어 SyntaxError → 파일 도구로 정정, 이후 칸 분리 방식으로 변경
+python3 -m py_compile <변경 파일 13개> pages/set_buy_sell_conditions.py pages/audit_viewer.py
+
+## 4. 시험
+python3 -I $S/wo26_fixture.py $S/wo26_m1.csv tests/regressions/fixtures/wo26_m1_1000.csv     # 1,000봉 10-11 17:31 ~ 10-12 16:36
+$ENV python3 -m unittest tests.regressions.test_r_2026_10_20_wo26_weak_entry_filter -v      # 1차 13/14 (09: 하락만으로는 새 D/C 없음 → 급등 뒤 급락으로 시험 수정) → 15/15 → 렌더 3건 추가 18/18
+bash scripts/regression_gate.sh        # 1차 FAILED 2 (WO-2 assert 인자, WO-17 문구 검사) → 시험 1줄·로그 문구 같은 줄 유지 → 339/339
+
+## 5. 구 코드 대조 · 버전 · 커밋 · 단독 되돌리기
+bash $S/wo26_oldcode.sh 8d75b57        # 코드 파일 13개를 8d75b57 로 되돌리고 core/weak_entry.py 치움 → 시험 → 복원 → 시험 (원문 impl_test_results.txt 1절)
+#   (스크래치패드 러너 결함 2건: logging.disable 로 assertLogs 깨짐, 빈 메시지 예외에서 IndexError, f-string 따옴표 → 고친 뒤 최종 결과)
+date '+%Y.%m.%d.%H%M' ; V=… ; sed -i '' "495s/v1\.2026\.10\.06\.1440/v1.$V/" pages/dashboard.py     # v1.2026.10.20.1711
+git add <코드 15 + 시험 2 + 고정 자료 1> ; git commit -q -F $S/msg_code.txt                       # 02f3776
+(시험 r1 저장 뒤 switch_page traceback → navigate_to 패치) git add tests/…wo26… ; git commit -q --amend --no-edit   # 035a552 (푸시 전)
+bash scripts/regression_gate.sh        # 339/339
+git revert --no-commit 035a552 ; bash scripts/regression_gate.sh ; git revert --abort      # 충돌 없음, 321/321, HEAD 035a552 복귀, terminology.md 미커밋 변경 보존 확인(cp 백업 → diff -q)
+
+## 6. 보고
+git show 035a552 > $S/wo26_impl_code.diff ; git show --stat 035a552
+(파일 도구) $D/plan.md, $D/impl-report.md, $D/impl_test_results.txt(시험·관문·되돌리기 원문 모음), docs/operations/terminology.md
+git add $D/plan.md $D/impl-report.md docs/operations/terminology.md ; git add -f $D/impl_test_results.txt $D/commands.txt ; git commit -q -F $S/msg_docs2.txt ; git status ; git push
+zip: $S/wo26impl_stage/ 에 report.md(= impl-report.md), code.diff, diffstat.txt, impl_test_results.txt, commands.txt, git_log.txt → $D/wo26-impl-20261020.zip
