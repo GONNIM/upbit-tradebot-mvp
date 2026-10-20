@@ -139,7 +139,7 @@ WO-8은 강제 매수 경로만 변경. 정상 크로스 매수(EMA_GC)·매도(
 
 ### 세션 개시 정기 점검 조회 명령
 
-> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10~12번·10-06 13~14번 편입)**: 사후 확인 1~14, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령), **BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조**(상설, 2026-10-05 추가 — 점검 창 안 `audit_buy_eval.overall_ok=1`·`audit_sell_eval.triggered=1` 행마다 봉 시작 ~ 뒤 2봉 안 orders 를 "체결·취소·미요청" 으로 분류해 수를 표로 적는다. 대조 스크립트: `docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy/wo22d_match.py`).
+> **세션 개시 정기 점검 목록 (2026-10-04 추가, 10-05 10~12번·10-06 13~14번·10-20 15번 편입)**: 사후 확인 1~15, 1분봉 거래 없는 봉 비율과 매매 건수(`[CONFIRMED-NO-TRADE]`·`Bar#`·`[CLOCK-CLOSE] 봉 확정 감지` 집계, `audit_trades`), 비밀 파일 권한(`.env`·`.streamlit/secrets.toml` 600, 백업 파일 없음 — `docs/operations/server-optimization.md` "비밀 파일 권한 점검 2026-10-04" 명령), **BUY/SELL 평가 통과 행 대 실제 체결 1:1 대조**(상설, 2026-10-05 추가 — 점검 창 안 `audit_buy_eval.overall_ok=1`·`audit_sell_eval.triggered=1` 행마다 봉 시작 ~ 뒤 2봉 안 orders 를 "체결·취소·미요청" 으로 분류해 수를 표로 적는다. 대조 스크립트: `docs/plans/2026-10-05-wo22-wallet-sync-entry/deploy/wo22d_match.py`).
 >
 > **이전 미체결 취소 확인 (WO-24 배포 전 구간)**: WO-24 배포 전의 현재가 매수 미체결 취소는 audit_trades 에 기록이 없다. `orders.state='CANCELED'` 이고 `executed_volume=0` 인 BUY 행(봇 주문)으로 확인한다 (예: 2026-10-04 14:16 orders 559 — `docs/plans/2026-10-05-urgent-buy-not-executed/report.md`). WO-24 배포 뒤부터는 감사 로그 페이지 "⏱ 매수 미체결 취소" 행으로 보인다.
 
@@ -391,6 +391,22 @@ ssh root@orionhunter7.cafe24.com "
 ssh root@orionhunter7.cafe24.com "
   journalctl -u tradebot --since '2026-10-06 14:45:05' --no-pager | sed -E 's/^.*\]: //' | grep -E 'AUDIT-REJECT|BUY-LIMIT\] 활성|❌ BUY 실패|EMA Buy Signal' | head -8
   sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, bar_time, reason, json_extract(meta,'\$.stage'), json_extract(meta,'\$.error_name'), note FROM audit_trades WHERE type='BUY_REJECTED' AND timestamp >= '2026-10-06T14:45:05' ORDER BY id;\"
+"
+```
+
+### 사후 확증 15번 (2026-10-20 WO-26 배포 시 편입)
+
+기준 시각은 WO-26 재시작 `2026-10-20 17:40:51` 이다. 로그 출처는 `journalctl -u tradebot` 이다. 배포 시점에는 약매수 차단 필터가 꺼져 있었다(조건 파일에 `weak_entry_*` 키 없음 → 기동 `[CONFIG] 적용값` 에 `weak_entry_filter_enabled=False*`). 투자자가 설정 페이지에서 켠 뒤부터 본다. 기한은 없다.
+
+| 번호 | 항목 | 확인 내용 |
+|---|---|---|
+| 15 | WO-26 약매수 차단 필터 | 필터가 켜진 뒤(settings_history 의 `set_buy_sell_conditions` 행에 `weak_entry_filter_enabled=true`, 다음 `[HOT-RELOAD]`·`[CONFIG]` 로 확인) ① 첫 **약매수 차단** 행: journal `🚫 [WEAK-ENTRY] 약매수 차단 (D/C 뒤 n분, 기준 h시간) → 매수 안 함` 1줄, `audit_buy_eval.failed_keys=["WEAK_ENTRY_FILTER"]`·메모 같은 문구, 감사 로그 BUY 평가 "약매수" 칸. n 은 그 봉 시각 − 직전 D/C 봉 시각(기동 `[WARMUP] … 직전 D/C=` 또는 그 뒤 D/C 봉)과 같다. ② 처리 방식이 "익절 기준 축소"면 첫 **약매수 진입** 행: journal `🐢 [WEAK-ENTRY] … → 매수 진행 (익절 기준 축소)`, 체결 확정 뒤 `🐢 [WEAK-ENTRY] recorded | … order_uuid=<그 주문 uuid>`, 체결 표 매수 행 "비고" 칸 `약매수 진입 · 익절 x%`, `account_positions.meta.weak_entry`·`orders.meta.weak_entry`. ③ 그 포지션의 매도가 축소 기준에서 났는지: TAKE_PROFIT 이면 `Take Profit triggered | pnl=… tp=x%`, 수익 추적이면 `AUTO-SWITCH: Take Profit 도달 (x%대)` 무장 뒤 TRAILING_STOP, 매도 행 "비고" 칸 `약매수 포지션 · 기준 x%`, 청산 뒤 `[WEAK-ENTRY] cleared`. 보유 중 재시작이 있었으면 `[WEAK-ENTRY] restored | source=boot_seed` (불일치면 `표식이 마지막 봇 BUY 와 다름` WARNING). ④ **정기 점검 집계**: 점검 창 안 G/C 를 직전 D/C 경과 시간 구간(≤0.5h·0.5~1h·1~2h·2~3h·3~6h·>6h)별로 나눠 차단·진입·일반 매수 건수와 결과(진입·일반은 매도 사유·수익률·보유 시간)를 표로 적는다. 측정 기준선은 `docs/plans/2026-10-20-wo26-weak-entry-filter/report.md` A-5 (2시간 안 12건, 봇 실매수 평균 −0.64%), 계산은 같은 폴더 `wo26m1_measure.py` |
+
+```bash
+ssh root@orionhunter7.cafe24.com "
+  journalctl -u tradebot --since '2026-10-20 17:40:51' --no-pager | sed -E 's/^.*\]: //' | grep -E 'WEAK-ENTRY|CONFIG\] 적용값|HOT-RELOAD' | grep -v '기동 정합 검사' | head -12
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, bar_time, failed_keys, notes FROM audit_buy_eval WHERE ticker='KRW-JTO' AND (failed_keys LIKE '%WEAK_ENTRY_FILTER%' OR notes LIKE '%약매수%') AND timestamp >= '2026-10-20T17:40:51' ORDER BY id;\"
+  sqlite3 'file:/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db?mode=ro' \"SELECT id, timestamp, type, reason, price, note FROM audit_trades WHERE note LIKE '약매수%' AND timestamp >= '2026-10-20T17:40:51' ORDER BY id;\"
 "
 ```
 

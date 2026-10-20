@@ -1,0 +1,13 @@
+ create mode 100644 tests/regressions/fixtures/wo26_m1_1000.csv
+ create mode 100644 tests/regressions/test_r_2026_10_20_wo26_weak_entry_filter.py
+HEAD=156b351
+035a552 포함
+495:    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.20.1711")
+restart_cmd=2026-10-20 17:40:51
+● tradebot.service - Upbit Tradebot MVP v1
+     Loaded: loaded (/etc/systemd/system/tradebot.service; enabled; vendor preset: enabled)
+    Drop-In: /etc/systemd/system/tradebot.service.d
+             └─override.conf, wo12-boot.conf
+     Active: active (running) since Tue 2026-10-20 17:40:51 KST; 3s ago
+NRestarts=0
+ExecMainStartTimestamp=Tue 2026-10-20 17:40:51 KST

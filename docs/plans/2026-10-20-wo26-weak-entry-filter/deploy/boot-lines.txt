@@ -1,0 +1,14 @@
+2026-10-20 17:40:59 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=7.5s capital≈2,880,088
+2026-10-20 17:41:00 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-20 17:41:00 INFO engine.live_loop | [HTS-FLAG] 기동 정합 검사 완료 | user_id=mcmax33 cleared=0
+2026-10-20 17:41:00 INFO engine.live_loop | [WEAK-ENTRY] 기동 정합 검사 완료 | user_id=mcmax33 cleared=0
+2026-10-20 17:41:00 INFO engine.live_loop | [CONFIG] 적용값 (*=기본값) | buy: above_base_ema=False bullish_candle=False ema_gc=True fixed_price_buy_enabled=True fixed_price_buy_wait_bars=5 fixed_price_convert_max_gap_pct=0.3 fixed_price_unfilled_to_market=True surge_filter_enabled=True surge_threshold_pct=0.020000000000000004 weak_entry_filter_enabled=False* weak_entry_mode=block* weak_entry_tp_pct=0.005* weak_entry_window_hours=2.0* | sell: ema_dc=False stale_hours=3.0 stale_position_check=True stale_threshold_pct=0.005000000000000002 stop_loss=True stop_loss_pct=3.0 take_profit=False take_profit_pct=2.0 trailing_stop=True trailing_stop_threshold_pct=30.0 use_fixed_trailing=True
+2026-10-20 17:41:00 INFO engine.live_loop | [WARMUP] Required bars: 200
+2026-10-20 17:41:00 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute3 interval=180sec
+2026-10-20 17:41:00 INFO engine.live_loop | [WARMUP] REST 초기 데이터 요청 (attempt 1/5) | count=801 (마지막 봉 제거 예정)...
+2026-10-20 17:41:01 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 성공 (attempt 1) | bars=801
+2026-10-20 17:41:01 INFO engine.live_loop | ✅ [WARMUP] REST 데이터 로드 완료 | bars=801
+2026-10-20 17:41:01 INFO engine.live_loop | [WARMUP] 마지막 봉 확정 (유지) | ts=2026-10-20 17:36:00 KST | 봉 수=801
+2026-10-20 17:41:01 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=611.9870 ema_slow=608.4354 ema_base=608.4354 | 마지막 봉=2026-10-20 17:36:00 KST | 직전 D/C=2026-10-20 05:48:00 KST
+2026-10-20 17:41:01 INFO engine.live_loop | ✅ Warmup 완료 | bars=200
+2026-10-20 17:41:01 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=182 inserted=0 updated_placeholder=18

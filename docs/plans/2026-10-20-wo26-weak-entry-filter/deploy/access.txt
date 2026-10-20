@@ -1,0 +1,19 @@
+조회 2026-10-20 18:19:45
+216|216
+215|2026-10-20T17:28:07.990660+09:00|strategy_init
+216|2026-10-20T17:41:00.251343+09:00|strategy_init
+sha256=a63fc692a570113b2731063e986acf62d877326c91a97e7296578f1db27cb5af mtime=2026-10-20 17:25:21
+HEAD=156b351 start=Tue 2026-10-20 17:40:51 KST NRestarts=0
+== 접속 구간 (18:10:51 ~)
+2026-10-20 18:15:58 INFO __main__ | [AUTO-RESUME] skip (boot-resume 로 이미 실행 중): mcmax33 | boot_resume_at=2026-10-20T17:40:59.536367+09:00 mode=LIVE
+2026-10-20 18:17:18 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-20 18:17:25 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+2026-10-20 18:18:41 INFO __main__ | [AuditViewer] Strategy detection: url=None, file=EMA, session=EMA, final=EMA
+AuditViewer 접속 3  run_live_loop start 0  HOT-RELOAD 0  PARAMS-RELOAD 0  WEAK-ENTRY 0
+   ' ERROR ': 0
+   'Traceback': 0
+   'CRITICAL': 0
+   '[POS-DESYNC] class=': 0
+   'database is locked': 0
+   'StreamlitAPIException': 0
+Bar# 3  EMA Buy Signal 0

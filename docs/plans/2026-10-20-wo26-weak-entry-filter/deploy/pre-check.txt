@@ -1,0 +1,39 @@
+origin/main=156b351 local=156b351
+server_HEAD=33a5d9e
+?? check_all_balances.py
+?? check_balance.py
+?? check_pepe.py
+?? mcmax33.sqlite3
+?? sync_balances.py
+NRestarts=0
+ExecMainStartTimestamp=Tue 2026-10-06 14:45:06 KST
+495:    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.06.1440")
+조회 시각 2026-10-20T17:40:27+09:00
+== KRW-JTO 포지션
+   account_positions (virtual_coin, locked, entry_price, meta, updated_at): [(0.0, 0.0, 0.0, '{}', '2026-10-20T17:40:18.580789+09:00')]
+   Upbit /v1/accounts http 200 JTO: [] (행 없음 = 0)
+   Upbit /v1/accounts KRW (매수 가능 = balance): [{'currency': 'KRW', 'balance': '1990143.95963284', 'locked': '0'}]
+== 조건 파일
+   mcmax33_EMA_buy_sell_conditions.json sha256=a63fc692a570113b2731063e986acf62d877326c91a97e7296578f1db27cb5af mtime=2026-10-20T17:25:21+09:00 size=686
+   weak_entry 키: 없음
+   buy: {'ema_gc': True, 'above_base_ema': False, 'bullish_candle': False, 'surge_filter_enabled': True, 'fixed_price_buy_enabled': True, 'surge_threshold_pct': 0.020000000000000004, 'fixed_price_buy_wait_bars': 5, 'fixed_price_unfilled_to_market': True, 'fixed_price_convert_max_gap_pct': 0.3}
+== settings_history
+   행 수 / 마지막 id: (215, 215)
+   마지막 행 (id, saved_at, applied_at, source, interval, fast_buy, slow_buy, fast_sell, slow_sell, order_ratio): (215, '2026-10-20T17:28:07.990660+09:00', '2026-10-20T17:28:07.992993+09:00', 'strategy_init', 'minute3', 60, 200, 60, 200, 0.1)
+   params JSON: interval=minute3 fast_buy=60 slow_buy=200 fast_sell=60 slow_sell=200 order_ratio=0.1
+== 진행 중 주문 (orders REQUESTED/PARTIALLY_FILLED)
+   []
+== 마지막 orders / audit_trades
+   (614, '2026-10-20T11:00:12.549929+09:00', 'KRW-JTO', 'SELL', 'FILLED')
+   [(1332, '2026-10-20T11:00:14.958040+09:00', 'KRW-JTO', 'SELL', 'STOP_LOSS'), (1331, '2026-10-20T10:48:14.378075+09:00', 'KRW-JTO', 'BUY', 'EMA_GC')]
+210|2026-10-20T02:46:05.970327+09:00|2026-10-20T02:46:15.680196+09:00|set_buy_sell_conditions|minute3|20|200|0.01|0.005
+211|2026-10-20T02:46:15.675935+09:00|2026-10-20T02:46:15.680196+09:00|strategy_init|minute3|20|200|0.01|0.005
+212|2026-10-20T17:21:09.699727+09:00|2026-10-20T17:28:07.992993+09:00|set_buy_sell_conditions|minute3|20|200|0.01|0.01
+213|2026-10-20T17:25:21.307440+09:00|2026-10-20T17:28:07.992993+09:00|set_buy_sell_conditions|minute3|20|200|0.02|0.03
+214|2026-10-20T17:27:41.422022+09:00|2026-10-20T17:28:07.992993+09:00|set_config|minute3|60|200|0.02|0.03
+215|2026-10-20T17:28:07.990660+09:00|2026-10-20T17:28:07.992993+09:00|strategy_init|minute3|60|200|0.02|0.03
+2026-10-20 17:28:07 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-20 17:28:07 INFO services.settings_history | [settings_history] recorded id=215 user_id=mcmax33 source_page=strategy_init strategy_type=EMA params=Y conditions=Y app_version=v1.2026.10.06.1440
+2026-10-20 17:28:08 INFO services.settings_history | [settings_history] strategy_init id=215 applied_at=2026-10-20T17:28:07 + 이전 3 row 일괄 applied_at 채움
+2026-10-20 17:28:08 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute3 interval=180sec
+2026-10-20 17:28:09 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=612.4469 ema_slow=608.4232 ema_base=608.4232 | 마지막 봉=2026-10-20 17:24:00 KST

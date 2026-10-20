@@ -1,0 +1,49 @@
+== 창: 2026-10-20 17:40:50 ~ 2026-10-20 18:10:51 | HEAD=156b351 active=active start=Tue 2026-10-20 17:40:51 KST NRestarts=0 버전=v1.2026.10.20.1711
+== (a) 기동
+2026-10-20 17:40:59 INFO engine.boot_resume | [BOOT-RESUME] success user=mcmax33 mode=LIVE elapsed=7.5s capital≈2,880,088
+2026-10-20 17:41:00 INFO engine.live_loop | [BOOT] run_live_loop start | mode=LIVE | strategy=EMA
+2026-10-20 17:41:00 INFO engine.live_loop | [WEAK-ENTRY] 기동 정합 검사 완료 | user_id=mcmax33 cleared=0
+2026-10-20 17:41:00 INFO engine.live_loop | [CONFIG] 적용값 (*=기본값) | buy: above_base_ema=False bullish_candle=False ema_gc=True fixed_price_buy_enabled=True fixed_price_buy_wait_bars=5 fixed_price_convert_max_gap_pct=0.3 fixed_price_unfilled_to_marke
+2026-10-20 17:41:00 INFO core.candle_clock | [CLOCK] Initialized | timeframe=minute3 interval=180sec
+2026-10-20 17:41:01 INFO engine.live_loop | [WARMUP] 시드 방식=long_history bars=800 ema_fast=611.9870 ema_slow=608.4354 ema_base=608.4354 | 마지막 봉=2026-10-20 17:36:00 KST | 직전 D/C=2026-10-20 05:48:00 KST
+2026-10-20 17:41:01 INFO engine.live_loop | [WARMUP] 감사 행 보존 | kept=182 inserted=0 updated_placeholder=18
+   BOOT-RESUME success 1  run_live_loop start 1  long_history bars=800 1  sma200 0  긴 이력 시드 실패 0  직전 D/C 알 수 없음 0  감사 행 보존 1  [CONFIG] 1  WEAK 정합 1
+== (c) settings_history · 조건 파일
+settings_history|216|216
+id>=215|215|2026-10-20T17:28:07.990660+09:00|strategy_init
+id>=215|216|2026-10-20T17:41:00.251343+09:00|strategy_init
+   조건 파일 sha256=a63fc692a570113b2731063e986acf62d877326c91a97e7296578f1db27cb5af mtime=2026-10-20 17:25:21
+== (d) 약매수 판정 로그 — 검색 문자열 코드 존재 확인 후 건수
+1100:                    logger.warning(f"🚫 [WEAK-ENTRY] {weak.details} → 매수 안 함")
+1108:                    logger.warning(f"🐢 [WEAK-ENTRY] {weak.details} → 매수 진행 (익절 기준 축소)")
+1110:                    logger.info(f"[WEAK-ENTRY] {weak.details}")
+97:        f"🐢 [WEAK-ENTRY] recorded | ticker={tk} tp={rec['tp']:.4f} elapsed_min={rec['elapsed_min']} "
+125:            f"🐢 [WEAK-ENTRY] restored | source={source} ticker={tk} tp={float(w['tp']):.4f} order_uuid={meta_uuid
+129:        f"⚠️ [WEAK-ENTRY] 표식이 마지막 봇 BUY 와 다름 → 삭제 (일반 익절 기준) | source={sou
+329:        둘 중 하나라도 지웠으면 [WEAK-ENTRY] cleared 1줄. (청산 · 앱 추가 매�
+345:                f"[WEAK-ENTRY] cleared | reason={reason} | ticker={self.ticker} "
+   [WEAK-ENTRY] 전체 1  기동 정합 검사 1  판정(약매수 차단) 0  판정(익절 기준 축소) 0  판정(일반) 0  recorded 0  restored 0  cleared 0  불일치 0
+2026-10-20 17:41:00 INFO engine.live_loop | [WEAK-ENTRY] 기동 정합 검사 완료 | user_id=mcmax33 cleared=0
+== (d) 매수 판정 1:1
+   EMA Buy Signal 0  action=BUY 0  action=SELL 0  [OR] final 0  AUDIT-REJECT 0  BUY_CANCELED 0  SURGE 0
+buy_eval 분포(창)|["NO_SIGNAL"]|10
+buy_eval 분포(창)|["WARMUP_IN_PROGRESS"]|18
+== (e) 결함 태그
+   ' ERROR ': 0
+   'Traceback': 0
+   '[POS-DESYNC] class=': 0
+   'Upbit에 없는 timestamp': 0
+   '불일치 발견': 0
+   '과거 봉 검증 실패': 0
+   'database is locked': 0
+   '[LOCKED-QTY]': 0
+   'CRITICAL': 0
+   '[POLLUTED]': 0
+   '지표 상태 복원 실패': 0
+   VERIFY WARNING 줄: 0  외부 스캐너(따로): Missing file 0  MediaFileStorageError 0
+== (e) Bar# / 조정 / BACKFILL
+   봉 확정 고유 10  Bar# 10  거래 없음 고유 0  처음·끝: 2026-10-20 17:42:11 Bar#201 2026-10-20 18:09:10 Bar#210 
+   조정 400 수신:      10 400 
+   BACKFILL '누락 봉 평가 시작' 0  '지표 상태 백업' 0  '지표 상태 복원 완료' 0  '미확정 봉 제외' 0
+== 기동 포지션·알림
+   POSITION-SYNC 0  boot_seed 0  [NOTIFY] sent 1  AUTO-RESUME 0
