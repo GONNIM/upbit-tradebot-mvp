@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>대시보드 개편·신규 전략 도입 승인 요청서</title>
+<style>
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Regular.ttf");font-weight:400}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Bold.ttf");font-weight:700}
+@page{size:A4;margin:16mm 15mm 16mm 15mm}
+*{box-sizing:border-box}
+body{font-family:"NG",sans-serif;font-size:10.5pt;line-height:1.6;color:#1a1a1a;margin:0}
+h1{font-size:17pt;margin:0 0 4px}
+.meta{color:#555;font-size:9.5pt;margin-bottom:14px;border-bottom:2px solid #1a1a1a;padding-bottom:8px}
+h2{font-size:12.5pt;margin:18px 0 6px;padding-left:8px;border-left:4px solid #2563eb}
+p{margin:4px 0}
+ul,ol{margin:4px 0;padding-left:20px}
+li{margin:2px 0}
+table{border-collapse:collapse;width:100%;margin:6px 0;font-size:9.8pt}
+th,td{border:1px solid #bbb;padding:5px 7px;vertical-align:top;text-align:left}
+th{background:#eef2f7;font-weight:700}
+.box{background:#f4f6f8;border-radius:6px;padding:9px 12px;margin:6px 0}
+.warn{background:#fff7e6;border:1px solid #f0c36d;border-radius:6px;padding:9px 12px;margin:6px 0}
+.check td:first-child{width:34px;text-align:center;font-size:13pt}
+.sign td{height:34px}
+.sign th{width:22%}
+.avoid{break-inside:avoid}
+.small{font-size:9pt;color:#555}
+</style>
+</head>
+<body>
+
+<h1>대시보드 개편 및 신규 매매 전략 도입 — 승인 요청서</h1>
+<div class="meta">작성일 2026년 10월 21일 · 받는 분: 투자자님 · 보내는 사람: 운영자</div>
+
+<h2>1. 요청 요지</h2>
+<div class="box">
+<p>① 휴대폰에서 가볍게 열리는 <b>신버전 대시보드</b>를 추가합니다. 기존 대시보드는 그대로 남습니다.</p>
+<p>② 신버전 안에 과거 데이터로 전략을 시험하는 <b>백테스터</b> 메뉴를 넣고, 시험한 설정을 저장할 수 있게 합니다.</p>
+<p>③ 백테스터와 똑같은 규칙으로 실제 자동매매를 하는 <b>「눌림목 분할매수」 전략</b>을 새로 추가합니다. 이 전략은 투자자님이 직접 전환을 확인하셔야만 적용됩니다.</p>
+<p>아래 내용을 확인하시고 마지막 장의 승인 항목에 표시해 주십시오.</p>
+</div>
+
+<h2>2. 무엇이 바뀌나</h2>
+<table>
+<tr><th style="width:22%">항목</th><th>내용</th></tr>
+<tr><td>입장 화면</td><td>로그인 후 「기존 대시보드 입장」과 「신버전 대시보드 입장」 중 하나를 고릅니다.</td></tr>
+<tr><td>신버전 대시보드</td><td>자산, 보유 현황, 최근 거래, 매매 신호, 가격 차트, 기록을 한 화면에서 봅니다. 필요한 숫자만 자동으로 새로 고쳐 기존보다 빠르게 열립니다.</td></tr>
+<tr><td>백테스터</td><td>과거 데이터(업비트 또는 바이낸스)로 전략을 시험합니다. 결과 요약, 주간·월간 성과, 여러 설정 한꺼번에 비교(파라미터 스윕), CSV 내려받기, 차트를 제공합니다.</td></tr>
+<tr><td>설정 저장</td><td>시험한 설정을 저장할 수 있습니다. 저장할 때 현재 상태를 보여 드리고 「저장만 하기」와 「이 설정으로 동작」 중에서 고르시게 합니다. 실제 매매에 적용하는 것은 <b>업비트 데이터로 시험한 설정</b>만 가능합니다.</td></tr>
+<tr><td>새 전략</td><td>「눌림목 분할매수」 전략. 규칙은 3절에 있습니다.</td></tr>
+</table>
+
+<h2>3. 새 전략(눌림목 분할매수) 규칙</h2>
+<table>
+<tr><th style="width:22%">구분</th><th>규칙</th></tr>
+<tr><td>감시 조건</td><td>60선이 200선 위에 있고(골든크로스 상태), 200선이 설정한 기울기 이상으로 올라가는 동안에만 매수를 봅니다.</td></tr>
+<tr><td>1차 매수</td><td>설정에 따라 골든크로스가 막 일어났을 때 바로 1회 매수합니다. 이 설정을 끄면 1차도 눌림목에서 삽니다.</td></tr>
+<tr><td>눌림목 매수</td><td>가격이 기준선(기본 60선) 아래로 한 번 내려갔다가 다시 기준선 위에서 봉이 끝나면 1회 매수합니다. 설정한 최대 횟수까지 반복합니다.</td></tr>
+<tr><td>1회 매수 금액</td><td>운용자산 ÷ 분할매수 최대 횟수. 예: 운용자산 300만 원, 최대 5회이면 1회 60만 원입니다.</td></tr>
+<tr><td>매도</td><td>평균 매수가 기준으로 익절(TP %)이나 손절(SL %)에 닿으면 전량 매도합니다. 설정하면 데드크로스(60선이 200선 아래로) 때도 전량 매도합니다.</td></tr>
+<tr><td>판정 시점</td><td>매수·매도 모두 봉이 끝날 때 판정하고 바로 시장가로 주문합니다. 백테스터와 판정 결과가 같도록 하기 위해서입니다.</td></tr>
+<tr><td>프로그램 시작 직후</td><td>이미 골든크로스 상태여도 바로 사지 않고 다음 골든크로스를 기다립니다. 백테스터와 같은 동작입니다.</td></tr>
+</table>
+
+<h2>4. 바뀌지 않는 것</h2>
+<ul>
+<li>기존 대시보드와 그 기능(설정, 강제 매수·매도, 감사 로그)은 그대로입니다.</li>
+<li>지금 쓰시는 전략과 설정은 투자자님이 전환을 확인하시기 전까지 그대로 동작합니다.</li>
+<li>앱(업비트)에서 직접 넣은 주문 감지, 매도 거절 안내, 일시정지 같은 기존 보호 장치는 새 전략에도 그대로 적용됩니다.</li>
+</ul>
+
+<div class="avoid">
+<h2>5. 전환 방식과 안전장치</h2>
+<table>
+<tr><th style="width:22%">상황</th><th>동작</th></tr>
+<tr><td>신버전에 들어갈 때</td><td>들어가는 것만으로는 매매 방식이 바뀌지 않습니다. 「백테스터 규칙으로 전환」을 누르고 확인하셔야 바뀝니다.</td></tr>
+<tr><td>코인을 보유 중일 때 전환</td><td>지금 보유분은 기존 방식으로 매도를 마칩니다. 그다음 새 전략이 시작됩니다(전환 예약). 예약은 취소할 수 있고, 예약 중에는 추가 매수를 하지 않습니다.</td></tr>
+<tr><td>새 전략 운용 중 기존 대시보드</td><td>「새 전략 운용 중」으로 표시하고 설정 변경을 잠급니다. <b>긴급 매도와 엔진 정지는 언제나 가능합니다.</b></td></tr>
+<tr><td>기존 전략으로 돌아가기</td><td>신버전의 「기존 전략으로 복귀」를 누르시면 됩니다. 보유 중이면 같은 방식으로 매도를 마친 뒤 돌아갑니다.</td></tr>
+<tr><td>기록</td><td>전환, 예약, 복귀, 분할 회차, 매수 사유(골든크로스·눌림목)가 감사 로그에 남고 텔레그램으로 알려 드립니다.</td></tr>
+</table>
+</div>
+
+<div class="avoid">
+<h2>6. 꼭 알아두실 점</h2>
+<div class="warn">
+<ul>
+<li><b>백테스트 결과가 미래 수익을 보장하지 않습니다.</b> 과거 데이터에서 좋았던 설정이 앞으로도 같은 결과를 낸다는 뜻은 아닙니다.</li>
+<li><b>분할매수는 하락할 때 보유량이 늘어납니다.</b> 여러 번 산 뒤 손절에 닿으면 1회 매수 때보다 손실 금액이 클 수 있습니다.</li>
+<li>봉이 끝날 때 판정하고 시장가로 주문하므로 실제 체결 가격이 익절·손절 가격이나 백테스트 가격과 조금 다를 수 있습니다. 1분봉 기준으로 판정이 최대 1분 늦을 수 있습니다.</li>
+<li>1회 매수 금액이 업비트 최소 주문금액(5,000원)보다 작거나 원화 잔고가 부족하면 그 회차는 건너뛰고 감사 로그에 사유를 남깁니다.</li>
+<li>바이낸스 데이터로 시험한 결과는 참고용입니다. 실제 매매에 쓰는 설정은 업비트 데이터로 시험해야 저장 후 바로 적용할 수 있습니다.</li>
+</ul>
+</div>
+</div>
+
+<h2>7. 진행 순서</h2>
+<ol>
+<li><b>개발 및 검증</b> — 백테스터와 실제 엔진이 같은 데이터에서 같은 시점에 사고파는지 자동 시험으로 확인합니다. 기존 기능이 바뀌지 않았는지도 확인합니다.</li>
+<li><b>1차 공개 (신버전 대시보드·백테스터)</b> — 투자자님 계정에서 바로 쓰실 수 있게 엽니다. 이 단계에서는 설정을 저장만 할 수 있고 실제 매매에는 적용되지 않습니다. 공개하는 날 알려 드립니다.</li>
+<li><b>2차 공개 (새 전략)</b> — 새 전략과 전환 기능을 엽니다. 공개하는 날 알려 드립니다.</li>
+<li><b>새 전략 사용</b> — 투자자님이 원하실 때 신버전에서 직접 전환하십니다.</li>
+</ol>
+<p class="small">일정은 개발 검증 결과에 따라 정해지며, 공개일에 알려 드립니다.</p>
+
+<div class="avoid">
+<h2>8. 승인 항목</h2>
+<table class="check">
+<tr><th></th><th>항목</th></tr>
+<tr><td>☐</td><td>신버전 대시보드를 추가하고, 기존 대시보드와 나란히 운영하는 데 동의합니다.</td></tr>
+<tr><td>☐</td><td>신버전에 백테스터와 설정 저장 기능을 넣는 데 동의합니다.</td></tr>
+<tr><td>☐</td><td>「눌림목 분할매수」 전략을 추가하고, 제가 직접 전환을 확인했을 때만 적용하는 방식에 동의합니다.</td></tr>
+<tr><td>☐</td><td>1회 매수 금액을 「운용자산 ÷ 분할매수 최대 횟수」로 정하는 데 동의합니다.</td></tr>
+<tr><td>☐</td><td>6절 「꼭 알아두실 점」을 읽고 이해했습니다.</td></tr>
+</table>
+<p>의견이나 바꾸고 싶은 점이 있으시면 아래 칸에 적어 주십시오.</p>
+<table class="sign">
+<tr><th>의견</th><td style="height:70px"></td></tr>
+<tr><th>승인일</th><td></td></tr>
+<tr><th>성명</th><td></td></tr>
+<tr><th>서명</th><td></td></tr>
+</table>
+</div>
+
+</body>
+</html>
