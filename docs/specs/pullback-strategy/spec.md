@@ -1,6 +1,6 @@
 # PULLBACK 전략 (엔진 세 번째 전략) — 설계 문서
 
-- 작성: 2026-10-21 · 상태: 초안(승인 대기)
+- 작성: 2026-10-21 · 상태: 확정 (2026-10-21 투자자 승인 — investor-notice-log #5)
 - 관련: `docs/specs/v2-dashboard/spec.md` (신버전 대시보드, 전환 흐름 4.5·4.6)
 - 규칙 원본: `docs/specs/MA60_200_GoldenCross_Pullback_Backtester_2610201820.html`의 `simulate()`(246~383행), `isFilterActive()`(229행), `computeEMA/SMA/Slope`(186~227행)
 

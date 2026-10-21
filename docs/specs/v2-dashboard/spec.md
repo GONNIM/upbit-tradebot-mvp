@@ -1,6 +1,6 @@
 # 신버전 대시보드 (v2) — 설계 문서
 
-- 작성: 2026-10-21 · 상태: 초안(승인 대기)
+- 작성: 2026-10-21 · 상태: 확정 (2026-10-21 투자자 승인 — investor-notice-log #5)
 - 관련: `docs/specs/pullback-strategy/spec.md` (P3, 엔진 전략)
 - 참고 원본: `docs/specs/MA60_200_GoldenCross_Pullback_Backtester_2610201820.html` (이하 "원본 백테스터")
 
@@ -171,7 +171,7 @@ P2까지는 실매매에 영향이 없다. P3와 P4는 함께 배포한다. 전�
   - 배포 승인
 - 서버 자원: RAM 2GB(여유 약 1.4GB). 신버전 서버의 상주 메모리 증가는 100MB 이하를 목표로 한다.
 - 투자자 통보: 공개 대상이 투자자 계정(`mcmax33`)이므로 배포하는 날 통보한다. P1·P2 배포 때 문안 A, P3·P4 배포 때 문안 B를 보낸다. 보낸 통보는 `docs/operations/investor-notice-log.md`에 기록한다.
-- 사전 승인: 투자자 승인 요청서(`investor-approval-20261021.pdf`)의 회신을 받기 전에는 배포하지 않는다.
+- 사전 승인: 투자자 승인 요청서(`investor-approval-20261021-v2.pdf`) 2026-10-21 승인 완료(5개 항목 전부, 의견 없음 — investor-notice-log #5). 단계별 배포 승인은 따로 받는다.
 
 ## 7. 수용 기준
 
