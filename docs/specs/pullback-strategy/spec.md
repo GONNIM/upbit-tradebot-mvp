@@ -95,7 +95,7 @@
 - 생성 분기: `engine/live_loop.py:884,905` 옆에 `strategy_type == "PULLBACK"` 분기를 추가한다.
 - `engine/params.py`의 전략 유형 검증 목록에 `PULLBACK`을 추가한다. 기본값(`DEFAULT_STRATEGY_TYPE`)은 바꾸지 않는다.
 
-### 4.2 설정 파일 `{user}_PULLBACK_params.json`
+### 4.2 설정 파일 `{user}_latest_params_PULLBACK.json`
 
 원본 입력 이름을 그대로 키로 쓴다. 대시보드 spec 4.5와 같은 형식이다.
 
