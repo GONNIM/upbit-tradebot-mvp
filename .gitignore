@@ -50,6 +50,7 @@ data/*.db*
 # Claude AI 컨텍스트 (일부 추적)
 .claude/*
 !.claude/context/
+!.claude/agents/
 !.claude/lessons-learned.md
 
 # 문서 재구조화 - 선택적 추적
