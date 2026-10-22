@@ -1,9 +1,9 @@
-# 인수인계 — 신버전 대시보드 · PULLBACK 전략 (5판)
+# 인수인계 — 신버전 대시보드 · PULLBACK 전략 (6판)
 
-- 작성: 2026-10-21 · 개정: 2026-10-22 (2판), 2026-10-22 (3판 — 결정 1~7·Q1~Q7, spec 3.1절), 2026-10-22 (4판 — 3차 결정 E15~E19, spec 3.2절, 목차 3판), 2026-10-22 (5판 — 목차 3판 승인, 구현 계획서 plan.md)
-- 기준: 5판은 plan.md 와 같은 커밋에 들어간다(직전 커밋 `0ae470c`). 서버는 `156b351`이고 `dashboard.py`는 v1.2026.10.20.1711, tradebot 기동 2026-10-20 17:40:51 KST
-- 새 세션은 `git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`와 `git status --short`로 커밋 여부를 먼저 확인한다.
-- 1판의 [3] 지시, 2판의 [2] 결정 대기 표, 3판의 [3]-1~4 는 **종료**했다. 4판 2절이 우선한다.
+- 작성: 2026-10-21 · 개정: 2026-10-22 (2판), 2026-10-22 (3판 — 결정 1~7·Q1~Q7, spec 3.1절), 2026-10-22 (4판 — 3차 결정 E15~E19, spec 3.2절, 목차 3판), 2026-10-22 (5판 — 목차 3판 승인, 구현 계획서 plan.md), 2026-10-22 (6판 — plan.md 실행 승인·subagent-driven 선택, Task 0 Step 3·4·6 실측, Step 2 스크립트 준비), 2026-10-22 (6판 보완 — 정지선 재실행, Step 2 실행·결과 기록)
+- 기준: 6판 직전 커밋 `0e72cf5`(HEAD = origin/main). 서버는 `156b351`이고 `dashboard.py`는 v1.2026.10.20.1711, tradebot 기동 2026-10-20 17:40:51 KST
+- 새 세션은 `git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`와 `git status --short`로 커밋 여부를 먼저 확인한다. 6판 5개 파일(아래 [0])이 커밋됐는지에 따라 기대값이 다르다.
+- 1판의 [3] 지시, 2판의 [2] 결정 대기 표, 3판의 [3]-1~4, 5판의 [3]-7 은 **종료**했다. 6판 2절·3절이 우선한다.
 
 ## 1. 세션 시작 방법
 
@@ -62,6 +62,19 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 | 결정 4 (a) → E18 | 신버전 root 실행 + `ProtectSystem=strict`·`ReadWritePaths=-`(`services/data/`, PULLBACK params)·`InaccessiblePaths=-`(키 파일 3개)·`NoNewPrivileges`·`UMask=0077`, 후보 `CapabilityBoundingSet=`. 남는 위험 2건(엔진 환경변수, 실DB 파일 쓰기)은 코드로 막고 A17 실측 |
 | 결정 5 (a) → E19 | 백테스트 속도는 계산 시간 중앙값 +20% 이내, 데이터 받기는 요청 수·봉 수 동일 |
 
+### 2026-10-22 사용자 결정 (6판)
+| # | 결정 |
+|---|---|
+| 1 = 가 | plan.md 대로 구현 시작 승인 |
+| 2 = 가 | 실행 방식 **subagent-driven** (Task 마다 실행 에이전트, PO 검수. 실행 에이전트에 plan.md 머리 「금지 행위」 그대로 전달) |
+| 3 = 가 | Task 0 Step 2 서버 점검 스크립트 실행 승인. 단 PO 가 「실행 전 원문을 먼저 보여 드린다」고 약속했으므로, 새 세션은 실행 직전 스크립트 요지를 보여 주고 「실행」 답을 받은 뒤 돌린다 |
+| 지시 | 「새로운 세션에서 실행할 수 있도록 준비 후 보고」 → 이 6판 |
+
+### 2026-10-22 Task 0 실측 결과 (6판, 읽기 전용 — 예외 1건: 서버 `/dev/shm/x` 생성 후 즉시 삭제, measure 「journal 건수」 절)
+- 기록: `docs/specs/v2-dashboard/measure-20261023.md`(Step 1~6 기록 완료, Step 7 커밋 대기). Step 1 정지선 일치, Step 3 import RSS 28,568 KB(`MemoryMax` 150M 유지), Step 4 권한(DB·params·active_strategy 모두 644 root, `/root` 700), Step 6 cron `0 11 * * 0 /root/cleanup_tradebot_db.sh`, journal 7일 `CONFIRMED-NO-TRADE` 759·`봉 처리 완료` 2,521(21:48 무렵 창, Step 2 와 같은 창 재집계 770·2,510 은 measure).
+- 관찰: 측정 시점에 실매매 DB `tradebot_mcmax33.db` 의 `-wal`·`-shm` 이 없었다. 엔진은 연결마다 WAL 로 열고 닫으므로(`services/db.py:39-42`) 마지막 연결이 닫히면 두 파일이 사라지는 정상 상태다. WAL 에서 읽기는 엔진 쓰기를 막지 않는다. (6판 초안의 저널 모드 오기를 Fable 지적으로 정정함 — `docs/fable/2026-10-22-handoff6-1.md`.)
+- Step 2 스크립트: `scripts/v2/v1_probe.py`(2026-10-22 22:58 실행, 결과는 measure Step 2 절). plan Task 0 Step 2 는 scratchpad 보관이었으나 세션 교대로 새 세션이 볼 수 있게 저장소에 둔다(`scripts/v2/` 는 plan Task 9 가 정한 위치).
+
 ### 2026-10-22 보고·진행 방식 (사용자 지시)
 - 이후 모든 보고는 claude-studio 규칙의 양식을 따른다: `/Users/gonnim/GON-Dev/claude-studio/agents/po.md` 「보고 양식」(결론 / 한 것·확인한 것·남은 것 / 결정해 주실 것 / 산출물), Fable 질의서·답변서는 po.md 「질의서 양식」·`fable-advisor.md` 「답변 양식」.
 - Fable 질의 규칙(세션 시작 훅이 넣음)을 지킨다. 파일 쓰기·커밋·결정 요청·단계 넘김 직전마다 Fable 판정 「진행」을 받는다. 같은 단계 재질의 2회 뒤에도 「진행」이 아니면 멈추고 사용자에게 묻는다.
@@ -77,7 +90,10 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 `.claude/context/project-rules.md`의 「세션 재개 표준 정지선」을 따른다. 결과는 표 하나로 보고한다.
 
 - `pwd`가 git 최상위 폴더와 같은지, `CLAUDE_CONFIG_DIR`이 `~/.claude-thetak`인지.
-- 로컬: HEAD 와 커밋 여부. 4판 기대값은 HEAD = `origin/main` = 이 HANDOFF 4판이 들어간 커밋(`git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`), 추적 파일 미커밋 0건. push 가 안 됐으면 HEAD 가 origin 보다 1커밋 앞선다.
+- 로컬: HEAD 와 커밋 여부. 6판 기대값은 둘 중 하나다.
+  - (가) 6판이 커밋·push 됨: HEAD = `origin/main` = 6판 커밋(`git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`, 부모 `0e72cf5`), 추적 파일 미커밋 0건.
+  - (나) 6판 미커밋: HEAD = `origin/main` = `0e72cf5`, 변경 — `M docs/specs/v2-dashboard/HANDOFF.md`, `?? docs/specs/v2-dashboard/measure-20261023.md`, `?? scripts/v2/`(`v1_probe.py`), `?? docs/fable/2026-10-22-handoff6-1.md`, `?? docs/fable/2026-10-22-handoff6-2.md`, 보완으로 `?? docs/fable/2026-10-22-step2-run-1.md`(그 뒤 Step 7 질의 파일도 추가). 이 파일들은 지우지 말고 Task 0 Step 7 커밋에 함께 넣는다(커밋은 승인 뒤).
+  - 커밋됐는데 push 가 안 됐으면 HEAD 가 origin 보다 1커밋 앞선다.
 - 서버(SSH 읽기 전용): HEAD `156b351`, `dashboard.py` v1.2026.10.20.1711, `tradebot` active, 기동 2026-10-20 17:40:51, `tradebot-v2` 없음, `.env`·`.streamlit/secrets.toml` 600, 사본 없음. 서버 미추적 5건(`check_all_balances.py`, `check_balance.py`, `check_pepe.py`, `sync_balances.py`, `mcmax33.sqlite3`)은 손대지 않는다.
 - `verifier` 에이전트가 사용 가능한 목록에 보이는지.
 - 로컬 미추적 13건은 건드리지 않는다: JTO 분석 문서 4개, `tests/test_*.py` 7개, `__pycache__` 2개.
@@ -104,15 +120,20 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 
 1~4. (2026-10-22 완료) 미커밋 커밋 `ee6efc4`·push, review 2판 4절 「결정 완료」, 목차 3판 작성·verifier 3회·Fable, 3차 결정 반영(spec 3.2).
 5~6. (2026-10-22 완료) 목차 3판 사용자 승인·커밋 `0ae470c`, plan.md 작성·verifier 4회·Fable.
-7. plan.md 사용자 승인과 실행 방식(subagent-driven / native) 선택이 없으면 먼저 받는다.
-8. Task 0(사전 실측)부터 시작한다. 「사용자 확인 후」 Step(서버 점검 스크립트 실행, `pip install`, 외부 내려받기)과 모든 커밋은 각각 승인받는다. 실행 에이전트에게는 plan.md 머리의 「금지 행위」를 그대로 전달한다.
-9. PO 결정(2026-10-22, spec 범위 안 구현 선택 — 사용자가 바꾸라면 바꾼다): 토큰은 버튼을 누를 때 발급(E6 60초 유지), Python v2 시험을 회귀 게이트 단계로, 로그 API `WHERE user_id=? ORDER BY timestamp DESC`.
+7. (2026-10-22 완료) plan.md 실행 승인, 실행 방식 subagent-driven, Task 0 Step 2 실행 승인.
+8. Task 0 이어서:
+   - 8-1. (2026-10-22 22:45 완료) 정지선 재실행([0]) — 기대값과 모두 같음.
+   - 8-2. (2026-10-22 22:58 완료) Step 2: 사용자 지시로 서버에 복사하지 않고 `ssh root@orionhunter7.cafe24.com '/root/upbit-tradebot-mvp/venv/bin/python -I -' < scripts/v2/v1_probe.py` 로 1회 실행했다(exit=0). Fable 진행(`docs/fable/2026-10-22-step2-run-1.md`).
+   - 8-3. (2026-10-22 완료) 결과 표와 `DELAY_FACTOR` 3·`UNKNOWN_SEC` 1800 제안(계획 기본값 유지)을 `measure-20261023.md` Step 2 절에 적었다.
+   - 8-4. verifier → Fable 질의 → 사용자에게 Step 7 커밋(문서·점검 스크립트, 버전 유지) 승인 요청. (나) 상태면 6판 5건과 `docs/fable/2026-10-22-step2-run-1.md`·Step 7 질의 파일도 이 커밋에 넣는다. LIVE 판단 기록·잔고 시각 결합 규칙은 미정이며 Task 4 착수 전 결정 항목이다(measure Step 2 관찰). `scripts/v2/v1_probe.py` 는 코드가 아닌 점검 스크립트라 엔진이 읽지 않는다 — 버전 갱신 대상인지 질의서에 적는다.
+9. Task 1 부터 subagent-driven(superpowers:subagent-driven-development)으로 진행한다. 「사용자 확인 후」 Step(`pip install`, 외부 내려받기)과 모든 커밋은 각각 승인받는다. 실행 에이전트에게는 plan.md 머리의 「금지 행위」를 그대로 전달한다.
+10. PO 결정(2026-10-22, spec 범위 안 구현 선택 — 사용자가 바꾸라면 바꾼다): 토큰은 버튼을 누를 때 발급(E6 60초 유지), Python v2 시험을 회귀 게이트 단계로, 로그 API `WHERE user_id=? ORDER BY timestamp DESC`.
 
 ### [4] 금지와 주의
 
 - 파일을 쓰기 전에 목록과 요지를 보여 준다. 기존 파일은 diff를 먼저 보여 준다.
 - 커밋, push, 배포, 서버 설정 변경은 각각 따로 승인받는다.
-- 여러 줄 텍스트는 파일 도구(Write·Edit)로만 쓴다. 셸 heredoc 은 빈 것도 쓰지 않는다 (2026-10-22 세션에서 3회 위반, 모두 무해. 3판 세션의 1회는 `python3 - <<'X'` 빈 본문).
+- 여러 줄 텍스트는 파일 도구(Write·Edit)로만 쓴다. 셸 heredoc 은 빈 것도 쓰지 않는다 (2026-10-22 세션에서 4회 위반, 모두 무해. 3판 세션의 1회는 `python3 - <<'X'` 빈 본문, 6판 보완 세션의 1회는 질의서 문자열 고침을 `python3 - <<'X'` 로 실행).
 - 코드를 커밋할 때는 `dashboard.py` 버전을 갱신한다. 문서만 바꾼 커밋은 버전을 그대로 둔다.
 - 키 값은 대화에도 문서에도 적지 않는다.
 - 확인하지 못한 것은 「미확인」으로 적는다. 검증 보고의 「반박됨」을 고치지 않은 채 사용자에게 올리지 않는다.
@@ -133,6 +154,7 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 - P3 선행 조건: 엔진 PULLBACK 기동 시 이력 기록 위치(E16), 엔진 주기 기록(heartbeat) 검토(E17), 허용 목록·CHECK 확장 여부(선례 `services/init_db.py:508-545`)
 - 서버 감시 스크립트 `/root/watchdog_tradebot_engine.sh` 도 journal `Bar#` 600초 기준이라 무거래 봉에 같은 약점 (2026-10-22 verifier 관찰)
 - 세션 중 DB 를 여는 조회(`sqlite3 -readonly` 포함)는 서버 `-wal`·`-shm` 을 만든다. 검증 역할에는 「서버 DB 열기 금지」를 기본으로 적는다
+- 서버 DB·params·active_strategy 파일이 644 다. 비밀 파일 규칙(600) 대상은 아니나 거래 기록이 들어 있다. `/root` 700 이라 다른 계정 접근 경로는 없다 (2026-10-22 신규 관찰, 조치 여부는 운영자 결정)
 
 ## 5. 시작 후 확인할 점
 
