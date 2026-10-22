@@ -1,7 +1,7 @@
-# 인수인계 — 신버전 대시보드 · PULLBACK 전략 (4판)
+# 인수인계 — 신버전 대시보드 · PULLBACK 전략 (5판)
 
-- 작성: 2026-10-21 · 개정: 2026-10-22 (2판), 2026-10-22 (3판 — 결정 1~7·Q1~Q7, spec 3.1절), 2026-10-22 (4판 — 3차 결정 E15~E19, spec 3.2절, 목차 3판)
-- 기준: 4판은 목차 3판·spec 3.2절과 같은 커밋에 들어간다(직전 커밋 `ee6efc4`). 서버는 `156b351`이고 `dashboard.py`는 v1.2026.10.20.1711, tradebot 기동 2026-10-20 17:40:51 KST
+- 작성: 2026-10-21 · 개정: 2026-10-22 (2판), 2026-10-22 (3판 — 결정 1~7·Q1~Q7, spec 3.1절), 2026-10-22 (4판 — 3차 결정 E15~E19, spec 3.2절, 목차 3판), 2026-10-22 (5판 — 목차 3판 승인, 구현 계획서 plan.md)
+- 기준: 5판은 plan.md 와 같은 커밋에 들어간다(직전 커밋 `0ae470c`). 서버는 `156b351`이고 `dashboard.py`는 v1.2026.10.20.1711, tradebot 기동 2026-10-20 17:40:51 KST
 - 새 세션은 `git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`와 `git status --short`로 커밋 여부를 먼저 확인한다.
 - 1판의 [3] 지시, 2판의 [2] 결정 대기 표, 3판의 [3]-1~4 는 **종료**했다. 4판 2절이 우선한다.
 
@@ -86,7 +86,9 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 ### [1] 읽을 파일
 
 - `docs/specs/v2-dashboard/spec.md` — 3.1절 E1~E14, 3.2절 E15~E19 반영본
-- `docs/specs/v2-dashboard/plan-outline-v3.md` — 목차 3판(plan.md 의 출발점, C1~C5 대응표)
+- `docs/specs/v2-dashboard/plan.md` — 구현 계획서(Task 0~10, 배포 절, 수용 기준 표) ⭐ 시작점
+- `docs/specs/v2-dashboard/review-20261022-plan-draft.md` — 계획서 검증 보고(verifier 4회)
+- `docs/specs/v2-dashboard/plan-outline-v3.md` — 목차 3판(2026-10-22 사용자 승인, C1~C5 대응표)
 - `docs/specs/v2-dashboard/review-20261022-outline-v3-draft.md`, `review-20261022-outline-v3-recheck.md` — 3판 검증 보고
 - `docs/specs/v2-dashboard/review-20261022-outline-v2.md` — 2판 검증 보고(지적 1~16)
 - `docs/specs/pullback-strategy/spec.md` — P3
@@ -101,8 +103,10 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 ### [3] 이번 세션 작업 순서
 
 1~4. (2026-10-22 완료) 미커밋 커밋 `ee6efc4`·push, review 2판 4절 「결정 완료」, 목차 3판 작성·verifier 3회·Fable, 3차 결정 반영(spec 3.2).
-5. 목차 3판 사용자 승인이 없으면 먼저 받는다.
-6. 승인 후 `superpowers:writing-plans`로 `docs/specs/v2-dashboard/plan.md` 작성 → `verifier` 검증 → Fable → 보고. plan.md 에 넣을 것(목차 3판·Fable 지적에서 넘어온 것): E17 「정상·지연·판단 불가」 경계(V1 실측 뒤), 「대기 중 주문 0」 확인 테이블·로그 태그, `{user}_active_strategy.txt` 절대 경로 읽기와 수정 시각 표시, `v2hist` 백업 cron 줄, `CapabilityBoundingSet=` 실측(A17).
+5~6. (2026-10-22 완료) 목차 3판 사용자 승인·커밋 `0ae470c`, plan.md 작성·verifier 4회·Fable.
+7. plan.md 사용자 승인과 실행 방식(subagent-driven / native) 선택이 없으면 먼저 받는다.
+8. Task 0(사전 실측)부터 시작한다. 「사용자 확인 후」 Step(서버 점검 스크립트 실행, `pip install`, 외부 내려받기)과 모든 커밋은 각각 승인받는다. 실행 에이전트에게는 plan.md 머리의 「금지 행위」를 그대로 전달한다.
+9. PO 결정(2026-10-22, spec 범위 안 구현 선택 — 사용자가 바꾸라면 바꾼다): 토큰은 버튼을 누를 때 발급(E6 60초 유지), Python v2 시험을 회귀 게이트 단계로, 로그 API `WHERE user_id=? ORDER BY timestamp DESC`.
 
 ### [4] 금지와 주의
 

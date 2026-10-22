@@ -99,6 +99,7 @@ spec: `docs/specs/v2-dashboard/spec.md`(3.2절 개정안 포함), `docs/specs/pu
 |---|---|---|---|---|
 | `app.py` | Streamlit 메인 스크립트(엔진과 같은 프로세스) | 1차 배포 `tradebot` 재시작(E1) | import 실패·파일 읽기 예외 시 구버전 전체 중단 | `regression_gate.sh` top-level import 게이트, T4 예외 3종, `v2/*` import 금지 lint |
 | `pages/dashboard.py`(버전 문자열만) | Streamlit 페이지, `services/settings_history.py:46,81-92` 가 실행 중 읽음 | 1차 배포 재시작 | 정규식 불일치 시 `app_version` NULL | 버전 형식 정규식 시험 |
+| `ui/v2_entry.py`·`utils/v2_entry_token.py`(신규, 2026-10-22 계획서에서 추가) | `app.py` 가 import(엔진과 같은 프로세스) | 1차 배포 재시작. 이후 **동결**(바꾸면 `tradebot` 재시작 필요) | 예외 시 버튼만 숨김, 형식 불일치 시 입장 실패 | AppTest 렌더 시험, 형식 버전 `"v": 1`, v2 배포 diff 에 있으면 정지 |
 | `services/settings_history.py`·`services/init_db.py`·`pages/settings_history.py` | `live_loop.py:775`, `trader.py:314`, `db.py` `ensure_schema` | **바꾸지 않음**(E15) | — | diff 범위 확인에서 0줄 |
 | 그 밖(`v2/*`, `deploy/*`, 문서, 시험) | 없음 | `tradebot-v2` 재시작만 | — | A14 import 그래프 |
 
