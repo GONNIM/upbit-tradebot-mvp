@@ -1,9 +1,9 @@
-# 인수인계 — 신버전 대시보드 · PULLBACK 전략 (3판)
+# 인수인계 — 신버전 대시보드 · PULLBACK 전략 (4판)
 
-- 작성: 2026-10-21 · 개정: 2026-10-22 (2판), 2026-10-22 (3판 — 결정 1~7·Q1~Q7 확정, spec 3.1절 반영)
-- 기준: 로컬과 origin 모두 `2fa53a0`(HANDOFF 2판). 서버는 `156b351`이고 `dashboard.py`는 v1.2026.10.20.1711, tradebot 기동 2026-10-20 17:40:51 KST
-- 이 3판과 아래 「미커밋 변경」은 3판 작성 시점에 커밋되지 않았다. 새 세션은 `git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`와 `git status --short`로 커밋 여부를 먼저 확인한다.
-- 1판의 [3] 지시(같은 프로세스 방식 A 등)와 2판의 [2] 결정 대기 표는 **종료**했다. 3판 2절이 우선한다.
+- 작성: 2026-10-21 · 개정: 2026-10-22 (2판), 2026-10-22 (3판 — 결정 1~7·Q1~Q7, spec 3.1절), 2026-10-22 (4판 — 3차 결정 E15~E19, spec 3.2절, 목차 3판)
+- 기준: 4판은 목차 3판·spec 3.2절과 같은 커밋에 들어간다(직전 커밋 `ee6efc4`). 서버는 `156b351`이고 `dashboard.py`는 v1.2026.10.20.1711, tradebot 기동 2026-10-20 17:40:51 KST
+- 새 세션은 `git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`와 `git status --short`로 커밋 여부를 먼저 확인한다.
+- 1판의 [3] 지시, 2판의 [2] 결정 대기 표, 3판의 [3]-1~4 는 **종료**했다. 4판 2절이 우선한다.
 
 ## 1. 세션 시작 방법
 
@@ -52,6 +52,16 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 | W2 → E13 | Binance 결과는 「저장만」 유지. P3 엔진 봉 기록은 워밍업 확정 봉도 기록하는 안으로 설계. 전환 여는 기준은 P3 계획에서 |
 | 사용자 요구 → E14 | **백테스트 실행은 원본 HTML처럼 빠르게 끝나야 한다.** A6 에 실행 시간 측정 추가 (PO 해석. 사용자가 다른 뜻이라고 하면 고친다) |
 
+### 2026-10-22 사용자 결정 (4판, spec 3.2절 E15~E19 반영)
+| # | 결정 |
+|---|---|
+| 결정 1 (c2) → E15 | 1차 신버전 이력은 별도 파일 `services/data/v2hist_<user>.db`. 실매매 DB 는 읽기만, 구조 변경 없음. 기존 `settings_history`·허용 목록·CHECK 는 1차에서 바꾸지 않음 |
+| 결정 B (a) → E15 | `v2hist` 는 별도 cron 줄로 백업(기존 `/root/cleanup_tradebot_db.sh` 무변경, 백업본 600) |
+| 결정 3 → E16 | 구·신 이력은 따로 관리, 각 대시보드는 자기 이력으로 전략 추정. 화면 현재 전략 배지는 `{user}_active_strategy.txt`. **P3 선행 조건:** 엔진 PULLBACK 기동 시 이력 기록 위치(지금 코드는 `_validate` 에서 거부 → 경고만, 거래 이력 id NULL) |
+| 결정 2 (a) + 결정 A (a) → E17 | 「엔진 동작」= 매수·매도 판단 기록 최신 `timestamp`(+ LIVE 잔고 기록 보조). 무거래 봉은 기록이 없으므로 임계는 1단계 실측 뒤 계획서에서. 화면은 「마지막 판단 N분 전」 + 정상·지연·판단 불가 |
+| 결정 4 (a) → E18 | 신버전 root 실행 + `ProtectSystem=strict`·`ReadWritePaths=-`(`services/data/`, PULLBACK params)·`InaccessiblePaths=-`(키 파일 3개)·`NoNewPrivileges`·`UMask=0077`, 후보 `CapabilityBoundingSet=`. 남는 위험 2건(엔진 환경변수, 실DB 파일 쓰기)은 코드로 막고 A17 실측 |
+| 결정 5 (a) → E19 | 백테스트 속도는 계산 시간 중앙값 +20% 이내, 데이터 받기는 요청 수·봉 수 동일 |
+
 ### 2026-10-22 보고·진행 방식 (사용자 지시)
 - 이후 모든 보고는 claude-studio 규칙의 양식을 따른다: `/Users/gonnim/GON-Dev/claude-studio/agents/po.md` 「보고 양식」(결론 / 한 것·확인한 것·남은 것 / 결정해 주실 것 / 산출물), Fable 질의서·답변서는 po.md 「질의서 양식」·`fable-advisor.md` 「답변 양식」.
 - Fable 질의 규칙(세션 시작 훅이 넣음)을 지킨다. 파일 쓰기·커밋·결정 요청·단계 넘김 직전마다 Fable 판정 「진행」을 받는다. 같은 단계 재질의 2회 뒤에도 「진행」이 아니면 멈추고 사용자에게 묻는다.
@@ -67,7 +77,7 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 `.claude/context/project-rules.md`의 「세션 재개 표준 정지선」을 따른다. 결과는 표 하나로 보고한다.
 
 - `pwd`가 git 최상위 폴더와 같은지, `CLAUDE_CONFIG_DIR`이 `~/.claude-thetak`인지.
-- 로컬: HEAD 와 커밋 여부. 3판 작성 시점 기대값은 HEAD `2fa53a0` = `origin/main`, 미커밋 변경 = `CLAUDE.md`, `docs/specs/pullback-strategy/spec.md`, `docs/specs/v2-dashboard/spec.md`, `docs/specs/v2-dashboard/HANDOFF.md`, 신규 `docs/fable/` 9개. 그 사이 커밋됐으면 커밋 내용이 이 목록과 같은지 확인한다.
+- 로컬: HEAD 와 커밋 여부. 4판 기대값은 HEAD = `origin/main` = 이 HANDOFF 4판이 들어간 커밋(`git log -1 -- docs/specs/v2-dashboard/HANDOFF.md`), 추적 파일 미커밋 0건. push 가 안 됐으면 HEAD 가 origin 보다 1커밋 앞선다.
 - 서버(SSH 읽기 전용): HEAD `156b351`, `dashboard.py` v1.2026.10.20.1711, `tradebot` active, 기동 2026-10-20 17:40:51, `tradebot-v2` 없음, `.env`·`.streamlit/secrets.toml` 600, 사본 없음. 서버 미추적 5건(`check_all_balances.py`, `check_balance.py`, `check_pepe.py`, `sync_balances.py`, `mcmax33.sqlite3`)은 손대지 않는다.
 - `verifier` 에이전트가 사용 가능한 목록에 보이는지.
 - 로컬 미추적 13건은 건드리지 않는다: JTO 분석 문서 4개, `tests/test_*.py` 7개, `__pycache__` 2개.
@@ -75,9 +85,10 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 
 ### [1] 읽을 파일
 
-- `docs/specs/v2-dashboard/spec.md` — 3.1절 E1~E14 반영본
-- `docs/specs/v2-dashboard/review-20261022-outline-v2.md` — 검증 보고(지적 1~16, 영향 범위 표)
-- `docs/specs/v2-dashboard/plan-outline-v2.md` — 목차 2판(3판의 출발점)
+- `docs/specs/v2-dashboard/spec.md` — 3.1절 E1~E14, 3.2절 E15~E19 반영본
+- `docs/specs/v2-dashboard/plan-outline-v3.md` — 목차 3판(plan.md 의 출발점, C1~C5 대응표)
+- `docs/specs/v2-dashboard/review-20261022-outline-v3-draft.md`, `review-20261022-outline-v3-recheck.md` — 3판 검증 보고
+- `docs/specs/v2-dashboard/review-20261022-outline-v2.md` — 2판 검증 보고(지적 1~16)
 - `docs/specs/pullback-strategy/spec.md` — P3
 - `docs/fable/2026-10-22-*.md` — 이번 결정 과정의 Fable 질의서·답변서(각 파일 끝 「Fable 답변서 전문」 절)
 - `.claude/agents/verifier.md`, `/Users/gonnim/GON-Dev/claude-studio/agents/po.md`, `/Users/gonnim/GON-Dev/claude-studio/agents/fable-advisor.md`
@@ -85,15 +96,13 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 
 ### [2] 결정 대기
 
-없음. (결정 1~7·Q1~Q7 확정. 커밋 승인과 아래 [3]의 각 단계 승인은 따로 받는다.)
+없음. (결정 1~7·Q1~Q7·3차 결정 1~5·A·B 확정. 목차 3판 승인과 아래 [3]의 각 단계 승인은 따로 받는다.)
 
 ### [3] 이번 세션 작업 순서
 
-1. 미커밋 변경이 남아 있으면 커밋 승인을 먼저 받는다(문서만이므로 `dashboard.py` 버전 그대로).
-2. `review-20261022-outline-v2.md` 4절을 「결정 완료」로 표시하는 diff — 승인 후.
-3. 목차 3판 `docs/specs/v2-dashboard/plan-outline-v3.md` 작성: 검증 지적 1~16 모두 반영 + spec 3.1 E1~E14 대응표. 특히 실행 계정·서명 키 비밀 파일, DB ro URI·쓰기 1문장·파일 생성 금지, A14 를 import 그래프·`sys.modules`·환경변수 시험으로, 유닛 MemoryMax·OOMScoreAdjust, 배포 diff 범위 확인, 1차 배포 `tradebot` 1회 재시작 절차(E1), 운용 메뉴 표시만(E10), 백테스트 실행 시간 측정(E14), 「P2 변경 파일 중 엔진이 import 하는 것」 표(`services/settings_history.py` 등), 규칙 항목(버전 갱신·heredoc 금지·비밀 값 비기재·Fable zip) 명시. 쓰기 전에 요지를 보이고 Fable 판정을 받는다.
-4. `verifier`로 목차 3판 검증(spec 3.1·4.4·4.7 대응 포함) → 반박·누락 수정 후 재검증 → Fable 질의 → 사용자에게 목차 승인 요청.
-5. 승인 후 `superpowers:writing-plans`로 `docs/specs/v2-dashboard/plan.md` 작성 → `verifier` 검증 → Fable → 보고.
+1~4. (2026-10-22 완료) 미커밋 커밋 `ee6efc4`·push, review 2판 4절 「결정 완료」, 목차 3판 작성·verifier 3회·Fable, 3차 결정 반영(spec 3.2).
+5. 목차 3판 사용자 승인이 없으면 먼저 받는다.
+6. 승인 후 `superpowers:writing-plans`로 `docs/specs/v2-dashboard/plan.md` 작성 → `verifier` 검증 → Fable → 보고. plan.md 에 넣을 것(목차 3판·Fable 지적에서 넘어온 것): E17 「정상·지연·판단 불가」 경계(V1 실측 뒤), 「대기 중 주문 0」 확인 테이블·로그 태그, `{user}_active_strategy.txt` 절대 경로 읽기와 수정 시각 표시, `v2hist` 백업 cron 줄, `CapabilityBoundingSet=` 실측(A17).
 
 ### [4] 금지와 주의
 
@@ -116,6 +125,10 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 - 휴대폰 브라우저 업비트 직접 호출(1단계 V2), 승인 요청서 PDF 휴대폰 렌더 — 미확인
 - 핸드북 「알려진 함정」 추가 제안 1건(2026-10-21 운영자 계정 오지정). 핸드북 원본 위치를 먼저 정해야 한다
 - 프로젝트에 po·fable-advisor 역할 배치(`/project-intake`) 제안 — 승인 전 만들지 않음
+- 서버 `/root/upbit-tradebot-mvp/_active_strategy.txt`(빈 사용자 이름) 출처 조사 — `tradebot_.db` 와 같은 유형 (2026-10-22 신규)
+- P3 선행 조건: 엔진 PULLBACK 기동 시 이력 기록 위치(E16), 엔진 주기 기록(heartbeat) 검토(E17), 허용 목록·CHECK 확장 여부(선례 `services/init_db.py:508-545`)
+- 서버 감시 스크립트 `/root/watchdog_tradebot_engine.sh` 도 journal `Bar#` 600초 기준이라 무거래 봉에 같은 약점 (2026-10-22 verifier 관찰)
+- 세션 중 DB 를 여는 조회(`sqlite3 -readonly` 포함)는 서버 `-wal`·`-shm` 을 만든다. 검증 역할에는 「서버 DB 열기 금지」를 기본으로 적는다
 
 ## 5. 시작 후 확인할 점
 
