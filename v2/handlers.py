@@ -120,7 +120,9 @@ class EntryHandler(BaseHandler):
             return
         self.set_cookie(auth.SESSION_COOKIE,
                         auth.make_session(p["user_id"], p["mode"]),
-                        path="/v2/", secure=True, httponly=True,
+                        path="/v2/",
+                        secure=self.application.settings.get("cookie_secure", True),
+                        httponly=True,
                         samesite="Lax", max_age=auth.SESSION_TTL_SEC)
         self.set_header("Cache-Control", "no-store")
         self.redirect("/v2/")

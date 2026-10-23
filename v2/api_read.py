@@ -40,6 +40,13 @@ SQL_SIGNALS_TICKER = ("SELECT id, timestamp, bar_time, ticker, price, macd, sign
 SQL_SIGNALS_ALL = ("SELECT id, timestamp, bar_time, ticker, price, macd, signal, "
                    "have_position, overall_ok, failed_keys FROM audit_buy_eval "
                    "ORDER BY id DESC LIMIT ?")
+SQL_SIGNALS_SELL_TICKER = (
+    "SELECT id, timestamp, bar_time, ticker, price, macd, signal, triggered, "
+    "trigger_key FROM audit_sell_eval WHERE ticker=? "
+    "ORDER BY timestamp DESC, id DESC LIMIT ?")
+SQL_SIGNALS_SELL_ALL = (
+    "SELECT id, timestamp, bar_time, ticker, price, macd, signal, triggered, "
+    "trigger_key FROM audit_sell_eval ORDER BY id DESC LIMIT ?")
 SQL_LOGS = ("SELECT id, timestamp, level, message FROM logs "
             "WHERE user_id=? ORDER BY timestamp DESC, id DESC LIMIT 50 OFFSET ?")
 SQL_MARKERS = ("SELECT type, price, bar_time FROM audit_trades "
@@ -253,10 +260,49 @@ class TradesHandler(_ListHandler):
 
 
 class SignalsHandler(_ListHandler):
-    SQL_TICKER = SQL_SIGNALS_TICKER
-    SQL_ALL = SQL_SIGNALS_ALL
+    """최신 신호 = 매수 판단 + 매도 판단을 시각순으로 합친 목록 (사용자 결정 1023-01 결정 2 나)."""
     KEY = "signals"
     DEFAULT_LIMIT = 20
+
+    def _get(self, limit):
+        user_id, _v, _m, ticker, _i = self._context()
+        if ticker:
+            buys = db.query(user_id, SQL_SIGNALS_TICKER, (ticker, limit))
+            sells = db.query(user_id, SQL_SIGNALS_SELL_TICKER, (ticker, limit))
+        else:
+            buys = db.query(user_id, SQL_SIGNALS_ALL, (limit,))
+            sells = db.query(user_id, SQL_SIGNALS_SELL_ALL, (limit,))
+
+        items = []
+        for r in buys:
+            items.append((_dt(r["timestamp"]), 1, r["id"], {
+                "id": r["id"], "kind": "buy",
+                "timestamp": _iso(r["timestamp"]), "bar_time": _iso(r["bar_time"]),
+                "ticker": r["ticker"], "price": r["price"], "macd": r["macd"],
+                "signal": r["signal"], "have_position": r["have_position"],
+                "overall_ok": r["overall_ok"], "failed_keys": r["failed_keys"],
+                "triggered": None, "trigger_key": None}))
+        for r in sells:
+            items.append((_dt(r["timestamp"]), 0, r["id"], {
+                "id": r["id"], "kind": "sell",
+                "timestamp": _iso(r["timestamp"]), "bar_time": _iso(r["bar_time"]),
+                "ticker": r["ticker"], "price": r["price"], "macd": r["macd"],
+                "signal": r["signal"],
+                # audit_sell_eval 에는 보유 열이 없다(services/init_db.py:346-368).
+                # 엔진은 보유 중에만 매도 판단을 기록하므로 고정값 1.
+                "have_position": 1,
+                "overall_ok": None, "failed_keys": None,
+                "triggered": r["triggered"], "trigger_key": r["trigger_key"]}))
+
+        # 최신순; 시각 같으면 매도 먼저(0), 같은 종류는 id 큰 것 먼저. 파싱 실패(None)는 맨 뒤.
+        # 두 표의 id 는 서로 비교하지 않는다(같은 종류 안에서만 의미 있음: kind 가 먼저 갈림).
+        def key(it):
+            ts, kind_rank, rid, _row = it
+            return (ts is None, -(ts.timestamp() if ts is not None else 0.0),
+                    kind_rank, -(rid or 0))
+
+        items.sort(key=key)
+        self.send_json({self.KEY: [it[3] for it in items[:limit]]})
 
 
 class LogsHandler(ReadHandler):

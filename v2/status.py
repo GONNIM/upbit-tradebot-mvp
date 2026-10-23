@@ -4,13 +4,15 @@
 - 비교는 「초과」. delay_sec = bar_sec * DELAY_FACTOR.
 - ago_sec 은 항상 판단 기록(last_eval_ts) 기준. 기록이 없으면 None.
 - 계좌 갱신 시각(accounts_ts)은 LIVE 에서만 보조로 쓰고, ok 까지 올리지 않는다.
+- 판단 불가 기준 = max(UNKNOWN_SEC 1800, 봉 초 × DELAY_FACTOR × UNKNOWN_FACTOR) — 사용자 결정 1023-01 결정 3 나.
 """
 import re
 from datetime import datetime
 from typing import Optional
 
 DELAY_FACTOR = 3
-UNKNOWN_SEC = 1800
+UNKNOWN_SEC = 1800  # 하한
+UNKNOWN_FACTOR = 2
 
 _MINUTE_RE = re.compile(r"minute(\d+)")
 _FIXED = {"day": 86400, "week": 604800}
@@ -25,6 +27,10 @@ def interval_sec(interval: str) -> int:
         if m and int(m.group(1)) > 0:
             return int(m.group(1)) * 60
     raise ValueError("invalid interval")
+
+
+def unknown_sec(bar_sec: int) -> int:
+    return max(UNKNOWN_SEC, bar_sec * DELAY_FACTOR * UNKNOWN_FACTOR)
 
 
 def engine_state(last_eval_ts: Optional[datetime], accounts_ts: Optional[datetime],
@@ -43,7 +49,7 @@ def engine_state(last_eval_ts: Optional[datetime], accounts_ts: Optional[datetim
     ago = int(raw)
     if raw <= delay_sec:
         return {"level": "ok", "ago_sec": ago, "basis": "eval"}
-    if raw <= UNKNOWN_SEC:
+    if raw <= unknown_sec(bar_sec):
         return {"level": "delay", "ago_sec": ago, "basis": "eval"}
     if accounts_recent:
         return {"level": "delay", "ago_sec": ago, "basis": "accounts"}

@@ -90,6 +90,28 @@ class TestEngineState(unittest.TestCase):
         r = engine_state(NOW + timedelta(seconds=5), None, "TEST", 180, NOW)
         self.assertEqual(r, {"level": "ok", "ago_sec": 0, "basis": "eval"})
 
+    def test_unknown_sec_floor_short_bars(self):
+        from v2.status import unknown_sec
+        for bar in (60, 180, 300):
+            self.assertEqual(unknown_sec(bar), 1800)
+
+    def test_unknown_sec_long_bars(self):
+        from v2.status import unknown_sec
+        for bar, want in ((600, 3600), (900, 5400), (1800, 10800),
+                          (3600, 21600), (86400, 518400)):
+            self.assertEqual(unknown_sec(bar), want)
+
+    def test_engine_state_10min_delay_band(self):
+        self.assertEqual(engine_state(ago(1801), None, "TEST", 600, NOW)["level"], "delay")
+        self.assertEqual(engine_state(ago(3600), None, "TEST", 600, NOW)["level"], "delay")
+        self.assertEqual(engine_state(ago(3601), None, "TEST", 600, NOW)["level"], "unknown")
+
+    def test_engine_state_day_bar(self):
+        self.assertEqual(engine_state(ago(259200), None, "TEST", 86400, NOW)["level"], "ok")
+        self.assertEqual(engine_state(ago(259201), None, "TEST", 86400, NOW)["level"], "delay")
+        self.assertEqual(engine_state(ago(518400), None, "TEST", 86400, NOW)["level"], "delay")
+        self.assertEqual(engine_state(ago(518401), None, "TEST", 86400, NOW)["level"], "unknown")
+
     def test_no_word_jeongji(self):
         import v2.status as s
         self.assertNotIn("정지", open(s.__file__, encoding="utf-8").read())

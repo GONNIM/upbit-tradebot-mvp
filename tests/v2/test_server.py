@@ -75,6 +75,9 @@ class ServerTests(ServerBase):
         s = auth.read_session(value)
         self.assertEqual((s["user_id"], s["mode"]), ("alice", "LIVE"))
 
+    def test_cookie_secure_default_true(self):
+        self.assertTrue(make_app(static_dir=self.static).settings["cookie_secure"])
+
     def test_access_log_masks_token(self):
         tok = et.make_token("alice", "TEST")
         with self.assertLogs("tornado.access", level="INFO") as cm:
@@ -190,6 +193,21 @@ class ServerTests(ServerBase):
         self.assertEqual(r.code, 200)
         self.assertIn("hello-v2", r.body.decode())
         self.assertIn("text/html", r.headers["Content-Type"])
+
+
+class InsecureCookieTests(ServerBase):
+    def get_app(self):
+        return make_app(static_dir=self.static, cookie_secure=False)
+
+    def test_cookie_without_secure_keeps_other_flags(self):
+        tok = et.make_token("alice", "TEST")
+        r = self.fetch("/v2/?t=" + tok, follow_redirects=False)
+        self.assertEqual(r.code, 302)
+        low = r.headers["Set-Cookie"].lower()
+        self.assertNotIn("secure", low)
+        self.assertIn("httponly", low)
+        self.assertIn("samesite=lax", low)
+        self.assertIn("path=/v2/", low)
 
 
 class StaticChecks(unittest.TestCase):

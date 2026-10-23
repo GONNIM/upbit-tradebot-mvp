@@ -519,19 +519,120 @@ class TestListsAndPaging(ApiBase):
         code, b = self.get_json("/v2/api/trades")
         self.assertEqual(len(b["trades"]), 3)
 
+    SIG_KEYS = {"id", "kind", "timestamp", "bar_time", "ticker", "price", "macd",
+                "signal", "have_position", "overall_ok", "failed_keys",
+                "triggered", "trigger_key"}
+
+    def _buy(self, ts, price=100.0, ticker="KRW-ZRO", bar=None):
+        self.ins_eval("audit_buy_eval", ticker, ts, price, bar_time=bar or ts,
+                      have_position=0, overall_ok=1, failed_keys="[]")
+
+    def _sell(self, ts, price=200.0, ticker="KRW-ZRO", bar=None, **kw):
+        self.ins_eval("audit_sell_eval", ticker, ts, price, bar_time=bar or ts, **kw)
+
     def test_signals_default_20(self):
         self.make_live_db()
         self.set_strategy()
         for i in range(30):
-            self.ins_eval("audit_buy_eval", "KRW-ZRO",
-                          "2026-10-23 10:%02d:00" % i, 100.0 + i,
-                          bar_time="2026-10-23 10:%02d:00" % i,
-                          have_position=0, overall_ok=1, failed_keys="[]")
+            self._buy("2026-10-23 10:%02d:00" % i, 100.0 + i)
+        for i in range(3):
+            self._sell("2026-10-23 10:%02d:30" % (30 + i), 300.0 + i)
         code, b = self.get_json("/v2/api/signals")
         self.assertEqual(len(b["signals"]), 20)
-        self.assertEqual(b["signals"][0]["price"], 129.0)  # 최신 먼저
+        self.assertEqual(b["signals"][0]["price"], 302.0)  # 최신 먼저(매도 판단)
+        kinds = [s["kind"] for s in b["signals"]]
+        self.assertEqual(kinds.count("sell"), 3)
+        self.assertEqual(kinds.count("buy"), 17)
         code, b = self.get_json("/v2/api/signals?limit=50")
-        self.assertEqual(len(b["signals"]), 30)
+        self.assertEqual(len(b["signals"]), 33)
+
+    def test_signals_merge_buy_and_sell_by_time(self):
+        self.make_live_db()
+        self.set_strategy()
+        self._buy("2026-10-23 10:00:00", 1.0)
+        self._sell("2026-10-23 10:01:00", 2.0)
+        self._buy("2026-10-23 10:02:00", 3.0)
+        self._sell("2026-10-23 10:03:00", 4.0)
+        code, b = self.get_json("/v2/api/signals")
+        self.assertEqual([s["price"] for s in b["signals"]], [4.0, 3.0, 2.0, 1.0])
+        self.assertEqual([s["kind"] for s in b["signals"]],
+                         ["sell", "buy", "sell", "buy"])
+
+    def test_signals_same_time_same_kind_larger_id_first(self):
+        self.make_live_db()
+        self.set_strategy()
+        self._sell("2026-10-23 10:00:00", 1.0, bar="s1")
+        self._sell("2026-10-23 10:00:00", 2.0, bar="s2")
+        code, b = self.get_json("/v2/api/signals")
+        sells = [s for s in b["signals"] if s["kind"] == "sell"]
+        self.assertEqual(len(sells), 2)
+        self.assertGreater(sells[0]["id"], sells[1]["id"])
+        self.assertEqual([s["price"] for s in sells], [2.0, 1.0])
+
+    def test_signals_mixed_timestamp_formats_merge(self):
+        self.make_live_db()
+        self.set_strategy()
+        self._buy("2026-10-23T10:05:00+09:00", 5.0, bar="b1")
+        self._sell("2026-10-23 10:04:00", 4.0, bar="b2")
+        self._buy("2026-10-23 10:06:00", 6.0, bar="b3")
+        self._sell("2026-10-23T10:03:00+09:00", 3.0, bar="b4")
+        code, b = self.get_json("/v2/api/signals")
+        self.assertEqual([s["price"] for s in b["signals"]], [6.0, 5.0, 4.0, 3.0])
+        for s in b["signals"]:
+            self.assertTrue(s["timestamp"].endswith("+09:00"), s["timestamp"])
+
+    def test_signals_same_time_sell_first_and_broken_timestamps_last(self):
+        self.make_live_db()
+        self.set_strategy()
+        self._buy("2026-10-23 10:00:00", 1.0)
+        self._sell("2026-10-23 10:00:00", 2.0)
+        self._buy("garbage", 8.0, bar="g1")
+        self._sell("not-a-time", 9.0, bar="g2")
+        code, b = self.get_json("/v2/api/signals")
+        self.assertEqual(code, 200)
+        self.assertEqual([s["price"] for s in b["signals"]], [2.0, 1.0, 9.0, 8.0])
+
+    def test_signals_kind_and_key_set(self):
+        self.make_live_db()
+        self.set_strategy()
+        self._buy("2026-10-23 10:00:00", 1.0)
+        self._sell("2026-10-23 10:01:00", 2.0, triggered=1, trigger_key="Stop Loss")
+        self._sell("2026-10-23 10:02:00", 3.0, triggered=0)
+        code, b = self.get_json("/v2/api/signals")
+        sig = b["signals"]
+        for s in sig:
+            self.assertEqual(set(s), self.SIG_KEYS)
+        sells = [s for s in sig if s["kind"] == "sell"]
+        buy = [s for s in sig if s["kind"] == "buy"][0]
+        self.assertEqual(sells[1]["triggered"], 1)
+        self.assertEqual(sells[1]["trigger_key"], "Stop Loss")
+        self.assertEqual(sells[0]["triggered"], 0)
+        for s in sells:
+            self.assertEqual(s["have_position"], 1)  # 고정값: 엔진은 보유 중에만 매도 판단 기록
+            self.assertIsNone(s["overall_ok"])
+            self.assertIsNone(s["failed_keys"])
+        self.assertIsNone(buy["triggered"])
+        self.assertIsNone(buy["trigger_key"])
+        self.assertEqual(buy["have_position"], 0)
+
+    def test_signals_holding_shows_sell(self):
+        self.make_live_db()
+        self.set_strategy()
+        self._buy("2026-10-23 10:00:00", 1.0)
+        self._sell("2026-10-23 10:05:00", 2.0)
+        self._sell("2026-10-23 10:06:00", 3.0)
+        code, b = self.get_json("/v2/api/signals?limit=1")
+        self.assertEqual(b["signals"][0]["kind"], "sell")
+        self.assertEqual(b["signals"][0]["price"], 3.0)
+
+    def test_signals_all_tickers_when_no_strategy(self):
+        self.make_live_db()  # 전략 파일 없음 -> 종목 없음 경로
+        self._buy("2026-10-23 10:00:00", 1.0, ticker="KRW-AAA")
+        self._sell("2026-10-23 10:01:00", 2.0, ticker="KRW-BBB")
+        code, b = self.get_json("/v2/api/signals")
+        self.assertEqual(code, 200)
+        self.assertEqual([s["kind"] for s in b["signals"]], ["sell", "buy"])
+        self.assertEqual({s["ticker"] for s in b["signals"]}, {"KRW-AAA", "KRW-BBB"})
 
     def test_bad_limit_and_page_400(self):
         self.make_live_db()

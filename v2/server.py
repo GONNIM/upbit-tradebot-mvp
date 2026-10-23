@@ -34,7 +34,8 @@ def log_request(handler) -> None:
 
 
 def make_app(static_dir: Optional[Path] = None,
-             allowed_origin: str = DEFAULT_ORIGIN) -> tornado.web.Application:
+             allowed_origin: str = DEFAULT_ORIGIN,
+             cookie_secure: bool = True) -> tornado.web.Application:
     static_dir = Path(static_dir) if static_dir else Path(__file__).resolve().parent / "static"
     routes = [
         (r"/v2/?", EntryHandler),
@@ -46,6 +47,7 @@ def make_app(static_dir: Optional[Path] = None,
         routes,
         static_dir=str(static_dir),
         allowed_origin=allowed_origin,
+        cookie_secure=cookie_secure,
         nonce_store=auth.NonceStore(),
         log_function=log_request,
     )

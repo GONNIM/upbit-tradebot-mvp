@@ -1,0 +1,11 @@
+# v2 화면 vendor 파일 (외부 CDN 을 쓰지 않고 파일로 고정)
+# 형식: 「sha256  파일명」 줄(shasum -a 256 출력 형식) 다음에 출처·라이선스 줄.
+# 받은 날: 2026-10-23 (사용자 승인 1023-03). sha256 은 jsdelivr 공개 파일 목록(data.jsdelivr.com)·unpkg 받은 파일과 대조해 같음.
+
+358d9afbb1ab5befa2f48061a30776e5bcd7707f410a606ba985f98bc3b1c034  alpine-3.14.1.min.js
+# source: https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js
+# license: MIT (https://github.com/alpinejs/alpine/blob/main/LICENSE.md)
+
+46fc69534ec098f095bbcd1d9a26d693d39a8b9eeff7343536765b3dd28c2bdf  lightweight-charts-4.2.0.standalone.production.js
+# source: https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js
+# license: Apache-2.0 (LICENSE-lightweight-charts.txt, https://cdn.jsdelivr.net/npm/lightweight-charts@4.2.0/LICENSE)

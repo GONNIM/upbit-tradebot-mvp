@@ -1,0 +1,55 @@
+:root { --fg: #1f2328; --bg: #f6f8fa; --card: #fff; --line: #d0d7de;
+  --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e; --gray: #57606a; --blue: #0969da; }
+* { box-sizing: border-box; }
+[x-cloak] { display: none !important; }
+html, body { margin: 0; }
+dd, .list span, .card { min-width: 0; }
+body { overflow-wrap: anywhere;
+  font: 14px/1.5 -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  color: var(--fg); background: var(--bg); padding: 0 8px 72px; }
+input, select, textarea { font-size: 16px; }
+
+.top { padding: 8px 0 0; }
+.top-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.badge, .mode { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 13px;
+  border: 1px solid currentColor; max-width: 100%; }
+.b-ok { color: var(--ok); } .b-warn { color: var(--warn); } .b-gray { color: var(--gray); }
+.mode { color: var(--blue); } .mode.m-warn { color: var(--bad); }
+.legacy { margin-left: auto; color: var(--blue); }
+.warn { color: var(--bad); margin: 4px 0; word-break: break-word; }
+.note { color: var(--gray); font-size: 12px; margin: 4px 0; word-break: break-word; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px 12px; margin: 8px 0; }
+.card h2 { font-size: 15px; margin: 0 0 6px; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; }
+dt { color: var(--gray); } dd { margin: 0; text-align: right; word-break: break-all; }
+.up { color: var(--bad); } .down { color: var(--blue); }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { display: flex; flex-wrap: wrap; gap: 2px 8px; padding: 4px 0; border-top: 1px solid var(--line); }
+.list li:first-child { border-top: 0; }
+.list .t { color: var(--gray); font-size: 12px; }
+.list .p { margin-left: auto; }
+.list .msg { word-break: break-word; flex: 1 1 100%; }
+.empty { color: var(--gray); }
+/* 국내 관례: 매수·상승 빨강, 매도·하락 파랑 (글자도 함께 표시) */
+.buy { color: var(--bad); } .sell { color: var(--blue); } .muted { color: var(--gray); }
+.strong { font-weight: bold; }
+.lv { font-size: 12px; font-weight: bold; }
+.lv-error { color: var(--bad); } .lv-warning, .lv-warn { color: var(--warn); }
+
+.chart { width: 100%; height: 360px; }
+.pager { display: flex; gap: 8px; margin-top: 8px; }
+.pager button, .ops-grid button { flex: 1; padding: 8px; font-size: 14px; }
+.ops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ops-grid button { display: flex; flex-direction: column; align-items: center; color: var(--gray); }
+.ops-grid small { font-size: 11px; }
+
+.bottom { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--card);
+  border-top: 1px solid var(--line); }
+.bottom button, .bottom a { flex: 1; min-width: 0; padding: 12px 2px; text-align: center; font-size: 14px;
+  background: none; border: 0; color: var(--fg); text-decoration: none; }
+.bottom button.on { color: var(--blue); font-weight: bold; border-top: 2px solid var(--blue); }
+
+@media (max-width: 420px) { .chart { height: 300px; } body { font-size: 13px; } }

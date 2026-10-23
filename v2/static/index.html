@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>신버전 대시보드</title>
+<link rel="stylesheet" href="/v2/static/style.css">
+<script src="/v2/static/app.js"></script>
+<script src="/v2/static/vendor/lightweight-charts-4.2.0.standalone.production.js"></script>
+<script type="module">
+  import * as chartMod from "/v2/static/chart.js";
+  window.v2Chart = chartMod;
+</script>
+<script defer src="/v2/static/vendor/alpine-3.14.1.min.js"></script>
+</head>
+<body x-data="dash()" x-cloak>
+
+<header class="top">
+  <div class="top-row">
+    <span class="mode" :class="modeClass" x-text="modeText"></span>
+    <span id="engine-badge" class="badge" :class="engineClass"><span x-text="engineIcon"></span> <span x-text="engineText"></span></span>
+    <span class="badge b-warn" x-show="status && status.paused">일시정지 중</span>
+    <a class="legacy" href="/">구버전으로</a>
+  </div>
+  <p class="warn" x-show="status && status.mode_mismatch" x-text="mismatchText"></p>
+  <p class="note">구버전으로 돌아가면 다시 로그인해야 합니다.</p>
+  <p class="warn" x-show="authError">구버전에서 다시 들어와 주세요. (세션이 없거나 허용되지 않은 계정입니다)</p>
+  <p class="warn" x-show="netError" x-text="netError"></p>
+</header>
+
+<main>
+  <!-- 홈 -->
+  <div x-show="tab === 'home'">
+    <section class="card">
+      <h2>상태</h2>
+      <dl>
+        <dt>전략</dt><dd x-text="status && status.strategy && status.strategy.value || '—'"></dd>
+        <dt>종목</dt><dd x-text="status && status.ticker || '—'"></dd>
+        <dt>봉</dt><dd x-text="status && status.interval || '—'"></dd>
+        <dt>전환 예약</dt><dd>—</dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>자산</h2>
+      <dl>
+        <dt>KRW</dt><dd x-text="num(assets && assets.krw)"></dd>
+        <dt>KRW 잠김</dt><dd x-text="num(assets && assets.krw_locked)"></dd>
+        <dt>코인</dt><dd x-text="num(assets && assets.coin)"></dd>
+        <dt>코인 잠김</dt><dd x-text="num(assets && assets.coin_locked)"></dd>
+        <dt>평가손익</dt><dd :class="pnlClass" x-text="pnlText"></dd>
+        <dt>현재가</dt><dd><span x-text="num(assets && assets.price)"></span> <small x-text="'(엔진 기록 ' + kst(assets && assets.price_at) + ')'"></small></dd>
+      </dl>
+      <p class="note" x-text="'기록 시각 ' + kst(assets && assets.updated_at)"></p>
+    </section>
+
+    <section class="card">
+      <h2>포지션</h2>
+      <dl>
+        <dt>회차</dt><dd x-text="orDash(assets && assets.round)"></dd>
+        <dt>평단</dt><dd x-text="orDash(assets && assets.entry_price)"></dd>
+        <dt>TP 가격</dt><dd x-text="orDash(assets && assets.tp_price)"></dd>
+        <dt>SL 가격</dt><dd x-text="orDash(assets && assets.sl_price)"></dd>
+      </dl>
+    </section>
+
+    <section class="card">
+      <h2>최신 신호</h2>
+      <ul class="list">
+        <template x-for="row in signals" :key="row.kind + '-' + row.id">
+          <li>
+            <span class="t" x-text="kst(row.timestamp)"></span>
+            <span :class="signalClass(row)" x-text="signalText(row)"></span>
+            <span class="p" x-text="num(row.price)"></span>
+          </li>
+        </template>
+        <li x-show="signals.length === 0" class="empty">신호 기록이 없습니다.</li>
+      </ul>
+    </section>
+
+    <section class="card">
+      <h2>최근 거래 10건</h2>
+      <ul class="list">
+        <template x-for="t in trades" :key="t.id">
+          <li>
+            <span class="t" x-text="kst(t.timestamp)"></span>
+            <span :class="String(t.type).toUpperCase() === 'BUY' ? 'buy' : 'sell'" x-text="(String(t.type).toUpperCase() === 'BUY' ? '매수' : '매도') + (t.reason ? ' · ' + t.reason : '')"></span>
+            <span class="p" x-text="num(t.price) + ' × ' + num(t.qty)"></span>
+          </li>
+        </template>
+        <li x-show="trades.length === 0" class="empty">거래 기록이 없습니다.</li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- 차트 -->
+  <div x-show="tab === 'chart'">
+    <section class="card">
+      <h2>차트 <small x-text="status && status.ticker ? status.ticker + ' · ' + (status.interval || '') : ''"></small></h2>
+      <p class="warn" x-show="chartFail" x-text="chartFail"></p>
+      <p class="warn" x-show="chartNote" x-text="chartNote"></p>
+      <p class="note" x-show="!(status && status.ticker)">종목 정보가 없어 차트를 그릴 수 없습니다.</p>
+      <div id="chart" class="chart"></div>
+      <p class="note" x-text="chartLegend"></p>
+      <p class="note">마지막 봉(회색)은 형성 중입니다. 봉 데이터는 이 브라우저가 업비트에서 직접 받습니다(30초 간격).</p>
+    </section>
+  </div>
+
+  <!-- 로그 -->
+  <div x-show="tab === 'logs'">
+    <section class="card">
+      <h2>로그 <small x-text="'페이지 ' + logsPage"></small></h2>
+      <ul class="list">
+        <template x-for="l in logs" :key="l.id">
+          <li>
+            <span class="t" x-text="kst(l.timestamp)"></span>
+            <span :class="'lv lv-' + String(l.level).toLowerCase()" x-text="l.level"></span>
+            <span class="msg" x-text="l.message"></span>
+          </li>
+        </template>
+        <li x-show="logs.length === 0" class="empty">로그가 없습니다.</li>
+      </ul>
+      <div class="pager">
+        <button type="button" @click="loadLogs(logsPage - 1)" :disabled="logsPage <= 1">이전</button>
+        <button type="button" @click="loadLogs(logsPage + 1)" :disabled="logs.length < 50">다음</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 운용 -->
+  <div x-show="tab === 'ops'">
+    <section class="card" data-ops>
+      <h2>운용</h2>
+      <dl>
+        <dt>전략</dt><dd x-text="status && status.strategy && status.strategy.value || '—'"></dd>
+        <dt>모드</dt><dd x-text="modeText"></dd>
+        <dt>일시정지</dt><dd x-text="status ? (status.paused ? '일시정지 중' : '아님') : '—'"></dd>
+      </dl>
+      <p class="note">이 화면은 읽기 전용입니다. 아래 기능은 2차 공개 때 열림.</p>
+      <div class="ops-grid">
+        <button type="button" disabled>전략 전환 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>기존 전략 복귀 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>엔진 시작 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>엔진 정지 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>일시정지·재개 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>강제 매수 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>강제 매도 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>운용 설정 <small>2차 공개 때 열림</small></button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>구버전</h2>
+      <p><a class="legacy" href="/">구버전으로</a></p>
+      <p class="note">구버전으로 돌아가면 다시 로그인해야 합니다.</p>
+    </section>
+  </div>
+</main>
+
+<nav class="bottom">
+  <button type="button" :class="{on: tab === 'home'}" @click="go('home')">홈</button>
+  <button type="button" :class="{on: tab === 'chart'}" @click="go('chart')">차트</button>
+  <button type="button" :class="{on: tab === 'logs'}" @click="go('logs')">로그</button>
+  <button type="button" :class="{on: tab === 'ops'}" @click="go('ops')">운용</button>
+  <a href="/v2/static/backtester.html">백테스터</a>
+</nav>
+
+</body>
+</html>

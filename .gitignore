@@ -39,6 +39,8 @@ env/
 *.sh
 # scripts/ 폴더 및 하위 디렉터리 스크립트는 추적
 !scripts/**/*.sh
+# 신버전 화면 vendor 출처·라이선스 고지는 추적
+!v2/static/vendor/*.txt
 
 # 백업 디렉토리 (Boilerplate 적용 중 생성)
 .backup/
