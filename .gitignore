@@ -41,6 +41,8 @@ env/
 !scripts/**/*.sh
 # 신버전 화면 vendor 출처·라이선스 고지는 추적
 !v2/static/vendor/*.txt
+# 백테스터 이식 비교 시험의 Binance 고정 입력은 추적
+!tests/v2/js/fixtures/*.json
 
 # 백업 디렉토리 (Boilerplate 적용 중 생성)
 .backup/

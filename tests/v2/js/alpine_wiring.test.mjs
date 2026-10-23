@@ -59,6 +59,8 @@ test("chart draws, shows failure, and retries after gate under Alpine.reactive",
   Date.now = () => nowMs;
   const realST = globalThis.setTimeout;
   const realSI = globalThis.setInterval;
+  const realCT = globalThis.clearTimeout;
+  const realCI = globalThis.clearInterval;
   const timeouts = [];
   const intervals = [];
   globalThis.setTimeout = (fn, ms) => { timeouts.push({ fn, ms }); return timeouts.length; };
@@ -130,5 +132,7 @@ test("chart draws, shows failure, and retries after gate under Alpine.reactive",
     Date.now = realNow;
     globalThis.setTimeout = realST;
     globalThis.setInterval = realSI;
+    globalThis.clearTimeout = realCT;
+    globalThis.clearInterval = realCI;
   }
 });
