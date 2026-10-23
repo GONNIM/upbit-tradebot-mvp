@@ -9,7 +9,7 @@ from typing import Optional
 import tornado.web
 from tornado.log import access_log
 
-from v2 import auth
+from v2 import api_read, auth
 from v2.handlers import EntryHandler, StaticHandler
 
 HOST = "127.0.0.1"
@@ -39,7 +39,8 @@ def make_app(static_dir: Optional[Path] = None,
     routes = [
         (r"/v2/?", EntryHandler),
         (r"/v2/static/(.*)", StaticHandler, {"path": str(static_dir)}),
-        # Task 4: v2.api_read 라우트, Task 8: v2.api_write 라우트가 여기에 추가된다.
+        *api_read.ROUTES,
+        # Task 8: v2.api_write 라우트가 여기에 추가된다.
     ]
     return tornado.web.Application(
         routes,
