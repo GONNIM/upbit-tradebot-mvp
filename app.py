@@ -4,6 +4,7 @@ import logging
 import streamlit as st
 import streamlit_authenticator as stauth
 from ui.style import style_main
+from ui.v2_entry import render_v2_entry
 from config import MIN_CASH, ACCESS, SECRET, DEFAULT_STRATEGY_TYPE
 from services.db import get_user, save_user
 from engine.params import load_active_strategy
@@ -553,6 +554,8 @@ elif authentication_status:
 
     live_ready = bool(st.session_state.get("upbit_verified")) and bool(st.session_state.get("live_capital_set"))
 
+    # 신버전 입장 버튼 (허용 목록 사용자만 보임, username 직접 사용)
+    render_v2_entry(username, st.session_state.get("mode", "TEST"))
     start_setting = st.button(
         f"Upbit Trade Bot v1 ({mode_suffix}) 파라미터 설정하기",
         key="btn_start_setting",
