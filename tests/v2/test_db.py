@@ -39,7 +39,7 @@ class DbTestBase(unittest.TestCase):
 class TestDb(DbTestBase):
     def test_valid_user_id(self):
         self.assertTrue(db.valid_user_id("mcmax33"))
-        for bad in ("", "../x", "a" * 33, "a-b"):
+        for bad in ("", "../x", "a" * 33, "a-b", "alice\n"):
             self.assertFalse(db.valid_user_id(bad), bad)
 
     def test_open_live_ro_missing_creates_nothing(self):

@@ -82,3 +82,5 @@ WO-2026-001_IMPLEMENTATION_REPORT.md
 
 # 검산용 번들 zip (커밋 제외)
 docs/plans/*/*.zip
+.v2_secret
+.v2_allowlist

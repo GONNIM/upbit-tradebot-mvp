@@ -36,7 +36,7 @@ _HIST_DDL = (
 
 
 def valid_user_id(user_id: str) -> bool:
-    return isinstance(user_id, str) and bool(_USER_ID_RE.match(user_id))
+    return isinstance(user_id, str) and bool(_USER_ID_RE.fullmatch(user_id))
 
 
 def _require_user(user_id: str) -> None:
