@@ -146,6 +146,19 @@ fi
 echo "  ✅ 모든 pages/*.py typing 심볼 임포트 OK"
 echo ""
 
+# v2 (신버전 대시보드) 시험 — 회귀 단계가 통과 시 exit 0 하므로 그 앞에서 판정
+echo "▶ v2 시험 실행 (tests/v2/)..."
+if python3 -m unittest discover -s tests/v2 -t . -v; then
+    echo "✅ v2 시험 통과"
+    echo ""
+else
+    echo ""
+    echo "=========================================="
+    echo "🚨 v2 시험 실패 — 배포 중단"
+    echo "=========================================="
+    exit 1
+fi
+
 # 회귀 테스트 실행
 echo "▶ 회귀 테스트 스위트 실행 (tests/regressions/)..."
 if python3 -m unittest discover -s tests/regressions -v 2>&1 | tee /tmp/regression_gate.log | tail -5; then
