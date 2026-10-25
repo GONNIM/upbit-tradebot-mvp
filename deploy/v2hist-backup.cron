@@ -1,0 +1,5 @@
+# v2hist 이력 DB 주간 백업 — 매주 일요일 11:30. 설치는 `crontab -e` 로 아래 한 줄을 추가(배포 승인 대상).
+# 파일이 있을 때만 실행하고, umask 077 로 백업이 만들어지는 순간부터 권한 600 이 되게 한다.
+# 이름은 v2hist_mcmax33_YYYYMMDD.db — 기존 정리 스크립트(cleanup_tradebot_db.sh)의 패턴과 겹치지 않는다.
+# cron 에서는 퍼센트 기호를 역슬래시로 이스케이프해야 한다. 오래된 백업은 지우지 않고 정기 점검에서 용량을 본다.
+30 11 * * 0 umask 077; D=$(date +\%Y\%m\%d); [ -f /root/upbit-tradebot-mvp/services/data/v2hist_mcmax33.db ] && sqlite3 -cmd ".timeout 5000" /root/upbit-tradebot-mvp/services/data/v2hist_mcmax33.db ".backup /root/upbit-tradebot-mvp/services/data/backups/v2hist_mcmax33_${D}.db" && chmod 600 /root/upbit-tradebot-mvp/services/data/backups/v2hist_mcmax33_${D}.db

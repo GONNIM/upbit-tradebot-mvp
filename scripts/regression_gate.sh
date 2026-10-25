@@ -159,6 +159,25 @@ else
     exit 1
 fi
 
+# v2 JS 시험 (결정 1023-05 나) — 서버에는 node 가 없으므로 없으면 건너뜀(로컬 pre-push 에서는 항상 돈다)
+if command -v node >/dev/null 2>&1; then
+    echo "▶ v2 JS 시험 (tests/v2/js/)..."
+    # 따옴표 없는 셸 glob: 따옴표 glob 은 node 21 이상에서만 node 가 풀어 준다
+    if node --test tests/v2/js/*.test.mjs; then
+        echo "✅ v2 JS 시험 통과"
+        echo ""
+    else
+        echo ""
+        echo "=========================================="
+        echo "🚨 v2 JS 시험 실패 — 배포 중단"
+        echo "=========================================="
+        exit 1
+    fi
+else
+    echo "⚠️  node 없음 — v2 JS 시험 건너뜀 (서버 환경)"
+    echo ""
+fi
+
 # 회귀 테스트 실행
 echo "▶ 회귀 테스트 스위트 실행 (tests/regressions/)..."
 if python3 -m unittest discover -s tests/regressions -v 2>&1 | tee /tmp/regression_gate.log | tail -5; then

@@ -1,0 +1,38 @@
+# 신버전 대시보드(v2) 서비스 유닛 — 설치 위치: /etc/systemd/system/tradebot-v2.service
+# 설치·enable 은 배포 승인 대상이다(docs/operations/v2-runbook.md 참조).
+#
+# 계정을 추가하면 아래 ReadWritePaths 에 그 계정의 <user>_latest_params_PULLBACK.json 을 더하고
+# `systemctl daemon-reload` 뒤 `systemctl restart tradebot-v2` 한다(runbook 「계정 추가」).
+# `-` 접두는 「없으면 무시」라서, 파일이 없는 채로 두면 저장 API 가 500 「배포 설정 누락」이 된다.
+# 비밀 파일(.env 등)은 InaccessiblePaths 로 가리고, EnvironmentFile 은 쓰지 않는다.
+
+[Unit]
+Description=Upbit Tradebot v2 dashboard (read API, save-only backtester)
+After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/upbit-tradebot-mvp
+ExecStart=/root/upbit-tradebot-mvp/venv/bin/python -m v2.server
+Environment=PYTHONUNBUFFERED=1
+ProtectSystem=strict
+ReadWritePaths=-/root/upbit-tradebot-mvp/services/data -/root/upbit-tradebot-mvp/mcmax33_latest_params_PULLBACK.json
+InaccessiblePaths=-/root/upbit-tradebot-mvp/.env -/root/upbit-tradebot-mvp/.streamlit/secrets.toml -/root/upbit-tradebot-mvp/credentials.yaml
+PrivateTmp=yes
+NoNewPrivileges=yes
+UMask=0077
+CapabilityBoundingSet=
+AmbientCapabilities=
+MemoryMax=150M
+MemorySwapMax=0
+OOMScoreAdjust=500
+Nice=10
+CPUWeight=50
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
