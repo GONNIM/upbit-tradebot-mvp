@@ -88,3 +88,5 @@ WO-2026-001_IMPLEMENTATION_REPORT.md
 docs/plans/*/*.zip
 .v2_secret
 .v2_allowlist
+# 신버전 대시보드 Fable 번들 zip (docs/specs 작업 폴더)
+docs/specs/*/*.zip
