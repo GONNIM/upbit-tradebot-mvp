@@ -12,14 +12,22 @@ systemd:
     TRADEBOT_PORT (기본 8501), TRADEBOT_ADDRESS (기본 0.0.0.0),
     TRADEBOT_BOOT_DELAY (기본 3초 — 서버 기동 로그가 먼저 찍히도록 두는 짧은 지연)
     TRADEBOT_BOOT_RESUME=0 이면 기동 재개를 끈다 (서버만 기동, 기존 첫 접속 재개와 같음)
+
+엔진 생존 파일 (2026-10-25, 신버전 대시보드 「트레이딩 엔진 상태」):
+    데몬 스레드 engine_alive 가 5초마다 services/data/.engine_alive.json 에
+    {"pid", "at"(KST ISO), "running": {계정: 엔진 스레드가 살아 있는가}} 를 쓴다(임시 파일 → os.replace, 600).
+    읽기·파일 쓰기만 한다. 이 스레드가 실패해도 엔진·서버는 영향이 없고 신버전은 Stopped 로 보인다.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
 import threading
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(ROOT)
@@ -30,6 +38,10 @@ logger = logging.getLogger("tradebot_boot")
 
 BOOT_STARTED_AT = time.time()
 
+ENGINE_ALIVE_PATH = os.path.join(ROOT, "services", "data", ".engine_alive.json")
+ENGINE_ALIVE_INTERVAL_SEC = 5
+_KST = ZoneInfo("Asia/Seoul")
+
 
 def _boot_resume_thread() -> None:
     try:
@@ -38,6 +50,71 @@ def _boot_resume_thread() -> None:
         boot_resume_all(boot_started_at=BOOT_STARTED_AT)
     except Exception as e:  # 기동 재개 실패가 서버 기동을 막으면 안 된다
         logging.getLogger("engine.boot_resume").error(f"[BOOT-RESUME] 기동 스레드 예외: {type(e).__name__}: {e}")
+
+
+def _write_engine_alive(path: str, running: dict) -> None:
+    """임시 파일에 쓴 뒤 os.replace(원자적). 권한 600."""
+    body = {"pid": os.getpid(), "at": datetime.now(_KST).isoformat(), "running": running}
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(body))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def engine_alive_tick(manager, path: str = None) -> dict:
+    """한 번 기록한다: 엔진 스레드 목록의 계정별 「get_running_mode(계정) is not None」.
+    (구버전 대시보드 is_running 과 같은 _threads[계정].is_alive() — 세션 참조 없음)"""
+    running = {}
+    for uid in manager.get_active_user_ids():
+        running[str(uid)] = manager.get_running_mode(uid) is not None
+    _write_engine_alive(path or ENGINE_ALIVE_PATH, running)
+    return running
+
+
+def _engine_alive_manager():
+    from engine.engine_manager import engine_manager  # 스레드 안에서 지연 import (기동을 막지 않는다)
+    return engine_manager
+
+
+def _engine_alive_loop(path: str = None, interval: float = ENGINE_ALIVE_INTERVAL_SEC,
+                       get_manager=_engine_alive_manager, stop: threading.Event = None,
+                       start_delay: float = 0.0) -> None:
+    stop = stop or threading.Event()
+    # 기동 직후 boot_resume·대시보드와 engine_manager 를 동시에 import 하지 않도록 먼저 기다린다
+    if start_delay > 0 and stop.wait(start_delay):
+        return
+    try:
+        manager = get_manager()
+    except Exception as e:  # 감시 스레드 실패는 서버·엔진에 영향이 없다(신버전은 Stopped 로 보임)
+        logger.error(f"[ENGINE-ALIVE] 시작 실패: {type(e).__name__}: {e}")
+        return
+    failed = False
+    while not stop.is_set():
+        try:
+            engine_alive_tick(manager, path)
+            failed = False
+        except Exception as e:  # 한 번 실패해도 계속 시도한다. 같은 오류는 처음 한 번만 남긴다
+            if not failed:
+                logger.error(f"[ENGINE-ALIVE] 기록 실패: {type(e).__name__}: {e}")
+            failed = True
+        stop.wait(interval)
+
+
+def _engine_alive_thread() -> None:
+    try:
+        # boot_resume(TRADEBOT_BOOT_DELAY 뒤 import)보다 늦게 시작한다
+        _engine_alive_loop(start_delay=float(os.environ.get("TRADEBOT_BOOT_DELAY", "3")) + 2.0)
+    except Exception as e:
+        logger.error(f"[ENGINE-ALIVE] 스레드 예외: {type(e).__name__}: {e}")
 
 
 def main() -> None:
@@ -63,6 +140,11 @@ def main() -> None:
 
     if os.environ.get("TRADEBOT_BOOT_RESUME", "1") != "0":
         threading.Thread(target=_boot_resume_thread, name="boot_resume", daemon=True).start()
+
+    try:
+        threading.Thread(target=_engine_alive_thread, name="engine_alive", daemon=True).start()
+    except Exception as e:  # 스레드를 못 띄워도 서버(bootstrap.run)는 반드시 기동한다
+        logger.error(f"[ENGINE-ALIVE] 스레드 시작 실패: {type(e).__name__}: {e}")
 
     bootstrap.run(main_script, False, [], flag_options)
 

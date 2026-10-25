@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "v2" / "static"
 VENDOR = STATIC / "vendor"
 URL_RE = re.compile(r"https?://([A-Za-z0-9.\-]+)")
-OWN = ["index.html", "app.js", "chart.js", "style.css"]
+OWN = ["index.html", "app.js", "chart.js", "style.css", "basic.js", "basic.css"]
 
 
 def _read(name):

@@ -78,10 +78,20 @@ def build_fake_root(root: Path, user: str = USER) -> dict:
         conn.execute("INSERT INTO audit_trades(timestamp, bar_time, ticker, type, reason, "
                      "price, qty, entry_price) VALUES (?,?,?,?,?,?,?,?)",
                      (_ts(t), _ts(t), ticker, "SELL", "TAKE_PROFIT", 420.0, 500.0, 400.0))
-        for i in range(60):  # 2쪽 확인용
+        # 기본 기능 블록 확인용 orders: 닫힌 거래(BUY 395 → SELL 410) 뒤 열린 BUY(400)
+        for k, (hours, side, price) in enumerate(((5, "BUY", 395.0), (4, "SELL", 410.0), (2, "BUY", 400.0))):
+            t = now - timedelta(hours=hours)
+            conn.execute(
+                "INSERT INTO orders(user_id, timestamp, ticker, side, price, volume, status, state, "
+                "avg_price, executed_volume, executed_at, updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (user, _ts(t), ticker, side, price, 1000.0, "completed", "completed",
+                 price, 1000.0, t.isoformat(), t.isoformat()))
+        for i in range(60):  # 2쪽 확인용 (가장 최신 1줄은 기본 기능 블록의 「최종 상태 로그」용 이모지 접두)
             t = now - timedelta(seconds=30 * i)
+            msg = "✅ 엔진 정상 동작 (dev)" if i == 0 else "dev log %d" % i
             conn.execute("INSERT INTO logs(user_id, timestamp, level, message) "
-                         "VALUES (?,?,?,?)", (user, _ts(t), "INFO", "dev log %d" % i))
+                         "VALUES (?,?,?,?)", (user, _ts(t), "INFO", msg))
         conn.commit()
     finally:
         conn.close()
@@ -102,6 +112,17 @@ def build_fake_root(root: Path, user: str = USER) -> dict:
     dash.write_text('st.markdown("v1.2026.10.23.0000")\n', encoding="utf-8")
     return {"db": db_path, "secret": secret, "allowlist": allow, "active": active,
             "params": params, "dashboard": dash, "data_dir": data}
+
+
+def write_engine_alive(data_dir: Path, user: str = USER) -> None:
+    """엔진 프로세스가 5초마다 쓰는 .engine_alive.json 흉내(개발 전용). 임시 파일 → replace."""
+    import json
+    path = Path(data_dir) / ".engine_alive.json"
+    tmp = path.with_name(path.name + ".tmp")
+    body = {"pid": os.getpid(), "at": datetime.now(db.KST).isoformat(), "running": {user: True}}
+    tmp.write_text(json.dumps(body), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
 
 
 def point_modules_to(root: Path) -> None:
@@ -147,6 +168,13 @@ def main() -> None:
         app = make_app(allowed_origin=f"http://{args.host_origin}:{args.port}",
                        cookie_secure=not args.insecure_cookie)
         app.listen(args.port, address="127.0.0.1")
+
+        async def _alive_loop():
+            while True:
+                write_engine_alive(tmp / "services" / "data")
+                await asyncio.sleep(5)
+
+        asyncio.get_running_loop().create_task(_alive_loop())
         token = et.make_token(USER, "TEST")
         print("입장 URL (60초 안에 1회): http://%s:%d/v2/?t=%s"
               % (args.host_origin, args.port, token))

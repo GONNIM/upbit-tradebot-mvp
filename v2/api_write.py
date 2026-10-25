@@ -1,6 +1,9 @@
-"""신버전 대시보드 쓰기 API: 「저장만 하기」 (POST /v2/api/params/save, GET /v2/api/params/current).
+"""신버전 대시보드 쓰기 API: 「저장만 하기」 (POST /v2/api/params/save, GET /v2/api/params/current),
+매매 중지/재개 (POST /v2/api/pause), 로그아웃 (POST /v2/api/logout).
 
-- 쓰는 곳은 PULLBACK 파라미터 파일 하나(제자리 덮어쓰기)와 신버전 이력 DB(v2hist)뿐이다.
+- 매매 중지/재개는 v2.db.set_paused 한 함수만 실매매 DB 에 쓴다(users.trading_paused 한 칸 + logs 한 줄).
+  로그아웃은 신버전 세션 쿠키(v2s)만 지운다.
+- 「저장만 하기」가 쓰는 곳은 PULLBACK 파라미터 파일 하나(제자리 덮어쓰기)와 신버전 이력 DB(v2hist)뿐이다.
   실매매 DB 와 EMA·MACD 파라미터 파일, active_strategy 파일은 건드리지 않는다.
 - 임시 파일+rename 은 쓰지 않는다(E18: 서비스 유닛이 그 파일 하나만 쓰기 허용).
 - 6단계(파일 쓰기)와 7단계(이력) 사이에 프로세스가 죽으면 파일은 새 값·이력은 없는 틈이 남는다
@@ -11,9 +14,10 @@ import json
 import logging
 import os
 import re
+import sqlite3
 from datetime import datetime
 
-from v2 import db, params_schema
+from v2 import auth, db, params_schema
 from v2.handlers import ApiHandler
 
 log = logging.getLogger(__name__)
@@ -162,7 +166,40 @@ class CurrentHandler(ApiHandler):
                         "mtime": mtime, "broken": broken})
 
 
+class PauseHandler(ApiHandler):
+    """POST /v2/api/pause {"paused": true|false} — Origin·세션·허용 목록은 ApiHandler 가 확인."""
+
+    def post(self):
+        raw = self.request.body or b""
+        if len(raw) > 1024:
+            return self.send_json({"error": "bad_request"}, 400)
+        try:
+            req = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.send_json({"error": "bad_request"}, 400)
+        if not isinstance(req, dict) or not isinstance(req.get("paused"), bool):
+            return self.send_json({"error": "bad_request"}, 400)
+        user = self.current_user["user_id"]
+        try:
+            db.set_paused(user, req["paused"])
+        except FileNotFoundError:
+            return self.send_json({"error": "no_data"}, 404)
+        except sqlite3.Error:
+            return self.send_json({"error": "db_unavailable"}, 503)
+        self.send_json({"ok": True, "paused": req["paused"]})
+
+
+class LogoutHandler(ApiHandler):
+    """POST /v2/api/logout — 이 브라우저의 신버전 세션 쿠키만 지운다(서버 폐기 없음)."""
+
+    def post(self):
+        self.clear_cookie(auth.SESSION_COOKIE, path="/v2/")
+        self.send_json({"ok": True, "redirect": "/"})
+
+
 ROUTES = [
+    (r"/v2/api/pause", PauseHandler),
+    (r"/v2/api/logout", LogoutHandler),
     (r"/v2/api/params/save", SaveHandler),
     (r"/v2/api/params/current", CurrentHandler),
 ]

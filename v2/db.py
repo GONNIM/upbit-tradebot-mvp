@@ -1,6 +1,6 @@
 """신버전 대시보드용 경량 DB·설정 모듈 (표준 라이브러리만 사용).
 
-- 실매매 DB 는 읽기 전용 URI 로만 연다(파일 생성·쓰기 불가).
+- 실매매 DB 는 읽기 전용 URI 로만 연다(파일 생성·쓰기 불가). 예외는 set_paused 한 함수(매매 중지/재개).
 - 신버전 전용 이력 DB(v2hist)만 쓰기 가능하며 실매매 DB 와 파일이 다르다.
 """
 import json
@@ -121,6 +121,45 @@ def app_version() -> Optional[str]:
 
 def now_kst_iso() -> str:
     return datetime.now(KST).isoformat()
+
+
+# 실매매 DB 쓰기는 set_paused 한 함수의 아래 두 문장뿐이다(시험이 소스를 읽어 고정한다).
+WRITE_SQL_PAUSED = ("INSERT INTO users (username, trading_paused) VALUES (?, ?) "
+                    "ON CONFLICT(username) DO UPDATE SET trading_paused = excluded.trading_paused")
+WRITE_SQL_LOG = ("INSERT INTO logs (user_id, timestamp, level, message) "
+                 "VALUES (?, ?, 'INFO', ?)")
+PAUSE_LOG_ON = "⏸️ 매매 일시중지 (사용자 요청)"
+PAUSE_LOG_OFF = "▶️ 매매 재개 (사용자 요청)"
+
+
+def set_paused(user_id: str, paused: bool) -> None:
+    """매매 중지/재개 — 신버전이 실매매 DB 에 쓰는 유일한 곳.
+
+    구버전 services/db.py set_trading_paused + insert_log 와 같은 열·같은 값.
+    BEGIN IMMEDIATE 로 두 문장을 한 트랜잭션에 묶고, 실패하면 ROLLBACK 한 뒤 예외를 다시 던진다.
+    DB 파일이 없으면 FileNotFoundError(파일을 만들지 않음 — mode=rw).
+    """
+    p = live_db_path(user_id)
+    if not p.exists():
+        raise FileNotFoundError(str(p))
+    conn = sqlite3.connect(_uri(p, "rw"), uri=True, timeout=BUSY_TIMEOUT_MS / 1000,
+                           isolation_level=None)
+    try:
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            conn.execute(WRITE_SQL_PAUSED, (user_id, 1 if paused else 0))
+            conn.execute(WRITE_SQL_LOG, (user_id, now_kst_iso(),
+                                         PAUSE_LOG_ON if paused else PAUSE_LOG_OFF))
+            conn.execute("COMMIT")
+        except BaseException:
+            try:
+                conn.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+            raise
+    finally:
+        conn.close()
 
 
 def parse_ts(s: str) -> datetime:

@@ -4,6 +4,7 @@
 - 실매매 DB 는 v2.db.query() 로만 읽는다(읽기 전용·LIMIT 필수·2초 상한).
 - 시각은 모두 KST ISO(+09:00) 로 돌려준다(DB 에는 ISO 와 'YYYY-MM-DD HH:MM:SS' 가 섞여 있음).
 """
+import json
 import re
 import sqlite3
 from datetime import datetime
@@ -11,7 +12,7 @@ from typing import Optional
 
 from v2 import db
 from v2.handlers import ApiHandler
-from v2.status import engine_state, interval_sec, mode_state
+from v2.status import engine_alive_running, engine_state, interval_sec, mode_state
 
 # ---- SQL (모듈 상수; 시험이 SQL_ 로 시작하는 상수 전부를 검사한다) ----
 # 종목 조건이 있으면 `WHERE ticker=? ORDER BY timestamp DESC`(idx_*_ticker_ts),
@@ -52,10 +53,44 @@ SQL_LOGS = ("SELECT id, timestamp, level, message FROM logs "
 SQL_MARKERS = ("SELECT type, price, bar_time FROM audit_trades "
                "WHERE ticker=? ORDER BY timestamp DESC, id DESC LIMIT 200")
 
+# ---- 기본 기능 블록(GET /v2/api/basic) ----
+# 최종 상태 로그: services/db.py get_last_status_log_from_db 와 같은 조건(이모지 접두 9종).
+# user_id 만 바인딩, 접두는 문자 그대로. 서버 EXPLAIN: idx_logs_user_ts 사용.
+SQL_LAST_STATUS_LOG = (
+    "SELECT timestamp, message FROM logs WHERE user_id=? "
+    "AND level IN ('INFO','BUY','SELL') "
+    "AND (message LIKE '🚀%' OR message LIKE '🔌%' OR message LIKE '🛑%' "
+    "OR message LIKE '✅%' OR message LIKE '⚠️%' OR message LIKE '📡%' "
+    "OR message LIKE '🔄%' OR message LIKE '❌%' OR message LIKE '🚨%') "
+    "ORDER BY timestamp DESC LIMIT 1")
+# 진입가: 구버전 get_last_open_buy_order(services/db.py:1844-2042)의 3단계를 종목 단위로 직접 조회한다.
+# 정렬은 id(구버전은 COALESCE(executed_at, updated_at, timestamp)) — 계획서 1-1 「알려진 차이」.
+SQL_ORDERS_LAST_BUY_FILLED = (
+    "SELECT id, COALESCE(avg_price, price) AS price, COALESCE(executed_at, updated_at) AS ts "
+    "FROM orders WHERE user_id=? AND ticker=? AND side='BUY' "
+    "AND (state IN ('completed','filled','FILLED') OR (state='CANCELED' AND executed_volume>0)) "
+    "ORDER BY id DESC LIMIT 1")
+SQL_ORDERS_LAST_BUY_ANY = (
+    "SELECT id, COALESCE(avg_price, price) AS price, COALESCE(executed_at, updated_at) AS ts "
+    "FROM orders WHERE user_id=? AND ticker=? AND side='BUY' ORDER BY id DESC LIMIT 1")
+SQL_ORDERS_MAX_BUY_ID = (
+    "SELECT MAX(id) AS m FROM orders WHERE user_id=? AND ticker=? AND side='BUY' "
+    "AND state IN ('completed','filled','FILLED') LIMIT 1")
+SQL_ORDERS_MAX_SELL_ID = (
+    "SELECT MAX(id) AS m FROM orders WHERE user_id=? AND ticker=? AND side='SELL' "
+    "AND state IN ('completed','filled','FILLED') LIMIT 1")
+SQL_HTS_SELL_AFTER = ("SELECT id, timestamp FROM audit_trades "
+                      "WHERE ticker=? AND type='HTS_SELL' AND timestamp > ? "
+                      "ORDER BY timestamp LIMIT 1")
+# 실현: 구버전 fetch_recent_orders(user_id, limit=50) 와 같은 최근 50건
+SQL_ORDERS_RECENT = ("SELECT ticker, side, price FROM orders WHERE user_id=? "
+                     "ORDER BY id DESC LIMIT 50")
+
 ALL_SQL = [v for k, v in sorted(globals().items())
            if k.startswith("SQL_") and isinstance(v, str)]
 
 DEFAULT_BAR_SEC = 180
+ENGINE_ALIVE_FILE = ".engine_alive.json"   # 엔진 프로세스(scripts/tradebot_boot.py)가 services/data 에 5초마다 씀
 MAX_LIMIT = 50
 LOGS_PAGE_SIZE = 50
 MAX_PAGE = 100000
@@ -336,7 +371,128 @@ class MarkersHandler(ReadHandler):
         self.send_json({"markers": rows})
 
 
+def entry_price_open(user_id: str, ticker: str) -> Optional[float]:
+    """미실현 💹 칸의 진입가. 구버전 get_last_open_buy_order 와 같은 3단계(계획서 1-1).
+
+    1) 체결 BUY 최신 1건 → 2) 있으면 이후 SELL·HTS_SELL 이 있는지 보고 청산이면 None
+    3) 없으면 상태 조건 없이 같은 조회 → 같은 두 검사. 가격 열이 비면 None.
+    """
+    def closed(row) -> bool:
+        b = db.query(user_id, SQL_ORDERS_MAX_BUY_ID, (user_id, ticker))
+        s = db.query(user_id, SQL_ORDERS_MAX_SELL_ID, (user_id, ticker))
+        buy_id = b[0]["m"] if b else None
+        sell_id = s[0]["m"] if s else None
+        if buy_id is not None and sell_id is not None and sell_id > buy_id:
+            return True
+        ts = row.get("ts")
+        if ts:
+            hts = db.query(user_id, SQL_HTS_SELL_AFTER, (ticker, ts))
+            if hts:
+                return True
+        return False
+
+    for sql in (SQL_ORDERS_LAST_BUY_FILLED, SQL_ORDERS_LAST_BUY_ANY):
+        rows = db.query(user_id, sql, (user_id, ticker))
+        if not rows:
+            continue
+        row = rows[0]
+        if closed(row):
+            return None
+        price = row.get("price")
+        return float(price) if price else None
+    return None
+
+
+def realized_pct(user_id: str, ticker: str) -> Optional[float]:
+    """최근 50건 주문에서 이 종목의 가장 최근 SELL 과 그보다 오래된 가장 가까운 BUY 의 price 열 수익률(%).
+    구버전 pages/dashboard.py 888-907 과 같은 순회. 50건 안에 없으면 None."""
+    orders = db.query(user_id, SQL_ORDERS_RECENT, (user_id,))
+    for i, o in enumerate(orders):
+        if o["ticker"] != ticker or o["side"] != "SELL":
+            continue
+        try:
+            sell = float(o["price"])
+        except (TypeError, ValueError):
+            return None
+        for p in orders[i + 1:]:
+            if p["ticker"] == ticker and p["side"] == "BUY":
+                try:
+                    buy = float(p["price"])
+                except (TypeError, ValueError):
+                    return None
+                return (sell - buy) / buy * 100.0 if buy else None
+        return None   # 가장 최근 SELL 만 본다
+    return None
+
+
+def status_log_text(row) -> str:
+    """구버전 get_last_status_log_from_db 와 같은 표기."""
+    if not row:
+        return "❌ 상태 로그 없음"
+    ts = row["timestamp"]
+    try:
+        shown = datetime.fromisoformat(ts).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        shown = ts
+    return "[%s] %s" % (shown, row["message"])
+
+
+class BasicHandler(ReadHandler):
+    """기본 기능 블록용: 버전·최종 상태 로그·엔진 생존·💹 칸 계산(구버전 같은 식).
+
+    모드·일시중지·자산 숫자는 기존 /status·/assets 가 준다(basic.js 가 세 개를 함께 읽는다).
+    """
+
+    def get(self):
+        self._guard(self._get)
+
+    def _get(self):
+        user_id, _v, _m, ticker, _i = self._context()
+        now = datetime.now(db.KST)
+
+        logs = db.query(user_id, SQL_LAST_STATUS_LOG, (user_id,))
+        last_log = status_log_text(logs[0] if logs else None)
+
+        try:
+            with open(db.DATA_DIR / ENGINE_ALIVE_FILE, "rb") as f:
+                alive_data = json.loads(f.read(65536).decode("utf-8"))
+        except (OSError, ValueError):
+            alive_data = None
+        engine_running = engine_alive_running(alive_data, user_id, now)
+
+        # 💹 칸: 가용 수량 > 0 이면 미실현, 아니면 실현 (dashboard.py:863)
+        pnl_kind, pnl_pct = "realized", None
+        coin = 0.0
+        price = None
+        if ticker:
+            pos = db.query(user_id, SQL_POSITION, (user_id, ticker))
+            coin = _num(pos[0].get("virtual_coin") if pos else 0, 0)
+            best = None
+            for sql in (SQL_BUY_EVAL_LATEST, SQL_SELL_EVAL_LATEST):
+                rows = db.query(user_id, sql, (ticker,))
+                t = _dt(rows[0]["timestamp"]) if rows else None
+                if t is not None and (best is None or t > best):
+                    best, price = t, rows[0]["price"]
+            if coin > 0:
+                pnl_kind = "unrealized"
+                entry = entry_price_open(user_id, ticker)
+                if entry and price:
+                    pnl_pct = (float(price) - entry) / entry * 100.0
+            else:
+                pnl_pct = realized_pct(user_id, ticker)
+
+        self.send_json({
+            "version": db.app_version(),
+            "account": user_id,
+            "last_status_log": last_log,
+            "engine_running": engine_running,
+            "pnl_kind": pnl_kind,
+            "pnl_pct": pnl_pct,
+        })
+
+
 ROUTES = [
+    (r"/v2/api/basic", BasicHandler),
     (r"/v2/api/status", StatusHandler),
     (r"/v2/api/assets", AssetsHandler),
     (r"/v2/api/trades", TradesHandler),

@@ -28,6 +28,21 @@ CREATE_STATEMENTS = [
         );
     """,
     """
+        CREATE TABLE IF NOT EXISTS orders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT,
+            timestamp TEXT DEFAULT (DATETIME('now', 'localtime')),
+            ticker TEXT,
+            side TEXT,
+            price REAL,
+            volume REAL,
+            status TEXT,
+            current_krw INTEGER DEFAULT 0,      -- ✅ 현재 KRW 잔고
+            current_coin REAL DEFAULT 0.0,      -- ✅ 현재 보유 코인
+            profit_krw INTEGER DEFAULT 0        -- ✅ 매도 수익 (매수 시 0)
+        );
+    """,
+    """
         CREATE TABLE IF NOT EXISTS logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT,
@@ -126,6 +141,7 @@ CREATE_STATEMENTS = [
 ]
 
 INDEX_STATEMENTS = [
+    "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id);",
     "CREATE INDEX IF NOT EXISTS idx_logs_user_ts ON logs(user_id, timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_audit_buy_eval_ts ON audit_buy_eval(timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_audit_buy_eval_ticker_ts ON audit_buy_eval(ticker, timestamp);",
@@ -133,11 +149,22 @@ INDEX_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_audit_trades_ticker_ts ON audit_trades(ticker, timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_audit_sell_eval_ts ON audit_sell_eval(timestamp);",
     "CREATE INDEX IF NOT EXISTS idx_audit_sell_eval_ticker_ts ON audit_sell_eval(ticker, timestamp);",
+    "CREATE INDEX IF NOT EXISTS idx_orders_user_ticker ON orders(user_id, ticker)",
 ]
 
 # init_db.py 의 마이그레이션 순서(737,826,842,928,942,955,968,981,996-998).
 # 827-828, 843-844 의 인덱스는 해당 ALTER 바로 뒤에 둔다.
 ALTER_STATEMENTS = [
+    # orders 확장 열(init_db.ensure_orders_extended_schema) — 기본 기능 블록의 진입가·실현 계산이 읽는 열
+    "ALTER TABLE orders ADD COLUMN provider_uuid TEXT",
+    "ALTER TABLE orders ADD COLUMN state TEXT",
+    "ALTER TABLE orders ADD COLUMN executed_volume REAL",
+    "ALTER TABLE orders ADD COLUMN avg_price REAL",
+    "ALTER TABLE orders ADD COLUMN paid_fee REAL",
+    "ALTER TABLE orders ADD COLUMN requested_at TEXT",
+    "ALTER TABLE orders ADD COLUMN executed_at TEXT",
+    "ALTER TABLE orders ADD COLUMN canceled_at TEXT",
+    "ALTER TABLE orders ADD COLUMN updated_at TEXT",
     "ALTER TABLE audit_trades ADD COLUMN bar_time TEXT",
     "ALTER TABLE audit_buy_eval ADD COLUMN bar_time TEXT",
     "CREATE INDEX IF NOT EXISTS idx_audit_buy_eval_bar_time ON audit_buy_eval(bar_time)",
@@ -249,7 +276,7 @@ class ApiBase(AsyncHTTPTestCase):
 
 
 class TestAuthOnRoutes(ApiBase):
-    PATHS = ["/v2/api/status", "/v2/api/assets", "/v2/api/trades",
+    PATHS = ["/v2/api/basic", "/v2/api/status", "/v2/api/assets", "/v2/api/trades",
              "/v2/api/signals", "/v2/api/logs", "/v2/api/markers"]
 
     def test_routes_without_session_401(self):
@@ -747,9 +774,10 @@ class TestQueries(unittest.TestCase):
 class TestLint(unittest.TestCase):
     def test_fixture_ddl_matches_init_db(self):
         text = _squash(_strip_comments(INIT_DB.read_text(encoding="utf-8")))
-        # CREATE TABLE 8개, CREATE INDEX 7개, ALTER/인덱스 15개를 모두 원문과 대조한다
-        self.assertEqual(len(CREATE_STATEMENTS), 8)
-        self.assertEqual(len(INDEX_STATEMENTS), 7)
+        # CREATE TABLE 9개, CREATE INDEX 9개, ALTER/인덱스 24개를 모두 원문과 대조한다
+        self.assertEqual(len(CREATE_STATEMENTS), 9)
+        self.assertEqual(len(INDEX_STATEMENTS), 9)
+        self.assertEqual(len(ALTER_STATEMENTS), 24)
         # 문장 끝까지 일치: 원문은 따옴표(""" 또는 ")로 감싸여 있으므로 감싼 채 비교한다
         groups = ((CREATE_STATEMENTS, '"""'), (INDEX_STATEMENTS, '"'),
                   (ALTER_STATEMENTS, '"'))

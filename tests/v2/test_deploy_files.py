@@ -156,7 +156,7 @@ class ShellScriptTest(unittest.TestCase):
         self.assertIn("FAIL tradebot-v2-not-active", t)
         self.assertIn("FAIL probe-run-failed", t)
         self.assertIn("FAIL probe-line-count=", t)
-        self.assertIn("EXPECTED_PROBE_LINES=9", t)
+        self.assertIn("EXPECTED_PROBE_LINES=10", t)
         self.assertIn('USER_ID="${1:-mcmax33}"', t)
         self.assertIn("^[A-Za-z0-9_]{1,32}$", t)
         self.assertIn("FAIL bad-user-argument", t)
@@ -259,7 +259,17 @@ class ShellScriptTest(unittest.TestCase):
         self.assertIn('".streamlit", "secrets.toml"', code)
         self.assertIn('"credentials.yaml"', code)
         # main() 이 부르는 검사 수 = 탐침 출력 줄 수
-        self.assertEqual(len(re.findall(r"^    check_\w+\(", code, re.M)), 9)
+        self.assertEqual(len(re.findall(r"^    check_\w+\(", code, re.M)), 10)
+        # 실매매 DB 쓰기 탐침: BEGIN IMMEDIATE → ROLLBACK 뿐(데이터를 바꾸는 문장·COMMIT 없음)
+        m = re.search(r"def check_live_db_write_lock\(\):(.*?)\ndef ", code, re.S)
+        self.assertIsNotNone(m)
+        fn = m.group(1)
+        self.assertIn("BEGIN IMMEDIATE", fn)
+        self.assertIn("ROLLBACK", fn)
+        self.assertIn("mode=rw", fn)
+        self.assertIsNone(re.search(r"(?i)\b(insert|update|delete|replace|create|drop|alter|commit)\b", fn.split('"""')[2]))
+        self.assertIn('print("PASS live-db-write-lock")', fn)
+        self.assertIn('print("FAIL live-db-write-lock")', fn)
 
     def test_probe_stdlib_only(self):
         tree = ast.parse(_text(PROBE_PY))

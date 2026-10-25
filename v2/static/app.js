@@ -17,6 +17,7 @@ document.addEventListener("alpine:init", () => {
 
     // ---- 시작·갱신 ---- (Alpine 이 x-data 의 init 을 자동 호출한다)
     init() {
+      if (window.__v2toPC) return;   // PC 로 넘어가는 중 — 홈 API 를 부르지 않는다(index.html head)
       this.refreshCards();
       // 업비트는 브라우저 요청을 10초당 1회로 제한 — poller 가 바뀌어도 간격을 지킨다
       C.gate = window.v2Chart ? window.v2Chart.createRateGate(10000) : null;

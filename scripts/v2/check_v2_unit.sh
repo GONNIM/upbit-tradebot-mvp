@@ -3,7 +3,7 @@
 #
 # 하는 일:
 #   1) 실행 중인 tradebot-v2 의 보호 속성 값을 systemctl 로 읽어 그대로 systemd-run 임시 유닛에 넘기고,
-#      그 안에서 scripts/v2/check_v2_unit_probe.py 를 돌려 9항목을 검사한다.
+#      그 안에서 scripts/v2/check_v2_unit_probe.py 를 돌려 10항목을 검사한다.
 #   2) 호스트에서 tradebot-v2 프로세스의 환경 변수 이름 중 UPBIT_ 로 시작하는 것이 0개인지 센다(이름만, 값 출력 없음).
 #   3) 호스트에서 실행 중 v2 가 보는 PULLBACK 파일 inode 와 디스크 파일 inode 가 같은지 비교한다(읽기 전용 stat).
 # 출력은 `PASS|FAIL|RESIDUAL <항목>` 줄뿐이다. 서비스는 재시작·중지하지 않는다.
@@ -26,7 +26,7 @@ set -o pipefail
 REPO=/root/upbit-tradebot-mvp
 PY="$REPO/venv/bin/python"
 PROBE="$REPO/scripts/v2/check_v2_unit_probe.py"
-EXPECTED_PROBE_LINES=9
+EXPECTED_PROBE_LINES=10
 FAILS=0
 
 # 첫 인자: 점검할 계정(기본 mcmax33). 형식이 어긋나면 FAIL 후 종료 2.

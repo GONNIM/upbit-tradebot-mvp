@@ -1,0 +1,31 @@
+/* 기본 기능 블록 — #basic 안에서만 적용(백테스터 원본 규칙·모바일 카드 모양과 섞이지 않게 범위를 좁힌다) */
+#basic [hidden] { display: none !important; }
+#basic { overflow-wrap: anywhere; }
+#basic[data-page="backtester"] { font-family: Arial, sans-serif; color: #222; }
+#basic .bx-title { margin: 0 0 8px; font-size: 1.15em; }
+#basic .bx-notice, #basic .bx-banner, #basic .bx-info, #basic .bx-log {
+  padding: 8px 10px; border-radius: 6px; margin: 6px 0; line-height: 1.5; }
+#basic .bx-warn { color: #cf222e; margin: 6px 0; }
+#basic .bx-notice.bx-warn { background: #fff8dc; color: #6b4e00; }
+#basic .bx-notice.bx-info { background: #eaf2ff; color: #0b3d91; }
+#basic .bx-banner { background: #ffebe9; color: #a40e26; }
+#basic .bx-info, #basic .bx-log { background: #f4f6f8; }
+#basic .bx-clock { margin: 6px 0; }
+#basic .bx-engine { margin: 6px 0; }
+#basic .bx-engine.bx-on b { color: #1a7f37; }
+#basic .bx-engine.bx-off b { color: #cf222e; }
+#basic .bx-actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+#basic .bx-btn { padding: 8px 14px; font-size: 14px; width: auto; cursor: pointer; }
+#basic .bx-btn:disabled { cursor: not-allowed; opacity: .6; }
+#basic .bx-grid { display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; }
+#basic .bx-cell { border: 1px solid #ddd; border-radius: 8px; padding: 8px 10px; background: #fff; min-width: 0; }
+#basic .bx-value { font-size: 1.25em; font-weight: bold; word-break: break-all; }
+#basic .bx-small { font-size: 12px; color: #666; min-height: 1em; }
+@media (max-width: 640px) {
+  #basic .bx-grid { grid-template-columns: 1fr; }
+  #basic .bx-btn { flex: 1; font-size: 16px; padding: 10px; }
+  /* 모바일에서 백테스터 페이지를 열면 블록을 숨긴다 — 지금 백테스터 화면 그대로 */
+  #basic[data-page="backtester"] { display: none; }
+}
+/* 백테스터 페이지의 .section 과 같은 바깥 모양 */
+#basic.section { margin-top: 0; margin-bottom: 20px; }

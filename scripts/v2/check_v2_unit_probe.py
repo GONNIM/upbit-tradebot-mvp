@@ -1,7 +1,7 @@
 """tradebot-v2 유닛과 같은 보호 속성 안에서 실행되는 탐침 (check_v2_unit.sh 가 systemd-run 으로 호출).
 
 표준 라이브러리만 쓴다(v2·엔진 import 없음). 출력은 `PASS|FAIL|RESIDUAL <항목>` 줄뿐이다.
-예외 문자열·파일 내용·경로 값은 출력하지 않는다. 항목은 모두 9개다(호스트 쪽 검사 no-upbit-env·pullback-inode-match 는 셸이 한다).
+예외 문자열·파일 내용·경로 값은 출력하지 않는다. 항목은 모두 10개다(호스트 쪽 검사 no-upbit-env·pullback-inode-match 는 셸이 한다).
 
 사용: python check_v2_unit_probe.py <tradebot MainPID> [user_id]
 """
@@ -34,6 +34,26 @@ def check_live_db_ro():
         print("PASS live-db-ro-read")
     except Exception:
         print("FAIL live-db-ro-read")
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+def check_live_db_write_lock():
+    """실매매 DB 에 쓰기 연결을 열어 BEGIN IMMEDIATE → 곧바로 ROLLBACK 만 한다(데이터는 바뀌지 않는다).
+
+    신버전의 매매 중지/재개(v2.db.set_paused)가 이 유닛 안에서 실매매 DB 에 쓸 수 있는지 미리 본다.
+    BEGIN IMMEDIATE 가 잡혀 있는 밀리초 동안 엔진의 쓰기가 잠깐 기다릴 수 있다(busy_timeout 안에서 풀림).
+    배포 점검 때 한 번만 실행한다. DB 가 없으면 만들지 않고 FAIL(mode=rw).
+    """
+    conn = None
+    try:
+        conn = sqlite3.connect("file:%s?mode=rw" % LIVE_DB, uri=True, timeout=5, isolation_level=None)
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("ROLLBACK")
+        print("PASS live-db-write-lock")
+    except Exception:
+        print("FAIL live-db-write-lock")
     finally:
         if conn is not None:
             conn.close()
@@ -192,6 +212,7 @@ def check_pullback_open():
 def main():
     pid_text = sys.argv[1] if len(sys.argv) > 1 else ""
     check_live_db_ro()
+    check_live_db_write_lock()
     check_v2hist_write()
     check_active_strategy_read()
     check_env_inaccessible()

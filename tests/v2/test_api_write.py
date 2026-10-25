@@ -640,7 +640,7 @@ class TestSchema(unittest.TestCase):
         self.assertEqual(str(cm.exception), "keys")
 
     def test_api_write_imports(self):
-        allowed_v2 = {"v2.handlers", "v2.db", "v2.params_schema", "v2"}
+        allowed_v2 = {"v2.handlers", "v2.db", "v2.params_schema", "v2"}   # from v2 import auth 도 허용(로그아웃 쿠키 이름)
         std = sys.stdlib_module_names
         for name in ("api_write.py", "params_schema.py"):
             tree = ast.parse((ROOT / "v2" / name).read_text(encoding="utf-8"))
@@ -652,7 +652,7 @@ class TestSchema(unittest.TestCase):
                     mods = [node.module or ""]
                     if node.module == "v2":
                         for a in node.names:
-                            self.assertIn(a.name, {"db", "params_schema"}, name)
+                            self.assertIn(a.name, {"db", "params_schema", "auth"}, name)
                 for mod in mods:
                     top = mod.split(".")[0]
                     self.assertTrue(top in std or mod in allowed_v2, (name, mod))

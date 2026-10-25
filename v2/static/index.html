@@ -3,8 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>if (window.matchMedia && window.matchMedia("(min-width: 641px)").matches) { window.__v2toPC = true; location.replace("/v2/static/backtester.html"); }</script>
 <title>신버전 대시보드</title>
 <link rel="stylesheet" href="/v2/static/style.css">
+<link rel="stylesheet" href="/v2/static/basic.css">
 <script src="/v2/static/app.js"></script>
 <script src="/v2/static/vendor/lightweight-charts-4.2.0.standalone.production.js"></script>
 <script type="module">
@@ -12,6 +14,7 @@
   window.v2Chart = chartMod;
 </script>
 <script defer src="/v2/static/vendor/alpine-3.14.1.min.js"></script>
+<script defer src="/v2/static/basic.js"></script>
 </head>
 <body x-data="dash()" x-cloak>
 
@@ -31,6 +34,8 @@
 <main>
   <!-- 홈 -->
   <div x-show="tab === 'home'">
+    <section class="card" id="basic" data-page="home"></section>
+
     <section class="card">
       <h2>상태</h2>
       <dl>
@@ -136,13 +141,13 @@
         <dt>모드</dt><dd x-text="modeText"></dd>
         <dt>일시정지</dt><dd x-text="status ? (status.paused ? '일시정지 중' : '아님') : '—'"></dd>
       </dl>
-      <p class="note">이 화면은 읽기 전용입니다. 아래 기능은 2차 공개 때 열림.</p>
+      <p class="note">매매 중지/재개는 홈 화면 위 단추로 합니다. 그 밖의 기능은 2차 공개 때 열립니다.</p>
       <div class="ops-grid">
         <button type="button" disabled>전략 전환 <small>2차 공개 때 열림</small></button>
         <button type="button" disabled>기존 전략 복귀 <small>2차 공개 때 열림</small></button>
         <button type="button" disabled>엔진 시작 <small>2차 공개 때 열림</small></button>
         <button type="button" disabled>엔진 정지 <small>2차 공개 때 열림</small></button>
-        <button type="button" disabled>일시정지·재개 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>일시정지·재개 <small>홈 화면 위에서 할 수 있습니다</small></button>
         <button type="button" disabled>강제 매수 <small>2차 공개 때 열림</small></button>
         <button type="button" disabled>강제 매도 <small>2차 공개 때 열림</small></button>
         <button type="button" disabled>운용 설정 <small>2차 공개 때 열림</small></button>

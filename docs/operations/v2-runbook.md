@@ -93,7 +93,7 @@ wc -c .v2_secret
 
 서버에서 배포 승인 뒤에 실행한다. 둘 다 서비스를 재시작·중지하지 않는다.
 
-- `bash scripts/v2/check_v2_unit.sh` — 유닛 보호 속성 점검(탐침 9항목 + 호스트 항목: 유닛 속성·UPBIT 환경 변수·PULLBACK inode).
+- `bash scripts/v2/check_v2_unit.sh` — 유닛 보호 속성 점검(탐침 10항목 + 호스트 항목: 유닛 속성·UPBIT 환경 변수·PULLBACK inode).
 - `bash scripts/v2/a3_memory_probe.sh` — 메모리 상한 격리 점검(300MB 할당 탐침이 임시 유닛에서만 OOM 으로 죽는지).
 
 출력은 `PASS|FAIL|RESIDUAL <항목>` 줄뿐이다.
@@ -108,6 +108,7 @@ wc -c .v2_secret
 
 - `unit-props` — 유닛의 보호 속성이 의도한 값으로 적용됨.
 - `live-db-ro-read` — 실매매 DB 읽기 전용 조회. 이 연결이 `-wal`·`-shm` 을 만들 수 있다(본 DB 와 같은 권한, 소유자 root, 엔진이 정리).
+- `live-db-write-lock` — 실매매 DB 에 쓰기 연결로 `BEGIN IMMEDIATE` → 곧바로 `ROLLBACK` 만 한다(데이터 안 바뀜). 신버전 「매매 중지/재개」가 이 유닛 안에서 실매매 DB 에 쓸 수 있는지 미리 보는 항목이다. 잡혀 있는 밀리초 동안 엔진 쓰기가 잠깐 기다릴 수 있다(busy_timeout 안에서 풀림). FAIL 이면 매매 중지/재개가 503 이 되므로 배포 중단하고 `ReadWritePaths` 를 본다. 배포 점검 때 한 번만 실행한다.
 - `v2hist-write` / `v2hist-write(folder)` — 이력 DB 쓰기 가능(행은 남지 않음). 파일이 아직 없으면(첫 저장 전) 폴더 쓰기만 본다.
 - `env-inaccessible` — `.env` 열기 차단. `(placeholder)` 는 0바이트 자리표가 덧씌워진 경우.
 - `root-readonly` — 저장소 루트에 새 파일을 만들 수 없음. 이 항목은 유닛의 `ProtectHome=read-only` 로 성립한다(`ProtectSystem=strict` 만으로는 systemd 249 에서 `/root` 가 쓰기 가능 — 2026-10-25 배포 첫 실행에서 `FAIL root-writable` 로 확인). 그래서 기존 v2/__pycache__ 는 읽고, 소스가 바뀐 모듈의 pyc 는 쓰지 못해 메모리에서 컴파일한다(오류 없음).
@@ -117,7 +118,7 @@ wc -c .v2_secret
 - `pullback-inode-match` / `pullback-inode-mismatch` — 실행 중 v2 가 보는 PULLBACK 파일이 호스트 파일과 같은 inode 인가. mismatch 면 `systemctl restart tradebot-v2`.
 - `no-upbit-env` — v2 프로세스 환경 변수에 `UPBIT_` 로 시작하는 이름이 0개(이름만 센다).
 - `probe-run-failed` — 임시 유닛 실행 실패. **배포 때 첫 실행에서 이게 나오면 `ReadWritePaths` 의 `-` 접두 처리부터 본다**(`systemctl show -p ReadWritePaths --value` 가 접두를 유지하는지는 로컬에서 확인하지 못했다).
-- `probe-line-count=<n>` — 탐침 출력 줄 수가 9가 아님(탐침이 못 돌았거나 중간에 죽음).
+- `probe-line-count=<n>` — 탐침 출력 줄 수가 10이 아님(탐침이 못 돌았거나 중간에 죽음).
 - a3: `probe-oom-killed`(문자열 `oom-kill` 또는 `killed by the OOM killer` 로 판정), `swap-unchanged(+Nmb)`(스왑 증가 5MB 이내), `tradebot-not-restarted`.
 - a3 의 `probe-not-oom`·`swap-grew` 가 나오면 한 번 다시 실행해 보고, 두 번 다 FAIL 이면 멈추고 보고한다.
 

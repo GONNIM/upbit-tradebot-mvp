@@ -62,3 +62,29 @@ def mode_state(engine_mode: Optional[str], entry_mode: str) -> dict:
                 "mode_mismatch": False}
     return {"mode_engine": engine_mode, "mode_entry": entry_mode,
             "mode_mismatch": engine_mode != entry_mode}
+
+
+ENGINE_ALIVE_FRESH_SEC = 15  # .engine_alive.json 의 at 이 이 초 안이어야 Running (스펙: 15초)
+
+
+def engine_alive_running(data, user_id: str, now: datetime) -> bool:
+    """기본 기능 블록의 「트레이딩 엔진 상태」. 엔진 프로세스가 5초마다 쓰는 스레드 생존값 기준.
+
+    Running = at 이 15초 이내 그리고 running[user_id] 가 True. 그 밖(파일 없음·깨짐·오래됨·키 없음)은 Stopped.
+    """
+    if not isinstance(data, dict):
+        return False
+    running = data.get("running")
+    at = data.get("at")
+    if not isinstance(running, dict) or not isinstance(at, str):
+        return False
+    try:
+        t = datetime.fromisoformat(at.strip())
+    except ValueError:
+        return False
+    if t.tzinfo is None:
+        return False
+    delta = (now - t).total_seconds()
+    if delta > ENGINE_ALIVE_FRESH_SEC or delta < -ENGINE_ALIVE_FRESH_SEC:
+        return False
+    return running.get(user_id) is True
