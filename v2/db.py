@@ -159,6 +159,24 @@ def active_strategy(user_id: str) -> "tuple[Optional[str], Optional[str]]":
     return (val, ts)
 
 
+def normalize_ticker(v) -> Optional[str]:
+    """엔진(engine/params.py 검증 + upbit_ticker)과 같은 규칙으로 업비트 종목을 만든다.
+
+    파라미터 파일에는 'JTO' 처럼 KRW- 없이 저장될 수 있다. 규칙에 안 맞으면 None.
+    """
+    if not isinstance(v, str):
+        return None
+    v = v.upper().strip()
+    if "-" in v:
+        base, quote = v.split("-", 1)
+        if base != "KRW" or not quote.isalpha():
+            return None
+        return v
+    if not v.isalpha():
+        return None
+    return "KRW-" + v
+
+
 def strategy_params(user_id: str, strategy: str) -> dict:
     """엔진의 전략 파라미터 파일을 읽기만 한다. 없거나 깨지면 {}."""
     _require_user(user_id)

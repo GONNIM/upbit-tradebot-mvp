@@ -110,8 +110,8 @@ class SaveHandler(ApiHandler):
             sp = db.strategy_params(user, value)
         except ValueError:
             return None
-        t = sp.get("ticker")
-        if isinstance(t, str) and _TICKER_RE.fullmatch(t):
+        t = db.normalize_ticker(sp.get("ticker"))   # 'JTO' → 'KRW-JTO'
+        if t is not None and _TICKER_RE.fullmatch(t):
             return t
         return None
 

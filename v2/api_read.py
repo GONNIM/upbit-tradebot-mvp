@@ -110,7 +110,7 @@ class ReadHandler(ApiHandler):
                 params = db.strategy_params(user_id, value)
             except ValueError:
                 params = {}
-        ticker = params.get("ticker") if isinstance(params.get("ticker"), str) else None
+        ticker = db.normalize_ticker(params.get("ticker"))   # 'JTO' → 'KRW-JTO' (엔진과 같은 규칙)
         interval = params.get("interval") if isinstance(params.get("interval"), str) else None
         return user_id, value, mtime, ticker, interval
 

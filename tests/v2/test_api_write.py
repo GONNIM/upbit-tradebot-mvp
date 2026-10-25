@@ -497,6 +497,61 @@ class TestSave(WriteBase):
         self.assertEqual(len(self.hist_rows()), 2)
 
 
+class TestNormalizeTicker(unittest.TestCase):
+    def test_normalize_ticker(self):
+        n = db.normalize_ticker
+        self.assertEqual(n("JTO"), "KRW-JTO")
+        self.assertEqual(n(" jto "), "KRW-JTO")
+        self.assertEqual(n("KRW-JTO"), "KRW-JTO")
+        self.assertEqual(n("krw-btc"), "KRW-BTC")
+        for bad in ("USDT-BTC", "BTC1", "", "KRW-", "KRW-BT1", "KRW-A-B", None, 123, []):
+            self.assertIsNone(n(bad), repr(bad))
+
+
+class TestTickerWithoutPrefix(WriteBase):
+    """서버 파일에는 'JTO' 처럼 KRW- 없이 저장된다(엔진이 KRW- 를 붙여 DB 에 쓴다)."""
+
+    def setUp(self):
+        super().setUp()
+        self.set_strategy("EMA", "JTO", "minute3")
+
+    def test_save_with_bare_ticker_200(self):
+        r = self.post(VALID)
+        self.assertEqual(r.code, 200, r.body)
+        self.assertEqual(self.body(r)["ticker"], "KRW-JTO")
+        self.assertEqual(json.loads(self.pb.read_text(encoding="utf-8"))["ticker"], "KRW-JTO")
+
+    def test_read_apis_use_prefixed_ticker(self):
+        c = self.conn
+        c.execute("INSERT INTO accounts(user_id,virtual_krw,virtual_krw_locked,updated_at) "
+                  "VALUES ('alice',50000,0,'2026-10-23 11:00:00')")
+        c.execute("INSERT INTO account_positions(user_id,ticker,virtual_coin,"
+                  "virtual_coin_locked,entry_price,updated_at) "
+                  "VALUES ('alice','KRW-JTO',2.0,0,100.0,'2026-10-23 11:00:01')")
+        c.execute("INSERT INTO audit_trades(timestamp,ticker,type,price) VALUES "
+                  "('2026-10-23 11:05:00','KRW-JTO','BUY',100.0)")
+        c.execute("INSERT INTO audit_trades(timestamp,ticker,type,price) VALUES "
+                  "('2026-10-23 11:06:00','KRW-OTHER','BUY',5.0)")
+        c.commit()
+        self.ins_eval("audit_buy_eval", "KRW-JTO", "2026-10-23T11:10:00+09:00", 105.0)
+        self.ins_eval("audit_sell_eval", "KRW-JTO", "2026-10-23T11:20:00+09:00", 110.0,
+                      tp_price=120.0, sl_price=95.0)
+        code, st = self.get_json("/v2/api/status")
+        self.assertEqual(code, 200)
+        self.assertEqual(st["ticker"], "KRW-JTO")
+        code, a = self.get_json("/v2/api/assets")
+        self.assertEqual(a["coin"], 2.0)
+        self.assertEqual(a["price"], 110.0)
+        self.assertEqual(a["tp_price"], 120.0)
+        code, t = self.get_json("/v2/api/trades")
+        self.assertEqual([r["ticker"] for r in t["trades"]], ["KRW-JTO"])
+        code, s = self.get_json("/v2/api/signals")
+        self.assertEqual({r["ticker"] for r in s["signals"]}, {"KRW-JTO"})
+        self.assertEqual(len(s["signals"]), 2)
+        code, m = self.get_json("/v2/api/markers")
+        self.assertEqual(len(m["markers"]), 1)
+
+
 class TestCurrent(WriteBase):
     def get(self):
         r = self.fetch(CURRENT_URL, headers=self.cookie())
