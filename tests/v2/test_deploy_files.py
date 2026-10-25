@@ -57,6 +57,7 @@ class UnitFileTest(unittest.TestCase):
             "WorkingDirectory=/root/upbit-tradebot-mvp",
             "ExecStart=/root/upbit-tradebot-mvp/venv/bin/python -m v2.server",
             "ProtectSystem=strict",
+            "ProtectHome=read-only",
             "ReadWritePaths=-/root/upbit-tradebot-mvp/services/data "
             "-/root/upbit-tradebot-mvp/mcmax33_latest_params_PULLBACK.json",
             "InaccessiblePaths=-/root/upbit-tradebot-mvp/.env "
@@ -78,6 +79,9 @@ class UnitFileTest(unittest.TestCase):
         ]
         for line in required:
             self.assertIn(line, service, f"[Service] 에 없음: {line}")
+        # 같은 지시어가 두 번 나오면 systemd 는 뒤의 값을 쓴다(예: ProtectHome=read-only 뒤 ProtectHome=no)
+        keys = [x.split("=", 1)[0] for x in service]
+        self.assertEqual(sorted(k for k in set(keys) if keys.count(k) > 1), [], "[Service] 지시어 중복")
         unit = secs["[Unit]"]
         self.assertIn("StartLimitIntervalSec=300", unit)
         self.assertIn("StartLimitBurst=5", unit)
@@ -141,9 +145,11 @@ class ShellScriptTest(unittest.TestCase):
 
     def test_check_script_reads_all_unit_properties(self):
         t = _text(CHECK_SH)
-        for prop in ["ProtectSystem", "ReadWritePaths", "InaccessiblePaths", "NoNewPrivileges",
+        for prop in ["ProtectSystem", "ProtectHome", "ReadWritePaths", "InaccessiblePaths", "NoNewPrivileges",
                      "UMask", "CapabilityBoundingSet", "PrivateTmp"]:
             self.assertRegex(t, rf"systemctl show -p {prop} --value tradebot-v2")
+        self.assertIn('-p "ProtectHome=$PROP_PROTECT_HOME"', t)
+        self.assertIn('[ "$PROP_PROTECT_HOME" = "read-only" ]', t)
         self.assertIn("set -u", t)
         self.assertIn("set -o pipefail", t)
         self.assertNotRegex("\n".join(_code_lines(CHECK_SH)), r"(?m)^set -[a-zA-Z]*e")

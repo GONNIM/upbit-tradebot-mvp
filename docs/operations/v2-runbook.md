@@ -110,7 +110,7 @@ wc -c .v2_secret
 - `live-db-ro-read` — 실매매 DB 읽기 전용 조회. 이 연결이 `-wal`·`-shm` 을 만들 수 있다(본 DB 와 같은 권한, 소유자 root, 엔진이 정리).
 - `v2hist-write` / `v2hist-write(folder)` — 이력 DB 쓰기 가능(행은 남지 않음). 파일이 아직 없으면(첫 저장 전) 폴더 쓰기만 본다.
 - `env-inaccessible` — `.env` 열기 차단. `(placeholder)` 는 0바이트 자리표가 덧씌워진 경우.
-- `root-readonly` — 저장소 루트에 새 파일을 만들 수 없음.
+- `root-readonly` — 저장소 루트에 새 파일을 만들 수 없음. 이 항목은 유닛의 `ProtectHome=read-only` 로 성립한다(`ProtectSystem=strict` 만으로는 systemd 249 에서 `/root` 가 쓰기 가능 — 2026-10-25 배포 첫 실행에서 `FAIL root-writable` 로 확인). 그래서 기존 v2/__pycache__ 는 읽고, 소스가 바뀐 모듈의 pyc 는 쓰지 못해 메모리에서 컴파일한다(오류 없음).
 - `proc-environ-blocked` / `proc-environ-readable` — tradebot 환경 변수 파일 읽기 결과(후자는 RESIDUAL).
 - `pullback-open` — PULLBACK 파일 열기 가능(쓰지 않음). `pullback-file-missing` 이면 계정 추가 1단계 누락.
 - `secrets-inaccessible`·`credentials-inaccessible` — `.streamlit/secrets.toml`·`credentials.yaml` 열기 차단(`.env` 와 같은 규칙).

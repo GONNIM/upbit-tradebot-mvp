@@ -43,6 +43,7 @@ if ! systemctl is-active --quiet tradebot-v2; then
 fi
 
 PROP_PROTECT_SYSTEM=$(systemctl show -p ProtectSystem --value tradebot-v2)
+PROP_PROTECT_HOME=$(systemctl show -p ProtectHome --value tradebot-v2)
 PROP_RW_PATHS=$(systemctl show -p ReadWritePaths --value tradebot-v2)
 PROP_INACCESSIBLE=$(systemctl show -p InaccessiblePaths --value tradebot-v2)
 PROP_NO_NEW_PRIVS=$(systemctl show -p NoNewPrivileges --value tradebot-v2)
@@ -51,7 +52,7 @@ PROP_CAP_BOUNDING=$(systemctl show -p CapabilityBoundingSet --value tradebot-v2)
 PROP_PRIVATE_TMP=$(systemctl show -p PrivateTmp --value tradebot-v2)
 
 # 유닛이 의도한 값으로 적용됐는지(값 자체는 출력하지 않는다)
-if [ "$PROP_PROTECT_SYSTEM" = "strict" ] && [ "$PROP_NO_NEW_PRIVS" = "yes" ] \
+if [ "$PROP_PROTECT_SYSTEM" = "strict" ] && [ "$PROP_PROTECT_HOME" = "read-only" ] && [ "$PROP_NO_NEW_PRIVS" = "yes" ] \
     && [ "$PROP_UMASK" = "0077" ] && [ -z "$PROP_CAP_BOUNDING" ] && [ "$PROP_PRIVATE_TMP" = "yes" ]; then
     echo "PASS unit-props"
 else
@@ -64,6 +65,7 @@ TRADEBOT_PID=$(systemctl show -p MainPID --value tradebot)
 OUT=$(systemd-run --wait --pipe --collect --quiet \
     -p "WorkingDirectory=$REPO" \
     -p "ProtectSystem=$PROP_PROTECT_SYSTEM" \
+    -p "ProtectHome=$PROP_PROTECT_HOME" \
     -p "ReadWritePaths=$PROP_RW_PATHS" \
     -p "InaccessiblePaths=$PROP_INACCESSIBLE" \
     -p "NoNewPrivileges=$PROP_NO_NEW_PRIVS" \

@@ -5,6 +5,10 @@
 # `systemctl daemon-reload` 뒤 `systemctl restart tradebot-v2` 한다(runbook 「계정 추가」).
 # `-` 접두는 「없으면 무시」라서, 파일이 없는 채로 두면 저장 API 가 500 「배포 설정 누락」이 된다.
 # 비밀 파일(.env 등)은 InaccessiblePaths 로 가리고, EnvironmentFile 은 쓰지 않는다.
+# ProtectSystem=strict 만으로는 /root·/home·/run/user 가 쓰기 가능으로 남는다(systemd 249 — ProtectHome 몫).
+# 그래서 ProtectHome=read-only 로 저장소 루트를 읽기 전용으로 만들고, 쓰기는 ReadWritePaths 두 곳만 연다
+# (2026-10-25 배포 D5 root-writable 실측). 기존 v2/__pycache__ 는 읽고, 소스가 바뀐 모듈의 pyc 는
+# 쓰지 못해 메모리에서 컴파일한다(오류 없음).
 
 [Unit]
 Description=Upbit Tradebot v2 dashboard (read API, save-only backtester)
@@ -19,6 +23,7 @@ WorkingDirectory=/root/upbit-tradebot-mvp
 ExecStart=/root/upbit-tradebot-mvp/venv/bin/python -m v2.server
 Environment=PYTHONUNBUFFERED=1
 ProtectSystem=strict
+ProtectHome=read-only
 ReadWritePaths=-/root/upbit-tradebot-mvp/services/data -/root/upbit-tradebot-mvp/mcmax33_latest_params_PULLBACK.json
 InaccessiblePaths=-/root/upbit-tradebot-mvp/.env -/root/upbit-tradebot-mvp/.streamlit/secrets.toml -/root/upbit-tradebot-mvp/credentials.yaml
 PrivateTmp=yes
