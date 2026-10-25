@@ -213,7 +213,8 @@
 - Produces:
   - `PARAM_FIELDS: dict[str, dict]` — 메인 19개 id → `{"type": "number"|"select", "min","max","step" | "options"}`, 값은 원본 HTML 속성 그대로
   - `validate_params(d: dict) -> dict` — 19개 키 정확히, 범위 밖·모르는 키 → `ValueError(field)`
-  - `POST /v2/api/params/save` `{"params": {...}, "source": "binance"}` → 검증 → 파일 제자리 쓰기(`open(p, "r+")`, `seek(0)`, `write`, `truncate`, `flush`, `os.fsync`; 파일이 없으면 500 「배포 설정 누락」) → `insert_history` → `{"ok": true, "history_id": n, "saved_at": ...}`
+  - `to_engine_file(p, ticker) -> dict` — *(2026-10-24 결정 1024-01 나, spec 4.5·P3 spec 4.2 에 맞춤)* 파일에는 P3 4.2 키 18개만 쓴다: `ticker`(엔진 현재 전략 파일의 업비트 종목, 모르면 409·무변경), `interval`(`1m/3m/5m/1h → minute1/3/5/60`), yes/no 3칸 → bool, `days`·Binance `symbol` 은 파일에 넣지 않음. 이력 `params_json` 은 화면 입력 19개 원본. 정수 칸(HTML step 없음)은 정수만. 「19개 키 정확히·전체 덮어쓰기」는 1차 규칙(P4 거래 시간 키 추가 때 바뀜)
+  - `POST /v2/api/params/save` `{"params": {...}, "source": "binance"}` → 검증 → 파일 제자리 쓰기(`open(p, "r+")`, `seek(0)`, `write`, `truncate`, `flush`, `os.fsync`; 파일이 없으면 500 「배포 설정 누락」) → `insert_history`(실패하면 파일을 쓰기 전 내용으로 제자리 되쓰기 후 500) → `{"ok": true, "history_id": n, "saved_at": ...}`
   - `GET /v2/api/params/current` → 파일 내용 + 수정 시각
 - 확인 창: 현재 전략·모드(크게)·엔진 상태·보유 포지션 → 「저장만 하기」 버튼 1개(「이 설정으로 동작」은 P4). TEST/LIVE 구분 없음(E9).
 

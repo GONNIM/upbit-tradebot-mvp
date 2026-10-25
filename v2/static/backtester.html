@@ -144,7 +144,17 @@ td:first-child,th:first-child{text-align:left}.small{font-size:12px;color:#666}
 <script src="backtester.js"></script>
 
 <!-- Task 8: 저장만 하기 -->
-<div id="saveArea"></div>
+<div id="saveArea" style="margin:16px 0;padding:0 8px">
+<button type="button" id="saveOpenBtn">설정 저장</button>
+<div id="saveDialog" hidden style="margin-top:8px;padding:12px;border:1px solid #999;border-radius:8px;max-width:100%;box-sizing:border-box">
+<div class="small">Binance 데이터로 찾은 설정입니다. 저장만 하며 엔진 동작은 바뀌지 않습니다</div>
+<div id="saveInfo" style="margin:8px 0"></div>
+<div id="saveMsg" style="margin:8px 0;font-weight:bold;word-break:break-word"></div>
+<button type="button" id="saveDoBtn" disabled>저장만 하기</button>
+<button type="button" id="saveCloseBtn">닫기</button>
+</div>
+</div>
+<script src="save.js"></script>
 
 </body>
 </html>
