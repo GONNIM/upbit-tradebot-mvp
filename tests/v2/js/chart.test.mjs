@@ -3,7 +3,17 @@ import assert from "node:assert/strict";
 import {
   upbitCandlesUrl, toAscending, createPoller, markFormingCandle, sma, toMarkers, maLines,
   createRateGate, parseFailedKeys, kstHm, kstMdHm, kstTick, clipMarkers, intervalToMinutes,
+  fitChartHeight,
 } from "../../../v2/static/chart.js";
+
+test("fitChartHeight: 창 높이 - 차트 위치 - 예약 높이, 최소값 아래로는 안 내려감", () => {
+  assert.equal(fitChartHeight(900, 120, 140, 360), 640);
+  assert.equal(fitChartHeight(800, 120, 140, 360), 540);
+  assert.equal(fitChartHeight(500, 120, 140, 360), 360);   // 낮은 창: 최소값(스크롤 허용)
+  assert.equal(fitChartHeight(100, 300, 200, 360), 360);   // 음수가 되지 않음
+  assert.equal(fitChartHeight(900.6, 120.2, 140.1, 360), 640);   // 소수는 내림
+  assert.equal(fitChartHeight(NaN, 120, 140, 360), 360);
+});
 
 test("upbitCandlesUrl", () => {
   assert.equal(

@@ -340,46 +340,16 @@ test("로딩 중(status 없음)과 모드 확인 불가", async () => {
   assert.equal(n.last().notice, null);
 });
 
-// ---- PC 넘김 (index.html head 맨 앞 인라인 스크립트) ----
-function redirectScript() {
+// ---- PC 배치 (결정 1026-08: PC 도 휴대폰과 같은 index.html, 차트 탭만 넓게) ----
+test("PC 넘김 없음: index.html head 에 인라인 넘김 스크립트·backtester.html replace 가 없다", () => {
   const head = INDEX.slice(INDEX.indexOf("<head>"), INDEX.indexOf("</head>"));
-  const m = /<script>([\s\S]*?)<\/script>/.exec(head);
-  assert.ok(m, "index.html head 에 인라인 스크립트가 있어야 한다");
-  return { code: m[1], pos: head.indexOf(m[0]), head };
-}
-
-function runRedirect(matches, hasMatchMedia = true) {
-  const replaced = [];
-  const queries = [];
-  const ctx = {
-    location: { replace: (u) => replaced.push(u) },
-    console,
-  };
-  if (hasMatchMedia) {
-    ctx.matchMedia = (q) => { queries.push(q); return { matches }; };
-  }
-  ctx.window = ctx;
-  vm.createContext(ctx);
-  vm.runInContext(redirectScript().code, ctx);
-  return { replaced, queries };
-}
-
-test("PC 넘김: 641px 이상이면 backtester.html 로 replace, 이하면 그대로", () => {
-  const wide = runRedirect(true);
-  assert.deepEqual(wide.replaced, ["/v2/static/backtester.html"]);
-  assert.deepEqual(wide.queries, ["(min-width: 641px)"]);
-  const narrow = runRedirect(false);
-  assert.deepEqual(narrow.replaced, []);
-  assert.doesNotThrow(() => runRedirect(true, false));
-  assert.deepEqual(runRedirect(true, false).replaced, []);
-});
-
-test("PC 넘김 스크립트는 head 맨 앞(메타 뒤·다른 스크립트·스타일 앞)에 있다", () => {
-  const { pos, head } = redirectScript();
-  for (const needle of ['<script src=', '<script type="module"', '<script defer', '<link ', '<title>']) {
-    assert.ok(head.indexOf(needle) > pos, needle);
-  }
-  assert.ok(head.indexOf("<meta charset") < pos);
+  assert.doesNotMatch(head, /<script>/);
+  assert.doesNotMatch(INDEX, /location\.replace/);
+  assert.doesNotMatch(INDEX, /__v2toPC/);
+  // 백테스터는 아래 탭 막대 링크로 들어간다
+  assert.match(INDEX, /<a href="\/v2\/static\/backtester\.html">백테스터<\/a>/);
+  // 차트 탭에서만 body 에 tab-chart 를 붙인다
+  assert.match(INDEX, /<body x-data="dash\(\)" x-cloak :class="\{ 'tab-chart': tab === 'chart' \}">/);
 });
 
 // ---- 자리·연결 ----
@@ -442,12 +412,12 @@ test("읽기 진행 중 강제 읽기(중지/재개 응답 뒤)는 버리지 않
   assert.equal(statusGets, 2);
 });
 
-test("PC 넘김 중에는 홈(app.js)·블록(basic.js)이 읽기를 시작하지 않는다 — window.stop 은 이동까지 취소하므로 쓰지 않는다", () => {
+test("PC 넘김 가드가 없다 — PC 에서도 홈(app.js)·블록(basic.js)이 읽기를 시작한다", () => {
   const html = fs.readFileSync(path.join(STATIC, "index.html"), "utf8");
-  assert.match(html, /window\.__v2toPC = true; location\.replace\("\/v2\/static\/backtester\.html"\);/);
   assert.doesNotMatch(html, /window\.stop/);
   const app = fs.readFileSync(path.join(STATIC, "app.js"), "utf8");
-  assert.match(app, /init\(\) \{\s*if \(window\.__v2toPC\) return;/);
+  assert.doesNotMatch(app, /__v2toPC/);
   const js = fs.readFileSync(path.join(STATIC, "basic.js"), "utf8");
-  assert.match(js, /function init\(\) \{\s*if \(globalThis\.__v2toPC\) return;/);
+  assert.doesNotMatch(js, /__v2toPC/);
+  assert.match(js, /function init\(\) \{\s*var root = document\.getElementById\("basic"\);/);
 });

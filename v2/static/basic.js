@@ -324,7 +324,6 @@
   }
 
   function init() {
-    if (globalThis.__v2toPC) return;   // PC 로 넘어가는 중 — 읽기를 시작하지 않는다
     var root = document.getElementById("basic");
     if (!root) return;
     mount(root);

@@ -53,3 +53,10 @@ dt { color: var(--gray); } dd { margin: 0; text-align: right; word-break: break-
 .bottom button.on { color: var(--blue); font-weight: bold; border-top: 2px solid var(--blue); }
 
 @media (max-width: 420px) { .chart { height: 300px; } body { font-size: 13px; } }
+
+/* PC(641px 이상, 결정 1026-08): 휴대폰과 같은 화면을 가운데 480px 로 둔다. 차트 탭만 창 전체 폭(높이는 app.js fitChart). */
+@media (min-width: 641px) {
+  body { max-width: 480px; margin: 0 auto; }
+  .bottom { left: 50%; right: auto; transform: translateX(-50%); width: 100%; max-width: 480px; }
+  body.tab-chart, body.tab-chart .bottom { max-width: none; }
+}

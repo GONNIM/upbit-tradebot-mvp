@@ -180,6 +180,21 @@ class ServerTests(ServerBase):
         r = self.fetch("/v2/static/app.js")
         self.assertEqual(r.code, 200)
 
+    def test_static_cache_control_no_cache(self):
+        # 결정 1026-08 3 (백로그 1025-17): 배포 뒤 옛 CSS·JS 가 남지 않게 매번 ETag 로 확인
+        (self.static / "style.css").write_text("body{}")
+        r = self.fetch("/v2/static/style.css")
+        self.assertEqual(r.code, 200)
+        self.assertEqual(r.headers["Cache-Control"], "no-cache")
+        etag = r.headers["Etag"]
+        # ?v= 가 붙어도 tornado 의 10년 max-age 로 덮어쓰지 않는다
+        r = self.fetch("/v2/static/style.css?v=1")
+        self.assertEqual(r.headers["Cache-Control"], "no-cache")
+        # 바뀌지 않았으면 304, 그때도 no-cache 유지
+        r = self.fetch("/v2/static/style.css", headers={"If-None-Match": etag})
+        self.assertEqual(r.code, 304)
+        self.assertEqual(r.headers["Cache-Control"], "no-cache")
+
     def test_root_without_session_401_guidance(self):
         r = self.fetch("/v2/", follow_redirects=False)
         self.assertEqual(r.code, 401)

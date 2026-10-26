@@ -148,6 +148,12 @@ export function maLines(closes, pullbackPeriod) {
   };
 }
 
+// PC 차트 탭 높이(결정 1026-08): 창 높이 - 차트 칸의 문서 기준 위치 - 아래 예약 높이. 최소 minPx(낮은 창은 스크롤 허용).
+export function fitChartHeight(viewportH, chartTop, reservedPx, minPx) {
+  const h = Math.floor(viewportH - chartTop - reservedPx);
+  return Number.isFinite(h) && h > minPx ? h : minPx;
+}
+
 // ---- 브라우저 전용 (함수 안에서만 전역 사용) ----
 
 export function intervalToMinutes(interval) {

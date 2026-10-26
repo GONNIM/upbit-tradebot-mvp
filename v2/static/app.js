@@ -17,8 +17,13 @@ document.addEventListener("alpine:init", () => {
 
     // ---- 시작·갱신 ---- (Alpine 이 x-data 의 init 을 자동 호출한다)
     init() {
-      if (window.__v2toPC) return;   // PC 로 넘어가는 중 — 홈 API 를 부르지 않는다(index.html head)
       this.refreshCards();
+      // PC 차트 탭 높이: 창 크기·차트 위 문구가 바뀌면 다시 잰다(결정 1026-08)
+      window.addEventListener("resize", () => this.fitChart());
+      for (const k of ["chartFail", "chartNote", "netError", "authError", "status"]) {
+        // x-show 반영이 nextTick 뒤에 오므로 한 프레임 더 기다린다
+        this.$watch(k, () => this.$nextTick(() => requestAnimationFrame(() => this.fitChart())));
+      }
       // 업비트는 브라우저 요청을 10초당 1회로 제한 — poller 가 바뀌어도 간격을 지킨다
       C.gate = window.v2Chart ? window.v2Chart.createRateGate(10000) : null;
       this._cardTimer = setInterval(() => {
@@ -73,6 +78,26 @@ document.addEventListener("alpine:init", () => {
       this.tab = name;
       if (name === "chart") this.startChart(); else this.stopChart();
       if (name === "logs") this.loadLogs(1);
+      // 탭을 바꾼 직후에는 차트 칸이 아직 숨어 있다 — 그려진 뒤에 잰다
+      if (name === "chart") this.$nextTick(() => requestAnimationFrame(() => this.fitChart()));
+    },
+
+    // PC(641px 이상) 차트 탭: 차트 칸을 창 높이에 맞춘다. 그 밖에는 inline 높이를 지워 CSS(360/300px)로 돌린다.
+    fitChart() {
+      const el = document.getElementById("chart");
+      if (!el) return;
+      const mod = window.v2Chart;
+      const wide = window.matchMedia && window.matchMedia("(min-width: 641px)").matches;
+      if (!wide || this.tab !== "chart" || !mod || !mod.fitChartHeight) { el.style.height = ""; return; }
+      const box = el.getBoundingClientRect();
+      const card = el.closest(".card");
+      const below = card ? card.getBoundingClientRect().bottom - box.bottom : 0;   // 안내 문구 + 카드 아래 패딩·테두리
+      const cardMargin = card ? parseFloat(getComputedStyle(card).marginBottom) || 0 : 0;
+      const bodyPad = parseFloat(getComputedStyle(document.body).paddingBottom) || 0;
+      const nav = document.querySelector(".bottom");
+      const reserved = below + cardMargin + Math.max(bodyPad, nav ? nav.offsetHeight : 0);
+      // 위치는 문서 기준(go() 는 스크롤을 되돌리지 않는다)
+      el.style.height = mod.fitChartHeight(window.innerHeight, box.top + window.scrollY, reserved, 360) + "px";
     },
 
     async loadLogs(page) {

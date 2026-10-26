@@ -27,5 +27,10 @@
   /* 모바일에서 백테스터 페이지를 열면 블록을 숨긴다 — 지금 백테스터 화면 그대로 */
   #basic[data-page="backtester"] { display: none; }
 }
+/* PC 홈(가운데 480px, 결정 1026-08): 카드 안 약 438px 에 3칸(최소 470px)이 들어가지 않아 휴대폰과 같게 1열, 단추도 휴대폰 크기 */
+@media (min-width: 641px) {
+  #basic[data-page="home"] .bx-grid { grid-template-columns: 1fr; }
+  #basic[data-page="home"] .bx-btn { flex: 1; font-size: 16px; padding: 10px; }
+}
 /* 백테스터 페이지의 .section 과 같은 바깥 모양 */
 #basic.section { margin-top: 0; margin-bottom: 20px; }

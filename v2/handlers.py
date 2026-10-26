@@ -134,6 +134,11 @@ class StaticHandler(tornado.web.StaticFileHandler):
     def set_default_headers(self):
         self.set_header("Referrer-Policy", "no-referrer")
         self.set_header("X-Content-Type-Options", "nosniff")
+        # 배포 뒤 옛 CSS·JS 가 남지 않게 매번 ETag 로 확인(안 바뀌면 304) — 결정 1026-08 3
+        self.set_header("Cache-Control", "no-cache")
+
+    def get_cache_time(self, path, modified, mime_type):
+        return 0   # ?v= 가 붙어도 tornado 가 max-age 10년으로 덮어쓰지 않게
 
     @classmethod
     def get_absolute_path(cls, root, path):

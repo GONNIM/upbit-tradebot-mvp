@@ -12,8 +12,11 @@ const STATIC = path.resolve(here, "../../../v2/static");
 
 // ---- 최소 브라우저 대체물 ----
 const listeners = {};
-const chartEl = { innerHTML: "", textContent: "" };
+const chartEl = { innerHTML: "", textContent: "", style: {} };
 globalThis.window = globalThis;
+// PC 차트 높이 맞춤(fitChart)이 쓰는 창 API — 시험은 좁은 창(matchMedia 없음)으로 본다
+globalThis.addEventListener = () => {};
+globalThis.requestAnimationFrame = (fn) => fn();
 for (const n of ["Element", "Node", "HTMLElement", "HTMLTemplateElement", "SVGElement"]) {
   globalThis[n] = class {};
 }
@@ -97,7 +100,13 @@ test("chart draws, shows failure, and retries after gate under Alpine.reactive",
 
   try {
     const d = RealAlpine.reactive(dashFactory());
+    // 컴포넌트 밖에서 돌리므로 Alpine 매직($watch·$nextTick)을 대신 넣는다
+    const watched = [];
+    d.$watch = (k) => { watched.push(k); };
+    d.$nextTick = (fn) => fn();
     d.init();
+    // 차트 위 문구·머리 경고가 바뀌면 PC 차트 높이를 다시 잰다
+    assert.deepEqual(watched, ["chartFail", "chartNote", "netError", "authError", "status"]);
     await flush(); await flush();
     assert.equal(d.status.ticker, "KRW-ZRO");
 
@@ -106,6 +115,7 @@ test("chart draws, shows failure, and retries after gate under Alpine.reactive",
     await flush(); await flush();
     assert.equal(upbitCalls, 1);
     assert.ok(setDataCalls >= 1, "첫 응답이 그려지지 않음");
+    assert.equal(chartEl.style.height, "", "좁은 창에서는 inline 높이를 넣지 않는다(모바일 CSS 그대로)");
 
     // (2) 30초 뒤 429 -> 「갱신 실패 · HH:MM:SS」, 마지막 데이터 유지
     const before = setDataCalls;
@@ -128,6 +138,31 @@ test("chart draws, shows failure, and retries after gate under Alpine.reactive",
     retry.fn();
     await flush(); await flush();
     assert.equal(upbitCalls, 3);
+
+    // (4) PC 넓은 창: 차트 칸 높이 = 창 높이 - 문서 기준 위치 - (차트 아래 + 카드 여백 + max(body 아래 패딩, 탭 막대))
+    globalThis.matchMedia = (q) => ({ matches: q === "(min-width: 641px)" });
+    globalThis.innerHeight = 900;
+    globalThis.scrollY = 50;   // 스크롤된 상태에서도 문서 기준으로 잰다
+    const card = { getBoundingClientRect: () => ({ bottom: 760 }), _mb: "8px" };
+    chartEl.getBoundingClientRect = () => ({ top: 51, bottom: 700 });   // 문서 기준 top = 101
+    chartEl.closest = () => card;
+    globalThis.document.body.style = {};
+    globalThis.getComputedStyle = (el) => (el === card ? { marginBottom: "8px" } : { paddingBottom: "72px" });
+    globalThis.document.querySelector = () => ({ offsetHeight: 46 });
+    d.fitChart();
+    // 900 - 101 - (60 + 8 + max(72, 46)) = 659
+    assert.equal(chartEl.style.height, "659px");
+    // 차트 탭이 아니면 inline 높이를 지운다
+    d.go("home");
+    d.fitChart();
+    assert.equal(chartEl.style.height, "");
+    // 좁은 창(640 이하)이면 지운다
+    d.go("chart");
+    d.fitChart();
+    assert.equal(chartEl.style.height, "659px");
+    globalThis.matchMedia = () => ({ matches: false });
+    d.fitChart();
+    assert.equal(chartEl.style.height, "");
   } finally {
     Date.now = realNow;
     globalThis.setTimeout = realST;

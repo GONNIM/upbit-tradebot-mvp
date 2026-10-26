@@ -3,7 +3,6 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<script>if (window.matchMedia && window.matchMedia("(min-width: 641px)").matches) { window.__v2toPC = true; location.replace("/v2/static/backtester.html"); }</script>
 <title>신버전 대시보드</title>
 <link rel="stylesheet" href="/v2/static/style.css">
 <link rel="stylesheet" href="/v2/static/basic.css">
@@ -16,7 +15,7 @@
 <script defer src="/v2/static/vendor/alpine-3.14.1.min.js"></script>
 <script defer src="/v2/static/basic.js"></script>
 </head>
-<body x-data="dash()" x-cloak>
+<body x-data="dash()" x-cloak :class="{ 'tab-chart': tab === 'chart' }">
 
 <header class="top">
   <div class="top-row">
