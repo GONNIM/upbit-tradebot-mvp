@@ -95,7 +95,7 @@
 - 브라우저 실측(로컬 dev_server 가짜 계정): PC 1440·1280, 모바일 412·360, 가로 스크롤 0, 단추 동작(가짜 DB trading_paused 바뀜), 로그아웃 뒤 API 401.
 
 ## 6. 배포 (별도 승인)
-- 커밋·push → 서버 `git diff --stat` 이 v2/·scripts/v2/·tests/·문서·버전 줄뿐인지 확인 → pull(ff) → `systemctl restart tradebot-v2`(정적 파일 ETag 캐시 때문에 필수) → tradebot 기동 시각 그대로(엔진 재시작 없음) → check_v2_unit(쓰기 탐침 포함)·EXPLAIN(새 SQL 포함)·RSS → 허용 목록 복원(배포 요청서 단계 D7) → 사용자 PC·휴대폰 확인(강력 새로고침, 중지·재개 1회 시험은 사용자 결정) → 30분 관찰.
+- 커밋·push → 서버 `git diff --stat` 이 v2/·scripts/v2/·tests/·문서·버전 줄뿐인지 확인 → pull(ff) → `systemctl restart tradebot-v2`(정적 파일 ETag 캐시 때문에 필수) → tradebot 기동 시각 그대로(엔진 재시작 없음 — 8-1 채택(결정 1025-21 가)으로 2차 배포 요청서 S3 에서 tradebot 1회 재시작) → check_v2_unit(쓰기 탐침 포함)·EXPLAIN(새 SQL 포함)·RSS → 허용 목록 복원(배포 요청서 단계 D7) → 사용자 PC·휴대폰 확인(강력 새로고침, 중지·재개 1회 시험은 사용자 결정) → 30분 관찰.
 - 투자자 통보 문안 A 에 「PC 화면」·「매매 중지/재개 단추(손절·익절도 멈춤, 걸린 주문은 그대로)」 문장을 더해 운영자가 발송(체감 변경).
 - 되돌리기: ① `sqlite3 -readonly …/tradebot_mcmax33.db "SELECT trading_paused FROM users WHERE username='mcmax33'"` 로 중지 상태 확인 — 1 이면 사용자에게 알리고 구버전 「매매 재개」로 풀게 한다(허용 목록을 비우면 신버전에서는 재개를 누를 수 없으므로 구버전 단추로만 해제 가능) ② 허용 목록 비우기(즉시) ③ 되돌리는 커밋·pull·v2 재시작.
 - 투자자 통보는 배포 완료 확인 뒤 운영자가 발송하고 `docs/operations/investor-notice-log.md` 에 기록한다(project-rules 투자자 연락 원칙).
