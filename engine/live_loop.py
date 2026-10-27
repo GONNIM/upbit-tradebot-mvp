@@ -223,6 +223,110 @@ def _seed_warmup_indicators(indicators, initial_df: pd.DataFrame, long_bars: int
     return ok, "sma200", reason, df_buf
 
 
+# ============================================================
+# 2차 T3: PULLBACK 전용 워밍업·BACKFILL 도우미 (EMA·MACD 경로는 부르지 않는다)
+# ============================================================
+PULLBACK_BUFFER_BARS = 500  # CandleBuffer(maxlen=500) 과 같은 값 — 버퍼·local_series 에 넘기는 봉 수
+
+
+def _pullback_warmup_bars(pullback_cfg: dict) -> Tuple[int, int]:
+    """PULLBACK 워밍업 (min_hist, _long_bars). min_hist = required_bars, _long_bars = max(LONG_SEED_BARS, required+1) (D8).
+    run_live_loop 의 `warmup_request` 식은 그대로라 1회째 _long_bars+1, 재시도 required_bars+1 을 요청한다(F5)."""
+    from engine.pullback_params import required_bars
+    rb = int(required_bars(pullback_cfg))
+    return rb, max(LONG_SEED_BARS, rb + 1)
+
+
+def _pullback_warmup_check(received: int, required: int, *, holding: bool, user_id: str, ticker: str,
+                           notify=None) -> bool:
+    """받은 봉 < required_bars 이면 PULLBACK 기동 거부 + CRITICAL. 200봉 SMA 폴백은 쓰지 않는다."""
+    if received >= required:
+        return True
+    logger.error(f"[PULLBACK-WARMUP] 봉 부족 → 기동 거부 | received={received} required={required} holding={holding}")
+    title = f"🚨 새 전략 워밍업 봉 부족 (받은 {received} / 필요 {required}) — {ticker}"
+    if holding:
+        body = ("보유 중 새 전략 워밍업 봉이 부족해 기동하지 않았습니다 — 운영자 확인 필요.\n"
+                "운영자 절차: 수동 청산 또는 활성 전략 파일을 직전 전략으로 되돌리기(배포 절 되돌리기 ①).")
+    else:
+        body = "새 전략 워밍업 봉이 부족해 기동하지 않았습니다. 업비트 응답·네트워크를 확인한 뒤 다시 시작해 주세요."
+    try:
+        if notify is None:
+            from services.notifier import send as notify  # noqa: F811
+        notify("CRITICAL", title, body, dedupe_key=f"pullback_warmup_short:{user_id}:{ticker}", dedupe_ttl=3600)
+    except Exception as e:
+        logger.warning(f"[PULLBACK-WARMUP] 알림 실패 | {type(e).__name__}")
+    return False
+
+
+def _pullback_holding(position, boot_seed_recover_qty) -> bool:
+    """워밍업 시점 보유 판정. sync_from_wallet()(run_live_loop 앞부분) 뒤의 has_position 에 더해,
+    봇 주문 기준 진입가가 없어 has_position 을 False 로 되돌리고 워밍업 뒤 지갑 기준 복원을 기다리는
+    경우(boot_seed_recover_qty > 0, WO-12 C7)도 보유로 본다."""
+    if bool(getattr(position, "has_position", False)):
+        return True
+    try:
+        return boot_seed_recover_qty is not None and float(boot_seed_recover_qty) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def _pullback_warmup_gate(initial_df: pd.DataFrame, wu_action: str, required: int, *, holding: bool,
+                          user_id: str, ticker: str, notify=None) -> Optional[pd.DataFrame]:
+    """PULLBACK 워밍업 관문(Issue #8): `_warmup_trim_forming` 이 봉 수 부족으로 형성 중 봉을 남겼으면
+    (kept_insufficient) 늘 빼고 개수를 다시 본다. 모자라면 CRITICAL 뒤 None(기동 거부). EMA·MACD 는 부르지 않는다."""
+    if wu_action == "kept_insufficient":
+        logger.warning(f"[PULLBACK-WARMUP] 형성 중 봉 제거 (봉 수 부족이어도 지표에 넣지 않음) | ts={format_kst(initial_df.index[-1])}")
+        initial_df = initial_df.iloc[:-1]
+    if not _pullback_warmup_check(len(initial_df), required, holding=holding, user_id=user_id,
+                                  ticker=ticker, notify=notify):
+        return None
+    return initial_df
+
+
+def _pullback_seed_warmup(engine, initial_df: pd.DataFrame, pullback_cfg: dict, candle_validator=None):
+    """PULLBACK 지표·링 버퍼를 워밍업 확정 봉으로 증분 시드(주문 없음). IndicatorState 200봉 SMA 폴백은 쓰지 않는다.
+    봉 거르기는 BACKFILL 재생과 같은 `iter_valid_rows(…, candle_validator)` (F6: 거래량 0 봉 제외).
+    반환: (ok, "pullback", reason, 버퍼·local_series 용 df(최근 PULLBACK_BUFFER_BARS 봉))"""
+    from core.strategy_pullback import PullbackIndicators, PullbackSnapshotRing, RING_CAPACITY
+    from core.strategy_pullback import bar_from_row, feed_confirmed_bar, iter_valid_rows
+    c = pullback_cfg
+    engine.pullback_indicators = PullbackIndicators(c["ma60p"], c["ma200p"], c["pullbackP"], c["slopeLB"], c["maType"])
+    engine.pullback_ring = PullbackSnapshotRing(RING_CAPACITY)
+    for ts, row in iter_valid_rows(initial_df, candle_validator, tag="[PULLBACK-WARMUP]"):
+        feed_confirmed_bar(engine, bar_from_row(ts, row, source="REST_WARMUP"))
+    v = engine.pullback_indicators.last_values
+    logger.info(
+        f"[WARMUP] 시드 방식=pullback bars={len(initial_df)} fed={engine.pullback_indicators.n} "
+        f"ring={len(engine.pullback_ring)} "
+        f"maTrend={v['maTrend']} ma200={v['ma200']} maPullback={v['maPullback']} slope200={v['slope200']}"
+    )
+    return True, "pullback", "", initial_df.iloc[-PULLBACK_BUFFER_BARS:]
+
+
+def _pullback_backfill_step(engine, backfill_ts_list, local_series: pd.DataFrame, closed_ts, user_id: str,
+                            candle_validator) -> list:
+    """PULLBACK BACKFILL: 봉별 루프 대신 링 버퍼 재생 1회(F15). 돌려주는 빈 목록으로 봉별 루프를 건너뛴다(두 번 넣지 않음)."""
+    from core.strategy_pullback import pullback_backfill
+    past = local_series.index[local_series.index < closed_ts]
+    if len(past) == 0:
+        logger.warning(f"[PULLBACK-BACKFILL] 직전 확정 봉 없음 → 재생 안 함 | closed_ts={format_kst(closed_ts)}")
+        return []
+    msg = f"🔄 [PULLBACK-BACKFILL] {len(backfill_ts_list)}개 변경 봉 → 링 버퍼 재생 시작"
+    logger.info(msg)
+    log_to_file(msg, user_id)
+    res = pullback_backfill(
+        engine, first_ts=min(backfill_ts_list), series=local_series, until_ts=past.max(),
+        changed_ts=list(backfill_ts_list), validator=candle_validator,
+    )
+    _from = f" from={format_kst(res['from_ts'])}" if res.get("from_ts") is not None else ""
+    msg = (f"✅ [PULLBACK-BACKFILL] 재생 완료 | restored={res['restored']} replayed={res['replayed']} "
+           f"audited={res['audited']}{_from} until={format_kst(past.max())}"
+           + (f" reason={res['reason']}" if res["reason"] else ""))
+    logger.info(msg)
+    log_to_file(msg, user_id)
+    return []
+
+
 def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
     """
     전략 실행/매매를 시작하기 위한 최소 웜업 바 수
@@ -730,6 +834,7 @@ def run_live_loop(
     stop_event: threading.Event,
     test_mode: bool,
     user_id: str,
+    pullback_cfg: Optional[dict] = None,  # 2차 T3: PULLBACK 적용본 dict (T5 가 넘긴다). EMA·MACD 는 None
 ) -> None:
     """
     실시간 운용 루프 - 증분 처리 기반 (Backtest 제거)
@@ -983,6 +1088,11 @@ def run_live_loop(
         min_hist = max(min_hist, base_period * 2)
         logger.info(f"[WARMUP] Base EMA GAP 모드: {base_period} × 2 = {min_hist}개 요청")
 
+    # 2차 T3: PULLBACK 워밍업 봉 수 = required_bars (D8·F5). EMA·MACD 는 위 식 그대로.
+    if strategy_tag == "PULLBACK":
+        min_hist, _pb_long_bars = _pullback_warmup_bars(pullback_cfg)
+        logger.info(f"[WARMUP] PULLBACK required_bars={min_hist} long_bars={_pb_long_bars}")
+
     warmup_complete = False
 
     logger.info(f"[WARMUP] Required bars: {min_hist}")
@@ -1144,6 +1254,8 @@ def run_live_loop(
             initial_df = None
             # ✅ WO-17 (S): 첫 시도는 긴 이력(LONG_SEED_BARS + 1) 요청. 실패하면 이후 시도는 현행(min_hist + 1)
             _long_bars = max(LONG_SEED_BARS, min_hist)
+            if strategy_tag == "PULLBACK":
+                _long_bars = _pb_long_bars
             _seed_fallback_reason = ""
 
             for attempt in range(1, MAX_WARMUP_RETRIES + 1):
@@ -1205,6 +1317,16 @@ def run_live_loop(
                     f"[WARMUP] 형성 중 봉 유지 (봉 수 부족) | ts={format_kst(_wu_last)} elapsed={_wu_elapsed}s | "
                     f"bars={len(initial_df)} min_hist={min_hist}"
                 )
+            # 2차 T3: PULLBACK 은 형성 중 봉을 늘 빼고, 받은 봉 < required_bars 이면 CRITICAL 뒤 기동 거부 (200봉 SMA 폴백 없음)
+            if strategy_tag == "PULLBACK":
+                _pb_received = len(initial_df)
+                initial_df = _pullback_warmup_gate(
+                    initial_df, _wu_action, min_hist,
+                    holding=_pullback_holding(engine.position, boot_seed_recover_qty),
+                    user_id=user_id, ticker=params.upbit_ticker,
+                )
+                if initial_df is None:
+                    raise RuntimeError(f"PULLBACK warmup insufficient: received={_pb_received} required={min_hist}")
             if len(initial_df) < min_hist:
                 # 부족하면 에러
                 logger.error(
@@ -1218,9 +1340,14 @@ def run_live_loop(
 
             # 지표 시드
             # ✅ WO-17 (S): 긴 이력 증분 시드 (실패·부족 시 200봉 SMA 폴백), 버퍼·local_series 는 최근 min_hist 봉
-            _seed_ok, _seed_mode, _reason, initial_df = _seed_warmup_indicators(
-                indicators, initial_df, _long_bars, min_hist
-            )
+            if strategy_tag == "PULLBACK":
+                _seed_ok, _seed_mode, _reason, initial_df = _pullback_seed_warmup(
+                    engine, initial_df, pullback_cfg, candle_validator
+                )
+            else:
+                _seed_ok, _seed_mode, _reason, initial_df = _seed_warmup_indicators(
+                    indicators, initial_df, _long_bars, min_hist
+                )
             if _seed_ok and _seed_mode == "long_history":
                 logger.info(
                     f"[WARMUP] 시드 방식=long_history bars={_long_bars} "
@@ -1229,7 +1356,7 @@ def run_live_loop(
                     f"ema_base={indicators.ema_base:.4f} | 마지막 봉={format_kst(initial_df.index[-1])} | "
                     f"직전 D/C={format_kst(indicators.last_dead_cross_ts) if indicators.last_dead_cross_ts is not None else f'없음({_long_bars}봉 안)'}"
                 )
-            elif _seed_ok:
+            elif _seed_ok and _seed_mode != "pullback":  # 2차 T3: PULLBACK 시드는 폴백 경고 대상 아님
                 _why = _seed_fallback_reason or _reason
                 logger.warning(f"[WARMUP] 긴 이력 시드 실패 → 200봉 SMA 폴백 | 사유={_why}")
                 logger.info(f"[WARMUP] 시드 방식=sma200 bars={len(initial_df)}"
@@ -1446,6 +1573,12 @@ def run_live_loop(
                                 logger.info(
                                     f"[BACKFILL] 미확정 봉 제외 | ts={format_kst(_uts)} "
                                     f"closed_ts={format_kst(closed_ts)}"
+                                )
+
+                            # 2차 T3 (F15): PULLBACK 은 봉별 루프 대신 링 버퍼 재생 1회. 빈 목록이 돌아와 아래 봉별 루프를 건너뛴다.
+                            if strategy_tag == "PULLBACK" and backfill_ts_list:
+                                backfill_ts_list = _pullback_backfill_step(
+                                    engine, backfill_ts_list, local_series, closed_ts, user_id, candle_validator
                                 )
 
                             if backfill_ts_list:
