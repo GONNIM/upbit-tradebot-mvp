@@ -202,6 +202,15 @@ class PullbackSnapshotRing:
     def record(self, bar_ts, indicators: PullbackIndicators, strategy=None) -> None:
         self._q.append(Snapshot(bar_ts, indicators.export_state(), _export_split(strategy)))
 
+    def amend_last_split(self, bar_ts, strategy) -> bool:
+        """2차 T5: 마지막 기록이 bar_ts 봉이면 분할 판정 상태만 지금 값으로 바꾼다(매수 건너뜀·되돌림 뒤).
+        지표 상태는 그대로. 바꿨으면 True."""
+        if not self._q or self._q[-1].bar_ts != bar_ts:
+            return False
+        last = self._q[-1]
+        self._q[-1] = Snapshot(last.bar_ts, last.ind_state, _export_split(strategy))
+        return True
+
     def snapshot_before(self, ts) -> Optional[Snapshot]:
         """ts 봉을 넣기 직전 상태 = ts 보다 앞선 마지막 기록. 링 맨 앞보다 이르면 None(링 밖)."""
         if not self._q or not (self._q[0].bar_ts < ts):
@@ -433,6 +442,34 @@ class IncrementalPullbackStrategy:
         self.last_buy_reason: Optional[str] = None
         self.last_sell_reason: Optional[str] = None
         self.last_eval: dict = {}
+        self._buy_undo: Optional[dict] = None  # 2차 T5: 이 봉 BUY 신호가 바꾼 회차 값(주문 없이 끝나면 되돌림)
+
+    # ------------------------------------------------ 2차 T5: 엔진·trader 가 읽는 값 (적용본 기준, 읽기 전용)
+    @property
+    def take_profit(self) -> float:
+        """감사·설정 스냅샷용 소수 비율 (적용본 tp/100). 조건 파일로 바뀌지 않는다."""
+        return self.cfg["tp"] / 100
+
+    @property
+    def stop_loss(self) -> float:
+        return self.cfg["sl"] / 100
+
+    trailing_stop_pct = None  # PULLBACK 은 트레일링 스톱을 쓰지 않는다
+
+    def rollback_last_buy(self) -> bool:
+        """2차 T5 (F12): 이 봉 BUY 신호가 주문 없이 끝났을 때(건너뜀·일시정지·주문 실패 등) 신호가 올린
+        회차·눌림목 회차·체결 대기를 되돌린다. armed 는 원본 「매수 직후」처럼 해제 상태로 둔다.
+        링의 이 봉 기록도 되돌린 값으로 고친다. 되돌렸으면 True."""
+        undo = self._buy_undo
+        if not undo:
+            return False
+        for k, v in undo.items():
+            setattr(self, k, v)
+        self.armed = False
+        self._buy_undo = None
+        if self.ring is not None and self.last_ts is not None:
+            self.ring.amend_last_split(self.last_ts, self)
+        return True
 
     # ------------------------------------------------ 공용 인터페이스
     def bind(self, indicators, ring) -> None:
@@ -485,6 +522,7 @@ class IncrementalPullbackStrategy:
                               "failed_keys": ["DUPLICATE"], "note": "이미 넣은 봉 이하 — 판정 안 함"}
             self.last_action = Action.NOOP
             return Action.NOOP
+        self._buy_undo = None
         _, signal = _feed_bar(self.indicators, self.ring, self, bar,
                               lambda b, v: self._guarded_step(b, v, live=True, position=position))
         if signal is None:
@@ -529,6 +567,13 @@ class IncrementalPullbackStrategy:
             if (s_lb - s) > self.cfg["slopeDrop"]:
                 return False
         return True
+
+    _UNDO_KEYS = ("entry_count", "pullback_count", "first_entry_reason", "trade_origin", "pending_fill")
+
+    def _save_buy_undo(self, live: bool) -> None:
+        """BUY 신호가 회차를 올리기 직전 값(실시간만). 체결 대기 처리(순서 0)는 이미 끝난 뒤라 그 값은 유지된다."""
+        if live:
+            self._buy_undo = {k: getattr(self, k) for k in self._UNDO_KEYS}
 
     def _step(self, bar, v: dict, *, live: bool, position):
         c = self.cfg
@@ -612,6 +657,7 @@ class IncrementalPullbackStrategy:
         # 4) 골든크로스 1차 매수
         elif (c["buyOnGoldenCross"] and just_crossed and self.entry_count == 0 and not holding
               and active and self.entry_count < c["eff_max_splits"]):
+            self._save_buy_undo(live)
             self.entry_count += 1
             self.first_entry_reason = "GOLDEN"
             self.trade_origin = origin
@@ -626,6 +672,7 @@ class IncrementalPullbackStrategy:
                 if pm is not None and bar.low < pm:
                     self.armed = True
                 if self.armed and pm is not None and bar.close > pm:
+                    self._save_buy_undo(live)
                     if self.entry_count == 0:
                         self.first_entry_reason = "PULLBACK"
                     self.entry_count += 1

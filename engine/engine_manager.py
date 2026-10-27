@@ -53,6 +53,64 @@ def is_live_mode() -> bool:
     return current_mode() == MODE_LIVE
 
 
+def _pullback_holding_hint(user_id: str) -> bool:
+    """load_for_boot 의 holding(경우 9·10 알림 문구) 판정. 지갑 동기화는 run_live_loop 안에서야 되므로
+    여기서는 적용본·사본·저장본에서 종목만 느슨하게 읽어 DB 보유 수량(account_positions)으로 본다.
+    종목을 모르거나 조회가 실패하면 True(보유로 보고 운영자 확인 문구 — 안전 쪽)."""
+    import json as _json
+    from engine import pullback_params as pbp
+    ticker = None
+    for path in (pbp.applied_path(user_id), pbp.last_good_path(user_id), pbp.saved_path(user_id)):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                t = _json.load(f).get("ticker")
+            if isinstance(t, str) and t:
+                ticker = t
+                break
+        except Exception:
+            continue
+    if ticker is None:
+        return True
+    try:
+        from services.db import get_coin_balance
+        return float(get_coin_balance(user_id, ticker) or 0.0) >= 1e-6
+    except Exception:
+        return True
+
+
+def _pullback_boot_params(user_id: str):
+    """2차 T5: PULLBACK 기동 설정. (LiveParams, 적용본 dict) 또는 거부 시 (None, None).
+    - load_for_boot: 경우별 표 1~11 (사본 대체·없음 CRITICAL 은 로더가 보낸다)
+    - to_live_params(cfg, 운용자산 users.virtual_krw): 실패(PullbackParamsError — 운용자산 없음 등)는
+      경우 9·10 과 같은 거부 + CRITICAL (T2 넘김 ③ — 잡지 않으면 거부 절차 없이 죽음)"""
+    from engine import pullback_params as pbp
+    holding = _pullback_holding_hint(user_id)
+    cfg, source = pbp.load_for_boot(user_id, holding=holding)
+    if cfg is None:
+        return None, None
+    try:
+        from services.db import get_initial_krw
+        capital = get_initial_krw(user_id)
+    except Exception as e:
+        logger.error(f"[PULLBACK-PARAMS] 운용자산 조회 실패 | {type(e).__name__}")
+        capital = None
+    try:
+        params = pbp.to_live_params(cfg, capital)
+    except pbp.PullbackParamsError as e:
+        logger.error(f"[PULLBACK-PARAMS] LiveParams 변환 실패 field={e.field} user={user_id} holding={holding}")
+        title = ("보유 중 새 전략 설정 변환 실패 — 운영자 확인 필요" if holding
+                 else "새 전략 설정을 엔진 값으로 바꾸지 못했습니다 — 운용자산·설정을 확인해 주세요")
+        pbp._notify_critical(
+            title,
+            f"PULLBACK 기동을 거부했습니다 (변환 실패: {e.field}, 설정 출처: {source}).",
+            f"pullback_live_params:{user_id}:{int(bool(holding))}",
+        )
+        return None, None
+    logger.info(f"[PULLBACK-PARAMS] 기동 설정 | source={source} ticker={params.ticker} interval={params.interval} "
+                f"cash={params.cash} order_ratio={params.order_ratio:.4f}")
+    return params, cfg
+
+
 def _decide_strategy_type(user_id: str, session_strategy) -> str:
     """
     엔진 기동 전략 결정. 우선순위:
@@ -405,17 +463,34 @@ class EngineManager:
             session_strategy = st.session_state.get("strategy_type", None)
             strategy_type = _decide_strategy_type(user_id, session_strategy)
 
-            # PULLBACK 은 전용 로더(T2)·전략 객체(T5) 전까지 기동을 거부한다.
-            # 기존 load_params 로 읽으면 신버전 저장 형식(strategy_type 키 없음)이 MACD 기본값으로 채워져
-            # 그 종목을 MACD 로 매매하게 되므로, 파일을 읽기 전에 막는다(T1 검수 지적).
-            if strategy_type == "PULLBACK":
-                msg = f"[PULLBACK-PARAMS] PULLBACK 로더 없음 → 기동 거부 | user_id={user_id}"
+            # 2차 T5 (T1 거부 대체): PULLBACK 은 기존 load_params 를 쓰지 않는다(신버전 저장 형식의 빠진
+            # strategy_type 이 MACD 기본값으로 채워져 MACD 로 매매하게 됨 — T1 검수 지적). 적용본 전용 로더
+            # (load_for_boot → to_live_params)로 읽고, 설정이 없거나 LiveParams 변환이 실패하면 trader 를 만들기
+            # 전에 거부 + CRITICAL(로더·이 함수) + ERROR 로그. 거부 시 start_engine False·boot_resume 실패 판정은 T11.
+            pullback_cfg = None
+            if strategy_type == "PULLBACK" and not test_mode:
+                # 검수 반영(10/28): LIVE 는 분할 체결 수량·평단 반영(T6) 전 거부 — 실제 키 trader 를 만들기 전에
+                from engine import pullback_params as _pbp
+                from engine.live_loop import PULLBACK_LIVE_REFUSE_MSG
+                msg = f"[PULLBACK-PARAMS] {PULLBACK_LIVE_REFUSE_MSG} → 기동 거부 | user_id={user_id}"
                 logger.error(msg)
                 insert_log(user_id, "ERROR", msg)
+                _pbp._notify_critical(
+                    f"새 전략 기동 거부 — {PULLBACK_LIVE_REFUSE_MSG}",
+                    "새 전략(PULLBACK) 실계좌(LIVE) 기동을 거부했습니다. 분할 체결 반영 작업 뒤에 엽니다.",
+                    f"pullback_live_refused:{user_id}",
+                )
                 return
-
-            # ✅ 전략 타입을 전달하여 올바른 파일 로드
-            params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_type)
+            if strategy_type == "PULLBACK":
+                params, pullback_cfg = _pullback_boot_params(user_id)
+                if params is None:
+                    msg = f"[PULLBACK-PARAMS] 새 전략 설정 없음·변환 실패 → 기동 거부 | user_id={user_id}"
+                    logger.error(msg)
+                    insert_log(user_id, "ERROR", msg)
+                    return
+            else:
+                # ✅ 전략 타입을 전달하여 올바른 파일 로드
+                params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_type)
 
             if params is None:
                 msg = f"❌ 파라미터 로드 실패: {user_id}, strategy={strategy_type}"
@@ -432,6 +507,10 @@ class EngineManager:
                 f"{user_id}_{PARAMS_JSON_FILENAME}",
                 getattr(params, "strategy_type", None),
             )
+            if pullback_cfg is not None:
+                # 2차 T5 (R11): PULLBACK 파일에는 order_ratio 가 없고 분할 매수는 엄격 금액이라 재읽기를 끈다.
+                # risk_pct = to_live_params 의 1/effMaxSplits (구버전 강제 매수 금액 규칙 T15).
+                params_file_path = None
             trader = UpbitTrader(
                 user_id, risk_pct=params.order_ratio, test_mode=test_mode,
                 strategy_type=getattr(params, "strategy_type", None),  # ✅ P1
@@ -446,6 +525,8 @@ class EngineManager:
             worker = threading.Thread(
                 target=run_live_loop,
                 args=(params, q, trader, stop_event, test_mode, user_id),
+                # 2차 T5: PULLBACK 만 적용본 dict 를 넘긴다 (EMA·MACD 는 빈 kwargs — 지금과 같은 호출)
+                kwargs=({"pullback_cfg": pullback_cfg} if pullback_cfg is not None else {}),
                 daemon=True,
                 name=f"run_live_loop_{user_id}_{captured_mode}",
             )

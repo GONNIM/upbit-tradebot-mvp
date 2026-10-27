@@ -104,6 +104,8 @@ class StrategyRegistryTests(InTmpCwd):
             mock.patch.object(engine_manager, "set_engine_status"),
             mock.patch.object(engine_manager, "set_thread_status"),
             mock.patch.object(engine_manager, "remove_engine_thread"),
+            # 2차 T5: 거부 경로가 CRITICAL 알림을 보내므로 실발송을 막는다
+            mock.patch("services.notifier.send", mock.MagicMock(return_value=False)),
         ]
         for p in patches:
             p.start()
@@ -172,6 +174,7 @@ class StrategyRegistryTests(InTmpCwd):
         trader = mock.MagicMock(name="trader")
         stop_event = threading.Event()
         with mock.patch.object(live_loop, "get_reconciler") as get_rec, \
+                mock.patch("services.notifier.send", mock.MagicMock(return_value=False)), \
                 mock.patch("services.db.clear_stale_hts_flags") as hts, \
                 self.assertLogs(live_loop.logger, level="ERROR") as logs:
             live_loop.run_live_loop(params, queue.Queue(), trader, stop_event, False, "u1")

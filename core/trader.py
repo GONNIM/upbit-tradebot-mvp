@@ -235,6 +235,8 @@ class UpbitTrader:
         self.upbit = None if test_mode else pyupbit.Upbit(ACCESS, SECRET)
         # 마지막 LIVE 주문 실패의 정확한 사유(B안) — UI 노출용
         self.last_buy_error: Optional[str] = None
+        self.last_krw_balance_ok: bool = True               # 2차 T5: 직전 _krw_balance 조회 성공 여부
+        self.last_strict_reject_code: Optional[str] = None  # 2차 T5: 직전 엄격 금액 주문 전 거절 코드
         self.last_sell_error: Optional[str] = None
         # ✅ SP4 — strategy 참조 (StrategyEngine 이 init 직후 set_strategy_ref 호출)
         self._strategy_ref = None
@@ -317,18 +319,25 @@ class UpbitTrader:
             return None
 
     def _krw_balance(self) -> float:
+        # 2차 T5 검수 반영: 반환값·시그니처는 그대로(EMA 공용). 조회 실패로 0.0 을 돌려줄 때만
+        # self.last_krw_balance_ok=False 로 표시한다 — PULLBACK 엄격 금액 경로가 「잔고 조회 실패」를 「잔고 부족」과 구분.
+        self.last_krw_balance_ok = True
         if self.test_mode:
             try:
                 bal = get_account(self.user_id)
                 return float(bal or 0.0)
             except Exception:
+                self.last_krw_balance_ok = False
                 return 0.0
 
         try:
             balance = self.upbit.get_balance(ticker="KRW")
+            if balance is None:
+                self.last_krw_balance_ok = False
             return float(balance) if balance else 0.0
         except Exception as e:
             logger.error(f"[실거래] KRW 잔고 조회 실패: {e}")
+            self.last_krw_balance_ok = False
             return 0.0
 
     def _coin_balance(self, ticker: str) -> float:
@@ -535,17 +544,42 @@ class UpbitTrader:
             err_summary=code, call=None, meta=meta, extra=_extra, note=note,
         )
 
+    def _audit_strict_unknown(self, ticker, price, meta, krw_amount, stage: str) -> None:
+        """2차 T5 검수 반영: 엄격 금액 경로에서 KRW 잔고 조회 실패 — 잔고 부족과 구분해 주문 전 거절 기록."""
+        self.last_strict_reject_code = "split_krw_unknown"
+        logger.warning(f"[BUY] 엄격 금액 잔고 조회 실패 → 주문 안 함 | 단계={stage} 회당={krw_amount}")
+        _amt = f"{float(krw_amount):,.0f}" if krw_amount is not None else "-"
+        self._audit_preorder_reject(
+            ticker=ticker, price=price, meta=meta, code="split_krw_unknown",
+            note=f"원화 잔고 조회 실패({stage}) — 회당 {_amt}원 시장가 매수 주문 전 차단",
+            extra={"krw_amount": krw_amount, "order_type": "market", "strict_amount": True, "stage_detail": stage},
+        )
+
+    def _audit_strict_short(self, ticker, price, meta, avail, krw_amount) -> None:
+        """2차 T5: 엄격 금액(PULLBACK 분할 매수) 잔고 부족 — 줄여 사지 않고 주문 전 거절 기록."""
+        self.last_strict_reject_code = "split_krw_short"
+        logger.warning(f"[BUY] 엄격 금액 잔고 부족 → 주문 안 함 | 가용={avail} 회당={krw_amount}")
+        _amt = f"{float(krw_amount):,.0f}" if krw_amount is not None else "-"
+        self._audit_preorder_reject(
+            ticker=ticker, price=price, meta=meta, code="split_krw_short",
+            note=f"원화 잔고 부족 (가용 {float(avail or 0):,.0f}원 < 회당 {_amt}원+수수료) — 줄여 사지 않음, 시장가 매수 주문 전 차단",
+            extra={"avail_krw": avail, "krw_amount": krw_amount, "order_type": "market", "strict_amount": True},
+        )
+
     # ---------------------------
     # 매수 / 매도
     # ---------------------------
     def buy_market(self, price: float, ticker: str, ts=None, meta: Optional[Dict[str, Any]] = None,
-                   krw_amount: Optional[float] = None) -> dict:
+                   krw_amount: Optional[float] = None, strict_amount: bool = False) -> dict:
         """
         시장가 매수
         - TEST 모드: 즉시 체결 + DB에 completed 기록
         - LIVE 모드 : Upbit에 KRW 금액 기준 시장가 주문 → orders에는 'REQUESTED' + uuid만 기록
                       실제 체결 결과는 OrderReconciler가 update_order_*()로 업데이트
         - DRY-RUN 모드 (WO-6): 실 주문 억제. 매매 판단 로직 검증용.
+        - strict_amount (2차 T5, PULLBACK 분할 매수): True 면 krw_amount 를 정확히 산다. 가용 KRW 가
+          krw_amount + 수수료보다 적으면(첫 확인·재시도 직전 재확인 모두) 줄여 사지 않고
+          BUY_REJECTED(split_krw_short) 기록 후 {}. 기본 False 는 지금과 같다(WO-24 경로 무변경).
         """
         # ✅ WO-6 (2026-08-25): dry-run 모드는 실 주문을 억제하고 로그만 남김
         if self.dry_run:
@@ -561,7 +595,12 @@ class UpbitTrader:
                 "uuid": "DRY_RUN",
                 "raw": {"dry_run": True},
             }
+        if strict_amount:
+            self.last_strict_reject_code = None
         avail = self._krw_balance()
+        if strict_amount and not getattr(self, "last_krw_balance_ok", True):
+            self._audit_strict_unknown(ticker, price, meta, krw_amount, "주문 전 조회")
+            return {}
         if avail <= 0:
             logger.warning(f"[BUY] 주문 불가: 잔고={avail:.4f}")
             self._audit_preorder_reject(  # ✅ WO-25
@@ -577,8 +616,14 @@ class UpbitTrader:
         # ✅ RATIO-HR: params JSON 최신 order_ratio 반영 (엔진 재시작 불필요)
         risk_pct = self._current_risk_pct()
         krw_to_use = math.floor(avail * risk_pct / (1 + MIN_FEE_RATIO))
+        # ✅ 2차 T5: PULLBACK 분할 매수 — 회당 금액을 줄이지 않는다 (부족하면 주문 전 거절)
+        if strict_amount:
+            if krw_amount is None or avail / (1 + MIN_FEE_RATIO) < float(krw_amount):
+                self._audit_strict_short(ticker, price, meta, avail, krw_amount)
+                return {}
+            krw_to_use = math.floor(float(krw_amount))
         # ✅ WO-24 (2026-10-05): 미체결 시장가 전환 — 남은 수량만큼의 KRW 로 제한 (지정 시에만, 기본 동작 무변경)
-        if krw_amount is not None:
+        elif krw_amount is not None:
             krw_to_use = math.floor(min(float(krw_amount), avail / (1 + MIN_FEE_RATIO)))
 
         if krw_to_use < 5000:
@@ -656,8 +701,21 @@ class UpbitTrader:
                 current_krw = self._krw_balance()
             except Exception as e:
                 current_krw = krw_to_use  # 조회 실패 시 기존 값 유지
+                self.last_krw_balance_ok = False  # 2차 T5: 엄격 금액 경로만 읽는다(EMA 무변경)
                 logger.warning(f"[BUY-LIVE] attempt #{attempt} 활성 KRW 재조회 실패: {e}")
 
+            if strict_amount and not getattr(self, "last_krw_balance_ok", True):
+                # ✅ 2차 T5 검수 반영: 재시도 직전 재조회 실패 — 잔고 부족과 구분해 주문 전 거절
+                self._audit_strict_unknown(ticker, price, meta, krw_to_use, f"시도 #{attempt} 직전 재조회")
+                return {}
+            if strict_amount and current_krw / (1 + MIN_FEE_RATIO) < krw_to_use:
+                # ✅ 2차 T5: 엄격 금액은 재시도 직전에도 줄이지 않는다 → 주문 전 거절
+                logger.warning(
+                    f"[BUY-LIVE] attempt #{attempt} 엄격 금액 잔고 부족 → 주문 안 함 | "
+                    f"현재={current_krw:.0f} 회당={krw_to_use:.0f}"
+                )
+                self._audit_strict_short(ticker, price, meta, current_krw, krw_to_use)
+                return {}
             if current_krw < krw_to_use:
                 # 수수료 차감 후에도 안전한 금액으로 재조정 (A안과 동일 공식)
                 # ✅ RATIO-HR: 재조정 시점에도 최신 order_ratio 반영

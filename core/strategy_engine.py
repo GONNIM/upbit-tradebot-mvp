@@ -29,6 +29,16 @@ logger = logging.getLogger(__name__)
 _active_engines: "Dict[tuple, 'StrategyEngine']" = {}
 _active_engines_lock = threading.Lock()
 
+# ✅ 2차 T5: PULLBACK 매수 주문 실패 뒤 다시 주문하지 않는 봉 수 (T4 넘김 7 — 실보유 없이 주문이 계속
+#   실패하면 정리 → 재신호가 반복되어 주문·알림이 쌓이는 것을 막는다). 지나면 다시 시도한다.
+#   결정 1028-03(다): 3봉. 의미: 실패 봉 포함 3봉 — 실패 봉 #F ~ #F+2 동안 재주문 안 함, #F+3 부터 다시 주문
+#   (bar_count - F < 3). 들어가는 것: trader 단계 주문 실패(업비트 거절·오류)·trader strict 거절(잔고 부족 경쟁·
+#   잔고 조회 실패). 엔진 사전 검사 건너뜀(최소 미만·잔고 부족·잔고 조회 실패)은 넣지 않는다.
+#   해제: 봇 매도 체결(close_position reason="bot_sell")만. 앱 매도 지갑 0 동기화·회차 0 정리로는 풀지 않는다.
+#   고지: 시작 때 텔레그램 WARNING 1회 + 감사 BUY_REJECTED(split_order_cooldown) 1행. 끝·해제 알림은 보내지 않는다.
+PULLBACK_BUY_FAIL_COOLDOWN_BARS = 3
+PULLBACK_MIN_ORDER_KRW = 5000
+
 
 def register_pending_buy_uuid(user_id: str, ticker: str, uuid: str, wait_bars: int) -> bool:
     """
@@ -327,6 +337,15 @@ class StrategyEngine:
         self._pending_buy_wait_bars: int = 3
         # ✅ WO-26: 지정가 매수 대기 중 약매수 표식 (weak_entry dict, bar_time) — 체결 확정 때 기록
         self._pending_buy_weak = None
+
+        # ✅ 2차 T5: PULLBACK 전용 상태 (EMA·MACD 는 읽지 않는다)
+        self.pullback_indicators = None   # live_loop._pullback_seed_warmup 이 채움
+        self.pullback_ring = None
+        self._pullback_sizing_base: Optional[float] = None  # 이 거래 배분 기준(1회차 때 고정 — T6 에서 저장으로 교체)
+        self._pullback_buy_fail_bar: Optional[int] = None
+        self._pullback_buy_placed = False
+        self._pullback_pending_set = False  # 검수 반영: 이 판정에서 set_pending(True) 를 켰는지(예외 시 되돌림용)
+        self._pullback_polluted_notified = False
 
         # ✅ SP-PI-2: OrderReconciler LIMIT BUY 전량 체결 콜백 등록
         # LIVE 모드 한정 — TEST 모드는 reconciler 미가동
@@ -774,6 +793,11 @@ class StrategyEngine:
         Args:
             bar: 확정된 봉 (is_closed=True)
         """
+        # ✅ 2차 T5: PULLBACK 은 형성 중 봉 경로(WS·LEGACY_LOCAL)에서 판정하지 않는다 (NOOP, 지표·버퍼 불변)
+        if self.strategy_type == "PULLBACK":
+            logger.debug(f"[PULLBACK] on_new_bar 경로는 판정 안 함 (확정 봉 마감에서만) | ts={bar.ts}")
+            return
+
         # ✅ 확정 봉만 처리
         if not bar.is_closed:
             logger.warning(f"⚠️ 미확정 봉 무시: {bar.ts}")
@@ -883,6 +907,10 @@ class StrategyEngine:
             full_series: REST 전체 시계열
             diff_summary: Reconcile 결과 {changed_count, changed_ts, rest_failed}
         """
+        # ✅ 2차 T5: PULLBACK 은 전용 경로 (EMA·MACD 아래 본문은 그대로)
+        if self.strategy_type == "PULLBACK":
+            return self._on_new_bar_confirmed_pullback(bar, full_series, diff_summary)
+
         # ✅ 확정 봉 검증
         if not bar.is_closed:
             logger.error(f"[ENGINE] 미확정 봉 거부 | {bar.ts}")
@@ -1064,6 +1092,347 @@ class StrategyEngine:
         while len(self._evaluated_bar_ts) > self._EVAL_HISTORY_MAX:
             self._evaluated_bar_ts.popitem(last=False)
 
+    # ============================================================
+    # 2차 T5: PULLBACK 전용 경로 (strategy_type == "PULLBACK" 일 때만 부른다)
+    # ============================================================
+    def _on_new_bar_confirmed_pullback(self, bar: Bar, full_series, diff_summary: Dict):
+        """
+        PULLBACK 확정 봉 처리. EMA·MACD 의 on_new_bar_confirmed 본문을 타지 않는다.
+        - 지표·링은 strategy.on_bar 로만 들어간다(feed_confirmed_bar 를 따로 부르지 않음 — 두 번 넣지 않기).
+        - IndicatorState(EMA/MACD) 갱신·WO-2 지연 큐 재판정은 하지 않는다.
+        - BACKFILL 은 live_loop 의 pullback_backfill 1회가 맡는다(T3). 여기로 backfill_mode 가 오면 무시.
+        - 실시간 호출은 늘 엔진 position 을 넘긴다. position 이 없으면 경고·NOOP(T4 넘김 3).
+        """
+        if diff_summary.get("backfill_mode", False):
+            logger.warning(f"[PULLBACK] backfill_mode 봉은 링 재생이 맡음 → 무시 | ts={bar.ts}")
+            return
+        if not bar.is_closed:
+            logger.error(f"[ENGINE] 미확정 봉 거부 | {bar.ts}")
+            return
+        if self.position is None:
+            logger.warning(f"[PULLBACK] position 없음 → 판정 안 함(NOOP) | ts={bar.ts}")
+            return
+        logger.info(
+            f"[ENGINE-ENTRY] on_new_bar_confirmed(PULLBACK) | bar.ts={bar.ts} | "
+            f"last_bar_ts={self.last_bar_ts} | confirmed={getattr(bar, 'is_confirmed', False)}"
+        )
+        if not self.is_new_bar(bar):
+            logger.info(f"[ENGINE-SKIP-DUP] 중복 봉 무시 (is_new_bar False) | bar.ts={bar.ts}")
+            return
+
+        with self._execution_lock:
+            self._reconcile_position_with_wallet()
+
+        self.buffer.append(bar)
+        self.bar_count += 1
+
+        with self._execution_lock:
+            self.position.sync_from_wallet()
+            self._record_invariant_snapshot(context="pre_eval_confirmed")
+            if bar.ts in self._evaluated_bar_ts:
+                logger.info(f"[ENGINE] 봉당 매매 판단 1회 규칙 적용 (PULLBACK) | ts={bar.ts}")
+                return
+
+            action = self.strategy.on_bar(bar, {}, self.position, self.bar_count)
+            ev = getattr(self.strategy, "last_eval", {}) or {}
+            logger.info(
+                f"📊 Bar#{self.bar_count} | ts={bar.ts} | close={bar.close:.2f} | PULLBACK "
+                f"maTrend={ev.get('maTrend')} ma200={ev.get('ma200')} maPullback={ev.get('maPullback')} "
+                f"armed={ev.get('armed')} 회차={ev.get('entry_count')} | action={action.value} | "
+                f"pos={self.position.has_position} | failed={ev.get('failed_keys')}"
+            )
+            if self.q is not None:
+                self.q.put((bar.ts, "LOG",
+                            f"{bar.ts} | price={bar.close:.2f} | PULLBACK golden={ev.get('golden')} "
+                            f"active={ev.get('active')} armed={ev.get('armed')} | bar={self.bar_count}"))
+
+            if getattr(self.pullback_indicators, "state_polluted", False):
+                self._pullback_notify_polluted()
+
+            self.position.sync_from_wallet()
+            self._record_pullback_audit(bar, action)
+
+            self._pullback_buy_placed = False
+            self._pullback_pending_set = False
+            self.position.sync_from_wallet()
+            ind = self._pullback_ind_dict()
+            _raised = True
+            try:
+                self.execute(action, bar, ind)
+                _raised = False
+            finally:
+                if action == Action.BUY and not self._pullback_buy_placed:
+                    # 건너뜀·일시정지·주문 진행 중·오염·주문 실패·예외 — 주문이 나가지 않았으면 회차를 되돌린다(F12)
+                    if _raised and self._pullback_pending_set:
+                        self.position.set_pending(False)
+                        logger.error(f"[PULLBACK] 매수 실행 중 예외 — 주문 없음으로 보고 pending 해제 | ts={bar.ts}")
+                    if hasattr(self.strategy, "rollback_last_buy") and self.strategy.rollback_last_buy():
+                        logger.info(f"[PULLBACK-SKIP] 주문 없음 → 회차 되돌림·armed 해제 | ts={bar.ts}")
+                self._pullback_pending_set = False
+
+            self._register_evaluated_bar(bar.ts)
+            self.last_bar_ts = bar.ts
+
+    def _pullback_ind_dict(self) -> Dict[str, Any]:
+        """감사·이벤트용 지표 dict (EMA 칸은 비움)."""
+        ev = getattr(self.strategy, "last_eval", {}) or {}
+        d = {k: ev.get(k) for k in ("maTrend", "ma200", "maPullback", "slope200", "slope200_lb")}
+        d.update({"macd": None, "signal": None, "ema_fast": None, "ema_slow": None})
+        return d
+
+    def _record_pullback_audit(self, bar: Bar, action: Action) -> None:
+        """PULLBACK 봉 판정 감사 1행 (칸 모양은 T8 — 지금은 checks 에 last_eval 을 그대로 넣는다)."""
+        try:
+            ev = dict(getattr(self.strategy, "last_eval", {}) or {})
+            checks = {**ev, "strategy": "PULLBACK", "strategy_mode": "PULLBACK", "price": float(bar.close),
+                      "via_backfill": False, "via_tentative": not bool(getattr(bar, "is_confirmed", True))}
+            bar_time = bar.ts.astimezone(ZoneInfo("Asia/Seoul")).isoformat()
+            failed = list(ev.get("failed_keys") or [])
+            if not self.position.has_position:
+                insert_buy_eval(
+                    user_id=self.user_id, ticker=self.ticker, interval_sec=self.interval_sec,
+                    bar=self.bar_count, price=float(bar.close), macd=ev.get("maTrend"), signal=ev.get("ma200"),
+                    have_position=False, overall_ok=(action == Action.BUY), failed_keys=failed,
+                    checks=checks, notes=f"PULLBACK {action.value} {ev.get('reason') or ''}".strip(),
+                    bar_time=bar_time,
+                )
+            else:
+                insert_sell_eval(
+                    user_id=self.user_id, ticker=self.ticker, interval_sec=self.interval_sec,
+                    bar=self.bar_count, price=float(bar.close), macd=ev.get("maTrend"), signal=ev.get("ma200"),
+                    tp_price=ev.get("tp_price") or 0, sl_price=ev.get("sl_price") or 0,
+                    highest=None, ts_pct=None, ts_armed=False,
+                    bars_held=self.position.get_bars_held(self.bar_count),
+                    checks=checks, triggered=(action in (Action.SELL, Action.CLOSE)),
+                    trigger_key=(ev.get("reason") if action in (Action.SELL, Action.CLOSE) else None),
+                    notes=f"PULLBACK {action.value} {ev.get('reason') or ''}".strip(),
+                    bar_time=bar_time,
+                )
+        except Exception as e:
+            logger.warning(f"[PULLBACK-AUDIT] 판정 감사 기록 실패(무해): {e}")
+
+    def _pullback_notify_polluted(self) -> None:
+        """T4 넘김 6: 오염 상태 — CRITICAL 1회(엔진 수명 동안) + 재시작 안내. 매도(데드크로스·익절·손절)는 계속."""
+        if self._pullback_polluted_notified:
+            return
+        self._pullback_polluted_notified = True
+        logger.error(
+            f"🚫 [PULLBACK-POLLUTED] 새 전략 지표 오염 상태 — 신규 매수 중지, 매도는 계속 | "
+            f"ticker={self.ticker} | 해제: 재시작(워밍업 재시드)"
+        )
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            _notify(
+                LEVEL_CRITICAL,
+                f"🚨 새 전략 지표 오염 — {self.ticker}",
+                (
+                    "새 전략(PULLBACK) 지표 상태를 믿을 수 없어 신규 매수를 멈췄습니다.\n"
+                    "익절·손절·데드크로스 매도는 계속합니다.\n"
+                    "조치: 봇 재시작(워밍업 재시드)으로만 해제됩니다."
+                ),
+                dedupe_key=f"pullback_polluted:{self.user_id}:{self.ticker}",
+                dedupe_ttl=3600,
+            )
+        except Exception:
+            pass
+
+    def _pullback_read_sizing_base(self) -> Optional[float]:
+        """이 거래 배분 기준 = 운용자산 users.virtual_krw (D10). T6 분할 상태 테이블이 생기면 거기서 읽는다.
+        복리(전환 뒤 실현 손익 합 더하기)는 T6 의 realized_pnl_krw 로 넣는다 — 지금은 운용자산만."""
+        try:
+            from services.db import get_initial_krw
+            v = get_initial_krw(self.user_id)
+            v = float(v) if v is not None else None
+            return v if v is not None and v > 0 else None
+        except Exception as e:
+            logger.warning(f"[PULLBACK-SPLIT] 운용자산 조회 실패: {e}")
+            return None
+
+    def _pullback_skip(self, bar: Bar, indicators, *, code: str, note: str, ctx: Dict[str, Any]) -> None:
+        """분할 매수 건너뜀: 감사 BUY_REJECTED 1행 + 알림(같은 거래·같은 사유 1회). 회차는 늘리지 않는다(호출부가 되돌림)."""
+        logger.warning(f"⏭️ [PULLBACK-SKIP] {code} | {note}")
+        self._audit_buy_blocked(bar.ts, indicators, price=bar.close, code=code, note=note, extra=ctx)
+        try:
+            from services.notifier import send as _notify, LEVEL_WARNING
+            _fe = getattr(self.strategy, "first_entry_ts", None)
+            trade_key = _fe.isoformat() if hasattr(_fe, "isoformat") else "flat"
+            _notify(
+                LEVEL_WARNING,
+                f"⚠️ 분할 매수 건너뜀 — {self.ticker}",
+                f"{note}\n사유 코드: {code}",
+                dedupe_key=f"pullback_skip:{self.user_id}:{self.ticker}:{code}:{trade_key}",
+                dedupe_ttl=3600,
+            )
+        except Exception:
+            pass
+
+    _PULLBACK_REJECT_TEXT = {
+        "split_krw_short": ("원화 잔고 부족 — 회당 금액을 줄여 사지 않았습니다.\n"
+                            "업비트 앱에서 직접 넣은 외부 미체결 주문이 원화를 묶고 있는지 확인하세요."),
+        "split_krw_unknown": "원화 잔고 조회 실패 — 업비트 응답을 확인하세요(잔고 부족 아님).",
+    }
+
+    def _pullback_start_cooldown(self, bar: Bar, indicators, round_n: int, *, code: Optional[str],
+                                 err: Optional[str], ctx: Dict[str, Any]) -> None:
+        """결정 1028-03(다) 고지: 쿨다운 시작 때 감사 BUY_REJECTED(split_order_cooldown) 1행 + 텔레그램 WARNING 1회.
+        dedupe 키 = 거래·실패 봉. 쿨다운이 끝나거나 봇 매도로 풀릴 때는 알림을 보내지 않는다(감사 note 에 끝나는 봉 시각)."""
+        n = PULLBACK_BUY_FAIL_COOLDOWN_BARS
+        fail_bar = self.bar_count
+        iv = int(self.interval_sec or 60)
+        from datetime import timedelta
+        resume_ts = bar.ts + timedelta(seconds=iv * n)
+        resume_kst = resume_ts.astimezone(ZoneInfo("Asia/Seoul")).strftime("%m/%d %H:%M")
+        minutes = iv * n / 60
+        minutes_txt = f"{minutes:.0f}" if float(minutes).is_integer() else f"{minutes:.1f}"
+        if code:
+            reason = f"{code} — {self._PULLBACK_REJECT_TEXT.get(code, '주문 전 거절')}"
+        elif err:
+            reason = str(err)
+        else:
+            reason = "주문 전 거절(사유 코드 없음 — 감사 로그의 매수 거절 행 확인)"
+        note = (f"매수 주문 실패({code or err or 'preorder_reject'}) → 새 매수 {n}봉(약 {minutes_txt}분) 쉼 "
+                f"— 실패 봉 #{fail_bar} 포함 #{fail_bar}~#{fail_bar + n - 1}, 끝나는 봉 #{fail_bar + n} "
+                f"{resume_kst} KST 부터 재주문(봇 매도 체결 시 바로 해제) — {round_n}회차")
+        logger.warning(f"⏸️ [PULLBACK-COOLDOWN] {note}")
+        self._audit_buy_blocked(bar.ts, indicators, price=bar.close, code="split_order_cooldown", note=note,
+                                extra={**ctx, "cooldown_bars": n, "fail_bar": fail_bar,
+                                       "resume_bar": fail_bar + n, "resume_ts": resume_ts.isoformat(),
+                                       "fail_code": code, "fail_error": err})
+        try:
+            from services.notifier import send as _notify, LEVEL_WARNING
+            _fe = getattr(self.strategy, "first_entry_ts", None)
+            trade_key = _fe.isoformat() if hasattr(_fe, "isoformat") else "flat"
+            _notify(
+                LEVEL_WARNING,
+                f"⏸️ 새 전략 매수 잠시 쉼 — {self.ticker}",
+                (f"{round_n}회차 매수 주문이 실패했습니다.\n"
+                 f"사유: {reason}\n"
+                 f"새 매수를 {n}봉(약 {minutes_txt}분) 쉽니다 — {resume_kst} 봉부터 다시 주문합니다.\n"
+                 f"매도(익절·손절·데드크로스)는 계속합니다.\n"
+                 f"할 일: 업비트 앱에서 원화 잔고와 미체결 주문(앱에서 넣은 외부 주문)을 확인해 주세요."),
+                dedupe_key=f"pullback_cooldown:{self.user_id}:{self.ticker}:{trade_key}:{bar.ts.isoformat()}",
+                dedupe_ttl=3600,
+            )
+        except Exception:
+            pass
+
+    def _execute_pullback_buy(self, bar: Bar, indicators: Dict[str, Any]) -> None:
+        """
+        PULLBACK 분할 매수 1회 (계획 T5 _execute_pullback_buy).
+          1. 회당 금액 per_buy = floor(sizing_base / effMaxSplits). sizing_base 는 1회차 때 운용자산을 읽어 고정.
+          2. per_buy < 5,000 → 건너뜀(split_below_min)
+          3. 가용 KRW < per_buy × (1+수수료) → 건너뜀(split_krw_short)
+          4. 직전 주문 실패 뒤 PULLBACK_BUY_FAIL_COOLDOWN_BARS 봉 안 → 건너뜀(split_order_cooldown)
+          5. trader.buy_market(krw_amount=per_buy, strict_amount=True) — 늘 시장가, 지정가·지연 큐 없음
+        """
+        st = self.strategy
+        holding = bool(self.position.has_position)
+        round_n = max(1, int(getattr(st, "entry_count", 0) or 0))
+        ctx = {
+            "strategy_type": "PULLBACK",
+            "split_round": round_n,
+            "pullback_round": int(getattr(st, "pullback_count", 0) or 0),
+        }
+        if not (getattr(bar, "is_closed", False) and getattr(bar, "is_confirmed", False)):
+            self._pullback_skip(bar, indicators, code="split_unconfirmed_bar",
+                                note=f"확정 봉 아님 — 분할 매수는 확정 봉 마감에서만 — {round_n}회차 건너뜀", ctx=ctx)
+            return
+
+        if round_n <= 1 and not holding:
+            self._pullback_sizing_base = self._pullback_read_sizing_base()
+        elif self._pullback_sizing_base is None:
+            self._pullback_sizing_base = self._pullback_read_sizing_base()
+            logger.warning(f"[PULLBACK-SPLIT] {round_n}회차인데 배분 기준 없음(재시작 등) → 지금 운용자산으로 고정 "
+                           f"| base={self._pullback_sizing_base} (T6 분할 상태 복원 전 임시)")
+        base = self._pullback_sizing_base
+        ctx["sizing_base"] = base
+        if base is None:
+            self._pullback_skip(bar, indicators, code="split_no_capital",
+                                note=f"운용자산(users.virtual_krw) 없음 — {round_n}회차 건너뜀", ctx=ctx)
+            return
+
+        import math
+        from config import MIN_FEE_RATIO
+        eff = max(1, int(st.cfg["eff_max_splits"]))
+        per_buy = int(math.floor(base / eff))
+        ctx["per_buy"] = per_buy
+        if per_buy < PULLBACK_MIN_ORDER_KRW:
+            self._pullback_skip(bar, indicators, code="split_below_min",
+                                note=f"1회 매수 금액 {per_buy:,}원 < 최소 5,000원 — {round_n}회차 건너뜀", ctx=ctx)
+            return
+        avail = float(self.trader._krw_balance() or 0.0)
+        ctx["avail_krw"] = avail
+        if not getattr(self.trader, "last_krw_balance_ok", True):
+            # 검수 반영: 조회 실패(0.0)를 잔고 부족과 구분 (_krw_balance 시그니처는 EMA 공용이라 그대로)
+            self._pullback_skip(bar, indicators, code="split_krw_unknown",
+                                note=f"원화 잔고 조회 실패 — 업비트 응답 확인 필요 — {round_n}회차 건너뜀", ctx=ctx)
+            return
+        if avail < per_buy * (1 + MIN_FEE_RATIO):
+            self._pullback_skip(bar, indicators, code="split_krw_short",
+                                note=(f"원화 잔고 부족 (가용 {avail:,.0f}원 < 회당 {per_buy:,}원+수수료) "
+                                      f"— {round_n}회차 건너뜀"), ctx=ctx)
+            return
+        fail_bar = self._pullback_buy_fail_bar
+        if fail_bar is not None and self.bar_count - fail_bar < PULLBACK_BUY_FAIL_COOLDOWN_BARS:
+            # 시작 때 감사 1행·알림 1회로 고지했으므로 봉마다 감사 행·알림을 쌓지 않는다(로그만)
+            logger.warning(
+                f"⏭️ [PULLBACK-SKIP] split_order_cooldown | 매수 쉬는 중(실패 봉 #{fail_bar} 포함 "
+                f"{PULLBACK_BUY_FAIL_COOLDOWN_BARS}봉, #{fail_bar + PULLBACK_BUY_FAIL_COOLDOWN_BARS} 부터 재주문) "
+                f"— {round_n}회차 건너뜀 | 지금 #{self.bar_count}"
+            )
+            return
+
+        meta = {
+            "bar": self.bar_count,
+            "reason": getattr(st, "last_buy_reason", None) or "PULLBACK",
+            "bar_time": bar.ts.astimezone(ZoneInfo("Asia/Seoul")).isoformat(),
+            "interval_sec": self.interval_sec,
+            "split_round": round_n,
+            "pullback_round": ctx["pullback_round"],
+            "sizing_base": base,
+            "per_buy": per_buy,
+            "strategy_type": "PULLBACK",
+        }
+        self.position.set_pending(True)
+        self._pullback_pending_set = True
+        _err_before = getattr(self.trader, "last_buy_error", None)
+        result = self.trader.buy_market(bar.close, self.ticker, ts=bar.ts, meta=meta,
+                                        krw_amount=per_buy, strict_amount=True)
+        if not result:
+            self.position.set_pending(False)
+            self._pullback_buy_fail_bar = self.bar_count
+            _err = getattr(self.trader, "last_buy_error", None)
+            _code = getattr(self.trader, "last_strict_reject_code", None)
+            logger.warning(f"❌ [PULLBACK] {round_n}회차 매수 실패 → 실패 봉 포함 {PULLBACK_BUY_FAIL_COOLDOWN_BARS}봉 "
+                           f"재주문 안 함 | err={_err} strict_code={_code}")
+            # 결정 1028-03(다): 쿨다운 시작 고지 — 알림 1회 + 감사 1행 (trader 주문 전 거절도 포함)
+            self._pullback_start_cooldown(bar, indicators, round_n, code=_code, err=_err, ctx=ctx)
+            return
+
+        self._pullback_buy_placed = True
+        self._pullback_buy_fail_bar = None
+        qty, price = float(result["qty"]), float(result["price"])
+        if not holding:
+            self.position.open_position(qty, price, self.bar_count, bar.ts)
+        else:
+            self._pullback_accumulate(qty, price)
+        logger.info(f"✅ [PULLBACK] {round_n}회차 매수 | 회당 {per_buy:,}원 qty={qty:.6f} price={price:.2f} "
+                    f"| 보유 qty={self.position.qty:.6f} avg={self.position.avg_price:.2f}")
+        if self.q is not None:
+            self.q.put((bar.ts, "BUY", qty, price, meta["reason"], None, None))
+
+    def _pullback_accumulate(self, qty: float, price: float) -> None:
+        """보유 중 n회차 매수 — 수량·원가 누적, 평단 = 원가/수량. 첫 진입 시각·봉은 그대로.
+        LIVE 는 추정 수량이며 실제 체결 수량·평단 반영(F2)과 apply_split_entry 는 T6 에서 바꾼다."""
+        p = self.position
+        old_q = float(p.qty or 0.0)
+        old_avg = float(p.avg_price) if p.avg_price else price
+        new_q = old_q + qty
+        p.avg_price = (old_q * old_avg + qty * price) / new_q if new_q > 0 else price
+        p.qty = new_q
+        p.has_position = True
+        p.pending_order = False
+
     def execute(self, action: Action, bar: Bar, indicators: Dict[str, Any]):
         """
         주문 실행 (중복 방지 포함)
@@ -1103,6 +1472,18 @@ class StrategyEngine:
                     note="앞선 매수 주문이 진행 중(체결 대기) — 새 매수 주문 전 차단",
                     extra={"pending_buy_uuid": getattr(self, "_pending_buy_uuid", None)},
                 )
+                return
+
+            # ✅ 2차 T5: PULLBACK — 지표 오염(PULLBACK 지표) 게이트 뒤 분할 매수 (지연 큐·지정가·already_holding 없음)
+            if self.strategy_type == "PULLBACK":
+                if getattr(self.pullback_indicators, "state_polluted", False):
+                    self._pullback_notify_polluted()
+                    self._audit_buy_blocked(
+                        bar.ts, indicators, price=bar.close, code="state_polluted",
+                        note="새 전략 지표 오염 상태(재시작 전까지 신규 매수 금지) — 매수 주문 전 차단",
+                    )
+                    return
+                self._execute_pullback_buy(bar, indicators)
                 return
 
             # ✅ WO-1 선행 1: state_polluted 게이트 — 신규 매수만 차단, 매도 경로는 계속 실행
@@ -1147,6 +1528,10 @@ class StrategyEngine:
         유효성 확인 재계산은 매수용 지표 쌍(fast_buy, slow_buy)만 사용한다.
         use_separate_ema=False 인 경우 공통 EMA 로 폴백.
         """
+        # ✅ 2차 T5 (X6): PULLBACK 은 지연 큐를 타지 않는다 (미확정 봉은 _execute_pullback_buy 가 거절)
+        if self.strategy_type == "PULLBACK":
+            self._execute_pullback_buy(bar, indicators)
+            return
         if getattr(bar, 'is_confirmed', False):
             self._execute_buy(bar, indicators)
             return
@@ -1417,6 +1802,10 @@ class StrategyEngine:
             bar: 현재 봉
             indicators: 지표 스냅샷
         """
+        # ✅ 2차 T5: PULLBACK 은 보유 중에도 분할 매수 — already_holding 차단을 지나지 않는다
+        if self.strategy_type == "PULLBACK":
+            self._execute_pullback_buy(bar, indicators)
+            return
         if self.position.has_position:
             logger.warning("⛔ 이미 포지션 보유 중 → BUY 무시")
             self._audit_buy_blocked(  # ✅ WO-25
@@ -1607,6 +1996,10 @@ class StrategyEngine:
                 ))
 
             self.position.close_position(bar.ts, reason="bot_sell")  # ✅ WO-18: hts_buy 해제 사유
+            if self.strategy_type == "PULLBACK" and self._pullback_buy_fail_bar is not None:
+                # 결정 1028-03(다): 봇 매도 체결 → 매수 쿨다운 해제(알림 없음)
+                logger.info(f"[PULLBACK-COOLDOWN] 봇 매도 체결 → 매수 쉼 해제 | 실패 봉 #{self._pullback_buy_fail_bar}")
+                self._pullback_buy_fail_bar = None
         else:
             self.position.set_pending(False)
             logger.warning("❌ SELL 실패")
@@ -1714,6 +2107,17 @@ class StrategyEngine:
                     "signal": None,
                     "price": float(current_price) if current_price is not None else None,
                     "strategy_mode": "MACD",  # ✅ MACD 전략
+                }
+
+            # ✅ 2차 T5: PULLBACK 은 EMA·MACD 칸이 아닌 자기 라벨 (진행 문구는 live_loop 가 지표 봉 수로 넘김)
+            if self.strategy_type == "PULLBACK":
+                checks = {
+                    "status": "WARMUP",
+                    "progress": warmup_progress,
+                    "reason": "WARMUP_IN_PROGRESS",
+                    "strategy": "PULLBACK",
+                    "strategy_mode": "PULLBACK",
+                    "price": float(current_price) if current_price is not None else None,
                 }
 
             notes = f"⏳ WARMUP 진행 중 {warmup_progress}"

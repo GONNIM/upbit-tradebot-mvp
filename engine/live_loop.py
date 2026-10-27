@@ -283,6 +283,9 @@ def _pullback_warmup_gate(initial_df: pd.DataFrame, wu_action: str, required: in
     return initial_df
 
 
+PULLBACK_LIVE_REFUSE_MSG = "새 전략은 실계좌(LIVE)에서 아직 쓸 수 없습니다 (분할 체결 반영 작업 뒤 엽니다)"
+
+
 def _pullback_seed_warmup(engine, initial_df: pd.DataFrame, pullback_cfg: dict, candle_validator=None):
     """PULLBACK 지표·링 버퍼를 워밍업 확정 봉으로 증분 시드(주문 없음). IndicatorState 200봉 SMA 폴백은 쓰지 않는다.
     봉 거르기는 BACKFILL 재생과 같은 `iter_valid_rows(…, candle_validator)` (F6: 거래량 0 봉 제외).
@@ -292,6 +295,10 @@ def _pullback_seed_warmup(engine, initial_df: pd.DataFrame, pullback_cfg: dict, 
     c = pullback_cfg
     engine.pullback_indicators = PullbackIndicators(c["ma60p"], c["ma200p"], c["pullbackP"], c["slopeLB"], c["maType"])
     engine.pullback_ring = PullbackSnapshotRing(RING_CAPACITY)
+    # 2차 T5: 전략이 시드와 같은 지표·링을 쓰게 먼저 묶는다(실시간 on_bar 가 이 객체로 이어 감)
+    _bind = getattr(getattr(engine, "strategy", None), "bind", None)
+    if callable(_bind):
+        _bind(engine.pullback_indicators, engine.pullback_ring)
     for ts, row in iter_valid_rows(initial_df, candle_validator, tag="[PULLBACK-WARMUP]"):
         feed_confirmed_bar(engine, bar_from_row(ts, row, source="REST_WARMUP"))
     v = engine.pullback_indicators.last_values
@@ -303,28 +310,130 @@ def _pullback_seed_warmup(engine, initial_df: pd.DataFrame, pullback_cfg: dict, 
     return True, "pullback", "", initial_df.iloc[-PULLBACK_BUFFER_BARS:]
 
 
+def _pullback_critical(title: str, body: str, key: str) -> None:
+    """2차 T5: PULLBACK 기동·오염 CRITICAL (1시간 dedupe). 알림 실패는 매매 흐름을 막지 않는다."""
+    try:
+        from services.notifier import send as _notify, LEVEL_CRITICAL
+        _notify(LEVEL_CRITICAL, title, body, dedupe_key=key, dedupe_ttl=3600)
+    except Exception as e:
+        logger.warning(f"[PULLBACK] 알림 실패 | {type(e).__name__}")
+
+
+def _pullback_mark_polluted(engine, user_id: str, why: str) -> None:
+    """지표 오염 표식 + CRITICAL. 신규 매수만 막히고(엔진·전략 게이트) 매도는 계속. 해제는 재시작 워밍업."""
+    ind = getattr(engine, "pullback_indicators", None)
+    if ind is not None:
+        ind.state_polluted = True
+    logger.error(f"[PULLBACK-POLLUTED] {why} → 신규 매수 중지(매도 계속), 재시작으로만 해제")
+    _pullback_critical(
+        f"🚨 새 전략 지표 오염 — {getattr(engine, 'ticker', '')}",
+        (f"새 전략(PULLBACK) 지표를 바로잡지 못했습니다: {why}\n"
+         "신규 매수를 멈췄고 익절·손절·데드크로스 매도는 계속합니다.\n"
+         "조치: 봇 재시작(워밍업 재시드)으로만 해제됩니다."),
+        f"pullback_polluted:{user_id}:{getattr(engine, 'ticker', '')}",
+    )
+
+
+# BACKFILL·catch-up 재생이 실보유 중에 바꾸지 않는 판정 칸 (실제 주문이 정한 회차·첫 체결·가상 평단)
+_PULLBACK_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "first_entry_reason",
+                        "pending_fill", "fill_n", "inv_sum", "trade_origin")
+
+
 def _pullback_backfill_step(engine, backfill_ts_list, local_series: pd.DataFrame, closed_ts, user_id: str,
-                            candle_validator) -> list:
-    """PULLBACK BACKFILL: 봉별 루프 대신 링 버퍼 재생 1회(F15). 돌려주는 빈 목록으로 봉별 루프를 건너뛴다(두 번 넣지 않음)."""
-    from core.strategy_pullback import pullback_backfill
+                            candle_validator, *, tag: str = "[PULLBACK-BACKFILL]", catchup: bool = False) -> list:
+    """PULLBACK BACKFILL: 봉별 루프 대신 링 버퍼 재생 1회(F15). 돌려주는 빈 목록으로 봉별 루프를 건너뛴다(두 번 넣지 않음).
+    2차 T5: (a) pullback_backfill 예외를 감싸 오염 표식 + CRITICAL (T3 넘김)
+            (b) 실보유 중이면 재생은 지표·armed·prev_golden 만 바로잡고 회차 칸(_PULLBACK_TRADE_KEYS)은 재생 전 값 유지
+                (T4 넘김 5 — 재생은 주문을 내지 않으므로 가상 회차가 실주문 회차를 덮지 않게. EMA 의 WO-14 E1 과 같은 원칙)
+            (c) catchup=True(빠진 봉 채우기)에서 링 밖이면 그 봉이 지표에 영영 빠지므로 오염 표식"""
+    from core import strategy_pullback as _sp
     past = local_series.index[local_series.index < closed_ts]
     if len(past) == 0:
-        logger.warning(f"[PULLBACK-BACKFILL] 직전 확정 봉 없음 → 재생 안 함 | closed_ts={format_kst(closed_ts)}")
+        logger.warning(f"{tag} 직전 확정 봉 없음 → 재생 안 함 | closed_ts={format_kst(closed_ts)}")
         return []
-    msg = f"🔄 [PULLBACK-BACKFILL] {len(backfill_ts_list)}개 변경 봉 → 링 버퍼 재생 시작"
+    strategy = getattr(engine, "strategy", None)
+    holding = bool(getattr(getattr(engine, "position", None), "has_position", False))
+    kept = None
+    if holding and hasattr(strategy, "export_split_state"):
+        _st = strategy.export_split_state()
+        kept = {k: _st.get(k) for k in _PULLBACK_TRADE_KEYS}
+    msg = f"🔄 {tag} {len(backfill_ts_list)}개 봉 → 링 버퍼 재생 시작"
     logger.info(msg)
     log_to_file(msg, user_id)
-    res = pullback_backfill(
-        engine, first_ts=min(backfill_ts_list), series=local_series, until_ts=past.max(),
-        changed_ts=list(backfill_ts_list), validator=candle_validator,
-    )
+    try:
+        res = _sp.pullback_backfill(
+            engine, first_ts=min(backfill_ts_list), series=local_series, until_ts=past.max(),
+            changed_ts=list(backfill_ts_list), validator=candle_validator,
+        )
+    except Exception as e:
+        logger.error(f"{tag} 재생 예외 | {type(e).__name__}: {e}", exc_info=True)
+        _pullback_mark_polluted(engine, user_id, f"BACKFILL 재생 예외 {type(e).__name__}")
+        return []
+    if kept is not None and res.get("restored"):
+        strategy.restore_split_state({**strategy.export_split_state(), **kept})
+        ring = getattr(engine, "pullback_ring", None)
+        if ring is not None and getattr(strategy, "last_ts", None) is not None:
+            ring.amend_last_split(strategy.last_ts, strategy)
+        logger.info(f"{tag} 실보유 중 → 회차 칸 재생 전 값 유지 | 회차={kept['entry_count']} armed={strategy.armed}")
     _from = f" from={format_kst(res['from_ts'])}" if res.get("from_ts") is not None else ""
-    msg = (f"✅ [PULLBACK-BACKFILL] 재생 완료 | restored={res['restored']} replayed={res['replayed']} "
+    msg = (f"✅ {tag} 재생 완료 | restored={res['restored']} replayed={res['replayed']} "
            f"audited={res['audited']}{_from} until={format_kst(past.max())}"
            + (f" reason={res['reason']}" if res["reason"] else ""))
     logger.info(msg)
     log_to_file(msg, user_id)
+    if res.get("reason") in ("restore_failed", "replay_failed"):
+        _pullback_mark_polluted(engine, user_id, f"BACKFILL {res['reason']}")
+    elif catchup and res.get("reason") in ("out_of_ring", "restore_rejected"):
+        _pullback_mark_polluted(engine, user_id, f"빠진 봉을 채우지 못함({res['reason']})")
     return []
+
+
+def _pullback_catchup_step(engine, local_series: pd.DataFrame, closed_ts, user_id: str, candle_validator) -> None:
+    """2차 T5 (T4 넘김 2): 전략이 마지막으로 본 봉(strategy.last_ts)과 이번 확정 봉(closed_ts) 사이에
+    local_series 에 있는 봉(잠정 봉·VERIFY 실패·봉 검증 실패로 엔진에 안 들어간 봉)을 링 재생으로 채운다.
+    봉 검증 실패 봉은 재생에서도 같은 규칙으로 빠진다(시드와 같음, F6). 주문 없음."""
+    if local_series is None or local_series.empty:
+        return
+    last = getattr(getattr(engine, "strategy", None), "last_ts", None)
+    if last is None:
+        return
+    idx = local_series.index
+    gap = list(idx[(idx > last) & (idx < closed_ts)])
+    if not gap:
+        return
+    logger.warning(f"[PULLBACK-CATCHUP] 지표에 안 들어간 확정 봉 {len(gap)}개 → 링 재생 | "
+                   f"last={format_kst(last)} first_gap={format_kst(gap[0])} closed={format_kst(closed_ts)}")
+    _pullback_backfill_step(engine, gap, local_series, closed_ts, user_id, candle_validator,
+                            tag="[PULLBACK-CATCHUP]", catchup=True)
+
+
+def _pullback_do_snapshot(engine, params, user_id: str, current_minute):
+    """2차 T5: PULLBACK 1분 설정 스냅샷 — 조건 파일 안 읽음. tp·sl = 적용본(전략 객체 tp/100·sl/100),
+    조건 dict 는 빈 값, ts_pct·signal_gate·threshold 는 None·False·0."""
+    st = getattr(engine, "strategy", None)
+    tp = getattr(st, "take_profit", None)
+    sl = getattr(st, "stop_loss", None)
+    insert_settings_snapshot(
+        user_id=user_id,
+        ticker=params.upbit_ticker,
+        interval_sec=getattr(params, "interval_sec", 60),
+        tp=tp if tp is not None else params.take_profit,
+        sl=sl if sl is not None else params.stop_loss,
+        ts_pct=None,
+        signal_gate=False,
+        threshold=0.0,
+        buy_dict={},
+        sell_dict={},
+        bar_time=current_minute,
+    )
+    return {"buy": {}, "sell": {}}
+
+
+def _pullback_warmup_progress(engine, required: int, buffer_len: int) -> str:
+    """워밍업 감사 문구: 버퍼 500봉 기준이 아니라 지표에 넣은 봉 수 기준 (T3 넘김)."""
+    ind = getattr(engine, "pullback_indicators", None)
+    n = getattr(ind, "n", 0)
+    return f"(지표 {n}/{required} · 버퍼 {buffer_len})"
 
 
 def _min_history_bars_for(params: LiveParams, strategy_type: str) -> int:
@@ -857,10 +966,24 @@ def run_live_loop(
 
     logger.info(f"[BOOT] run_live_loop start | mode={mode_tag} | strategy={strategy_tag}")
 
-    # T1: PULLBACK 로더(T2)·전략 객체(T5) 전에는 기동을 거부한다. 정합 검사·지갑 동기화·reconciler 등록보다
-    # 먼저 막고, stop_event 를 켜서 엔진 관리 스레드가 정리(stopped·잠금 해제)하게 한다(T1 검수 지적).
-    if strategy_tag == "PULLBACK":
-        logger.error(f"[PULLBACK-PARAMS] PULLBACK 로더 없음 → 기동 거부 | user_id={user_id}")
+    # 2차 T5 (T1 거부 대체): PULLBACK 은 엔진 관리자가 적용본 로더(load_for_boot)로 읽은 pullback_cfg 가
+    # 있을 때만 돈다. 없거나(None) PULLBACK 경로가 없는 LEGACY_LOCAL 이면 정합 검사·지갑 동기화·reconciler 등록보다
+    # 먼저 거부 + CRITICAL, stop_event 를 켜서 엔진 관리 스레드가 정리(stopped·잠금 해제)하게 한다.
+    # 검수 반영(10/28): LIVE(test_mode 아님)도 거부한다 — LIVE buy_market 은 qty=0.0 을 돌려주므로 2회차 이상 평단이
+    # 1회차에 고정된다. 분할 체결 수량·평단 반영(T6) 전에는 실계좌에서 새 전략을 돌리지 않는다.
+    if strategy_tag == "PULLBACK" and (pullback_cfg is None or RUN_MODE != "UPBIT_MATCH" or not test_mode):
+        if pullback_cfg is None:
+            _why = "pullback_cfg 없음(적용본 로더 미경유)"
+        elif RUN_MODE != "UPBIT_MATCH":
+            _why = f"RUN_MODE={RUN_MODE}"
+        else:
+            _why = PULLBACK_LIVE_REFUSE_MSG
+        logger.error(f"[PULLBACK-PARAMS] 기동 거부 | {_why} | user_id={user_id}")
+        _pullback_critical(
+            f"🚨 새 전략 기동 거부 — {params.upbit_ticker}",
+            f"새 전략(PULLBACK) 엔진을 시작하지 않았습니다.\n사유: {_why}\n운영자 확인 필요.",
+            f"pullback_boot_refused:{user_id}",
+        )
         stop_event.set()
         return
 
@@ -974,7 +1097,8 @@ def run_live_loop(
         logger.info(f"[BOOT] TEST 모드 — Reconciler 잔고 동기화 비활성")
 
     # ✅ 조건 파일 로드 (매수/매도 조건)
-    conditions = _load_trade_conditions(user_id, params.strategy_type)
+    # 2차 T5 (F13·X13): PULLBACK 은 조건 파일을 읽지 않는다 (옛 공용 {user}_buy_sell_conditions.json 폴백 차단)
+    conditions = {"buy": {}, "sell": {}} if strategy_tag == "PULLBACK" else _load_trade_conditions(user_id, params.strategy_type)
     buy_conditions = conditions.get("buy", {})  # ✅ 매수 조건 추출
     sell_conditions = conditions.get("sell", {})  # ✅ 매도 조건 추출
 
@@ -984,7 +1108,9 @@ def run_live_loop(
     logger.info(f"[전략 초기화] Loaded sell conditions: {sell_conditions}")
 
     # ✅ 필수 매도 조건 검증
-    if not sell_conditions:
+    if strategy_tag == "PULLBACK":
+        logger.info("[COND] PULLBACK — 조건 파일 안 읽음 (적용본 tp·sl·deadcross 사용)")
+    elif not sell_conditions:
         logger.error(f"⚠️ CRITICAL: 매도 조건이 비어있습니다! conditions={conditions}")
     else:
         required_sell_keys = ["ema_dc", "stop_loss", "take_profit", "trailing_stop"]
@@ -1039,6 +1165,23 @@ def run_live_loop(
             logger.info(_config_applied_line(buy_conditions, sell_conditions))
         except Exception as e:
             logger.warning(f"[CONFIG] 적용값 로그 실패: {e}")
+    elif strategy_tag == "PULLBACK":
+        # 2차 T5: 적용본 dict 로 전략 생성. StrategyEngine(strategy=...) 로 넘어가므로 워밍업 시드(_pullback_seed_warmup)
+        # 전에 engine.strategy 가 이 전략이다(T4 넘김 1 — 순서가 반대면 기동 첫 봉 GOLDEN 매수, 결정 13-4 위반).
+        from core.strategy_pullback import IncrementalPullbackStrategy
+        _pb_interval = params.interval
+        strategy = IncrementalPullbackStrategy(
+            user_id=user_id,
+            ticker=params.upbit_ticker,
+            params=pullback_cfg,
+            interval_min=int(_pb_interval.replace("minute", "")) if _pb_interval.startswith("minute") else 1,
+        )
+        logger.info(
+            "[PULLBACK-STRATEGY] 생성 | " + " ".join(
+                f"{k}={pullback_cfg.get(k)}" for k in ("ticker", "interval", "maType", "ma60p", "ma200p",
+                                                       "pullbackP", "maxSplits", "eff_max_splits", "tp", "sl")
+            )
+        )
     else:
         raise ValueError(f"Unknown strategy type: {strategy_tag}")
 
@@ -1114,6 +1257,8 @@ def run_live_loop(
 
         def _do_snapshot(current_minute):
             """스냅샷 실행 공용 헬퍼 — 정기 분 tick + hot-reload 직후 재사용."""
+            if strategy_tag == "PULLBACK":  # 2차 T5: 조건 파일 안 읽음, tp·sl 은 적용본(전략 객체)
+                return _pullback_do_snapshot(engine, params, user_id, current_minute)
             _trade_conditions = _load_trade_conditions(user_id, strategy_tag)
             # ✅ FIX(diag-1) — audit_settings 는 strategy 객체의 실제 운영 임계값을 적재.
             _eng_strat = getattr(engine, "strategy", None)
@@ -1148,7 +1293,7 @@ def run_live_loop(
                 # ── ✅ 옵션 B: mtime 감지를 5초 tick 밖으로 이동 (분당 → 초당) ──
                 # ── ✅ 옵션 A: mtime 변경 감지 시 즉시 스냅샷 (UPSERT 로 정기 갱신) ──
                 try:
-                    _cond_path = _get_trade_conditions_path(user_id, strategy_tag)
+                    _cond_path = None if strategy_tag == "PULLBACK" else _get_trade_conditions_path(user_id, strategy_tag)  # 2차 T5: PULLBACK 핫 리로드 없음 (T13 적용본 감시가 대신)
                     if _cond_path and os.path.exists(_cond_path):
                         _mtime = os.path.getmtime(_cond_path)
                         _last_mtime = _hot_reload_state["last_mtime"]
@@ -1395,7 +1540,9 @@ def run_live_loop(
                     buffer.append(bar)
                     engine.bar_count = len(buffer)
                     current_count = min(len(buffer), min_hist)
-                    _wu_res = engine.record_warmup_log(bar, f"(완료 {current_count}/{min_hist})")
+                    _wu_progress = (_pullback_warmup_progress(engine, min_hist, len(buffer)) if strategy_tag == "PULLBACK"
+                                    else f"(완료 {current_count}/{min_hist})")  # 2차 T5: PULLBACK 은 지표 봉 수 기준 문구
+                    _wu_res = engine.record_warmup_log(bar, _wu_progress)
                     _wu_audit[_wu_res] = _wu_audit.get(_wu_res, 0) + 1  # ✅ WO-19 집계
 
                 # ✅ WO-19: 기동마다 1줄 — 워밍업이 실제 판정 감사 행을 보존했는지
@@ -1410,12 +1557,16 @@ def run_live_loop(
                 local_series = initial_df.copy()
 
                 logger.info(f"✅ Buffer seeded | buffer_len={len(buffer)} | bar_count={engine.bar_count}")
+                if strategy_tag == "PULLBACK":  # 2차 T5: 버퍼 500봉은 감사·대조용, 지표는 별도 deque
+                    logger.info(f"[WARMUP] PULLBACK 지표 봉 {engine.pullback_indicators.n} (필요 {min_hist}) · "
+                                f"링 {len(engine.pullback_ring)} · 버퍼 {len(buffer)}(감사·대조용, 지표 봉 수 아님)")
                 # ✅ WO-12 C7: 워밍업(bar_count 확정) 직후 지갑 기준 즉시 복원 — 첫 봉 [POSITION-SYNC] 와 같은 시점 조건
                 if boot_seed_recover_qty is not None:
                     _boot_seed_recover_from_wallet(engine, params.upbit_ticker, user_id, boot_seed_recover_qty)
                     boot_seed_recover_qty = None
                 # ✅ WO-21: 복원 2경로(boot_seed / wallet_sync) 뒤, 첫 매도 평가 전 1회 — trailing 상태 재계산
-                if engine.position.has_position:
+                # 2차 T5: PULLBACK 은 트레일링 스톱을 쓰지 않으므로 건너뜀
+                if engine.position.has_position and strategy_tag != "PULLBACK":
                     try:
                         from core.trailing_restore import restore_trailing_on_boot
                         restore_trailing_on_boot(
@@ -1439,7 +1590,7 @@ def run_live_loop(
             #       지표 구조 변경은 엔진 재시작 정책.
             _params_mtime = {"conditions": 0.0}
             try:
-                _cond_path = _get_trade_conditions_path(user_id, params.strategy_type)
+                _cond_path = None if strategy_tag == "PULLBACK" else _get_trade_conditions_path(user_id, params.strategy_type)  # 2차 T5: PULLBACK 은 _maybe_reload_params 무동작
                 if _cond_path and os.path.exists(_cond_path):
                     _params_mtime["conditions"] = os.path.getmtime(_cond_path)
             except Exception:
@@ -1843,6 +1994,10 @@ def run_live_loop(
                         )
 
                         # 엔진에 확정 봉 전달
+                        # 2차 T5 (T4 넘김 2, 검수 반영 10/28): 잠정 봉·건너뛴 봉이 PULLBACK 지표에 빠졌으면 VERIFY 통과 뒤,
+                        # 이 확정 봉을 넣기 바로 전에 링 재생으로 채운다(주문 없음, Issue #8). 못 채우면 오염 + CRITICAL.
+                        if strategy_tag == "PULLBACK":
+                            _pullback_catchup_step(engine, local_series, closed_ts, user_id, candle_validator)
                         engine.on_new_bar_confirmed(bar, local_series, diff_summary)
 
                         # ✅ WO-6 감사 누락 수정 (2026-08-30): last_bar_ts 갱신은
@@ -1899,6 +2054,8 @@ def run_live_loop(
                                     source="REST_RECONCILED"
                                 )
 
+                                if strategy_tag == "PULLBACK":  # 2차 T5: catch-up 은 VERIFY 뒤·확정 봉 직전
+                                    _pullback_catchup_step(engine, local_series, closed_ts, user_id, candle_validator)
                                 engine.on_new_bar_confirmed(bar, local_series, diff_summary)
                                 # ✅ WO-6 감사 누락 수정 (2026-08-30): last_bar_ts 갱신
                                 # 은 strategy_engine 안의 판단·감사·주문 완료 직후에만.
@@ -1940,6 +2097,8 @@ def run_live_loop(
                                     source=f"WO2_OPTION_C_TENTATIVE:{source}",
                                 )
                                 try:
+                                    if strategy_tag == "PULLBACK":  # 2차 T5: 잠정 봉 앞에서도 빠진 봉을 먼저 채운다
+                                        _pullback_catchup_step(engine, local_series, closed_ts, user_id, candle_validator)
                                     engine.on_new_bar_confirmed(tentative_bar, local_series, diff_summary)
                                     logger.info(
                                         f"✅ [WO2-OPTION-C] 미확정 봉 평가 진입 완료 | "
