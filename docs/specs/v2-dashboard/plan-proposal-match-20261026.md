@@ -39,7 +39,7 @@
 
 ## Review Focus
 
-1. 엔진 보호 — v2 서버 수집이 엔진의 확정 봉 조회와 같은 IP 한도(`candle` 그룹 초당 10회)를 쓴다. 엔진에는 429·418 처리가 없고 pyupbit 가 429 를 삼켜 None 을 돌려준다. 그래서 v2 는 초당 5회 상한, 응답 `Remaining-Req` 의 `sec` 가 4 이하이면 다음 초까지 쉼, 429 1회면 60초 멈춤, 418 이면 운영자가 풀 때까지 정지(파일로 남아 재시작 뒤에도 유지), 업비트 요청 매번 직전에 엔진 생존 파일 pid 를 읽어 바뀌면 그 자리에서 멈추고 5분 쉼, 수집은 서버 전체에서 동시에 1건만. Task 4-0 시험 + Task 9 Step 6 배포 관찰(엔진 「응답 없음」 4종·`[V2-CANDLES]` 배포 전후 건수).
+1. 엔진 보호 — v2 서버 수집이 엔진의 확정 봉 조회와 같은 IP 한도(`candle` 그룹 초당 10회)를 쓴다. 엔진에는 429·418 처리가 없고 pyupbit 가 429 를 삼켜 None 을 돌려준다. 그래서 v2 는 초당 5회 상한, 응답 `Remaining-Req` 의 `sec` 가 4 이하이면 다음 초까지 쉼, 429 1회면 60초 멈춤, 418 이면 운영자가 풀 때까지 정지(파일로 남아 재시작 뒤에도 유지), 업비트 요청 매번 직전에 엔진 생존 파일 pid 를 읽어 바뀌면 그 자리에서 멈추고 5분 쉼, 수집은 서버 전체에서 동시에 1건만. Task 4-0 시험 + Task 9 Step 6 배포 관찰(엔진 「응답 없음」 4종·`[V2-CANDLES]` 배포 전후 건수). *(Task 4-0b 로 바뀜, 2026-10-27: 사용자 초당 4회, 429 1회 600초·24시간 안 2회째 정지, 엔진 봉 경계 −2~+20초 창)*
 2. 백테스터 수집 중 「데이터 가져오기」를 또 누르거나 다른 탭으로 가는 경우 — 두 번째 실행은 막는다. 다른 탭 이동은 막지 않는다(서버가 끝까지 받아 보관하므로 돌아와 다시 누르면 보관분을 쓴다). Task 4 시험.
 2-2. 차트 탭이 열린 창이 여럿인 경우 — 공유 문으로 합쳐 브라우저 업비트 호출이 10초 1회를 넘지 않아야 한다. Task 3 시험.
 3. 보유가 없거나 거래 기록이 0건인 새 계정 — 홈 「보유」는 「없음」, 최근 거래는 「거래 기록이 없습니다」, 오류 없이 그려져야 한다. Task 2 시험.
@@ -127,15 +127,15 @@
   - 입력 검사: market `^KRW-[A-Z0-9]{1,15}$`(`.strip().upper()` 뒤), unit ∈ {1,3,5,15,60,240}, days 1~30 정수. 어긋나면 400 `{"error":"bad_request","field":…}`.
   - 보관분이 요청 기간을 덮고 새 봉이 2회 요청 안에 채워지면 그 자리에서 받아 200 `{"market","unit","days","bars":[[t_ms,o,h,l,c], …], "requests": n}` — bars 오름차순·시각 중복 없음·형성 중 봉 제외(봉 시작+unit분 > 지금이면 뺌), 요청 기간(지금−days일) 안의 봉만. `requests` = 이번에 업비트를 부른 횟수(0~2).
   - 그보다 많이 받아야 하면 배경 작업을 시작(같은 종목·봉 단위 작업이 이미 있으면 그것을 씀)하고 202 `{"job":"running","progress":{"market","unit","done","total"}}`. 화면은 progress 를 2초마다 읽다가 `active:false` 이고 `error` 가 없으면 같은 GET 을 다시 불러 200 을 받는다.
-  - 409 `{"error":"busy","progress":{…}}` — 다른 종목·봉 단위의 **사용자** 작업이 진행 중. 미리 받기 작업이 진행 중이면 409 를 내지 않고, 미리 받기는 지금 요청까지 받은 봉을 보관하고 멈춘 뒤 사용자 작업이 시작된다(같은 종목·봉 단위면 미리 받기 작업을 사용자 속도 5회/초로 바꿔 이어 받는다).
-  - 429 `{"error":"upbit_limit","retry_after":초}` — 429 뒤 60초 멈춤 또는 엔진 재시작 쉼 중. *(최종 검수 수정 2026-10-27: 보관분이 기간을 덮어 업비트 요청이 0회인 요청은 쉼 확인보다 먼저 보관분으로 200 `requests: 0` — 쉼은 업비트를 부르는 경로에만 건다. 418 정지 중에는 보관분도 내주지 않고 503.)* 503 `{"error":"upbit_blocked"}` — 418 정지 중(운영자 해제 전까지). 502 `{"error":"upbit_error"}` — 그 밖의 업비트 오류.
+  - 409 `{"error":"busy","progress":{…}}` — 다른 종목·봉 단위의 **사용자** 작업이 진행 중. 미리 받기 작업이 진행 중이면 409 를 내지 않고, 미리 받기는 지금 요청까지 받은 봉을 보관하고 멈춘 뒤 사용자 작업이 시작된다(같은 종목·봉 단위면 미리 받기 작업을 사용자 속도 5회/초로 바꿔 이어 받는다). *(Task 4-0b 로 바뀜, 2026-10-27: 사용자 속도 = 초당 4회)*
+  - 429 `{"error":"upbit_limit","retry_after":초}` — 429 뒤 60초 멈춤 또는 엔진 재시작 쉼 중. *(최종 검수 수정 2026-10-27: 보관분이 기간을 덮어 업비트 요청이 0회인 요청은 쉼 확인보다 먼저 보관분으로 200 `requests: 0` — 쉼은 업비트를 부르는 경로에만 건다. 418 정지 중에는 보관분도 내주지 않고 503.)* 503 `{"error":"upbit_blocked"}` — 418 정지 중(운영자 해제 전까지). 502 `{"error":"upbit_error"}` — 그 밖의 업비트 오류. *(Task 4-0b 로 바뀜, 2026-10-27: 사용자 초당 4회, 429 1회 600초·24시간 안 2회째 정지, 엔진 봉 경계 −2~+20초 창)*
   - 예외 → 응답 표: `UpbitLimit` → 429, `UpbitBlocked` → 503, `tornado.httpclient.HTTPClientError`(599 시간 초과 포함)·`OSError`·`ValueError`(응답 JSON 깨짐) → 502, `BadRequest` → 400, `sqlite3.Error`(설정 읽기) → 503 `db_unavailable`. 배경 작업 안의 예외는 progress 의 `error` 칸(`"upbit_limit"|"upbit_blocked"|"upbit_error"`)과 `retry_after` 로 전한다.
 - `GET /v2/api/candles/progress` → `{"active":bool,"kind":"user"|"prefetch"|null,"market","unit","done","total","error":null|…,"retry_after":null|초}`. 단위는 모두 「요청 횟수」(화면 「n / N회」).
 - `v2/candles.py`:
   - `UPBIT_URL = "https://api.upbit.com/v1/candles/minutes/{unit}"` — 이 파일의 유일한 외부 주소. 요청 머리에 `Accept: application/json` 을 주고 `Origin`·`Authorization` 은 붙이지 않는다(Tornado 기본 머리 `Host`·`User-Agent`·`Accept-Encoding` 은 그대로). `tornado.httpclient.AsyncHTTPClient().fetch(…, request_timeout=10, raise_error=False)` 를 try/except 로 감싼다(599·연결 오류는 `raise_error=False` 여도 예외).
   - 경로는 호출할 때마다 `db.DATA_DIR` 을 읽는다(import 때 고정 금지 — `scripts/v2/dev_server.py:128-141` 의 임시 폴더 돌리기를 그대로 따르게).
   - `class Collector(fetch, sleep, now, data_dir_fn)` — 시험에서 가짜 fetch·sleep·시계를 넣는다. `async collect(market, unit, days, rate=5.0, kind="user") -> (bars, requests)`.
-  - 상한(엔진 보호, 재제안서 B-3): 서버 전체에서 수집은 `asyncio.Lock` 하나로 동시에 1건. 요청 사이 최소 간격 1/rate 초(사용자 5회/초, 미리 받기 1회/초). 응답 머리 `Remaining-Req` 의 `sec` 가 4 이하이면 다음 요청 전 1초 쉰다.
+  - 상한(엔진 보호, 재제안서 B-3): 서버 전체에서 수집은 `asyncio.Lock` 하나로 동시에 1건. 요청 사이 최소 간격 1/rate 초(사용자 5회/초, 미리 받기 1회/초). 응답 머리 `Remaining-Req` 의 `sec` 가 4 이하이면 다음 요청 전 1초 쉰다. *(Task 4-0b 로 바뀜, 2026-10-27: 사용자 초당 4회, 429 1회 600초·24시간 안 2회째 정지, 엔진 봉 경계 −2~+20초 창)*
   - 429: 즉시 멈추고 `cooldown_until = now+60`. `WARNING` 로그 `[V2-CANDLES] status=429 market=… unit=…`.
   - 418: 즉시 멈추고 정지 파일 `<data_dir>/v2_candles/.halt.json`(600, 원자적 쓰기, `{"at","status":418,"body":응답 첫 200자}`)을 남긴다. 이 파일이 있으면 v2 를 재시작해도 수집하지 않고 `UpbitBlocked`. 해제는 운영자가 파일을 지울 때만(runbook 에 절차). `ERROR` 로그 `[V2-CANDLES] status=418 HALT`. (verifier 2회 지적 2, PO 선택 — 엔진과 IP 를 공유하므로 자동 재개하지 않는다.)
   - 엔진 재시작 쉼(Fable 권고 3·verifier 2회 지적 1·7): 업비트 요청 **매번 직전**에 `services/data/.engine_alive.json` 의 `pid` 를 읽는다. 처음 읽은 값은 기준으로만 둔다(쉬지 않음). 값이 바뀌면 진행 중 작업을 그 자리에서 멈추고(받은 봉은 보관) `cooldown_until = 그 pid 를 처음 본 시각+300`. 미리 받기 루프(~~60초~~ 600초, 최종 검수 수정 2026-10-27)도 매 회 pid 를 읽고, 바뀐 것을 발견하면 같은 규칙으로 쉼을 건다(수집이 없을 때 엔진이 재시작해도 그 뒤 300초 안의 사용자 요청은 429 — 업비트를 불러야 하는 요청만, 최종 검수 수정 2026-10-27). 파일이 없거나 깨지면 쉬지 않는다(엔진 멈춤 상태에서도 백테스트는 가능). 같은 pid 안에서 엔진 스레드만 다시 뜨는 경우는 감지하지 못한다(알려진 한계, 보고에 적음).
@@ -149,6 +149,25 @@
 - [ ] **Step 2: 실행 → 실패 확인** — `python3 -m unittest tests.v2.test_candles tests.v2.test_basic_pause tests.v2.test_server`
 - [ ] **Step 3: 구현**
 - [ ] **Step 4: 실행 → 통과 확인** (같은 명령 + `python3 -m unittest discover -s tests/v2`)
+
+### Task 4-0b: IP 차단(418)이 생기지 않게 — 엔진 경계 창 피하기·429 즉시 장기 멈춤 (사용자 결정 1027-05 4, 2026-10-27)
+
+근거: 서버 journal(10/27 10시대, Fable 24시간 재집계) — 엔진은 3분 봉 경계 뒤 5초부터 5초마다 HTTP 1회로 확정 봉을 폴링하고, 봉이 보이는 눈금에서 확정 조회 1회 + `[REST] 다중 호출` 2회×배치 2 = **5회를 0.4초 안에** 보낸다. 24시간 「다중 호출 시작」 오프셋(180초 나머지): 5~11초 740건, 15~16초 8건, **20~92초 224건(90~92초 156건 — 무거래 봉)**, 92초 뒤 0. 경계 창만으로는 묶음의 약 76% 만 피한다. 또 겹쳐서 생긴 429 가 **엔진 요청**에 떨어지면 v2 는 자기 응답이 200 이라 모르고 계속 부를 수 있다(pyupbit 가 429 를 None 으로 삼키고 엔진은 1·2·4·5초 뒤 재시도). 업비트 418 은 429 뒤 요청이 이어질 때 생긴다(spec D8 의 공식 rate-limits 인용). 그래서 (0) v2 상한을 관측된 엔진 몰림과 합쳐 한도 아래가 되도록 낮춰 겹침을 줄이고(4 + 관측 묶음 5 = 9 ≤ 10 (관측값 기준이며 코드 상한이 아니다 — 구버전 화면 새로고침(캔들 3회)·엔진 기동(801봉, 5회 이상)·여러 엔진 동시 묶음이 같은 1초에 겹치면 10 을 넘을 수 있어, 보장이 아니라 창·쉼·429 멈춤으로 겹침을 줄이는 장치다. verifier 2026-10-27)), (가) 엔진 몰림이 가장 많은 구간을 피하고, (나) v2 쪽 429 가 쌓일 수 없게 한다.
+
+**Files:** Modify `v2/candles.py`, `tests/v2/test_candles.py`, `docs/operations/v2-runbook.md`(96행 「초당 5회·429 → 60초」, 101행 「약 1분」, 429 정지 해제 절차), `docs/specs/v2-dashboard/spec.md`(D8 의 「초당 5회」와 「429 1회면 60초 멈춤」 둘 다), `docs/specs/v2-dashboard/deploy-request-20261027-proposal-match.md`(58행 「5회/초 약 45초+」, 89행 「최대 5회/초」·「429 60초」, 3절 정지 해제에 429 정지 추가).
+**바꿀 기존 시험(상수 변경 때문 — 동작 회귀와 구분):** `tests/v2/test_candles.py:172-177` `test_rate_spacing`(rate 5.0·sleep ≤0.2 → `USER_RATE`·≤0.25), `:399-406` `test_same_market_prefetch_switches_to_user_rate`(`pre.rate == 5.0` → `USER_RATE`), `:549` 부근 `COOLDOWN_429` 를 쓰는 쉼 시험(60 → 600 에서도 뜻 유지). 끝난 뒤 `grep -rn "5회/초\|초당 5회\|429 → 60\|429 60초"` 를 위 문서 3개에 돌려 이력 문장 외 0건.
+
+**Interfaces:**
+- (0) 상한: `USER_RATE = 4.0`(요청 간격 ≥ 0.25초), `PREFETCH_RATE = 1.0` 그대로. v2 4 + 관측된 엔진 묶음 5 = 9 ≤ 10 (관측값 기준이며 코드 상한이 아니다 — 구버전 화면 새로고침(캔들 3회)·엔진 기동(801봉, 5회 이상)·여러 엔진 동시 묶음이 같은 1초에 겹치면 10 을 넘을 수 있어, 보장이 아니라 창·쉼·429 멈춤으로 겹침을 줄이는 장치다. verifier 2026-10-27). 로컬 실측 216회 54.1초는 이미 약 4회/초(응답 지연에 묶임)라 체감 비용은 작다.
+- (가) 엔진 경계 창: `ENGINE_WINDOW_BEFORE = 2`, `ENGINE_WINDOW_AFTER = 20`(초, 15~16초 재판정 묶음 포함). 창 길이 기준 봉 단위 = 미리 받기 대상의 엔진 봉 단위들 — 매 요청마다 `_targets()`(DB·파일 읽기)를 부르지 말고 `prefetch_loop` 가 갱신하는 `self.prefetch_targets` 의 unit 집합을 쓴다. 대상이 없거나 읽을 수 없으면 1분(가장 보수적). 여러 단위면 모든 단위의 경계를 피한다. 경계 = UTC 에포크 초가 `unit*60` 의 배수인 시각. `_request` 가 업비트를 부르기 직전(pid 확인과 같은 자리) `now` 가 어느 경계의 `[b−2, b+20)` 안이면 창이 끝날 때까지 `sleep` 한 뒤 pid·쉼을 다시 확인하고 부른다. 사용자 수집·미리 받기 모두 적용. 진행률 응답은 그대로(기다림은 done 이 늘지 않을 뿐). *(Task 4-0b fix round 1 로 대체: 창 기준 = `.engine_alive.json` running 사용자 전원의 봉 단위(`self.window_units`), 못 읽으면 1분. `prefetch_targets` 는 정리 보호용)*
+- (나) 429: 첫 429 → `COOLDOWN_429 = 600`(10분) 멈춤, `WARNING [V2-CANDLES] status=429`. 24시간 안 두 번째 429 → 418 과 같은 처리(메모리 정지 + `.halt.json` `{"at","status":429,"reason":"second 429 in 24h"}`, `ERROR [V2-CANDLES] status=429 HALT`) — 운영자 해제(파일 삭제 + tradebot-v2 재시작). 10분 멈춤과 24시간 셈이 v2 재시작으로 사라지지 않도록 `.halt.json` 과 같은 폴더의 `.cooldown.json` `{"until": epoch, "last_429": epoch}`(600, 원자적 쓰기)에 남기고 기동 때 읽는다.
+- 체감(impl-report 에 적음): 1분 폴백(대상 없음·params 못 읽음 — `_targets()` 조건)은 60초마다 22초를 막아 다른 종목 첫 실행이 늘 창을 만난다. 처리기 안 2회 요청(엔진 종목 보관분 + 새 봉) 경로도 창 대기(최대 약 22초)에 걸릴 수 있다(nginx 60초 안). *(Task 4-0b fix round 1 로 대체: 창 기준 = `.engine_alive.json` running 사용자 전원의 봉 단위(`self.window_units`), 못 읽으면 1분. `prefetch_targets` 는 정리 보호용)*
+- 기존 장치(PREFETCH_RATE 1, sec≤4 쉼, 동시 1건, pid 변경 300초, 418 정지, 보관분이면 쉼 중 200)는 바꾸지 않는다. USER_RATE 는 (0), 429 처리는 (나)로 바꾼다. 보관분만으로 답하는 경로(업비트 0회)는 창·쉼과 무관하게 지금처럼 200.
+- 화면: 429 정지(.halt.json status 429)도 503 `upbit_blocked` 로 보인다(문구 그대로 「운영자 확인이 필요합니다」).
+
+- [ ] **Step 1: 실패 시험** — (0) 사용자 수집의 연속 fetch 간격 ≥ 0.25초(가짜 시계); (a) unit 3, now = 경계+5초 → fetch 전에 sleep(≥15초) 기록, 그 뒤 fetch; 경계+25초 → sleep 없이 fetch; 경계−1초 → 창 끝(+20)까지 sleep; (b) 대상 없음 → 1분 창 적용; 대상 unit 1·3 둘 → 두 경계 모두 피함; (c) 첫 429 → retry_after 600, 그 뒤 600초 안 fetch 0; 새 Collector(재시작 흉내) 도 `.cooldown.json` 으로 600초 안 fetch 0; (d) 24시간 안 두 번째 429 → `.halt.json`(status 429)·UpbitBlocked·새 Collector 도 fetch 0, 파일 삭제 뒤 재개; 첫 429 뒤 24시간 넘어 두 번째 → 다시 10분만; 첫 429 → 새 Collector(재시작 흉내, `.cooldown.json` 의 last_429 읽음) → 10분 뒤 두 번째 429 → HALT; (e) 창 대기 중 pid 가 바뀌면 깨어난 뒤 fetch 0·쉼 300; (f) 보관분만 경로는 창 안에서도 200 즉시.
+- [ ] **Step 2~4:** 실패 확인 → 구현 → 통과(`python3 -m unittest tests.v2.test_candles`, v2 전체, JS 전체, regression_gate).
+- [ ] **Step 5: 로컬 실측(맥 IP, dev 서버)** — 다른 종목(KRW-BTC) 1분·30일 첫 실행 시간과 429 수를 다시 잰다(가짜 계정 엔진 봉 단위 3분). 1분을 넘으면 넘는 그대로 보고한다. **75초(사용자가 결정 1027-05 때 본 숫자)를 넘으면 커밋 승인 전에 사용자에게 따로 묻는다.**
 
 ### Task 4: 백테스터 — 그림 2-다 (업비트/바이낸스, 접힘, 요약)
 

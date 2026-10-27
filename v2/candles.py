@@ -2,9 +2,12 @@
 
 - 업비트 호출은 이 파일 한 곳, 주소 UPBIT_URL 하나뿐이다. 계좌·주문 API 와 인증 머리는 쓰지 않는다.
 - 엔진·구버전과 같은 서버 IP 의 candle 그룹 한도(초당 10회)를 나눠 쓰고, 엔진에는 429·418 처리가 없다.
-  그래서 엔진 보호 규칙을 지킨다: 수집은 서버 전체에서 동시에 1건, 초당 5회(미리 받기 1회) 상한,
-  응답 Remaining-Req 의 sec 가 4 이하이면 다음 요청 전 1초 쉼, 429 → 60초 멈춤,
-  418 → 정지 파일(운영자가 지울 때까지, 재시작 뒤에도 유지), 엔진 pid 가 바뀌면 그 자리에서 멈추고 300초 쉼.
+  그래서 엔진 보호 규칙을 지킨다: 수집은 서버 전체에서 동시에 1건, 초당 4회(미리 받기 1회) 상한
+  (관측된 엔진 묶음 5회와 합쳐 9 ≤ 10 — 코드 상한 아님, 겹침을 줄이는 장치), 응답 Remaining-Req 의 sec 가 4 이하이면 다음 요청 전 1초 쉼,
+  엔진 봉 경계 창 [경계−2초, 경계+20초) 안에서는 부르지 않고 창 끝까지 기다림(Task 4-0b),
+  첫 429 → 600초 멈춤, 24시간 안 두 번째 429 → 418 과 같은 정지, 418 → 정지 파일(운영자가 지울 때까지,
+  재시작 뒤에도 유지), 엔진 pid 가 바뀌면 그 자리에서 멈추고 300초 쉼.
+  429 멈춤 끝 시각·마지막 429 시각은 .cooldown.json 에 남겨 재시작 뒤에도 이어 간다.
 - 보관: <db.DATA_DIR>/v2_candles/<market>_<unit>.json (600). 경로는 호출 때마다 db.DATA_DIR 로 만든다.
 - 보관 구간(covered = [처음, 끝) 밀리초)은 늘 한 덩어리다. 새 봉은 보관 끝에서 앞으로, 옛 봉은 보관 처음에서
   뒤로 받으므로 중간에 멈춰도 빈 곳이 생기지 않는다(체결 없는 분은 업비트가 봉을 만들지 않아,
@@ -34,17 +37,21 @@ MAX_DAYS = 30
 PER_REQ = 200               # 업비트 1회 최대 개수
 INLINE_MAX_REQ = 2          # 이 횟수 안이면 처리기 안에서 바로 받는다
 OVERLAP = 2                 # 새 봉을 받을 때 겹쳐 다시 받는 보관 마지막 봉 수(Issue #8)
-USER_RATE = 5.0             # 회/초
+USER_RATE = 4.0             # 회/초 — 관측 엔진 묶음 5회와 합쳐 9 ≤ 10, 보장 아님 (Task 4-0b)
 PREFETCH_RATE = 1.0
 LOW_SEC = 4                 # Remaining-Req sec 가 이 값 이하이면 1초 쉼
-COOLDOWN_429 = 60
+COOLDOWN_429 = 600          # 첫 429 → 10분 멈춤
+HALT_429_WITHIN = 86_400    # 이 초 안에 두 번째 429 → 418 과 같은 정지
 COOLDOWN_PID = 300
+ENGINE_WINDOW_BEFORE = 2    # 엔진 봉 경계 앞 이 초부터
+ENGINE_WINDOW_AFTER = 20    # 경계 뒤 이 초까지 업비트를 부르지 않는다(엔진 확정 조회·재판정 묶음)
 PREFETCH_DELAY = 300        # v2 기동 뒤 미리 받기 시작까지
 PREFETCH_EVERY = 600       # 처리기 안 2회 요청(1분봉 약 6시간치)이 그 사이 빈 곳을 덮는다
 KEEP_RECENT = 3             # 미리 받기 대상 밖 보관 파일 수
 MAX_TOTAL_BYTES = 30 * 1024 * 1024
 STORE_DIR = "v2_candles"
 HALT_FILE = ".halt.json"
+COOLDOWN_FILE = ".cooldown.json"
 ALIVE_FILE = ".engine_alive.json"
 MIN_MS = 60_000
 DAY_MS = 86_400_000
@@ -65,7 +72,7 @@ class BadRequest(Exception):
 
 
 class UpbitLimit(Exception):
-    """429 뒤 60초 멈춤 또는 엔진 재시작 쉼 중."""
+    """429 뒤 600초 멈춤 또는 엔진 재시작 쉼 중."""
 
     def __init__(self, retry_after):
         super().__init__(retry_after)
@@ -73,7 +80,7 @@ class UpbitLimit(Exception):
 
 
 class UpbitBlocked(Exception):
-    """418 정지 중(정지 파일이 있는 동안)."""
+    """418 또는 24시간 안 두 번째 429 정지 중(정지 파일이 있는 동안)."""
 
 
 class UpbitError(Exception):
@@ -171,14 +178,17 @@ class Collector:
         self.data_dir_fn = data_dir_fn or (lambda: db.DATA_DIR)   # import 때 고정하지 않는다
         self.started = self.now()
         self.cooldown_until = 0.0
-        self.prefetch_targets = set()
+        self.last_429 = None     # 마지막 429 시각(24시간 안 두 번째면 정지)
+        self.prefetch_targets = set()     # 보관 정리 보호용(허용 목록 사용자의 엔진 종목·봉 단위)
+        self.window_units = {1}           # 엔진 경계 창 기준 봉 단위(실행 중 엔진 전원) — 정리용과 분리
         self.job = None          # 진행 중 배경 작업
         self.last_job = None     # 끝난 마지막 작업(progress 용)
         self._lock = None
         self._pid = None
         self._last_fetch = None
         self._low_sec = False
-        self._blocked = False    # 418 메모리 정지(정지 파일 쓰기가 실패해도 이 프로세스는 멈춘다)
+        self._blocked = False    # 418·429 메모리 정지(정지 파일 쓰기가 실패해도 이 프로세스는 멈춘다)
+        self._load_cooldown()    # 재시작 뒤에도 429 멈춤·24시간 셈을 이어 간다
 
     # ---- 경로·상태 ----
     def _dir(self) -> Path:
@@ -205,6 +215,78 @@ class Collector:
         if left > 0:
             raise UpbitLimit(max(1, math.ceil(round(left, 3))))
 
+    def _load_cooldown(self) -> None:
+        """기동 때 .cooldown.json {"until","last_429"} 을 읽는다. 없음·깨짐은 무시."""
+        try:
+            data = json.loads((self._dir() / COOLDOWN_FILE).read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return
+        if not isinstance(data, dict):
+            return
+        for key in ("until", "last_429"):
+            v = data.get(key)
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v):
+                if key == "until":
+                    self.cooldown_until = max(self.cooldown_until, float(v))
+                else:
+                    self.last_429 = float(v)
+
+    def _save_cooldown(self) -> None:
+        d = self._dir()
+        d.mkdir(mode=0o700, exist_ok=True)
+        body = {"until": self.cooldown_until, "last_429": self.last_429}
+        _atomic_write(d / COOLDOWN_FILE, json.dumps(body).encode("utf-8"))
+
+    def _window_wait(self) -> float:
+        """엔진 봉 경계 창 [b−2, b+20) 안이면 창 끝까지 남은 초, 밖이면 0.
+
+        봉 단위는 window_units(실행 중 엔진 전원의 봉 단위 — _refresh_window_units 가 갱신, 요청마다
+        DB·파일을 읽지 않는다). 비었으면 1분(가장 보수적). 경계 = UTC 에포크 초가 unit*60 의 배수인 시각.
+        """
+        now = self.now()
+        units = {u for u in self.window_units if u in UNITS} or {1}
+        wait = 0.0
+        for u in units:
+            p = u * 60
+            r = now % p
+            if r < ENGINE_WINDOW_AFTER:
+                wait = max(wait, ENGINE_WINDOW_AFTER - r)
+            elif r >= p - ENGINE_WINDOW_BEFORE:
+                wait = max(wait, p - r + ENGINE_WINDOW_AFTER)
+        return wait
+
+    def _engine_units(self, alive) -> set:
+        """엔진 생존 파일 running 이 True 인 모든 사용자(허용 목록과 무관)의 활성 전략 봉 단위 집합.
+
+        파일 없음·깨짐·running 비었음 → {1}. 어느 사용자의 interval 을 못 읽으면 그 몫은 1분.
+        """
+        running = alive.get("running") if isinstance(alive, dict) else None
+        if not isinstance(running, dict):
+            return {1}
+        units = set()
+        for user, on in running.items():
+            if on is not True:
+                continue
+            unit = 1
+            try:
+                value, _mtime = db.active_strategy(user)
+                iv = db.strategy_params(user, value).get("interval") if value else None
+                m = _MINUTE_RE.fullmatch(iv) if isinstance(iv, str) else None
+                if m and int(m.group(1)) in UNITS:
+                    unit = int(m.group(1))
+            except Exception:
+                unit = 1
+            units.add(unit)
+        return units or {1}
+
+    def _refresh_window_units(self, alive=None) -> None:
+        """창 기준 봉 단위 갱신(prefetch_loop 첫 반복 전·매 회, pid 변경 때). 예외면 {1}."""
+        try:
+            self.window_units = self._engine_units(self._read_alive() if alive is None else alive)
+        except Exception:
+            log.exception("[V2-CANDLES] window units failed — 1 minute")
+            self.window_units = {1}
+
     def _read_alive(self):
         try:
             with open(Path(self.data_dir_fn()) / ALIVE_FILE, "rb") as f:
@@ -224,6 +306,7 @@ class Collector:
         self._pid = pid
         self.cooldown_until = max(self.cooldown_until, self.now() + COOLDOWN_PID)
         log.warning("[V2-CANDLES] engine pid changed — pause %ds", COOLDOWN_PID)
+        self._refresh_window_units(data)          # 엔진 재시작 — 봉 단위가 바뀌었을 수 있다
         return True
 
     # ---- 보관 ----
@@ -294,13 +377,25 @@ class Collector:
                 except OSError:
                     pass
 
-    def _halt(self, resp) -> None:
-        body = (resp.body or b"").decode("utf-8", "replace")[:200]
+    def _halt(self, resp, status=418, reason=None) -> None:
         d = self._dir()
         d.mkdir(mode=0o700, exist_ok=True)
-        info = {"at": datetime.fromtimestamp(self.now(), db.KST).isoformat(),
-                "status": 418, "body": body}
+        info = {"at": datetime.fromtimestamp(self.now(), db.KST).isoformat(), "status": status}
+        if reason is None:
+            info["body"] = (resp.body or b"").decode("utf-8", "replace")[:200]
+        else:
+            info["reason"] = reason
         _atomic_write(d / HALT_FILE, json.dumps(info, ensure_ascii=False).encode("utf-8"))
+
+    def _block(self, resp, status, reason, market, unit) -> None:
+        """418·두 번째 429 정지: 메모리 정지·로그를 먼저 — 파일 쓰기가 실패해도 다시 부르지 않게."""
+        self._blocked = True
+        log.error("[V2-CANDLES] status=%d HALT market=%s unit=%s", status, market, unit)
+        try:
+            self._halt(resp, status, reason)
+        except OSError as e:
+            log.error("[V2-CANDLES] halt file write failed %s — memory halt only",
+                      type(e).__name__)
 
     # ---- 수집 ----
     @staticmethod
@@ -318,7 +413,7 @@ class Collector:
         return start, end, cov, n
 
     async def _request(self, market, unit, to_ms, rate, job):
-        """업비트 1회. 매 요청 직전에 작업 중단·간격·정지 파일·쉼·엔진 pid 를 본다. 중단이면 None."""
+        """업비트 1회. 매 요청 직전에 작업 중단·간격·정지 파일·쉼·엔진 pid·엔진 경계 창을 본다. 중단이면 None."""
         if job is not None and job.stop:
             return None
         r = job.rate if job is not None else rate
@@ -331,8 +426,16 @@ class Collector:
         self._low_sec = False
         if job is not None and job.stop:
             return None
-        self._observe_pid()
-        self._check_open()
+        while True:
+            self._observe_pid()
+            self._check_open()
+            wait = self._window_wait()
+            if wait <= 0:
+                break
+            # 엔진 경계 창 안 — 창 끝까지 기다린 뒤 pid·정지·쉼을 다시 본다
+            await self.sleep(wait)
+            if job is not None and job.stop:
+                return None
         to = datetime.fromtimestamp(to_ms / 1000, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         url = UPBIT_URL.format(unit=unit) + "?" + urlencode(
             {"market": market, "to": to, "count": PER_REQ})
@@ -342,18 +445,25 @@ class Collector:
         if job is not None:
             job.done += 1
         if resp.code == 429:
-            self.cooldown_until = max(self.cooldown_until, self.now() + COOLDOWN_429)
-            log.warning("[V2-CANDLES] status=429 market=%s unit=%s", market, unit)
+            now = self.now()
+            second = self.last_429 is not None and now - self.last_429 < HALT_429_WITHIN
+            self.last_429 = now
+            if second:
+                self._block(resp, 429, "second 429 in 24h", market, unit)
+            else:
+                self.cooldown_until = max(self.cooldown_until, now + COOLDOWN_429)
+                log.warning("[V2-CANDLES] status=429 market=%s unit=%s — pause %ds",
+                            market, unit, COOLDOWN_429)
+            try:
+                self._save_cooldown()
+            except OSError as e:
+                log.error("[V2-CANDLES] cooldown file write failed %s — memory only",
+                          type(e).__name__)
+            if second:
+                raise UpbitBlocked()
             raise UpbitLimit(COOLDOWN_429)
         if resp.code == 418:
-            # 메모리 정지·로그를 먼저 — 파일 쓰기가 실패해도 다시 부르지 않게
-            self._blocked = True
-            log.error("[V2-CANDLES] status=418 HALT market=%s unit=%s", market, unit)
-            try:
-                self._halt(resp)
-            except OSError as e:
-                log.error("[V2-CANDLES] halt file write failed %s — memory halt only",
-                          type(e).__name__)
+            self._block(resp, 418, None, market, unit)
             raise UpbitBlocked()
         if resp.code != 200:
             raise UpbitError(resp.code)
@@ -442,8 +552,9 @@ class Collector:
     async def serve(self, market, unit, days):
         """("ok", 200 본문) 또는 ("running", 202 본문). Busy·UpbitLimit·UpbitBlocked 등은 올린다.
 
-        418 정지 중에는 아무것도 내주지 않는다. 보관분이 기간을 덮어 업비트 요청이 0회면 쉼
-        (429 60초·엔진 재시작 300초) 중에도 보관분으로 바로 200 — 쉼은 업비트를 부르는 경로에만 건다.
+        418·429 정지 중에는 아무것도 내주지 않는다. 보관분이 기간을 덮어 업비트 요청이 0회면 쉼
+        (429 600초·엔진 재시작 300초)·엔진 경계 창 중에도 보관분으로 바로 200 — 쉼·창은 업비트를
+        부르는 경로에만 건다.
         """
         if self._halted():
             raise UpbitBlocked()
@@ -513,6 +624,7 @@ class Collector:
         """미리 받기 1회: pid 확인 → (기동 300초 뒤·엔진 생존일 때만) 대상마다 1회/초로 30일치, 그 뒤 새 봉만."""
         alive = self._read_alive()
         self._observe_pid(alive)
+        self._refresh_window_units(alive)
         targets = self._targets()
         self.prefetch_targets = set(targets)       # 기동 직후에도 대상 파일이 지워지지 않게 먼저 갱신
         if self.now() - self.started < PREFETCH_DELAY:
@@ -533,6 +645,7 @@ class Collector:
     async def prefetch_loop(self) -> None:
         """_serve() 가 시작한다. 기동 300초 뒤 첫 prefetch_once, 그 뒤 600초마다."""
         # 첫 반복 전에 대상을 채운다 — 기동 직후 사용자 수집의 정리가 엔진 종목 파일을 지우지 않게
+        self._refresh_window_units()
         try:
             self.prefetch_targets = set(self._targets())
         except Exception:

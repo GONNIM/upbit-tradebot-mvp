@@ -43,6 +43,7 @@ class FakeUpbit:
         self.clock = clock
         self.sec = sec
         self.calls = []          # (url, kwargs)
+        self.times = []          # 호출 시각(가짜 시계)
         self.statuses = []       # 앞에서부터 하나씩 꺼내 쓰는 상태 코드
         self.hook = None         # 호출 직후 실행(n 번째 호출 번호를 받음)
         self.raise_exc = None
@@ -50,6 +51,7 @@ class FakeUpbit:
 
     async def fetch(self, url, **kw):
         self.calls.append((url, kw))
+        self.times.append(self.clock.t)
         if self.hook:
             self.hook(len(self.calls))
         await asyncio.sleep(0)
@@ -170,27 +172,28 @@ class TestCollect(Base):
         self.assertTrue(any(s >= 1.0 for s in self.clock.sleeps), self.clock.sleeps)
 
     async def test_rate_spacing(self):
-        await self.c.collect("KRW-JTO", 1, 1, rate=5.0)
+        # Task 4-0b: 상수 변경(5.0 → USER_RATE 4.0, 간격 0.2 → 0.25)만 반영
+        await self.c.collect("KRW-JTO", 1, 1, rate=candles.USER_RATE)
         self.assertTrue(self.clock.sleeps)
-        self.assertTrue(all(s <= 0.2 + 1e-6 for s in self.clock.sleeps))
+        self.assertTrue(all(s <= 0.25 + 1e-6 for s in self.clock.sleeps))
         # 실제 요청 간격이 1/rate 이상(가짜 시계 기준)
-        self.assertGreaterEqual(self.clock.t - T0, 0.2 * (len(self.up.calls) - 1) - 1e-6)
+        self.assertGreaterEqual(self.clock.t - T0, 0.25 * (len(self.up.calls) - 1) - 1e-6)
 
-    # (e)
-    async def test_429_cooldown_60(self):
+    # (e) Task 4-0b: 쉼 60 → 600 상수 변경만 반영
+    async def test_429_cooldown_600(self):
         self.up.statuses = [429]
         with self.assertLogs("v2.candles", "WARNING") as lg:
             with self.assertRaises(candles.UpbitLimit) as cm:
                 await self.c.collect("KRW-JTO", 1, 1)
         self.assertIn("[V2-CANDLES] status=429 market=KRW-JTO unit=1", "\n".join(lg.output))
-        self.assertEqual(cm.exception.retry_after, 60)
+        self.assertEqual(cm.exception.retry_after, 600)
         n = len(self.up.calls)
         self.clock.t += 30
         with self.assertRaises(candles.UpbitLimit) as cm:
             await self.c.collect("KRW-JTO", 1, 1)
         self.assertEqual(len(self.up.calls), n)
-        self.assertEqual(cm.exception.retry_after, 30)
-        self.clock.t += 31
+        self.assertEqual(cm.exception.retry_after, 570)
+        self.clock.t += 571
         await self.c.collect("KRW-JTO", 1, 1)
         self.assertGreater(len(self.up.calls), n)
 
@@ -403,7 +406,7 @@ class TestServe(Base):
         kind, body = await self.c.serve("KRW-AAA", 1, 30)
         self.assertEqual(kind, "running")
         self.assertIs(self.c.job, pre)
-        self.assertEqual(pre.rate, 5.0)
+        self.assertEqual(pre.rate, candles.USER_RATE)      # Task 4-0b: 5.0 → USER_RATE
         self.assertEqual(pre.kind, "user")
         await self.drain(pre)
 
@@ -424,7 +427,7 @@ class TestServe(Base):
         await self.c.serve("KRW-JTO", 1, 30)
         await self.drain(self.c.job)
         p = self.c.progress()
-        self.assertEqual((p["error"], p["retry_after"]), ("upbit_limit", 60))
+        self.assertEqual((p["error"], p["retry_after"]), ("upbit_limit", 600))   # Task 4-0b: 60 → 600
 
     # (m)
     async def _prefetch_setup(self, running=True):
@@ -543,7 +546,7 @@ class TestServe(Base):
 
     # ---- 최종 검수 수정 2026-10-27 ----
     async def test_cached_only_served_during_cooldown(self):
-        # 보관분이 기간을 덮어 업비트 요청이 0회면 쉼(엔진 재시작 300초·429 60초) 중에도 200
+        # 보관분이 기간을 덮어 업비트 요청이 0회면 쉼(엔진 재시작 300초·429 600초) 중에도 200
         await self.c.collect("KRW-JTO", 1, 1)
         n = len(self.up.calls)
         for until in (self.clock.t + candles.COOLDOWN_PID, self.clock.t + candles.COOLDOWN_429):
@@ -621,6 +624,344 @@ class TestServe(Base):
         await self.c.prefetch_once()
         self.assertEqual(len(self.up.calls), 0)
         self.assertIsNone(self.c.job)
+
+
+class TestIpBlockGuard(Base):
+    """Task 4-0b: IP 차단(418)이 생기지 않게 — 상한 4회/초·엔진 경계 창·429 즉시 장기 멈춤."""
+
+    B = T0 - 30          # 2026-10-26 00:00:00 UTC — 1·3·5·15·60·240분 경계 모두
+
+    async def first_fetch_at(self, t, units):
+        self.clock.t = t
+        self.c.window_units = set(units)
+        await self.c.collect("KRW-JTO", 1, 1)
+        return self.up.times[0]
+
+    # (0)
+    async def test_user_rate_4_spacing(self):
+        self.assertEqual(candles.USER_RATE, 4.0)
+        self.assertEqual(candles.PREFETCH_RATE, 1.0)
+        await self.c.collect("KRW-JTO", 1, 1)               # 사용자 수집 기본 속도
+        ts = self.up.times
+        self.assertEqual(len(ts), 8)
+        self.assertTrue(all(b - a >= 0.25 - 1e-9 for a, b in zip(ts, ts[1:])), ts)
+
+    # (a)
+    async def test_window_unit3_after_boundary_sleeps(self):
+        t = await self.first_fetch_at(self.B + 5, [3])
+        self.assertEqual(self.clock.sleeps[0], 15)
+        self.assertEqual(t, self.B + 20)
+
+    async def test_window_unit3_outside_no_sleep(self):
+        t = await self.first_fetch_at(self.B + 25, [3])
+        self.assertEqual(t, self.B + 25)
+        t2 = self.B + 65                                     # 1분 경계 +5 — 3분 대상이면 막지 않음
+        self.up.times.clear()
+        self.clock.sleeps.clear()
+        self.assertEqual(await self.first_fetch_at(t2, [3]), t2)
+
+    async def test_window_unit3_before_boundary_sleeps_to_end(self):
+        b3 = self.B + 180
+        t = await self.first_fetch_at(b3 - 1, [3])
+        self.assertEqual(self.clock.sleeps[0], 21)
+        self.assertEqual(t, b3 + 20)
+
+    # (b)
+    async def test_window_no_targets_uses_one_minute(self):
+        t = await self.first_fetch_at(self.B + 65, [])
+        self.assertEqual(t, self.B + 80)
+
+    async def test_window_multiple_units_avoid_all(self):
+        self.assertEqual(await self.first_fetch_at(self.B + 65, [1, 3]), self.B + 80)
+        self.up.times.clear()
+        self.assertEqual(await self.first_fetch_at(self.B + 185, [1, 3]), self.B + 200)
+        self.up.times.clear()
+        self.assertEqual(await self.first_fetch_at(self.B + 245, [3, 5]), self.B + 245)  # 둘 다 밖
+        self.up.times.clear()
+        self.assertEqual(await self.first_fetch_at(self.B + 305, [3, 5]), self.B + 320)  # 5분 경계
+        self.up.times.clear()
+        self.assertEqual(await self.first_fetch_at(self.B + 539, [3, 5]), self.B + 560)  # 3분 경계 −1
+
+    async def test_window_applies_to_prefetch(self):
+        self.clock.t += 400
+        self.allow.write_text("alice\n", encoding="utf-8")
+        (self.root / "alice_active_strategy.txt").write_text("EMA\n", encoding="utf-8")
+        (self.root / "alice_latest_params_EMA.json").write_text(
+            json.dumps({"ticker": "ZRO", "interval": "minute3"}), encoding="utf-8")
+        self.clock.t = self.B + 540 + 1                       # 3분 경계 +1
+        self.c.started = self.clock.t - 400
+        self.write_alive(100)
+        await self.c.prefetch_once()
+        self.assertEqual((self.c.prefetch_targets, self.c.window_units), ({("KRW-ZRO", 3)}, {3}))
+        self.assertEqual(self.up.times[0], self.B + 560)
+        for t in self.up.times:                               # 모든 요청이 창 밖
+            r = (t - self.B) % 180
+            self.assertTrue(20 <= r < 178, (t - self.B, r))
+
+    async def test_window_every_request_outside(self):
+        self.c.window_units = {3}
+        await self.c.collect("KRW-JTO", 1, 30)               # 216회, 여러 경계를 지남
+        self.assertEqual(len(self.up.times), 216)
+        for t in self.up.times:
+            r = (t - self.B) % 180
+            self.assertTrue(20 <= r < 178, (t - self.B, r))
+
+    # (e)
+    async def test_pid_change_during_window_wait(self):
+        self.clock.t = self.B + 5
+        self.c.window_units = {3}
+        self.write_alive(100)
+        self.c._observe_pid()
+
+        async def sleep(dt):
+            self.write_alive(200)                             # 기다리는 동안 엔진 재시작
+            await self.clock.sleep(dt)
+        self.c.sleep = sleep
+        with self.assertRaises(candles.UpbitLimit) as cm:
+            await self.c.collect("KRW-JTO", 1, 1)
+        self.assertEqual(self.up.calls, [])
+        self.assertEqual(cm.exception.retry_after, candles.COOLDOWN_PID)
+
+    # (f)
+    async def test_cached_only_inside_window_immediate(self):
+        await self.c.collect("KRW-JTO", 1, 1)
+        n = len(self.up.calls)
+        self.clock.t = self.B + 58.5                          # 같은 분 안, 1분 창 안
+        self.clock.sleeps.clear()
+        kind, body = await self.c.serve("KRW-JTO", 1, 1)
+        self.assertEqual((kind, body["requests"]), ("ok", 0))
+        self.assertEqual(self.clock.sleeps, [])
+        self.assertEqual(len(self.up.calls), n)
+
+    # (c)
+    def cooldown_file(self):
+        return self.data / "v2_candles" / ".cooldown.json"
+
+    async def test_first_429_cooldown_600_survives_restart(self):
+        self.up.statuses = [429]
+        with self.assertLogs("v2.candles", "WARNING") as lg:
+            with self.assertRaises(candles.UpbitLimit) as cm:
+                await self.c.collect("KRW-JTO", 1, 1)
+        self.assertIn("[V2-CANDLES] status=429", "\n".join(lg.output))
+        self.assertEqual(cm.exception.retry_after, 600)
+        self.assertEqual(candles.COOLDOWN_429, 600)
+        f = self.cooldown_file()
+        self.assertEqual(stat.S_IMODE(f.stat().st_mode), 0o600)
+        info = json.loads(f.read_text(encoding="utf-8"))
+        self.assertEqual(info["until"], self.clock.t + 600)
+        self.assertEqual(info["last_429"], self.clock.t)
+        self.assertFalse(list(f.parent.glob("*.tmp")))
+        n = len(self.up.calls)
+        self.clock.t += 599
+        with self.assertRaises(candles.UpbitLimit):
+            await self.c.collect("KRW-JTO", 1, 1)
+        c2 = self.make()                                      # 재시작 흉내
+        with self.assertRaises(candles.UpbitLimit) as cm:
+            await c2.collect("KRW-JTO", 1, 1)
+        self.assertEqual(cm.exception.retry_after, 1)
+        self.assertEqual(len(self.up.calls), n)
+        self.clock.t += 2
+        await c2.collect("KRW-JTO", 1, 1)
+        self.assertGreater(len(self.up.calls), n)
+
+    # (d)
+    async def assert_halted_429(self, c):
+        halt = self.data / "v2_candles" / ".halt.json"
+        self.assertTrue(halt.exists())
+        self.assertEqual(stat.S_IMODE(halt.stat().st_mode), 0o600)
+        info = json.loads(halt.read_text(encoding="utf-8"))
+        self.assertEqual((info["status"], info["reason"]), (429, "second 429 in 24h"))
+        self.assertIn("at", info)
+        n = len(self.up.calls)
+        for col in (c, self.make()):
+            with self.assertRaises(candles.UpbitBlocked):
+                await col.collect("KRW-JTO", 1, 1)
+            with self.assertRaises(candles.UpbitBlocked):
+                await col.serve("KRW-JTO", 1, 1)
+        self.assertEqual(len(self.up.calls), n)
+        return halt
+
+    async def test_second_429_within_24h_halts(self):
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitLimit):
+            await self.c.collect("KRW-JTO", 1, 1)
+        self.clock.t += 601
+        self.up.statuses = [429]
+        with self.assertLogs("v2.candles", "ERROR") as lg:
+            with self.assertRaises(candles.UpbitBlocked):
+                await self.c.collect("KRW-JTO", 1, 1)
+        self.assertIn("[V2-CANDLES] status=429 HALT", "\n".join(lg.output))
+        halt = await self.assert_halted_429(self.c)
+        self.clock.t += 7 * DAY
+        halt.unlink()                                         # 운영자 해제(파일 삭제 + 재시작)
+        c3 = self.make()
+        n = len(self.up.calls)
+        await c3.collect("KRW-JTO", 1, 1)
+        self.assertGreater(len(self.up.calls), n)
+
+    async def test_second_429_after_24h_cooldown_only(self):
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitLimit):
+            await self.c.collect("KRW-JTO", 1, 1)
+        self.clock.t += DAY + 1
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitLimit) as cm:
+            await self.c.collect("KRW-JTO", 1, 1)
+        self.assertEqual(cm.exception.retry_after, 600)
+        self.assertFalse((self.data / "v2_candles" / ".halt.json").exists())
+
+    async def test_second_429_after_restart_halts(self):
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitLimit):
+            await self.c.collect("KRW-JTO", 1, 1)
+        c2 = self.make()                                      # 재시작 — .cooldown.json 의 last_429 읽음
+        self.clock.t += 601
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitBlocked):
+            await c2.collect("KRW-JTO", 1, 1)
+        await self.assert_halted_429(c2)
+
+    async def test_broken_cooldown_file_ignored(self):
+        d = self.data / "v2_candles"
+        d.mkdir()
+        (d / ".cooldown.json").write_text("{broken", encoding="utf-8")
+        c2 = self.make()
+        await c2.collect("KRW-JTO", 1, 1)
+        self.assertEqual(len(self.up.calls), 8)
+
+
+class TestWindowUnits(Base):
+    """Task 4-0b fix round 1: 창 기준 봉 단위 = 실행 중 엔진 전원(허용 목록과 무관), 정리용과 분리."""
+
+    B = T0 - 30
+
+    def alive(self, running, pid=100):
+        at = datetime.fromtimestamp(self.clock.t, db.KST).isoformat()
+        (self.data / ".engine_alive.json").write_text(
+            json.dumps({"at": at, "running": running, "pid": pid}), encoding="utf-8")
+
+    def params(self, user, interval):
+        (self.root / f"{user}_active_strategy.txt").write_text("EMA\n", encoding="utf-8")
+        (self.root / f"{user}_latest_params_EMA.json").write_text(
+            json.dumps({"ticker": "ZRO", "interval": interval}), encoding="utf-8")
+
+    # (a)·(e) 허용 목록(비어 있음)에 없는 사용자도 포함, running False 는 제외
+    def test_units_from_all_running_users(self):
+        self.params("alice", "minute3")
+        self.params("bob", "minute1")
+        self.params("carol", "minute5")
+        self.alive({"alice": True, "bob": True, "carol": False})
+        self.c._refresh_window_units()
+        self.assertEqual(self.c.window_units, {3, 1})
+        self.assertEqual(self.c.prefetch_targets, set())           # 정리용은 따로
+
+    # (b) 어느 사용자 몫을 못 읽으면 그 몫은 1분
+    def test_unreadable_user_counts_as_one_minute(self):
+        self.params("alice", "minute3")
+        self.params("bob", "minute5")
+        real = db.strategy_params
+
+        def sp(user, value):
+            if user == "bob":
+                raise OSError("boom")
+            return real(user, value)
+        with mock.patch.object(candles.db, "strategy_params", side_effect=sp):
+            self.alive({"alice": True, "bob": True})
+            self.c._refresh_window_units()
+        self.assertEqual(self.c.window_units, {3, 1})
+        for running in ({"alice": True, "../x": True}, {"alice": True, "dave": True}):
+            self.alive(running)                                     # 잘못된 id·전략 없음
+            self.c._refresh_window_units()
+            self.assertEqual(self.c.window_units, {3, 1}, running)
+        self.params("dave", "second30")                             # 분봉 아님
+        self.alive({"dave": True})
+        self.c._refresh_window_units()
+        self.assertEqual(self.c.window_units, {1})
+
+    # (c) 파일 없음·깨짐·running 비었음 → {1}
+    def test_alive_missing_or_empty_is_one_minute(self):
+        self.c.window_units = {3}
+        self.c._refresh_window_units()
+        self.assertEqual(self.c.window_units, {1})
+        for raw in ("{broken", json.dumps({"pid": 1, "running": {}}), json.dumps({"pid": 1})):
+            self.c.window_units = {3}
+            (self.data / ".engine_alive.json").write_text(raw, encoding="utf-8")
+            self.c._refresh_window_units()
+            self.assertEqual(self.c.window_units, {1}, raw)
+
+    # (d) 갱신 중 예외 → {1}
+    def test_refresh_exception_is_one_minute(self):
+        self.c.window_units = {3}
+        with mock.patch.object(self.c, "_engine_units", side_effect=RuntimeError("x")):
+            with self.assertLogs("v2.candles", "ERROR"):
+                self.c._refresh_window_units()
+        self.assertEqual(self.c.window_units, {1})
+
+    async def test_refresh_on_pid_change_and_prefetch(self):
+        self.params("alice", "minute3")
+        self.alive({"alice": True}, pid=100)
+        self.c._observe_pid()                                       # 기준만 — 읽지 않음
+        self.assertEqual(self.c.window_units, {1})
+        self.alive({"alice": True}, pid=200)
+        self.assertTrue(self.c._observe_pid())
+        self.assertEqual(self.c.window_units, {3})
+        self.params("alice", "minute5")
+        self.clock.t += 10
+        self.alive({"alice": True}, pid=200)
+        self.assertFalse(self.c._observe_pid())                     # pid 그대로면 갱신 안 함
+        self.assertEqual(self.c.window_units, {3})
+        await self.c.prefetch_once()                                # 매 회 갱신(기동 300초 전이라 수집 없음)
+        self.assertEqual(self.c.window_units, {5})
+        self.assertEqual(self.up.calls, [])
+
+    async def test_prefetch_loop_fills_units_before_first_sleep(self):
+        self.params("alice", "minute15")
+        self.alive({"alice": True})
+        blocked = asyncio.get_running_loop().create_future()
+
+        async def sleep(dt):
+            await blocked
+        self.c.sleep = sleep
+        task = asyncio.ensure_future(self.c.prefetch_loop())
+        self.addCleanup(task.cancel)
+        await asyncio.sleep(0)
+        self.assertEqual(self.c.window_units, {15})
+        task.cancel()
+
+    async def test_request_does_not_read_files(self):
+        self.c.window_units = {3}
+        with mock.patch.object(self.c, "_engine_units", side_effect=AssertionError("read")):
+            await self.c.collect("KRW-JTO", 1, 1)
+        self.assertEqual(len(self.up.calls), 8)
+
+    # 3번: 해제 직후 24시간 안 429 1회 → 바로 정지
+    async def test_after_release_429_within_24h_halts_at_once(self):
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitLimit):
+            await self.c.collect("KRW-JTO", 1, 1)
+        self.clock.t += 601
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitBlocked):
+            await self.c.collect("KRW-JTO", 1, 1)
+        halt = self.data / "v2_candles" / ".halt.json"
+        self.clock.t += 3600
+        halt.unlink()                                               # 운영자 해제(파일 삭제 + 재시작)
+        c2 = self.make()
+        self.up.statuses = [429]
+        with self.assertRaises(candles.UpbitBlocked):               # 첫 429 인데도 24시간 셈 유지 → 정지
+            await c2.collect("KRW-JTO", 1, 1)
+        self.assertTrue(halt.exists())
+
+    # 3번: 처리기 안 ≤2회 요청도 창 끝까지 기다린 뒤 첫 fetch
+    async def test_inline_request_waits_for_window(self):
+        await self.c.collect("KRW-JTO", 1, 1)
+        n = len(self.up.calls)
+        self.c.window_units = {1}
+        self.clock.t = self.B + 60 + 5                              # 새 봉 1개, 1분 창 안
+        kind, body = await self.c.serve("KRW-JTO", 1, 1)
+        self.assertEqual((kind, body["requests"]), ("ok", 1))
+        self.assertEqual(len(self.up.calls), n + 1)
+        self.assertEqual(self.up.times[n], self.B + 80)
 
 
 class HandlerTests(AsyncHTTPTestCase):
@@ -731,11 +1072,27 @@ class HandlerTests(AsyncHTTPTestCase):
         self.wait_job()
         r = self.get("/v2/api/candles?market=KRW-JTO&unit=1&days=1")
         self.assertEqual(r.code, 429)
-        self.assertEqual(json.loads(r.body), {"error": "upbit_limit", "retry_after": 60})
-        self.clock.t += 61
+        # Task 4-0b: 쉼 60 → 600 상수 변경만 반영
+        self.assertEqual(json.loads(r.body), {"error": "upbit_limit", "retry_after": 600})
+        self.clock.t += 601
         self.up.statuses = [418]
         self.get("/v2/api/candles?market=KRW-JTO&unit=1&days=1")
         self.wait_job()
+        r = self.get("/v2/api/candles?market=KRW-JTO&unit=1&days=1")
+        self.assertEqual(r.code, 503)
+        self.assertEqual(json.loads(r.body), {"error": "upbit_blocked"})
+
+    def test_second_429_halt_shows_503(self):
+        # Task 4-0b: 24시간 안 두 번째 429 정지도 418 과 같이 503 upbit_blocked
+        self.up.statuses = [429]
+        self.get("/v2/api/candles?market=KRW-JTO&unit=1&days=1")
+        self.wait_job()
+        self.clock.t += 601
+        self.up.statuses = [429]
+        self.get("/v2/api/candles?market=KRW-JTO&unit=1&days=1")
+        self.wait_job()
+        self.assertEqual(json.loads(self.get("/v2/api/candles/progress").body)["error"],
+                         "upbit_blocked")
         r = self.get("/v2/api/candles?market=KRW-JTO&unit=1&days=1")
         self.assertEqual(r.code, 503)
         self.assertEqual(json.loads(r.body), {"error": "upbit_blocked"})
