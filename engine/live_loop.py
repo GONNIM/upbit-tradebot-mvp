@@ -751,6 +751,14 @@ def run_live_loop(
     strategy_tag = _strategy_tag(params.strategy_type)
 
     logger.info(f"[BOOT] run_live_loop start | mode={mode_tag} | strategy={strategy_tag}")
+
+    # T1: PULLBACK 로더(T2)·전략 객체(T5) 전에는 기동을 거부한다. 정합 검사·지갑 동기화·reconciler 등록보다
+    # 먼저 막고, stop_event 를 켜서 엔진 관리 스레드가 정리(stopped·잠금 해제)하게 한다(T1 검수 지적).
+    if strategy_tag == "PULLBACK":
+        logger.error(f"[PULLBACK-PARAMS] PULLBACK 로더 없음 → 기동 거부 | user_id={user_id}")
+        stop_event.set()
+        return
+
     logger.info("🚀 ★ 증분 처리 기반 엔진 (Backtest 없음) ★")
 
     # ✅ WO-18 (c): 기동 시 정합 검사 — 보유 0 인데 hts_buy 가 남은 행 정리 (LIVE 만, 과거 audit 무변경)
@@ -771,13 +779,15 @@ def run_live_loop(
 
     # ✅ P1 — 설정 History 시드 (idempotent). 사용자가 한 번도 명시 저장한 적 없는
     # 새 (user_id, strategy_tag) 조합에 첫 active_settings_id 를 확보.
-    try:
-        from services.settings_history import seed_initial_snapshot, record_strategy_init
-        seed_initial_snapshot(user_id, strategy_tag)
-        # ✅ SP2 — strategy 객체 재초기화 시점 자동 row + applied_at 일괄 채움
-        record_strategy_init(user_id, strategy_tag)
-    except Exception as _seed_e:
-        logger.warning(f"[settings_history] seed_initial_snapshot 실패: {_seed_e}")
+    # PULLBACK 은 구버전 설정 이력을 쓰지 않는다(경고 반복 방지, 설정 기록은 v2hist — 결정 D1).
+    if strategy_tag != "PULLBACK":
+        try:
+            from services.settings_history import seed_initial_snapshot, record_strategy_init
+            seed_initial_snapshot(user_id, strategy_tag)
+            # ✅ SP2 — strategy 객체 재초기화 시점 자동 row + applied_at 일괄 채움
+            record_strategy_init(user_id, strategy_tag)
+        except Exception as _seed_e:
+            logger.warning(f"[settings_history] seed_initial_snapshot 실패: {_seed_e}")
 
     # ============================================================
     # 1단계: 핵심 데이터 구조 초기화 (프로세스 시작 시 1회만)

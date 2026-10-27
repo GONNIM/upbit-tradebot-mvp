@@ -365,6 +365,8 @@ P3(T1~T10)가 모두 통과한 뒤 P4(T11~T18)를 시작한다. 배포는 P3+P4 
   - `test_set_config_selectbox_has_no_pullback`: `pages/set_config.py` 의 selectbox 인자가 `STRATEGY_TYPES`(ast).
 - [ ] **Step 2: 실패 확인** — `python3 -m unittest tests.regressions.test_r_2026_10_28_p3_t1_strategy_registry -v`
 - [ ] **Step 3: 구현** — 위 Interfaces. `_engine_runner` 의 전략 결정은 「활성 파일(`include_engine_only=True`)이 PULLBACK 이면 그것, 아니면 지금 순서」. 생성 분기의 PULLBACK 은 T5 에서 채우고, T1 에서는 `NotImplementedError` 가 아니라 「PULLBACK 로더 없음 → 기동 거부 + `[PULLBACK-PARAMS]` ERROR」로 둔다.
+  - **(10/27 구현 반영 — T1 검수)** 거부 위치는 생성 분기가 아니다. ① `engine/engine_manager.py` `_engine_runner` 가 결정값(`_decide_strategy_type`)이 PULLBACK 이면 `load_params`·`UpbitTrader` 를 부르기 **전에** 거부한다(기존 `load_params` 는 신버전 저장 형식의 빠진 `strategy_type` 을 MACD 로 채워 MACD 로 매매하게 됨). ② `engine/live_loop.py` `run_live_loop` 는 `[BOOT]` 줄 바로 뒤(HTS 정합·지갑 동기화·reconciler 등록 전)에서 `stop_event.set()` 후 거부하는 방어선을 둔다. T2·T5 는 이 두 거부를 적용본 로더·전략 객체로 바꾼다.
+  - **T1~T5 사이 틈:** 활성 파일이 PULLBACK 이면 엔진이 기동을 거부해 보유분 손절도 멈춘다. 그래서 **T5 완료 전까지 활성 파일에 PULLBACK 을 쓰는 경로를 만들지 않는다**(쓰는 곳은 T12). 거부 시 CRITICAL 알림·`boot_resume` 실패 판정·감사 화면 기록은 T2/T5 에서 넣는다.
 - [ ] **Step 4: 통과·게이트** — 같은 명령 + `bash scripts/regression_gate.sh`(EMA·MACD 회귀 전부).
 - [ ] **Step 5: 커밋 승인 요청** — 파일 목록·「버전: 구 → 신」.
 
@@ -873,6 +875,8 @@ COMMIT;
 - [ ] **Step 5: 커밋 승인 요청** — `scripts/tradebot_boot.py` 변경은 tradebot 재시작 대상(배포 절).
 
 ### T12: 전환·예약·복귀·예약 취소 (요청서 6절)
+
+> **착수 전 정지선(10/27 T1 검수):** T12 는 활성 파일에 PULLBACK 을 쓰는 첫 경로다. 시작 전에 T5(엔진 연결)가 커밋돼 있고 T1 의 기동 거부(`_engine_runner`·`run_live_loop` 앞쪽)가 적용본 경로로 바뀌었는지 확인한다. 아니면 멈춘다.
 
 **Files:**
 - Create ★ `engine/strategy_switch.py`

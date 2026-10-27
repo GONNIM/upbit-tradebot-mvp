@@ -21,6 +21,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 엔진 전용 전략 목록 (결정 D1). 구버전 화면의 config.STRATEGY_TYPES 는 바꾸지 않는다.
+ENGINE_STRATEGY_TYPES: tuple[str, ...] = ("MACD", "EMA", "PULLBACK")
+
 
 class LiveParams(BaseModel):
     ticker: str = Field(..., description="KRW-BTC 형식 혹은 BTC")
@@ -191,7 +194,7 @@ class LiveParams(BaseModel):
     @field_validator("strategy_type")
     def _validate_strategy_type(cls, v: str) -> str:  # noqa: N805
         """
-        - 대소문자 무시하고 STRATEGY_TYPES 안에 있는지만 체크
+        - 대소문자 무시하고 ENGINE_STRATEGY_TYPES(MACD/EMA/PULLBACK) 안에 있는지만 체크
         - 내부적으로는 항상 대문자로 저장
         - 기존 JSON에 이상한 값이 들어있어도 엔진이 깨지지 않도록
           기본값으로 폴백 + WARN 로그 남김
@@ -200,7 +203,7 @@ class LiveParams(BaseModel):
             return DEFAULT_STRATEGY_TYPE
         
         v_norm = v.upper().strip()
-        allowed = [s.upper() for s in STRATEGY_TYPES]
+        allowed = [s.upper() for s in ENGINE_STRATEGY_TYPES]
 
         if v_norm not in allowed:
             # ❗ 여기서 바로 예외를 던지면 오래된/깨진 JSON 때문에
@@ -460,11 +463,16 @@ def save_active_strategy(user_id: str, strategy_type: str) -> None:
         logger.error(f"[ActiveStrategy] Failed to save active strategy for {user_id}: {e}")
 
 
-def load_active_strategy(user_id: str) -> str | None:
+def load_active_strategy(user_id: str, *, include_engine_only: bool = False) -> str | None:
     """
     사용자의 활성 전략을 파일에서 로드.
     파일이 없거나 읽기 실패 시 None 반환.
+
+    include_engine_only=False(기본): config.STRATEGY_TYPES(MACD/EMA)만 인정. PULLBACK 은 None(경고 1줄).
+    include_engine_only=True: 엔진 전용 전략(PULLBACK)도 돌려준다.
     """
+    allowed_types = ENGINE_STRATEGY_TYPES if include_engine_only else STRATEGY_TYPES
+
     path = _get_active_strategy_path(user_id)
 
     if not os.path.exists(path):
@@ -475,7 +483,7 @@ def load_active_strategy(user_id: str) -> str | None:
         with open(path, "r") as f:
             strategy_type = f.read().strip().upper()
 
-        if strategy_type in STRATEGY_TYPES:
+        if strategy_type in allowed_types:
             logger.info(f"[ActiveStrategy] Loaded active strategy for {user_id}: {strategy_type}")
             return strategy_type
         else:

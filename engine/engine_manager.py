@@ -53,6 +53,59 @@ def is_live_mode() -> bool:
     return current_mode() == MODE_LIVE
 
 
+def _decide_strategy_type(user_id: str, session_strategy) -> str:
+    """
+    엔진 기동 전략 결정. 우선순위:
+       0) 활성 전략 파일이 PULLBACK (엔진 전용, 결정 D1) — 세션보다 먼저
+       1) 세션에 저장된 strategy_type
+       2) 활성 전략 파일 ({user_id}_active_strategy.txt, MACD/EMA)
+       3) EMA/MACD 파일 중 최신 파일
+       4) DEFAULT_STRATEGY_TYPE (MACD)
+    활성 파일은 한 번만 읽는다. PULLBACK 이 아니면 1)~4) 는 T1 이전과 같다.
+    """
+    import os
+    from config import DEFAULT_STRATEGY_TYPE, STRATEGY_TYPES
+    from engine.params import load_active_strategy
+
+    active = load_active_strategy(user_id, include_engine_only=True)
+
+    if active == "PULLBACK":
+        logger.info(f"[ENGINE] Using strategy from active strategy file (engine-only): {active}")
+        return active
+    if session_strategy:
+        strategy_type = str(session_strategy).upper().strip()
+        logger.info(f"[ENGINE] Using strategy from session: {strategy_type}")
+        return strategy_type
+    if active in STRATEGY_TYPES:
+        logger.info(f"[ENGINE] Using strategy from active strategy file: {active}")
+        return active
+
+    # 3) 세션에도 없고 활성 전략 파일도 없으면 파일 mtime 기반 결정
+    ema_path = f"{user_id}_latest_params_EMA.json"
+    macd_path = f"{user_id}_latest_params_MACD.json"
+
+    ema_exists = os.path.exists(ema_path)
+    macd_exists = os.path.exists(macd_path)
+
+    if ema_exists and macd_exists:
+        # 둘 다 있으면 최신 파일 사용
+        ema_mtime = os.path.getmtime(ema_path)
+        macd_mtime = os.path.getmtime(macd_path)
+        strategy_type = "EMA" if ema_mtime > macd_mtime else "MACD"
+        logger.info(f"[ENGINE] Both files exist, using latest by mtime: {strategy_type}")
+    elif ema_exists:
+        strategy_type = "EMA"
+        logger.info(f"[ENGINE] Only EMA file exists, using EMA")
+    elif macd_exists:
+        strategy_type = "MACD"
+        logger.info(f"[ENGINE] Only MACD file exists, using MACD")
+    else:
+        # 4) 둘 다 없으면 기본값 사용
+        strategy_type = DEFAULT_STRATEGY_TYPE
+        logger.info(f"[ENGINE] No strategy files, using default: {strategy_type}")
+    return strategy_type
+
+
 def _user_key(user_id: str, captured_mode: str) -> str:
     """
     user_id 기준으로 엔진 키를 만든다.
@@ -349,53 +402,17 @@ class EngineManager:
 
         q: queue.Queue = queue.Queue()
         try:
-            # ✅ 전략 타입 결정 우선순위:
-            #    1) 세션에 저장된 strategy_type
-            #    2) 활성 전략 파일 ({user_id}_active_strategy.txt)
-            #    3) EMA/MACD 파일 중 최신 파일의 strategy_type
-            #    4) DEFAULT_STRATEGY_TYPE (MACD)
-            from config import DEFAULT_STRATEGY_TYPE
-            from engine.params import load_active_strategy
-            import os
-            from pathlib import Path
-
             session_strategy = st.session_state.get("strategy_type", None)
+            strategy_type = _decide_strategy_type(user_id, session_strategy)
 
-            if session_strategy:
-                # 1) 세션에 있으면 그것 사용
-                strategy_type = str(session_strategy).upper().strip()
-                logger.info(f"[ENGINE] Using strategy from session: {strategy_type}")
-            else:
-                # 2) 활성 전략 파일 확인
-                active_strategy = load_active_strategy(user_id)
-                if active_strategy:
-                    strategy_type = active_strategy
-                    logger.info(f"[ENGINE] Using strategy from active strategy file: {strategy_type}")
-                else:
-                    # 3) 세션에도 없고 활성 전략 파일도 없으면 파일 mtime 기반 결정
-                    base_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
-                    ema_path = f"{user_id}_latest_params_EMA.json"
-                    macd_path = f"{user_id}_latest_params_MACD.json"
-
-                    ema_exists = os.path.exists(ema_path)
-                    macd_exists = os.path.exists(macd_path)
-
-                    if ema_exists and macd_exists:
-                        # 둘 다 있으면 최신 파일 사용
-                        ema_mtime = os.path.getmtime(ema_path)
-                        macd_mtime = os.path.getmtime(macd_path)
-                        strategy_type = "EMA" if ema_mtime > macd_mtime else "MACD"
-                        logger.info(f"[ENGINE] Both files exist, using latest by mtime: {strategy_type}")
-                    elif ema_exists:
-                        strategy_type = "EMA"
-                        logger.info(f"[ENGINE] Only EMA file exists, using EMA")
-                    elif macd_exists:
-                        strategy_type = "MACD"
-                        logger.info(f"[ENGINE] Only MACD file exists, using MACD")
-                    else:
-                        # 4) 둘 다 없으면 기본값 사용
-                        strategy_type = DEFAULT_STRATEGY_TYPE
-                        logger.info(f"[ENGINE] No strategy files, using default: {strategy_type}")
+            # PULLBACK 은 전용 로더(T2)·전략 객체(T5) 전까지 기동을 거부한다.
+            # 기존 load_params 로 읽으면 신버전 저장 형식(strategy_type 키 없음)이 MACD 기본값으로 채워져
+            # 그 종목을 MACD 로 매매하게 되므로, 파일을 읽기 전에 막는다(T1 검수 지적).
+            if strategy_type == "PULLBACK":
+                msg = f"[PULLBACK-PARAMS] PULLBACK 로더 없음 → 기동 거부 | user_id={user_id}"
+                logger.error(msg)
+                insert_log(user_id, "ERROR", msg)
+                return
 
             # ✅ 전략 타입을 전달하여 올바른 파일 로드
             params = load_params(f"{user_id}_{PARAMS_JSON_FILENAME}", strategy_type=strategy_type)

@@ -66,8 +66,9 @@
 | 1027-11 | — | 완료 (10/27 · verifier 2회, 「9 ≤ 10」 단서·문서 수치 정정·주석 반영) | 4-0b verifier 검증 | Claude | 끝남 | — |
 | 1027-15 | — | 완료 (10/27 · 사용자 「1027-15 승인」, verifier 2회·Fable 진행, 이 문서 커밋) | 배포 완료 보고 문서 커밋 | Claude | 끝남 | deploy-report-20261027-proposal-match.md + HANDOFF + notice-log + Fable 질의 파일, 버전 갱신. verifier·Fable 뒤 커밋·push |
 | 1026-04 | — | 완료 (10/27 · 사용자 「1026-04 보냄」, notice-log #6) | 통보 문안 A″ 발송 | 사용자 | 끝남 | — |
-| 1027-21 | 1 (막음) | 사용자 답 대기 (10/28까지) | 1단계 문서·생성기 커밋 | 사용자 | 지금 | 실측 문서·생성기·cfg·Fable 질의·HANDOFF, 버전 갱신(계획 4절 「버전 유지」는 project-rules·체크리스트에 밀려 쓰지 않음 — Fable 질문 2) |
-| 1027-19 | 2 (하는 중) | 진행 중 (10/27 · 1단계 끝, Fable 「진행」) | 2차 구현 T1~T18 | Claude | 1027-21 뒤 | `docs/specs/v2-dashboard/plan-phase2.md` T1 부터, Task 마다 커밋 승인. T15 메모: TEST + PULLBACK 보유 중 구버전 dashboard 진입 시 `pages/dashboard.py:145-157` 이 `accounts.virtual_krw` 를 덮어씀(PULLBACK 분기 584행보다 앞) |
+| 1027-21 | — | 완료 (10/27 · 사용자 「1027-21 커밋·push 승인」, 8c0c868, 게이트 350/350) | 1단계 문서·생성기 커밋 | Claude | 끝남 | 실측 문서·생성기·cfg·Fable 질의·HANDOFF, 버전 갱신(계획 4절 「버전 유지」는 project-rules·체크리스트에 밀려 쓰지 않음 — Fable 질문 2) |
+| 1027-22 | — | 완료 (10/27 · 사용자 「1027-22 커밋·push 승인」, 버전 2242 → 2326) | T1 커밋·push | Claude | 끝남 | 엔진 3·T1 시험·계획서·HANDOFF·Fable 질의, 버전 갱신. verifier 2회째 「커밋 승인 요청 가능」·Fable 「진행」 |
+| 1027-19 | 2 (하는 중) | 진행 중 (10/27 · T1 끝·커밋 승인 대기) | 2차 구현 T1~T18 | Claude | 1027-21 뒤 | `docs/specs/v2-dashboard/plan-phase2.md` T1 부터, Task 마다 커밋 승인. T15 메모: TEST + PULLBACK 보유 중 구버전 dashboard 진입 시 `pages/dashboard.py:145-157` 이 `accounts.virtual_krw` 를 덮어씀(PULLBACK 분기 584행보다 앞). T1 틈 메모: 활성 파일이 PULLBACK 이면 엔진은 `[PULLBACK-PARAMS]` 로 기동을 거부해 보유분 손절도 멈춘다 — T5 완료 전까지 활성 파일에 PULLBACK 을 쓰는 경로를 만들지 않는다(쓰는 곳은 T12), 거부 시 CRITICAL 알림·boot_resume 실패 판정·감사 화면 기록은 T2/T5 에서 |
 | 1027-20 | — | 완료 (10/27 · 사용자 「1027-20 승인」, 정지선 일치·한도 그대로) | 정지선·1단계 읽기 승인 | 사용자 | 끝남 | — `measure-20261028-phase2.md` |
 | 1027-18 | — | 완료 (10/27 · 사용자 「1027-18 커밋·push 승인」, 7bdcf46, 게이트 350/350) | 2차 계획 문서 커밋·push | Claude | 끝남 | — 버전 v1.2026.10.27.1752 → 2138 |
 | 1027-17 | — | 완료 (10/27 · 사용자 「1027-17 권고대로 승인 (13-4 가, 13-5b 넣음)」) | 2차 계획·결정 13-1~13-8 승인 | 사용자 | 끝남 | — `docs/specs/v2-dashboard/plan-phase2.md` |
