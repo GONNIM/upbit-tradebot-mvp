@@ -440,6 +440,8 @@ P3(T1~T10)가 모두 통과한 뒤 P4(T11~T18)를 시작한다. 배포는 P3+P4 
   - `test_required_bars_max`: `ma200p=1000, slopeLB=500` → 2010.
 - [ ] **Step 2: 실패 확인** — `python3 -m unittest tests.regressions.test_r_2026_10_28_p3_t2_pullback_loader -v`
 - [ ] **Step 3: 구현** — 표준 라이브러리 + `engine.params.LiveParams` 만. 파일 경로는 저장소 루트 기준(`engine/params.py` 의 상대 경로 규칙과 같게 `os.chdir(ROOT)` 전제 — `scripts/tradebot_boot.py:30-31`).
+  - **(10/27 구현 반영 — T2 검수)** 경우별 표 5~10 의 CRITICAL 은 `services.notifier.send` 를 함수 안에서 import 해 보낸다(엔진 기존 방식과 같음, `v2/*` import 그래프 무영향). `config` 상수(`MIN_CASH`·`MIN_FEE_RATIO`)는 LiveParams 가 이미 끌어오는 것이다. 계획 밖 진입점 `reload_applied`(T13 용)·`check_saved_for_switch`(T12 용)를 두었다. `apply_saved` 는 쓰기 전에 LiveParams 검증까지 해 거절하고(`live_params`), 재검증이 실패하면 이전 적용본으로 되돌린 뒤 `verify` 로 거절한다. 사본 쓰기 실패는 적용 성공 + `last_good: False` + WARNING 이다.
+  - **T5·T11 로 넘김:** ① 경우 9·10 의 「엔진 시작 실패(`start_engine` False)」는 T11 의 기동 준비 신호와 `start_engine` 변경이 있어야 하므로 **T5+T11** 이 맡는다. `boot_resume` 실패 판정·감사 화면 기록도 같다. ② `holding` 은 `sync_from_wallet()` 뒤의 `has_position` 이다 — T1 거부는 지갑 동기화 **앞**이므로, T5 는 `load_for_boot` 를 동기화 뒤에 부르거나 경우 9·10 문구 판정만 동기화 뒤로 미룬다. ③ T5 기동 경로는 `to_live_params` 의 `PullbackParamsError` 를 경우 9·10 과 같은 거부·알림으로 처리한다(잡지 않으면 기동이 거부 절차 없이 죽음).
 - [ ] **Step 4: 통과·게이트**
 - [ ] **Step 5: 커밋 승인 요청**
 
@@ -968,6 +970,10 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 - [ ] **Step 5: 커밋 승인 요청** — 「⚠ 스키마 변경: `strategy_switch` 신설(X1)」.
 
 ### T13: 「이 설정으로 동작」·「저장만 하기」 — 저장본/적용본 분리 (결정 D9, 요청서 5절)
+
+> **(10/27 T2 검수 메모, Fable 정정 반영) 종목명 정규식 정리:** 엔진 로더는 `^KRW-[A-Z]{1,15}$` 이다(LiveParams `_validate_ticker` 보다 좁음 — `KRW-` 접두·대문자 필수). 신버전의 정규식 상수 `v2/params_schema.py` `_UPBIT_SYMBOL_RE`(`[A-Z0-9]{1,15}`, 백테스트 `symbol` 용)·`v2/api_write.py` `_TICKER_RE`(`[A-Z0-9]{1,20}`)는 더 느슨하지만, 실제 저장본의 `ticker` 는 `_engine_ticker` 가 `v2/db.py` `normalize_ticker`(영문자만, 아니면 None → 409 `engine_ticker_unknown`)로 만들므로 숫자 든 종목은 저장되지 않는다. 손으로 넣은 파일은 로더 `validate` 가 `ticker` 로 거절한다. T13 은 느슨한 상수를 엔진과 같게(`[A-Z]{1,15}`) 맞추는 정리만 한다 — 화면 체감 변경 없음, 통보 대상 아님. 엔진 쪽은 넓히지 않는다(EMA·MACD 검증 불변).
+>
+> **(T2 검수 메모) 예외 계약:** `apply_saved` 는 `PullbackParamsError` 외에 `OSError`(`_atomic_write` 의 `os.replace`·`fsync` 실패)를 그대로 올린다. T12·T13 의 호출자는 둘 다 잡아 결과 코드로 바꾼다.
 
 **Files:**
 - Modify ★ `engine/control_requests.py`(`apply_params`), `engine/live_loop.py`(PULLBACK 적용본 mtime 감시 — `_maybe_reload_params` 531 옆 새 함수 `_maybe_reload_pullback`)
