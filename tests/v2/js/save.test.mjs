@@ -163,5 +163,73 @@ test("backtester.html: saveArea 안에 버튼·확인 창, save.js 가 backteste
   assert.ok(iJs >= 0 && iSave > iJs && iSave > iArea);
   const saveArea = HTML.slice(iArea, HTML.indexOf("</body>"));
   assert.doesNotMatch(saveArea, /<input|<select/);
-  assert.doesNotMatch(saveArea, /이 설정으로 동작/);
+});
+
+// ---- Task 5: 그림 5-가·5-나 ----
+test("makeSnapshot: 출처 토글 값이 source 로 간다(업비트면 upbit, 그 밖은 binance)", () => {
+  const S = load();
+  const d = parseDefaults(HTML);
+  const els = {};
+  for (const id of IDS) els[id] = { value: d[id].value };
+  els.dataSource = { value: "upbit" };
+  assert.equal(S.makeSnapshot((id) => els[id]).source, "upbit");
+  els.dataSource.value = "binance";
+  assert.equal(S.makeSnapshot((id) => els[id]).source, "binance");
+  els.dataSource.value = "zz";
+  assert.equal(S.makeSnapshot((id) => els[id]).source, "binance");
+  delete els.dataSource;
+  assert.equal(S.makeSnapshot((id) => els[id]).source, "binance");
+});
+
+test("창 문구: 시험한 데이터 줄·지금 상태 4행·안내", () => {
+  const S = load();
+  assert.equal(S.testedText({ source: "upbit", params: { symbol: "KRW-JTO", src: "1m" } }),
+    "시험한 데이터: 업비트 · KRW-JTO · 1분");
+  assert.equal(S.testedText({ source: "binance", params: { symbol: "JTOUSDT", src: "1h" } }),
+    "시험한 데이터: 바이낸스 · JTOUSDT · 60분");
+  const rows = S.stateRows(
+    { mode_engine: "LIVE", strategy: { value: "EMA" } },
+    { coin: 0, coin_locked: 0 }, { engine_running: true }, "KRW-JTO");
+  assert.deepEqual(JSON.parse(JSON.stringify(rows)), [["모드", "LIVE"], ["동작 중인 전략", "EMA (기존)"], ["엔진", "동작 중"], ["보유", "없음"]]);
+  const rows2 = S.stateRows(
+    { mode_engine: "TEST", strategy: { value: "PULLBACK" } },
+    { coin: 1.5, coin_locked: 0.5 }, { engine_running: false }, "KRW-JTO");
+  assert.deepEqual(JSON.parse(JSON.stringify(rows2)), [["모드", "TEST"], ["동작 중인 전략", "PULLBACK"], ["엔진", "멈춤"], ["보유", "KRW-JTO 2"]]);
+  assert.equal(S.runBtnLabel("upbit"), "이 설정으로 동작");
+  assert.equal(S.runBtnLabel("binance"), "이 설정으로 동작 (사용 불가)");
+  assert.match(S.runNote("upbit"), /「이 설정으로 동작」은 2차 공개 때 열립니다\./);
+  assert.match(S.runNote("binance"), /바이낸스 데이터 결과는 참고용입니다\. 실제 매매에 쓰시려면 업비트 데이터로 다시 시험해 주십시오\./);
+  assert.equal(S.symbolWarning({ source: "upbit", params: { symbol: "KRW-BTC" } }, "KRW-JTO") !== null, true);
+  assert.equal(S.symbolWarning({ source: "upbit", params: { symbol: "KRW-JTO" } }, "KRW-JTO"), null);
+  assert.equal(S.symbolWarning({ source: "binance", params: { symbol: "JTOUSDT" } }, "KRW-JTO"), null);
+  assert.equal(S.symbolWarning({ source: "upbit", params: { symbol: "KRW-JTO" } }, null), null);
+});
+
+test("backtester.html: 확인 창 제목·단추(저장만 하기 / 이 설정으로 동작 비활성 / 취소)", () => {
+  const dlg = HTML.slice(HTML.indexOf('id="saveDialog"'), HTML.indexOf('<script src="save.js">'));
+  assert.match(dlg, /설정 저장 확인/);
+  assert.match(dlg, /id="saveDoBtn"[^>]*>저장만 하기</);
+  assert.match(dlg, /<button[^>]*id="saveRunBtn"[^>]*disabled/);
+  assert.match(dlg, /id="saveCloseBtn"[^>]*>취소</);
+  assert.match(dlg, /id="saveTested"/);
+  assert.match(dlg, /id="saveRunNote"/);
+  assert.match(dlg, /지금 상태/);
+  assert.doesNotMatch(dlg, /Binance 데이터로 찾은/);
+});
+
+// 최종 검수 수정 2026-10-27: /v2/api/basic 실패는 저장 전체를 막지 않는다
+test("preloadAll: basic 실패만 null 로 받고 나머지는 그대로, 다른 실패는 전체 실패", async () => {
+  const S = load();
+  const ok = { "/v2/api/status": { a: 1 }, "/v2/api/assets": { b: 2 }, "/v2/api/params/current": { c: 3 } };
+  const get = (fail) => (url) => (url === fail || !(url in ok) && url !== "/v2/api/basic")
+    ? Promise.reject(new Error("x")) : Promise.resolve(url === "/v2/api/basic" ? { engine_running: true } : ok[url]);
+  const r = await S.preloadAll(get("/v2/api/basic"));
+  assert.deepEqual(JSON.parse(JSON.stringify(r)), [{ a: 1 }, { b: 2 }, { c: 3 }, null]);
+  const r2 = await S.preloadAll(get(null));
+  assert.equal(r2[3].engine_running, true);
+  await assert.rejects(S.preloadAll(get("/v2/api/status")));
+  const rows = S.stateRows({ mode_engine: "LIVE", strategy: { value: "EMA" } }, { coin: 0 }, null, "KRW-JTO");
+  assert.deepEqual(JSON.parse(JSON.stringify(rows[2])), ["엔진", "확인 불가"]);
+  const rows3 = S.stateRows({}, {}, { engine_running: false }, "KRW-JTO");
+  assert.deepEqual(JSON.parse(JSON.stringify(rows3[2])), ["엔진", "멈춤"]);
 });

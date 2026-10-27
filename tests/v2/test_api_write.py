@@ -449,9 +449,30 @@ class TestSave(WriteBase):
         self.assertEqual(self.snap(), before)
         self.assertFalse(db.v2hist_path(self.USER).exists())
 
+    def test_upbit_source_saves_with_note(self):
+        r = self.post_json({"params": dict(VALID, symbol="krw-jto"), "source": "upbit"})
+        self.assertEqual(r.code, 200, r.body)
+        rows = self.hist_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["note"], "source=upbit")
+        self.assertEqual(json.loads(rows[0]["params_json"])["symbol"], "KRW-JTO")
+        data = json.loads(self.pb.read_text(encoding="utf-8"))
+        self.assertNotIn("symbol", data)
+        self.assertEqual(data["ticker"], "KRW-ZRO")   # 저장은 엔진 종목 기준
+
+    def test_symbol_rule_depends_on_source(self):
+        before = self.snap()
+        for src, sym in (("upbit", "JTOUSDT"), ("binance", "KRW-JTO"), ("upbit", "KRW-"),
+                         ("upbit", "KRW-" + "A" * 16), ("upbit", "BTC-JTO"), ("upbit", " ")):
+            r = self.post_json({"params": dict(VALID, symbol=sym), "source": src})
+            self.assertEqual(r.code, 400, (src, sym))
+            self.assertEqual(self.body(r), {"error": "invalid_param", "field": "symbol"})
+        self.assertEqual(self.snap(), before)
+        self.assertEqual(self.hist_rows(), [])
+
     def test_source_not_binance_400(self):
         before = self.snap()
-        for src in ("upbit", None, 1):
+        for src in ("x", None, 1):
             r = self.post_json({"params": VALID, "source": src})
             self.assertEqual(r.code, 400)
             self.assertEqual(self.body(r), {"error": "bad_request"})

@@ -64,7 +64,7 @@ class RenderTests(EntryBase):
         self.assertEqual(len(at.exception), 0)
         self.assertEqual(len(at.button), 1)
         self.assertEqual(at.button[0].key, "btn_v2_entry")
-        self.assertEqual(at.button[0].label, "📱 신버전 대시보드 (베타)")
+        self.assertEqual(at.button[0].label, "신버전 대시보드 입장 (TEST)")
         self.assertEqual(len(at.get("link_button")), 0)
 
     def test_not_allowed_shows_nothing(self):
@@ -113,23 +113,19 @@ class RenderTests(EntryBase):
             self.assertEqual(m.call_count, 1)
             self.assertEqual(m.call_args.args, ("alice", "TEST"))
 
-    def test_click_shows_link_with_token(self):
+    def test_click_redirects_with_token(self):
         at = self.run_app(mode="LIVE")
         at.button[0].click().run()
         self.assertEqual(len(at.exception), 0)
-        links = at.get("link_button")
-        self.assertEqual(len(links), 1)
-        url = links[0].proto.url
-        self.assertTrue(url.startswith("/v2/?t="), url)
+        # 한 번 누르기: 링크 단추 없이 meta refresh 로 바로 이동
+        self.assertEqual(len(at.get("link_button")), 0)
+        texts = " ".join(str(getattr(e, "value", "")) for e in at.markdown)
+        m = re.search(r'http-equiv="refresh" content="0; url=/v2/\?t=([^"]+)"', texts)
+        self.assertIsNotNone(m, texts)
         et.SECRET_PATH = self.secret
-        payload = et.verify_token(url.split("?t=", 1)[1])
+        payload = et.verify_token(m.group(1))
         self.assertEqual(payload["user_id"], "alice")
         self.assertEqual(payload["mode"], "LIVE")
-        self.assertEqual(links[0].proto.label, "신버전 열기 (60초 안에 눌러 주세요)")
-        texts = " ".join(str(getattr(e, "value", "")) for e in at.markdown) + " ".join(
-            str(getattr(e, "value", "")) for e in at.caption
-        )
-        self.assertIn("구버전으로 돌아올 때는 다시 로그인해야 합니다", texts)
 
     def test_click_failure_hides_link_and_logs_once(self):
         at = self.run_app()

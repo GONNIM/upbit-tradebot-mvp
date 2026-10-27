@@ -35,8 +35,9 @@ test("defaults identical", () => {
   assert.deepStrictEqual(p.dataSource.options.length, 2);
   assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 30);
   const portHtml = fs.readFileSync(PORT_HTML, "utf8");
-  assert.match(portHtml, /<option value="binance" selected>Binance<\/option>/);
-  assert.match(portHtml, /<option value="upbit" disabled>업비트 \(KRW\) — 준비 중<\/option>/);
+  // R7 폐기(결정 1026-23 2 가): 업비트 출처는 서버 경로. select 는 숨겨 값만 맞춘다.
+  assert.match(portHtml, /<select id="dataSource" hidden>/);
+  assert.deepStrictEqual(p.dataSource.options, ["binance", "upbit"]);
 });
 
 for (const set of ["a", "b", "c"]) {

@@ -10,152 +10,157 @@
 <script src="/v2/static/vendor/lightweight-charts-4.2.0.standalone.production.js"></script>
 <script type="module">
   import * as chartMod from "/v2/static/chart.js";
+  import * as labelsMod from "/v2/static/labels.js";
   window.v2Chart = chartMod;
+  window.v2Labels = labelsMod;
 </script>
 <script defer src="/v2/static/vendor/alpine-3.14.1.min.js"></script>
 <script defer src="/v2/static/basic.js"></script>
 </head>
-<body x-data="dash()" x-cloak :class="{ 'tab-chart': tab === 'chart' }">
+<body x-data="dash()" x-cloak>
 
-<header class="top">
-  <div class="top-row">
-    <span class="mode" :class="modeClass" x-text="modeText"></span>
-    <span id="engine-badge" class="badge" :class="engineClass"><span x-text="engineIcon"></span> <span x-text="engineText"></span></span>
-    <span class="badge b-warn" x-show="status && status.paused">일시정지 중</span>
+<!-- 머리 막대: 홈 = 제목 + 이름·구버전으로·로그아웃, 그 밖 = 탭 제목 + 모드 -->
+<header class="bar">
+  <span class="bar-title" x-text="tab === 'home' ? '신버전 대시보드' : tabTitle"></span>
+  <span class="bar-right" x-show="tab === 'home'">
+    <span x-text="displayName ? displayName + '님' : ''"></span>
+    <span class="bar-sep" aria-hidden="true" x-show="displayName">·</span>
     <a class="legacy" href="/">구버전으로</a>
-  </div>
+    <span class="bar-sep" aria-hidden="true">·</span>
+    <button type="button" id="logout-btn">로그아웃</button>
+  </span>
+  <span class="bar-right" x-show="tab !== 'home'" x-text="modeLabel"></span>
+</header>
+<div class="top">
   <p class="warn" x-show="status && status.mode_mismatch" x-text="mismatchText"></p>
-  <p class="note">구버전으로 돌아가면 다시 로그인해야 합니다.</p>
   <p class="warn" x-show="authError">구버전에서 다시 들어와 주세요. (세션이 없거나 허용되지 않은 계정입니다)</p>
   <p class="warn" x-show="netError" x-text="netError"></p>
-</header>
+</div>
 
 <main>
-  <!-- 홈 -->
+  <!-- 홈 (그림 2-가): 배지 → 매매 중지 단추 → 자산 → 보유 → 최신 신호 → 최근 거래 -->
   <div x-show="tab === 'home'">
-    <section class="card" id="basic" data-page="home"></section>
-
-    <section class="card">
-      <h2>상태</h2>
-      <dl>
-        <dt>전략</dt><dd x-text="status && status.strategy && status.strategy.value || '—'"></dd>
-        <dt>종목</dt><dd x-text="status && status.ticker || '—'"></dd>
-        <dt>봉</dt><dd x-text="status && status.interval || '—'"></dd>
-        <dt>전환 예약</dt><dd>—</dd>
-      </dl>
-    </section>
+    <div class="pills" id="home-badges">
+      <template x-for="b in home.badges" :key="b.id">
+        <span class="pill" :id="b.id" :class="b.cls" x-text="b.text"></span>
+      </template>
+    </div>
+    <!-- 매매 중지/재개 단추·알림 띠(basic.js 가 그린다) — 접힘 밖 top-level 유지 -->
+    <div id="pause-row"></div>
 
     <section class="card">
       <h2>자산</h2>
-      <dl>
-        <dt>KRW</dt><dd x-text="num(assets && assets.krw)"></dd>
-        <dt>KRW 잠김</dt><dd x-text="num(assets && assets.krw_locked)"></dd>
-        <dt>코인</dt><dd x-text="num(assets && assets.coin)"></dd>
-        <dt>코인 잠김</dt><dd x-text="num(assets && assets.coin_locked)"></dd>
-        <dt>평가손익</dt><dd :class="pnlClass" x-text="pnlText"></dd>
-        <dt>현재가</dt><dd><span x-text="num(assets && assets.price)"></span> <small x-text="'(엔진 기록 ' + kst(assets && assets.price_at) + ')'"></small></dd>
-      </dl>
-      <p class="note" x-text="'기록 시각 ' + kst(assets && assets.updated_at)"></p>
+      <div class="kv"><span>평가 합계</span><span class="big" x-text="home.total"></span></div>
+      <div class="kv"><span>원화 / 코인</span><span x-text="home.krwCoin"></span></div>
+      <div class="kv"><span>평가손익</span><span :class="home.pnl.cls" x-text="home.pnl.text"></span></div>
+      <div class="kv" :class="{lockwarn: home.locked.warn}"><span>원화 잠김 / 코인 잠김</span><span x-text="home.locked.text"></span></div>
+      <p class="note" x-text="home.recorded"></p>
     </section>
 
     <section class="card">
-      <h2>포지션</h2>
-      <dl>
-        <dt>회차</dt><dd x-text="orDash(assets && assets.round)"></dd>
-        <dt>평단</dt><dd x-text="orDash(assets && assets.entry_price)"></dd>
-        <dt>TP 가격</dt><dd x-text="orDash(assets && assets.tp_price)"></dd>
-        <dt>SL 가격</dt><dd x-text="orDash(assets && assets.sl_price)"></dd>
-      </dl>
+      <h2 x-text="'보유' + (home.holding ? ' · ' + home.holding.ticker : '')"></h2>
+      <template x-if="home.holding">
+        <div>
+          <div class="kv"><span>분할 회차</span><b x-text="home.holding.round"></b></div>
+          <div class="kv"><span>평균 매수가</span><span x-text="home.holding.avg"></span></div>
+          <div class="kv"><span x-text="home.holding.tp.label"></span><span class="up" x-text="home.holding.tp.price"></span></div>
+          <div class="kv"><span x-text="home.holding.sl.label"></span><span class="dn" x-text="home.holding.sl.price"></span></div>
+        </div>
+      </template>
+      <p class="empty" x-show="!home.holding">보유 없음</p>
     </section>
 
     <section class="card">
-      <h2>최신 신호</h2>
-      <ul class="list">
-        <template x-for="row in signals" :key="row.kind + '-' + row.id">
-          <li>
-            <span class="t" x-text="kst(row.timestamp)"></span>
-            <span :class="signalClass(row)" x-text="signalText(row)"></span>
-            <span class="p" x-text="num(row.price)"></span>
-          </li>
+      <h2 x-text="signalCard.title"></h2>
+      <p class="sentence" x-text="signalCard.text"></p>
+    </section>
+
+    <section class="card">
+      <h2>최근 거래</h2>
+      <table class="mt" x-show="tradeRows.length > 0">
+        <tr><th>시각</th><th>구분</th><th>사유</th><th class="r">금액</th></tr>
+        <template x-for="t in tradeRows" :key="t.id">
+          <tr><td x-text="t.time"></td><td :class="t.kindCls" x-text="t.kind"></td><td x-text="t.reason"></td><td class="r" x-text="t.amount"></td></tr>
         </template>
-        <li x-show="signals.length === 0" class="empty">신호 기록이 없습니다.</li>
-      </ul>
-    </section>
-
-    <section class="card">
-      <h2>최근 거래 10건</h2>
-      <ul class="list">
-        <template x-for="t in trades" :key="t.id">
-          <li>
-            <span class="t" x-text="kst(t.timestamp)"></span>
-            <span :class="String(t.type).toUpperCase() === 'BUY' ? 'buy' : 'sell'" x-text="(String(t.type).toUpperCase() === 'BUY' ? '매수' : '매도') + (t.reason ? ' · ' + t.reason : '')"></span>
-            <span class="p" x-text="num(t.price) + ' × ' + num(t.qty)"></span>
-          </li>
-        </template>
-        <li x-show="trades.length === 0" class="empty">거래 기록이 없습니다.</li>
-      </ul>
+      </table>
+      <p class="empty" x-show="tradeRows.length === 0">거래 기록이 없습니다</p>
     </section>
   </div>
 
   <!-- 차트 -->
   <div x-show="tab === 'chart'">
     <section class="card">
-      <h2>차트 <small x-text="status && status.ticker ? status.ticker + ' · ' + (status.interval || '') : ''"></small></h2>
+      <div class="chart-btns">
+        <span class="cb" x-text="chartUnitLabel"></span>
+        <span class="cb on">최근 200봉</span>
+        <button type="button" class="cb" @click="zoomChart(1.5)">확대 +</button>
+        <button type="button" class="cb" @click="zoomChart(1 / 1.5)">축소 −</button>
+      </div>
       <p class="warn" x-show="chartFail" x-text="chartFail"></p>
       <p class="warn" x-show="chartNote" x-text="chartNote"></p>
       <p class="note" x-show="!(status && status.ticker)">종목 정보가 없어 차트를 그릴 수 없습니다.</p>
       <div id="chart" class="chart"></div>
-      <p class="note" x-text="chartLegend"></p>
-      <p class="note">마지막 봉(회색)은 형성 중입니다. 봉 데이터는 이 브라우저가 업비트에서 직접 받습니다(30초 간격).</p>
+      <p class="chart-legend"><span class="ma60">━</span> 60선 · <span class="ma200">━</span> 200선 · <span class="up">▲</span> 매수 · <span class="down">▼</span> 매도</p>
+    </section>
+    <section class="card">
+      <h2>이 화면에서 보는 것</h2>
+      <p class="sentence">캔들, 60선·200선(눌림목 기준선), 봇이 실제로 사고판 자리. 손가락으로 확대·이동합니다.</p>
     </section>
   </div>
 
   <!-- 로그 -->
   <div x-show="tab === 'logs'">
+    <div class="seg" role="group" aria-label="로그 종류">
+      <button type="button" class="seg-b" :class="{on: logsKind === 'audit'}" @click="setLogsKind('audit')">감사 로그</button>
+      <button type="button" class="seg-b" :class="{on: logsKind === 'engine'}" @click="setLogsKind('engine')">엔진</button>
+      <button type="button" class="seg-b" :class="{on: logsKind === 'error'}" @click="setLogsKind('error')">오류</button>
+    </div>
     <section class="card">
-      <h2>로그 <small x-text="'페이지 ' + logsPage"></small></h2>
-      <ul class="list">
-        <template x-for="l in logs" :key="l.id">
-          <li>
-            <span class="t" x-text="kst(l.timestamp)"></span>
-            <span :class="'lv lv-' + String(l.level).toLowerCase()" x-text="l.level"></span>
-            <span class="msg" x-text="l.message"></span>
-          </li>
+      <table class="mt">
+        <tr><th class="lt">시각</th><th>내용</th></tr>
+        <template x-for="l in logRows" :key="l.id">
+          <tr><td class="lt" x-text="l.time"></td><td class="lx" :class="l.cls" x-text="l.text"></td></tr>
         </template>
-        <li x-show="logs.length === 0" class="empty">로그가 없습니다.</li>
-      </ul>
+      </table>
+      <p class="empty" x-show="logsEmpty">기록이 없습니다</p>
       <div class="pager">
-        <button type="button" @click="loadLogs(logsPage - 1)" :disabled="logsPage <= 1">이전</button>
-        <button type="button" @click="loadLogs(logsPage + 1)" :disabled="logs.length < 50">다음</button>
+        <button type="button" @click="loadLogs(logsPage - 1)" :disabled="logsPage <= 1">‹ 이전</button>
+        <span class="pg" x-text="logsRange"></span>
+        <button type="button" @click="loadLogs(logsPage + 1)" :disabled="logsPage >= logsPages">다음 ›</button>
       </div>
+    </section>
+    <section class="card">
+      <h2>이 화면에서 보는 것</h2>
+      <p class="sentence">봇이 왜 샀는지, 왜 안 샀는지, 언제 전환했는지. 기존 감사 로그와 같은 기록을 요약해 보여 드립니다.</p>
     </section>
   </div>
 
   <!-- 운용 -->
   <div x-show="tab === 'ops'">
-    <section class="card" data-ops>
-      <h2>운용</h2>
-      <dl>
-        <dt>전략</dt><dd x-text="status && status.strategy && status.strategy.value || '—'"></dd>
-        <dt>모드</dt><dd x-text="modeText"></dd>
-        <dt>일시정지</dt><dd x-text="status ? (status.paused ? '일시정지 중' : '아님') : '—'"></dd>
-      </dl>
-      <p class="note">매매 중지/재개는 홈 화면 위 단추로 합니다. 그 밖의 기능은 2차 공개 때 열립니다.</p>
+    <p class="note ops-note" data-ops>운용 단추는 2차 공개 때 열립니다. 매매 중지/재개는 홈 화면 위 단추로 합니다.</p>
+    <section class="card">
+      <h2>매매 전략</h2>
+      <dl><dt>지금 전략</dt><dd><strong x-text="strategyLabel"></strong></dd></dl>
+      <button type="button" class="ops-primary" disabled>백테스터 규칙으로 전환</button>
+      <button type="button" class="ops-sub" disabled>기존 전략으로 복귀 (지금은 해당 없음)</button>
+    </section>
+    <section class="card">
+      <h2>엔진</h2>
       <div class="ops-grid">
-        <button type="button" disabled>전략 전환 <small>2차 공개 때 열림</small></button>
-        <button type="button" disabled>기존 전략 복귀 <small>2차 공개 때 열림</small></button>
-        <button type="button" disabled>엔진 시작 <small>2차 공개 때 열림</small></button>
-        <button type="button" disabled>엔진 정지 <small>2차 공개 때 열림</small></button>
-        <button type="button" disabled>일시정지·재개 <small>홈 화면 위에서 할 수 있습니다</small></button>
-        <button type="button" disabled>강제 매수 <small>2차 공개 때 열림</small></button>
-        <button type="button" disabled>강제 매도 <small>2차 공개 때 열림</small></button>
-        <button type="button" disabled>운용 설정 <small>2차 공개 때 열림</small></button>
+        <button type="button" disabled>일시정지</button>
+        <button type="button" disabled>엔진 정지</button>
       </div>
     </section>
     <section class="card">
-      <h2>구버전</h2>
-      <p><a class="legacy" href="/">구버전으로</a></p>
-      <p class="note">구버전으로 돌아가면 다시 로그인해야 합니다.</p>
+      <h2>긴급 개입</h2>
+      <div class="ops-grid">
+        <button type="button" class="ops-danger" disabled>강제 매수</button>
+        <button type="button" class="ops-danger" disabled>강제 매도</button>
+      </div>
+    </section>
+    <section class="card">
+      <h2>운용 설정</h2>
+      <p class="sentence">거래 시간 제한 등 (새 전략 운용 중일 때 여기서 바꿉니다)</p>
     </section>
   </div>
 </main>
@@ -163,9 +168,9 @@
 <nav class="bottom">
   <button type="button" :class="{on: tab === 'home'}" @click="go('home')">홈</button>
   <button type="button" :class="{on: tab === 'chart'}" @click="go('chart')">차트</button>
+  <a href="/v2/static/backtester.html">백테스터</a>
   <button type="button" :class="{on: tab === 'logs'}" @click="go('logs')">로그</button>
   <button type="button" :class="{on: tab === 'ops'}" @click="go('ops')">운용</button>
-  <a href="/v2/static/backtester.html">백테스터</a>
 </nav>
 
 </body>

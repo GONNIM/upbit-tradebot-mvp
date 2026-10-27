@@ -9,7 +9,7 @@ from typing import Optional
 import tornado.web
 from tornado.log import access_log
 
-from v2 import api_read, api_write, auth
+from v2 import api_read, api_write, auth, candles
 from v2.handlers import EntryHandler, StaticHandler
 
 HOST = "127.0.0.1"
@@ -50,13 +50,20 @@ def make_app(static_dir: Optional[Path] = None,
         cookie_secure=cookie_secure,
         nonce_store=auth.NonceStore(),
         log_function=log_request,
+        compress_response=True,               # 캔들 응답(1분·30일 수 MB) gzip
+        candles=candles.Collector(),          # 서버 전체에서 하나(수집 동시 1건)
     )
 
 
 async def _serve():
     app = make_app()
     app.listen(PORT, address=HOST)
-    await asyncio.Event().wait()
+    # 업비트 시세 미리 받기(기동 300초 뒤부터 600초마다). 개발용 로컬 서버는 _serve 를 쓰지 않아 로컬에서는 돌지 않는다.
+    prefetch = asyncio.ensure_future(app.settings["candles"].prefetch_loop())
+    try:
+        await asyncio.Event().wait()
+    finally:
+        prefetch.cancel()
 
 
 def main():

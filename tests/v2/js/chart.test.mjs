@@ -2,23 +2,111 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   upbitCandlesUrl, toAscending, createPoller, markFormingCandle, sma, toMarkers, maLines,
-  createRateGate, parseFailedKeys, kstHm, kstMdHm, kstTick, clipMarkers, intervalToMinutes,
-  fitChartHeight,
+  createSharedRateGate, mergeCandles, visiblePeriods, zoom,
+  parseFailedKeys, kstHm, kstMdHm, kstTick, clipMarkers, intervalToMinutes,
 } from "../../../v2/static/chart.js";
-
-test("fitChartHeight: 창 높이 - 차트 위치 - 예약 높이, 최소값 아래로는 안 내려감", () => {
-  assert.equal(fitChartHeight(900, 120, 140, 360), 640);
-  assert.equal(fitChartHeight(800, 120, 140, 360), 540);
-  assert.equal(fitChartHeight(500, 120, 140, 360), 360);   // 낮은 창: 최소값(스크롤 허용)
-  assert.equal(fitChartHeight(100, 300, 200, 360), 360);   // 음수가 되지 않음
-  assert.equal(fitChartHeight(900.6, 120.2, 140.1, 360), 640);   // 소수는 내림
-  assert.equal(fitChartHeight(NaN, 120, 140, 360), 360);
-});
 
 test("upbitCandlesUrl", () => {
   assert.equal(
     upbitCandlesUrl("KRW-JTO", 3),
     "https://api.upbit.com/v1/candles/minutes/3?market=KRW-JTO&count=200");
+});
+
+test("upbitCandlesUrl appends encoded to=", () => {
+  const u = upbitCandlesUrl("KRW-BTC", 1, "2026-10-26T00:00:00Z");
+  assert.ok(u.includes("&to=2026-10-26T00%3A00%3A00Z"), u);
+  assert.ok(u.includes("market=KRW-BTC") && u.includes("count=200"));
+});
+
+function memStorage() {
+  const m = new Map();
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => { m.set(k, String(v)); } };
+}
+
+test("shared gate: two gates on one storage share the 10s window", () => {
+  let now = 1_000_000;
+  const st = memStorage();
+  const a = createSharedRateGate(10000, st, "k", () => now);
+  const b = createSharedRateGate(10000, st, "k", () => now);
+  assert.equal(a.allow(), true);
+  assert.equal(b.allow(), false);
+  assert.equal(b.msUntilOpen(), 10000);
+  now += 9999;
+  assert.equal(b.allow(), false);
+  now += 1;
+  assert.equal(b.allow(), true);
+  assert.equal(a.allow(), false);   // b 가 방금 열었다
+});
+
+test("shared gate: default key and works when storage throws", () => {
+  let now = 5000;
+  const bad = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+  const g = createSharedRateGate(10000, bad, undefined, () => now);
+  assert.equal(g.allow(), true);
+  assert.equal(g.allow(), false);
+  now += 10000;
+  assert.equal(g.allow(), true);
+  const none = createSharedRateGate(10000, null, "k", () => now);   // 저장소 없음
+  assert.equal(none.allow(), true);
+  assert.equal(none.allow(), false);
+});
+
+test("shared gate: default key is v2.upbitGateAt; future/garbage stamps do not lock", () => {
+  let now = 100_000;
+  const st = memStorage();
+  const g = createSharedRateGate(10000, st, undefined, () => now);
+  g.allow();
+  assert.equal(st.getItem("v2.upbitGateAt"), "100000");
+  st.setItem("x", "garbage");
+  const h = createSharedRateGate(10000, st, "x", () => now);
+  assert.equal(h.allow(), true);
+  st.setItem("y", String(now + 999_999));   // 시계가 되감긴 경우 영구 잠금 방지
+  const i = createSharedRateGate(10000, st, "y", () => now);
+  assert.equal(i.allow(), true);
+});
+
+test("mergeCandles: ascending, one per time, newer wins", () => {
+  const c = (t, p) => ({ candle_date_time_utc: t, trade_price: p });
+  const older = [c("2026-10-23T03:00:00", 1), c("2026-10-23T03:01:00", 2)];
+  const newer = [c("2026-10-23T03:01:00", 9), c("2026-10-23T03:02:00", 3)];
+  const out = mergeCandles(older, newer);
+  assert.deepEqual(out.map((x) => x.candle_date_time_utc),
+    ["2026-10-23T03:00:00", "2026-10-23T03:01:00", "2026-10-23T03:02:00"]);
+  assert.equal(out[1].trade_price, 9);
+  assert.equal(older[1].trade_price, 2);   // 입력은 바뀌지 않는다
+  assert.deepEqual(mergeCandles(newer, older).map((x) => x.candle_date_time_utc),
+    ["2026-10-23T03:00:00", "2026-10-23T03:01:00", "2026-10-23T03:02:00"]);
+});
+
+test("maLines: 60 and 200 on 400 closes", () => {
+  const closes = Array.from({ length: 400 }, (_, i) => i + 1);
+  const out = maLines(closes, [60, 200]);
+  assert.equal(out[60].length, 400);
+  assert.equal(out[200].length, 400);
+  assert.ok(out[200].slice(0, 199).every((v) => v === null));
+  assert.equal(out[200][199], 100.5);
+  assert.ok(out[60].slice(0, 59).every((v) => v === null));
+  assert.equal(out[60][59], 30.5);
+});
+
+test("visiblePeriods: 200 line waits until 400 candles", () => {
+  assert.deepEqual(visiblePeriods(200, [60, 200]), [60]);
+  assert.deepEqual(visiblePeriods(399, [60, 200]), [60]);
+  assert.deepEqual(visiblePeriods(400, [60, 200]), [60, 200]);
+  assert.deepEqual(visiblePeriods(400, [60]), [60]);
+});
+
+test("zoom scales visible logical range around its centre", () => {
+  let set = null;
+  const view = { ok: true, chart: { timeScale: () => ({
+    getVisibleLogicalRange: () => ({ from: 100, to: 200 }),
+    setVisibleLogicalRange: (r) => { set = r; },
+  }) } };
+  zoom(view, 2);   // 확대: 폭이 절반
+  assert.deepEqual(set, { from: 125, to: 175 });
+  zoom(view, 0.5); // 축소: 폭이 두 배
+  assert.deepEqual(set, { from: 50, to: 250 });
+  assert.doesNotThrow(() => zoom({ ok: false }, 2));
 });
 
 test("orders oldest first", () => {
@@ -112,37 +200,6 @@ test("sma60 matches reference", () => {
   assert.equal(out.length, 70);
   assert.ok(out.slice(0, 59).every((v) => v === null));
   assert.deepEqual(out.slice(59), SMA60_TAIL);
-});
-
-test("pullback period 60 draws one line", () => {
-  const closes = Array.from({ length: 70 }, (_, i) => i + 1);
-  const same = maLines(closes, 60);
-  assert.equal(same.pullback, null);
-  assert.equal(same.ma60.length, 70);
-  assert.equal(same.label, "MA60 (눌림목 MA 기본값과 같음)");
-  const other = maLines(closes, 20);
-  assert.equal(other.pullback.length, 70);
-});
-
-test("rate gate skips second call within 10s", () => {
-  let now = 1000;
-  const g = createRateGate(10000, () => now);
-  assert.equal(g.allow(), true);
-  now += 9999;
-  assert.equal(g.allow(), false);
-  now += 1;
-  assert.equal(g.allow(), true);
-});
-
-test("rate gate msUntilOpen reports remaining time", () => {
-  let now = 5000;
-  const g = createRateGate(10000, () => now);
-  assert.equal(g.msUntilOpen(), 0);
-  g.allow();
-  now += 3000;
-  assert.equal(g.msUntilOpen(), 7000);
-  now += 7000;
-  assert.equal(g.msUntilOpen(), 0);
 });
 
 test("parseFailedKeys parses json array else raw", () => {

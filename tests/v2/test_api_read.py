@@ -502,12 +502,12 @@ class TestAssets(ApiBase):
         c.execute("INSERT INTO logs(user_id,timestamp,level,message) VALUES "
                   "('alice','2026-10-23T09:00:00+09:00','INFO','b')")
         c.commit()
-        code, b = self.get_json("/v2/api/logs")
-        stamps = {x["message"]: x["timestamp"] for x in b["logs"]}
-        self.assertEqual(stamps["a"], "2026-10-23T10:00:00+09:00")
-        self.assertEqual(stamps["b"], "2026-10-23T09:00:00+09:00")
+        code, b = self.get_json("/v2/api/logs?kind=engine")
+        stamps = {x["text"]: x["timestamp"] for x in b["rows"]}
+        self.assertEqual(stamps["[INFO] a"], "2026-10-23T10:00:00+09:00")
+        self.assertEqual(stamps["[INFO] b"], "2026-10-23T09:00:00+09:00")
         # 알려진 한계: 같은 날짜 안에서 'T' 형식이 공백 형식보다 문자열상 뒤라 먼저(최신으로) 나온다
-        self.assertEqual([x["message"] for x in b["logs"]], ["b", "a"])
+        self.assertEqual([x["text"] for x in b["rows"]], ["[INFO] b", "[INFO] a"])
 
 
 class TestListsAndPaging(ApiBase):
@@ -675,7 +675,7 @@ class TestListsAndPaging(ApiBase):
                              "application/json", p)
             self.assertIn("error", json.loads(r.body.decode()), p)
 
-    def test_logs_paginated_50(self):
+    def test_logs_engine_paginated_12(self):
         c = self.make_live_db()
         self.set_strategy()
         for i in range(120):
@@ -685,17 +685,20 @@ class TestListsAndPaging(ApiBase):
         c.execute("INSERT INTO logs(user_id,timestamp,level,message) VALUES "
                   "('bob','2026-10-24T00:00:00+09:00','INFO','others')")
         c.commit()
-        code, p1 = self.get_json("/v2/api/logs")
-        code, p2 = self.get_json("/v2/api/logs?page=2")
-        code, p3 = self.get_json("/v2/api/logs?page=3")
-        code, p4 = self.get_json("/v2/api/logs?page=4")
-        self.assertEqual([len(p["logs"]) for p in (p1, p2, p3, p4)], [50, 50, 20, 0])
-        self.assertEqual(p1["page"], 1)
+        q = "/v2/api/logs?kind=engine"
+        code, p1 = self.get_json(q)
+        code, p2 = self.get_json(q + "&page=2")
+        code, p10 = self.get_json(q + "&page=10")
+        code, p11 = self.get_json(q + "&page=11")   # 10쪽(마지막)으로 맞춘다
+        self.assertEqual([len(p["rows"]) for p in (p1, p2, p10)], [12, 12, 12])
+        self.assertEqual((p1["kind"], p1["page"], p1["pages"]), ("engine", 1, 10))
         self.assertEqual(p2["page"], 2)
-        self.assertEqual(p1["logs"][0]["message"], "m119")
-        self.assertEqual(p2["logs"][0]["message"], "m069")
-        self.assertNotIn("others", [x["message"] for p in (p1, p2, p3) for x in p["logs"]])
-        self.assertEqual(set(p1["logs"][0]), {"id", "timestamp", "level", "message"})
+        self.assertEqual(p11["page"], 10)
+        self.assertEqual(p11["rows"], p10["rows"])
+        self.assertEqual(p1["rows"][0]["text"], "[INFO] m119")
+        self.assertEqual(p2["rows"][0]["text"], "[INFO] m107")
+        self.assertNotIn("others", [x["text"] for p in (p1, p2, p10) for x in p["rows"]])
+        self.assertEqual(set(p1["rows"][0]), {"id", "timestamp", "text", "cls"})
 
     def test_same_timestamp_ties_ordered_by_id_desc(self):
         c = self.make_live_db()
@@ -709,8 +712,9 @@ class TestListsAndPaging(ApiBase):
         c.commit()
         code, b = self.get_json("/v2/api/trades")
         self.assertEqual([t["reason"] for t in b["trades"]], ["t2", "t1", "t0"])
-        code, b = self.get_json("/v2/api/logs")
-        self.assertEqual([t["message"] for t in b["logs"]], ["l2", "l1", "l0"])
+        code, b = self.get_json("/v2/api/logs?kind=engine")
+        self.assertEqual([t["text"] for t in b["rows"]],
+                         ["[INFO] l2", "[INFO] l1", "[INFO] l0"])
         code, b = self.get_json("/v2/api/markers")
         self.assertEqual([m["price"] for m in b["markers"]], [102.0, 101.0, 100.0])
 
@@ -722,6 +726,213 @@ class TestListsAndPaging(ApiBase):
         code, b = self.get_json("/v2/api/markers")
         self.assertEqual(len(b["markers"]), 200)
         self.assertEqual(set(b["markers"][0]), {"type", "price", "bar_time"})
+
+
+class TestLogsKinds(ApiBase):
+    """그림 2-라: GET /v2/api/logs?kind=audit|engine|error&page=N"""
+
+    def _trade(self, ts, typ, reason=None, entry=None, note=None):
+        self.conn.execute(
+            "INSERT INTO audit_trades(timestamp,ticker,type,reason,price,entry_price,note) "
+            "VALUES (?,?,?,?,?,?,?)", (ts, "KRW-ZRO", typ, reason, 100.0, entry, note))
+
+    def _buy_eval(self, ts, ok, keys, bar=None):
+        self.conn.execute(
+            "INSERT INTO audit_buy_eval(timestamp,bar_time,ticker,price,overall_ok,failed_keys) "
+            "VALUES (?,?,?,?,?,?)", (ts, bar or ts, "KRW-ZRO", 100.0, ok, keys))
+
+    def _sell_eval(self, ts, trig, key=None):
+        self.conn.execute(
+            "INSERT INTO audit_sell_eval(timestamp,bar_time,ticker,price,triggered,trigger_key) "
+            "VALUES (?,?,?,?,?,?)", (ts, ts, "KRW-ZRO", 100.0, trig, key))
+
+    def test_audit_merges_six_kinds_desc(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        self._trade("2026-10-23 10:00:00", "BUY", "EMA_GC", 123.0)
+        self._trade("2026-10-23 10:01:00", "BUY_REJECTED", None, None, "잔고 부족")
+        self._trade("2026-10-23 10:02:00", "HTS_SELL", None, None, "HTS 에서 매도")
+        self._buy_eval("2026-10-23 10:03:00", 1, "[]")
+        self._buy_eval("2026-10-23 10:04:00", 0, '["NO_SIGNAL","SURGE_FILTER"]')
+        self._sell_eval("2026-10-23 10:05:00", 1, "STOP_LOSS")
+        self._sell_eval("2026-10-23 10:06:00", 0, None)   # 미발동은 넣지 않음
+        c.commit()
+        code, b = self.get_json("/v2/api/logs")           # kind 없으면 audit
+        self.assertEqual(code, 200)
+        self.assertEqual((b["kind"], b["page"], b["pages"]), ("audit", 1, 1))
+        t = [r["text"] for r in b["rows"]]
+        self.assertEqual(len(t), 6)
+        self.assertEqual(t[0], "매도 조건 발동 · 손절")
+        self.assertEqual(t[1], "매수 대기 — 신호 없음, 급등 필터")
+        self.assertEqual(t[2], "매수 조건 충족")
+        self.assertEqual(t[3], "외부 매도 · HTS 에서 매도")
+        self.assertEqual(t[4], "매수 건너뜀 — 잔고 부족")
+        self.assertEqual(t[5], "매수 체결 · 골든크로스 · 평단 123")
+        self.assertEqual([r["cls"] for r in b["rows"]],
+                         ["sell", "muted", "", "muted", "muted", "buy"])
+        self.assertTrue(b["rows"][0]["timestamp"].startswith("2026-10-23T10:05:00"))
+        self.assertEqual(set(b["rows"][0]), {"id", "timestamp", "text", "cls"})
+        self.assertEqual(len({r["id"] for r in b["rows"]}), 6)
+
+    def test_audit_sell_filled_cancel_and_sell_rejected(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        self._trade("2026-10-23 10:00:00", "SELL", "TAKE_PROFIT")
+        self._trade("2026-10-23 10:01:00", "SELL_REJECTED", None, None, "외부 주문")
+        self._trade("2026-10-23 10:02:00", "BUY_CANCELED", None, None, "미체결")
+        c.commit()
+        code, b = self.get_json("/v2/api/logs?kind=audit")
+        self.assertEqual([r["text"] for r in b["rows"]],
+                         ["매수 취소 — 미체결", "매도 거절 — 외부 주문", "매도 체결 · 익절"])
+        self.assertEqual([r["cls"] for r in b["rows"]], ["muted", "muted", "sell"])
+
+    def test_audit_groups_same_failed_keys_run(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        for i in range(30):
+            self._buy_eval("2026-10-23 10:%02d:00" % (10 + i), 0, '["NO_SIGNAL"]')
+        self._trade("2026-10-23 10:20:30", "BUY", "EMA_GC", 100.0)
+        c.commit()
+        code, b = self.get_json("/v2/api/logs")
+        self.assertEqual(b["pages"], 1)
+        t = [r["text"] for r in b["rows"]]
+        self.assertEqual(len(t), 2, t)
+        self.assertEqual(t[0], "매수 대기 — 신호 없음 (30회, 10:10~10:39)")
+        self.assertTrue(b["rows"][0]["timestamp"].startswith("2026-10-23T10:39:00"))
+        self.assertTrue(t[1].startswith("매수 체결"))
+
+    def test_audit_different_keys_or_ok_row_breaks_group(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        self._buy_eval("2026-10-23 10:00:00", 0, '["NO_SIGNAL"]')
+        self._buy_eval("2026-10-23 10:01:00", 0, '["NO_SIGNAL"]')
+        self._buy_eval("2026-10-23 10:02:00", 0, '["COOLDOWN"]')
+        self._buy_eval("2026-10-23 10:03:00", 1, "[]")
+        self._buy_eval("2026-10-23 10:04:00", 0, '["COOLDOWN"]')
+        c.commit()
+        code, b = self.get_json("/v2/api/logs")
+        self.assertEqual([r["text"] for r in b["rows"]],
+                         ["매수 대기 — 대기 시간", "매수 조건 충족", "매수 대기 — 대기 시간",
+                          "매수 대기 — 신호 없음 (2회, 10:00~10:01)"])
+
+    def test_engine_and_error_kinds(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        for i, lv in enumerate(["INFO", "ERROR", "WARNING", "BUY", "CRITICAL", "DEBUG"]):
+            c.execute("INSERT INTO logs(user_id,timestamp,level,message) VALUES (?,?,?,?)",
+                      ("alice", "2026-10-23 10:0%d:00" % i, lv, "m-" + lv))
+        c.execute("INSERT INTO logs(user_id,timestamp,level,message) VALUES "
+                  "('bob','2026-10-23 11:00:00','ERROR','others')")
+        c.commit()
+        code, e = self.get_json("/v2/api/logs?kind=engine")
+        self.assertEqual(len(e["rows"]), 6)
+        self.assertEqual(e["rows"][0]["text"], "[DEBUG] m-DEBUG")
+        code, er = self.get_json("/v2/api/logs?kind=error")
+        self.assertEqual([r["text"] for r in er["rows"]],
+                         ["[CRITICAL] m-CRITICAL", "[WARNING] m-WARNING", "[ERROR] m-ERROR"])
+        self.assertEqual(er["kind"], "error")
+
+    def test_bad_kind_400_and_page_clamped_and_empty(self):
+        self.make_live_db()
+        self.set_strategy()
+        r = self.fetch("/v2/api/logs?kind=x", headers=self.cookie())
+        self.assertEqual(r.code, 400)
+        self.assertIn("error", json.loads(r.body.decode()))
+        for k in ("audit", "engine", "error"):
+            code, b = self.get_json("/v2/api/logs?kind=%s&page=999" % k)
+            self.assertEqual((code, b["rows"], b["page"], b["pages"]), (200, [], 1, 1), k)
+
+    def test_audit_page_999_goes_to_last_page(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        for i in range(30):
+            self._trade("2026-10-23 10:%02d:00" % i, "BUY", "EMA_GC", 100.0)
+        c.commit()
+        code, b = self.get_json("/v2/api/logs?page=999")
+        self.assertEqual((b["page"], b["pages"], len(b["rows"])), (3, 3, 6))
+        code, b1 = self.get_json("/v2/api/logs?page=1")
+        self.assertEqual(len(b1["rows"]), 12)
+
+    def test_engine_pages_cap_100(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        c.executemany("INSERT INTO logs(user_id,timestamp,level,message) VALUES (?,?,?,?)",
+                      [("alice", "2026-10-23 10:00:00", "INFO", "m%d" % i) for i in range(1300)])
+        c.commit()
+        code, b = self.get_json("/v2/api/logs?kind=engine&page=500")
+        self.assertEqual((b["page"], b["pages"]), (100, 100))
+        self.assertEqual(len(b["rows"]), 12)
+        self.assertIs(b["more"], True)
+
+    def _logs_rows(self, c, n, level="INFO"):
+        c.executemany("INSERT INTO logs(user_id,timestamp,level,message) VALUES (?,?,?,?)",
+                      [("alice", "2026-10-23 10:00:00", level, "m%d" % i) for i in range(n)])
+        c.commit()
+
+    def test_more_flag_engine_1200_false_1201_true(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        self._logs_rows(c, 1200)
+        code, b = self.get_json("/v2/api/logs?kind=engine")
+        self.assertEqual((b["pages"], b["more"]), (100, False))
+        self._logs_rows(c, 1)
+        code, b = self.get_json("/v2/api/logs?kind=engine")
+        self.assertEqual((b["pages"], b["more"]), (100, True))
+
+    def test_more_flag_error_and_audit(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        self._logs_rows(c, 1201, "ERROR")
+        code, b = self.get_json("/v2/api/logs?kind=error")
+        self.assertEqual((b["pages"], b["more"]), (100, True))
+        code, b = self.get_json("/v2/api/logs?kind=audit")      # 비어 있으면 false
+        self.assertEqual((b["pages"], b["more"]), (1, False))
+        c.executemany("INSERT INTO audit_trades(timestamp,ticker,type,reason) VALUES (?,?,?,?)",
+                      [("2026-10-23 10:00:%02d" % (i % 60), "KRW-ZRO", "BUY", "EMA_GC")
+                       for i in range(1200)])
+        c.commit()
+        code, b = self.get_json("/v2/api/logs?kind=audit")       # 정확히 1200 -> false
+        self.assertEqual((b["pages"], b["more"]), (100, False))
+        c.execute("INSERT INTO audit_sell_eval(timestamp,bar_time,ticker,price,triggered,trigger_key) "
+                  "VALUES ('2026-10-23 11:00:00','2026-10-23 11:00:00','KRW-ZRO',1,1,'TP')")
+        c.commit()
+        code, b = self.get_json("/v2/api/logs?kind=audit")       # 1201 -> true
+        self.assertEqual((b["pages"], b["more"]), (100, True))
+
+    def test_audit_sell_eval_reads_only_recent_1200_rows(self):
+        c = self.make_live_db()
+        self.set_strategy()
+        # 가장 오래된 발동 1건 + 그 뒤 미발동 2000행 + 최근 발동 1건
+        c.execute("INSERT INTO audit_sell_eval(timestamp,bar_time,ticker,price,triggered,trigger_key) "
+                  "VALUES ('2026-10-01 00:00:00','2026-10-01 00:00:00','KRW-ZRO',1,1,'OLD_TRIGGER')")
+        c.executemany(
+            "INSERT INTO audit_sell_eval(timestamp,bar_time,ticker,price,triggered,trigger_key) "
+            "VALUES (?,?,?,?,0,NULL)",
+            [("2026-10-10 00:00:00", "2026-10-10 00:%05d" % i, "KRW-ZRO", 1) for i in range(2000)])
+        c.execute("INSERT INTO audit_sell_eval(timestamp,bar_time,ticker,price,triggered,trigger_key) "
+                  "VALUES ('2026-10-20 00:00:00','2026-10-20 00:00:00','KRW-ZRO',1,1,'STOP_LOSS')")
+        c.commit()
+        code, b = self.get_json("/v2/api/logs")
+        texts = [r["text"] for r in b["rows"]]
+        self.assertEqual(texts, ["매도 조건 발동 · 손절"])
+        self.assertFalse(any("OLD_TRIGGER" in t for t in texts))
+
+    def test_error_sql_cuts_recent_rows_before_level_filter(self):
+        self.assertEqual(api_read.ERROR_SCAN_ROWS, 20000)
+        for sql in (api_read.SQL_LOGS_ERROR, api_read.SQL_LOGS_ERROR_COUNT):
+            self.assertRegex(sql, r"FROM logs WHERE user_id=\? ORDER BY timestamp DESC, id DESC LIMIT 20000\) WHERE level IN")
+        c = self.make_live_db()
+        self.set_strategy()
+        # 오래된 오류 1건 위에 최근 INFO 20000행 -> 오류 목록에 나오지 않는다(상한 증명)
+        c.execute("INSERT INTO logs(user_id,timestamp,level,message) VALUES "
+                  "('alice','2026-10-01 00:00:00','ERROR','old-err')")
+        c.executemany("INSERT INTO logs(user_id,timestamp,level,message) VALUES (?,?,?,?)",
+                      [("alice", "2026-10-23 10:00:00", "INFO", "i%d" % i) for i in range(20000)])
+        c.execute("INSERT INTO logs(user_id,timestamp,level,message) VALUES "
+                  "('alice','2026-10-24 10:00:00','ERROR','new-err')")
+        c.commit()
+        code, b = self.get_json("/v2/api/logs?kind=error")
+        self.assertEqual([r["text"] for r in b["rows"]], ["[ERROR] new-err"])
 
 
 class TestQueries(unittest.TestCase):
@@ -760,7 +971,11 @@ class TestQueries(unittest.TestCase):
             details = [r[3] for r in plan]
             for d in details:
                 self.assertNotIn("USE TEMP B-TREE", d, (sql, details))
-                if re.fullmatch(r"SCAN \w+", d):
+                if re.fullmatch(r"CO-ROUTINE \(subquery-\d+\)|SCAN \(subquery-\d+\)", d):
+                    # 서브쿼리 틀(COUNT·최근 N행 자르기) — 안쪽에 LIMIT 상한이 있어야 하고,
+                    # 안쪽 SEARCH/SCAN 줄이 인덱스를 쓰는지는 다른 줄에서 따로 검사된다
+                    self.assertRegex(sql, r"\(SELECT .*LIMIT \d+\)", sql)
+                elif re.fullmatch(r"SCAN \w+", d):
                     self.assertRegex(sql, r"ORDER BY id DESC LIMIT", (sql, details))
                 else:
                     self.assertRegex(d, ok, (sql, details))

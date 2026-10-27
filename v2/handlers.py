@@ -34,10 +34,12 @@ class BaseHandler(tornado.web.RequestHandler):
                 self.send_json({"error": "forbidden_origin"}, 403)
                 self.finish()
 
-    def send_json(self, obj, status=200):
+    def send_json(self, obj, status=200, compact=False):
+        """compact=True 는 빈칸 없는 구분자(캔들처럼 큰 본문의 직렬화 크기·메모리를 줄인다)."""
         self.set_status(status)
         self.set_header("Content-Type", "application/json; charset=UTF-8")
-        self.write(json.dumps(obj, ensure_ascii=False))
+        seps = (",", ":") if compact else None
+        self.write(json.dumps(obj, ensure_ascii=False, separators=seps))
 
     def session_user(self):
         """세션 쿠키가 유효하면 {"user_id","mode"}, 아니면 None(허용 목록 무관)."""

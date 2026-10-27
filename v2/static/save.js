@@ -56,7 +56,54 @@
 
   // 창을 열 때 19개 값을 한 번 모은 스냅샷. 저장 POST 는 이 스냅샷을 그대로 보낸다.
   function makeSnapshot(getById) {
-    return { params: collectParams(getById), source: "binance" };
+    var ds = getById("dataSource");
+    return { params: collectParams(getById), source: ds && ds.value === "upbit" ? "upbit" : "binance" };
+  }
+
+  // ---- 확인 창 문구 (그림 5-가·5-나) ----
+  function sourceName(source) { return source === "upbit" ? "업비트" : "바이낸스"; }
+
+  // 「시험한 데이터: 업비트 · KRW-XXX · 1분」
+  function testedText(snap) {
+    var p = snap.params;
+    return "시험한 데이터: " + sourceName(snap.source) + " · " + p.symbol + " · " +
+      (Object.prototype.hasOwnProperty.call(SRC_LABEL, p.src) ? SRC_LABEL[p.src] : String(p.src));
+  }
+
+  // 「지금 상태」 4행. 전략 EMA 는 「EMA (기존)」, 엔진은 생존 파일 기준 동작 중/멈춤(basic 을 못 읽었으면 확인 불가).
+  function stateRows(status, assets, basic, ticker) {
+    var strat = status && status.strategy && status.strategy.value;
+    var qty = ((assets && assets.coin) || 0) + ((assets && assets.coin_locked) || 0);
+    return [
+      ["모드", (status && status.mode_engine) || "확인 불가"],
+      ["동작 중인 전략", strat ? (strat === "EMA" ? "EMA (기존)" : strat) : "알 수 없음"],
+      ["엔진", !basic ? "확인 불가" : basic.engine_running ? "동작 중" : "멈춤"],
+      ["보유", qty > 0 ? (ticker || "종목 미상") + " " + qty : "없음"],
+    ];
+  }
+
+  // 확인 창 미리 읽기 4건. 엔진 표시용 /v2/api/basic 실패는 null 로 받아 저장을 막지 않는다.
+  function preloadAll(get) {
+    return Promise.all([get("/v2/api/status"), get("/v2/api/assets"),
+      get("/v2/api/params/current"), get("/v2/api/basic").catch(function () { return null; })]);
+  }
+
+  function runBtnLabel(source) {
+    return source === "upbit" ? "이 설정으로 동작" : "이 설정으로 동작 (사용 불가)";
+  }
+
+  function runNote(source) {
+    return source === "upbit"
+      ? "「이 설정으로 동작」은 2차 공개 때 열립니다."
+      : "바이낸스 데이터 결과는 참고용입니다. 실제 매매에 쓰시려면 업비트 데이터로 다시 시험해 주십시오.";
+  }
+
+  // 업비트로 시험한 종목이 엔진 종목과 다를 때의 경고(같거나 비교 불가면 null). 저장은 엔진 종목 기준.
+  function symbolWarning(snap, engineTicker) {
+    if (snap.source !== "upbit" || !engineTicker) return null;
+    var sym = String(snap.params.symbol || "").trim().toUpperCase();
+    if (sym === engineTicker) return null;
+    return "시험한 종목(" + sym + ")이 엔진 종목(" + engineTicker + ")과 다릅니다 — 저장은 엔진 종목 기준입니다";
   }
 
   function snapshotBody(snap) {
@@ -128,13 +175,15 @@
     makeSnapshot: makeSnapshot, snapshotBody: snapshotBody, intervalText: intervalText,
     collectParams: collectParams, saveMessage: saveMessage, engineLabel: engineLabel,
     NUMBER_IDS: NUMBER_IDS, TEXT_IDS: TEXT_IDS, GUIDE_TEXT: GUIDE_TEXT,
+    testedText: testedText, stateRows: stateRows, runBtnLabel: runBtnLabel, runNote: runNote,
+    symbolWarning: symbolWarning, preloadAll: preloadAll,
   };
 
   if (typeof document === "undefined") return;   // node 시험용
 
   var openBtn = null, dialog = null, infoBox = null, msgBox = null, doBtn = null, closeBtn = null;
   var preloaded = false, saving = false, saved = false, hasTicker = false;
-  var lastSavedSpan = null, snapshot = null;
+  var lastSavedSpan = null, snapshot = null, testedBox = null, runBtn = null, runNoteBox = null;
   var gate = makeGate();
 
   function setMsg(text) { msgBox.textContent = text; }
@@ -171,29 +220,48 @@
     return "상태를 읽지 못했습니다";
   }
 
-  function render(status, assets, current) {
+  // 그림 5: 「지금 상태」 4행(표) 아래에 저장될 종목·봉·경고·마지막 저장을 작은 글씨로 남긴다.
+  function addKv(label, value) {
+    var row = document.createElement("div");
+    row.className = "kv";
+    var a = document.createElement("span");
+    a.textContent = label;
+    var b = document.createElement("b");
+    b.textContent = value;
+    row.appendChild(a);
+    row.appendChild(b);
+    infoBox.appendChild(row);
+  }
+
+  function addSmall(label, value) {
+    var row = document.createElement("div");
+    row.className = "sm";
+    var span = document.createElement("span");
+    span.textContent = value;
+    row.appendChild(document.createTextNode(label + ": "));
+    row.appendChild(span);
+    infoBox.appendChild(row);
+    return span;
+  }
+
+  function render(status, assets, current, basic) {
     infoBox.textContent = "";
-    var strat = status.strategy && status.strategy.value;
-    addLine("현재 전략", strat || "알 수 없음");
-    addLine("모드", status.mode_engine || "확인 불가", true);
+    var rows = stateRows(status, assets, basic, status.ticker);
+    for (var i = 0; i < rows.length; i++) addKv(rows[i][0], rows[i][1]);
     if (status.mode_mismatch) {
-      addLine("경고", "입장 모드(" + (status.mode_entry || "?") + ")와 엔진 모드(" +
+      addSmall("경고", "입장 모드(" + (status.mode_entry || "?") + ")와 엔진 모드(" +
         (status.mode_engine || "?") + ")가 다릅니다.");
     }
-    addLine("엔진 동작", engineLabel(status.engine));
-    var held = (assets.coin || 0) + (assets.coin_locked || 0) > 0;
-    addLine("보유 포지션", held
-      ? "수량 " + assets.coin + (assets.coin_locked > 0 ? " (묶임 " + assets.coin_locked + ")" : "") +
-        " · 평단 " + (assets.entry_price == null ? "—" : assets.entry_price)
-      : "없음");
     if (status.ticker) {
-      addLine("저장될 종목", status.ticker + " (엔진 현재 종목)");
+      addSmall("저장될 종목", status.ticker + " (엔진 현재 종목)");
     }
     var snapSrc = snapshot.params.src;
-    addLine("저장될 봉", srcText(snapSrc));
+    addSmall("저장될 봉", srcText(snapSrc));
     var warn = intervalWarning(snapSrc, status.interval);
-    if (warn) addLine("경고", warn);
-    lastSavedSpan = addLine("마지막 저장", lastSavedText(null, current));
+    if (warn) addSmall("경고", warn);
+    var sw = symbolWarning(snapshot, status.ticker);
+    if (sw) addSmall("경고", sw);
+    lastSavedSpan = addSmall("마지막 저장", lastSavedText(null, current));
     hasTicker = !!status.ticker;
     setMsg(hasTicker ? "" : "엔진 종목을 알 수 없어 저장할 수 없습니다");
     refreshButton();
@@ -204,6 +272,9 @@
     // 창을 여는 순간의 19개 값을 한 번 모은다(닫았다 다시 열면 새로 모음)
     snapshot = makeSnapshot(function (id) { return document.getElementById(id); });
     dialog.hidden = false;
+    testedBox.textContent = testedText(snapshot);
+    runBtn.textContent = runBtnLabel(snapshot.source);
+    runNoteBox.textContent = runNote(snapshot.source);
     infoBox.textContent = "";
     setMsg("상태를 읽는 중…");
     preloaded = false;
@@ -211,11 +282,10 @@
     saved = false;
     lastSavedSpan = null;
     refreshButton();
-    Promise.all([getJson("/v2/api/status"), getJson("/v2/api/assets"),
-      getJson("/v2/api/params/current")]).then(function (r) {
+    preloadAll(getJson).then(function (r) {
       if (!gate.isCurrent(g)) return;   // 더 최근에 연 미리 읽기가 있으면 버린다
       preloaded = true;
-      render(r[0], r[1], r[2]);
+      render(r[0], r[1], r[2], r[3]);
     }).catch(function (err) {
       if (!gate.isCurrent(g)) return;
       infoBox.textContent = "";
@@ -278,7 +348,11 @@
     msgBox = document.getElementById("saveMsg");
     doBtn = document.getElementById("saveDoBtn");
     closeBtn = document.getElementById("saveCloseBtn");
-    if (!openBtn || !dialog || !infoBox || !msgBox || !doBtn || !closeBtn) return;
+    testedBox = document.getElementById("saveTested");
+    runBtn = document.getElementById("saveRunBtn");
+    runNoteBox = document.getElementById("saveRunNote");
+    if (!openBtn || !dialog || !infoBox || !msgBox || !doBtn || !closeBtn ||
+        !testedBox || !runBtn || !runNoteBox) return;
     openBtn.addEventListener("click", openDialog);
     closeBtn.addEventListener("click", closeDialog);
     doBtn.addEventListener("click", doSave);

@@ -43,12 +43,17 @@ INTEGER_FIELDS = ("days", "ma60p", "ma200p", "pullbackP", "slopeLB",
                   "maxSplits", "maxPullbackBuys")
 
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9]{2,20}$")
+_UPBIT_SYMBOL_RE = re.compile(r"^KRW-[A-Z0-9]{1,15}$")
 _INTERVAL = {"1m": "minute1", "3m": "minute3", "5m": "minute5", "1h": "minute60"}
 _YES_NO = {"yes": True, "no": False}
 
 
-def validate_params(d):
-    """검증된 19개 dict(정해진 순서)를 돌려준다. 실패 시 ValueError(필드 이름 또는 "keys")."""
+def validate_params(d, source="binance"):
+    """검증된 19개 dict(정해진 순서)를 돌려준다. 실패 시 ValueError(필드 이름 또는 "keys").
+
+    symbol 규칙은 시험한 데이터 출처로 나눈다: binance 영숫자 2~20자, upbit KRW-XXX."""
+    if source not in ("binance", "upbit"):
+        raise ValueError("source")
     if not isinstance(d, dict) or set(d.keys()) != set(PARAM_FIELDS):
         raise ValueError("keys")
     out = {}
@@ -80,9 +85,16 @@ def validate_params(d):
             if not isinstance(v, str) or v not in spec["options"]:
                 raise ValueError(name)
         else:  # symbol
-            if not isinstance(v, str) or not _SYMBOL_RE.fullmatch(v):
+            if not isinstance(v, str):
                 raise ValueError(name)
-            v = v.upper()
+            if source == "upbit":
+                v = v.strip().upper()
+                if not _UPBIT_SYMBOL_RE.fullmatch(v):
+                    raise ValueError(name)
+            else:
+                if not _SYMBOL_RE.fullmatch(v):
+                    raise ValueError(name)
+                v = v.upper()
         out[name] = v
     return out
 

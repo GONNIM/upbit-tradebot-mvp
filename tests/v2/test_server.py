@@ -229,7 +229,7 @@ class StaticChecks(unittest.TestCase):
     def test_server_import_graph_clean(self):
         # Task 4·8 이 v2.api_read·v2.api_write 를 이 목록에 추가한다.
         code = ("import sys, v2.server, v2.handlers, v2.auth, v2.db, "
-                "v2.status, v2.api_read; "
+                "v2.status, v2.api_read, v2.candles; "
                 "bad = sorted(m for m in sys.modules if m.split('.')[0] in "
                 "('config','streamlit','pyupbit','services','engine')); "
                 "print('BAD:' + ','.join(bad))")
@@ -239,9 +239,17 @@ class StaticChecks(unittest.TestCase):
         self.assertEqual(r.stdout.strip(), "BAD:")
 
     def test_server_code_has_no_upbit_host(self):
+        # 결정 1026-23 2 가: 업비트 공개 시세(캔들) 주소는 candles.py 만 예외
+        names = []
         for p in (ROOT / "v2").glob("*.py"):
-            self.assertNotIn("api.upbit.com", p.read_text(encoding="utf-8"),
-                             p.name)
+            if "api.upbit.com" in p.read_text(encoding="utf-8"):
+                names.append(p.name)
+        self.assertEqual(names, ["candles.py"])
+        text = (ROOT / "v2" / "candles.py").read_text(encoding="utf-8")
+        self.assertEqual(text.count("api.upbit.com"), 1)
+        for b in ("Authorization", "/v1/accounts", "/v1/orders", "access_key"):
+            self.assertNotIn(b, text)
+        self.assertNotIn("jwt", text.lower())
 
 
 if __name__ == "__main__":

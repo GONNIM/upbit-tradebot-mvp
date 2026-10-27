@@ -49,12 +49,13 @@ class SaveHandler(ApiHandler):
             req = json.loads(raw.decode("utf-8"))
         except (ValueError, UnicodeDecodeError, RecursionError):
             return self.send_json({"error": "bad_request"}, 400)
-        if not isinstance(req, dict) or req.get("source") != "binance":
+        source = req.get("source") if isinstance(req, dict) else None
+        if source not in ("binance", "upbit"):   # 시험한 데이터 출처(이력 메모에 남김)
             return self.send_json({"error": "bad_request"}, 400)
 
         # 2. 검증
         try:
-            params = params_schema.validate_params(req.get("params"))
+            params = params_schema.validate_params(req.get("params"), source)
         except ValueError as e:
             return self.send_json({"error": "invalid_param", "field": str(e)}, 400)
 
@@ -94,7 +95,7 @@ class SaveHandler(ApiHandler):
         # 7. 이력
         params_json = json.dumps(params, ensure_ascii=False)
         try:
-            history_id = db.insert_history(user, params_json, "source=binance")
+            history_id = db.insert_history(user, params_json, "source=" + source)
         except Exception:
             if self._restore(user, path, old):
                 return self.send_json({"error": "history_failed"}, 500)

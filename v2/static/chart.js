@@ -1,8 +1,19 @@
 // v2 차트 도우미 (ES 모듈). 모듈 최상위에서 브라우저 전역을 쓰지 않는다 (node 시험이 import 한다).
 
-export function upbitCandlesUrl(market, unitMin) {
+// toIso 가 있으면 그 시각 이전 200봉(업비트 to= 는 해당 시각 미포함)
+export function upbitCandlesUrl(market, unitMin, toIso) {
   return "https://api.upbit.com/v1/candles/minutes/" + encodeURIComponent(unitMin) +
-    "?market=" + encodeURIComponent(market) + "&count=200";
+    "?market=" + encodeURIComponent(market) + "&count=200" +
+    (toIso ? "&to=" + encodeURIComponent(toIso) : "");
+}
+
+// 오름차순 두 목록을 합친다: 시각(candle_date_time_utc) 중복은 newer 가 이긴다(입력은 바뀌지 않는다).
+export function mergeCandles(older, newer) {
+  const byTime = new Map();
+  for (const c of older) byTime.set(c.candle_date_time_utc, c);
+  for (const c of newer) byTime.set(c.candle_date_time_utc, c);
+  return Array.from(byTime.values())
+    .sort((a, b) => Date.parse(a.candle_date_time_utc + "Z") - Date.parse(b.candle_date_time_utc + "Z"));
 }
 
 // 업비트 응답은 최신순 → 오래된 순으로 바꾼다 (입력 배열은 바꾸지 않는다).
@@ -34,20 +45,36 @@ export function sma(values, period) {
   return out;
 }
 
-// 요청 간격 문: 마지막으로 허용한 시각에서 minIntervalMs 안이면 false(건너뜀), 아니면 true 로 시각을 갱신.
-export function createRateGate(minIntervalMs, nowFn = Date.now) {
-  let last = null;
+// 요청 간격 문(창끼리 공유): 마지막 허용 시각을 storage(localStorage)에 두어 같은 브라우저의 여러 창이
+// 업비트 10초당 1회 한도를 함께 지킨다. storage 가 없거나 오류면 이 창의 메모리로 대신한다.
+export function createSharedRateGate(minIntervalMs, storage, key = "v2.upbitGateAt", nowFn = Date.now) {
+  let mem = null;
+  function lastAt(now) {
+    let last = mem;
+    try {
+      const raw = storage ? storage.getItem(key) : null;
+      const n = raw == null ? NaN : Number(raw);
+      if (Number.isFinite(n) && (last === null || n > last)) last = n;
+    } catch (e) { /* 저장소 오류: 메모리 값 사용 */ }
+    // 시계가 되감겨 미래 시각이 남은 경우 영구히 막지 않는다
+    if (last !== null && last - now > minIntervalMs) return null;
+    return last;
+  }
   return {
     allow() {
       const now = nowFn();
+      const last = lastAt(now);
       if (last !== null && now - last < minIntervalMs) return false;
-      last = now;
+      mem = now;
+      try { if (storage) storage.setItem(key, String(now)); } catch (e) { /* 메모리로 대신 */ }
       return true;
     },
-    // 게이트가 열릴 때까지 남은 ms (이미 열려 있으면 0)
+    // 문이 열릴 때까지 남은 ms (이미 열려 있으면 0)
     msUntilOpen() {
+      const now = nowFn();
+      const last = lastAt(now);
       if (last === null) return 0;
-      return Math.max(0, minIntervalMs - (nowFn() - last));
+      return Math.max(0, minIntervalMs - (now - last));
     },
   };
 }
@@ -135,23 +162,29 @@ export function kstTick(sec, tickMarkType) {
   return tickMarkType >= 3 ? kstHm(sec) : kstMdHm(sec).slice(0, 5);
 }
 
-// 이동평균 선 계산(순수 함수). 눌림목 MA 기간이 60 이면 MA60 과 같으므로 두 번째 선은 없다(null).
-export function maLines(closes, pullbackPeriod) {
-  const ma60 = sma(closes, 60);
-  const same = pullbackPeriod === 60;
-  return {
-    ma60,
-    pullback: same ? null : sma(closes, pullbackPeriod),
-    label: same
-      ? "MA60 (눌림목 MA 기본값과 같음)"
-      : "MA60 · 눌림목 MA" + pullbackPeriod,
-  };
+// 이동평균 선 계산(순수 함수): {기간: 값 배열(앞쪽은 null)}
+export function maLines(closes, periods) {
+  const out = {};
+  for (const p of periods) out[p] = sma(closes, p);
+  return out;
 }
 
-// PC 차트 탭 높이(결정 1026-08): 창 높이 - 차트 칸의 문서 기준 위치 - 아래 예약 높이. 최소 minPx(낮은 창은 스크롤 허용).
-export function fitChartHeight(viewportH, chartTop, reservedPx, minPx) {
-  const h = Math.floor(viewportH - chartTop - reservedPx);
-  return Number.isFinite(h) && h > minPx ? h : minPx;
+// 그릴 선: 가장 긴 선(200)은 봉이 그 두 배(400) 모인 뒤에만 그린다. 그 전에는 짧은 선만.
+export function visiblePeriods(candleCount, periods) {
+  if (periods.length < 2) return periods.slice();
+  const longest = Math.max(...periods);
+  return periods.filter((p) => p !== longest || candleCount >= 2 * longest);
+}
+
+// 보이는 범위를 가운데 기준으로 factor 배 확대(>1)·축소(<1). 차트가 없으면 아무 일도 없다.
+export function zoom(view, factor) {
+  if (!view || !view.ok || !view.chart || !(factor > 0)) return;
+  const ts = view.chart.timeScale();
+  const r = ts.getVisibleLogicalRange();
+  if (!r) return;
+  const center = (r.from + r.to) / 2;
+  const half = (r.to - r.from) / 2 / factor;
+  ts.setVisibleLogicalRange({ from: center - half, to: center + half });
 }
 
 // ---- 브라우저 전용 (함수 안에서만 전역 사용) ----
@@ -179,7 +212,7 @@ export function kstTime(date) {
   return pad2(d.getUTCHours()) + ":" + pad2(d.getUTCMinutes()) + ":" + pad2(d.getUTCSeconds());
 }
 
-// 차트 생성. el: 컨테이너. 반환: {update(candles, markers, pullbackPeriod), destroy()}
+// 차트 생성. el: 컨테이너. 반환: {ok, chart, update(candles, markers, periods, unitSec), destroy()}
 export function createChartView(el) {
   const LW = window.LightweightCharts;
   if (!LW || typeof LW.createChart !== "function") {
@@ -199,20 +232,33 @@ export function createChartView(el) {
     upColor: "#cf222e", downColor: "#0969da", borderVisible: false,
     wickUpColor: "#cf222e", wickDownColor: "#0969da",
   });
-  const ma60 = chart.addLineSeries({ color: "#bf8700", lineWidth: 2, priceLineVisible: false });
-  const maPull = chart.addLineSeries({ color: "#8250df", lineWidth: 1, priceLineVisible: false });
+  // 선 색(그림 2-나): 60선 주황, 200선 보라. 시리즈는 기간별로 하나씩 만든다.
+  const LINE_COLORS = { 60: "#f59e0b", 200: "#7c3aed" };
+  const lineSeries = {};
+  function seriesFor(p) {
+    if (!lineSeries[p]) {
+      lineSeries[p] = chart.addLineSeries({
+        color: LINE_COLORS[p] || "#6b7280", lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+      });
+    }
+    return lineSeries[p];
+  }
   return {
     ok: true,
-    update(candles, markers, pullbackPeriod, unitSec) {
+    chart,
+    // periods: 이동평균 기간 목록, unitSec: 봉 길이(초)
+    update(candles, markers, periods = [60, 200], unitSec) {
       const data = toChartCandles(candles);
       candleSeries.setData(data);
       const closes = data.map((d) => d.close);
       const line = (arr) => arr
         .map((v, i) => (v === null ? null : { time: data[i].time, value: v }))
         .filter(Boolean);
-      const lines = maLines(closes, pullbackPeriod || 60);
-      ma60.setData(line(lines.ma60));
-      maPull.setData(lines.pullback ? line(lines.pullback) : []);
+      const shown = visiblePeriods(data.length, periods);
+      const lines = maLines(closes, shown);
+      for (const p of periods) {
+        seriesFor(p).setData(shown.includes(p) ? line(lines[p]) : []);
+      }
       const all = toMarkers(markers || []);
       candleSeries.setMarkers(data.length
         ? clipMarkers(all, data[0].time, data[data.length - 1].time, unitSec || 60) : []);

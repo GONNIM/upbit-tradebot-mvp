@@ -4,16 +4,17 @@
 
 **Goal:** 신버전 대시보드의 모든 화면(홈·차트·백테스터·로그·운용·설정 저장 확인 창·구버전 입장 버튼)을 투자자 승인 요청서 v2 의 그림과 같은 배치·문구·순서로 바꾼다. 모바일·PC 공통(PC 는 휴대폰 화면 그대로).
 
-**Architecture:** 화면은 지금처럼 `v2/static/index.html`(Alpine 한 페이지, 홈·차트·로그·운용 탭)과 `v2/static/backtester.html`(별도 페이지, 원본 계산 `backtester.js` 바이트 그대로)로 둔다. 두 페이지 모두 같은 머리 막대·같은 아래 메뉴(홈·차트·백테스터·로그·운용)를 쓰고, 탭 이동은 `/v2/#<tab>` 주소로 한다. 업비트 시세는 브라우저가 직접 받고(서버 호출 0, D8), 두 페이지가 localStorage 로 10초 문을 함께 쓴다.
+**Architecture:** 화면은 지금처럼 `v2/static/index.html`(Alpine 한 페이지, 홈·차트·로그·운용 탭)과 `v2/static/backtester.html`(별도 페이지, 원본 계산 `backtester.js` 바이트 그대로)로 둔다. 두 페이지 모두 같은 머리 막대·같은 아래 메뉴(홈·차트·백테스터·로그·운용)를 쓰고, 탭 이동은 `/v2/#<tab>` 주소로 한다. 차트 탭의 업비트 시세는 브라우저가 직접 받는다(10초 문, 창끼리 localStorage 로 공유). 백테스터의 업비트 데이터는 v2 서버가 업비트 공개 시세를 대신 받아 보관하고 넘긴다(새 `v2/candles.py`, `GET /v2/api/candles` — 결정 1026-23 2 가). 브라우저 요청(Origin 머리)은 업비트가 10초당 1회로 묶어 1분봉 30일(216회)이 약 36분 걸리지만, 서버 요청은 초당 10회(IP 공유) 한도라 실측 44초(10/26, 재제안서 B-1).
 
 **Tech Stack:** Alpine 3.14.1, lightweight-charts 4.2.0(vendor), Tornado(v2 서버), node --test, unittest, Streamlit(구버전 입장 버튼).
 
-**Spec:** `docs/specs/v2-dashboard/investor-approval-20261021-v2.html`(=PDF) 1·2·5절 그림이 화면 기준이다. 결정 1026-19(2026-10-26, 사용자): 1 가(1차 화면을 그림과 같게) · 2 가(백테스터 업비트 데이터 = 브라우저 직접) · 3 가(PC = 휴대폰 화면 그대로) · 4 가(입장 한 번 누르기, 다음 엔진 재시작 때 반영) · 5 나(운용 단추는 「2차 공개 때 열림」 표시만). 결정 근거: `docs/fable/2026-10-26-proposal-match-scope-1.md`. 사용자 지시 「기존 요구사항은 모두 폐기」 — 폐기: 1025-18, 1025-19(홈 매매 중지 블록), 1026-08(PC 차트 확대), E4(차트 200선 제외), R7(1차는 Binance 만). 2차(새 전략 실매매·전환·운용 단추 동작)는 이 계획 범위 밖이며 다음 계획으로 이어 간다(사용자: 「승인 요청서 내용은 구현이 되어야 한다」).
+**Spec:** `docs/specs/v2-dashboard/investor-approval-20261021-v2.html`(=PDF) 1·2·5절 그림이 화면 기준이다. 결정 1026-19(2026-10-26, 사용자): 1 가(1차 화면을 그림과 같게) · 2 가(백테스터 업비트 데이터 = 브라우저 직접) · 3 가(PC = 휴대폰 화면 그대로) · 4 가(입장 한 번 누르기, 다음 엔진 재시작 때 반영) · 5 나(운용 단추는 「2차 공개 때 열림」 표시만). 결정 근거: `docs/fable/2026-10-26-proposal-match-scope-1.md`. 사용자 지시 「기존 요구사항은 모두 폐기」 — 폐기: 1025-18, 1025-19 의 홈 기본 블록 배치(매매 중지/재개 단추 자체는 결정 1026-23 1 가로 남김), 1026-08(PC 차트 확대), E4(차트 200선 제외), R7(1차는 Binance 만). 2차(새 전략 실매매·전환·운용 단추 동작)는 이 계획 범위 밖이며 다음 계획으로 이어 간다(사용자: 「승인 요청서 내용은 구현이 되어야 한다」).
+**결정 1026-23(2026-10-27, 사용자 「1026-23 1 가, 2 가」):** 1 가 — 홈은 그림 2-가 배치·색을 따르되 원화·코인 잠김 수량과 기록 시각, 매매 중지/재개 단추, 로그아웃을 남긴다. 2 가 — 백테스터 업비트 데이터는 v2 서버가 받아 보관한다(목표: 1분·30일 1분 이내). 이에 따라 D8 은 「신버전 서버는 업비트 공개 시세(캔들)만 아래 상한·멈춤 조건으로 부른다. 계좌·주문 API 는 계속 부르지 않는다」로 바뀐다. 1026-19 2 가(업비트 = 브라우저 직접)는 차트 탭에만 남는다. 재제안서: scratchpad `proposal-home-backtester-20261026.md`, 근거 `docs/fable/2026-10-26-home-backtester-reproposal-1.md`(Fable 「진행」).
 
 ## Global Constraints
 
 - `v2/static/backtester.js` 는 원본(`docs/specs/MA60_200_GoldenCross_Pullback_Backtester_2610201820.html` 143-938행)과 바이트 동일 유지 — parity 시험 그대로 통과.
-- v2 서버는 업비트를 부르지 않는다(D8). 업비트 호출은 브라우저만, Origin 요청 10초당 1회 → 모든 업비트 호출은 공유 문(`createSharedRateGate(10000)`)을 지난다.
+- v2 서버의 업비트 호출은 `v2/candles.py` 한 곳, 주소 `https://api.upbit.com/v1/candles/minutes/{unit}` 하나뿐이다(결정 1026-23 2 가). 계좌·주문·인증 머리(`Authorization`·JWT)는 없다 — 시험으로 고정한다. 엔진·구버전 대시보드와 같은 서버 IP 의 `candle` 그룹 한도(초당 10회)를 나눠 쓰므로 Task 4-0 의 상한·멈춤 규칙을 지킨다. 브라우저의 업비트 호출(차트 탭)은 공유 문(`createSharedRateGate(10000)`)을 지난다.
 - 엔진 매매 경로(`core/ engine/ services/ config.py scripts/tradebot_boot.py`)는 바꾸지 않는다. 구버전 쪽 변경은 `ui/v2_entry.py` 하나.
 - 화면 문구는 그림 문구를 그대로 쓴다(아래 각 Task 의 「문구」). 시각은 KST.
 - 색: 매수·이익 빨강, 매도·손실 파랑(그림과 국내 관례). 머리 막대 짙은 남색 `#1f2937`, 강조 파랑 `#2563eb`, 실행 단추 빨강 `#ef4444`.
@@ -26,19 +27,21 @@
 ## 사용자에게 사라지거나 옮겨지는 것 (project-rules 1-A 2 — 보고에 그대로 싣는다)
 | 지금 | 바뀐 뒤 |
 |---|---|
-| 홈 위 기본 블록(제목·모드 안내·현재 시각·상태 로그·엔진 상태·「매매 중지/재개」·「로그아웃」·자산 3칸) | 삭제. 엔진 상태·모드·일시정지는 홈 배지로, 매매 중지는 구버전에서만(운용 탭 「일시정지」는 2차) |
-| 홈 「상태」·「자산」(KRW 잠김·코인 잠김·현재가 기록 시각)·「포지션」·최신 신호 20건 | 그림 2-가 카드(자산·보유·최신 신호 1건)로 바뀜. 잠김 수량·기록 시각은 사라짐 |
+| 홈 위 기본 블록(제목·안내 문장 「Upbit Trade Bot v1 상태 모니터링 페이지입니다.」·모드 안내·현재 시각·상태 로그·「트레이딩 엔진 상태 Running」 줄·자산 3칸) | 삭제. 엔진 상태·모드·일시정지는 홈 배지로, 자산은 자산 카드로 |
+| 기본 블록의 「⏸️ 매매 중지/▶️ 매매 재개」·「로그아웃」 | 남김(결정 1026-23 1 가). 매매 중지는 배지 줄 바로 아래, 로그아웃은 머리 막대 오른쪽 |
+| 홈 「상태」·「자산」·「포지션」·최신 신호 20건 | 그림 2-가 카드(자산·보유·최신 신호 1건)로 바뀜. 원화 잠김·코인 잠김·기록 시각·현재가 엔진 기록 시각은 자산 카드 아래 2줄로 남김(결정 1026-23 1 가) |
 | PC 차트 탭 창 전체 크기(1026-08) | 휴대폰과 같은 크기 |
 | 백테스터 결과 표(요약·분할 단계·주간·월간)·스윕 설정·차트·전략 설명 | 「자세한 결과」·「스윕 범위」 접힘 안으로 이동(내용 보존) |
 | 백테스터 위 기본 블록(PC) | 삭제 |
 | 운용 탭 「엔진 시작」·「운용 설정」 단추 | 그림 2-마 배치(엔진 시작 단추 없음, 운용 설정은 글 카드) |
 | 「구버전으로 돌아가면 다시 로그인해야 합니다」 안내 | 머리 막대에서 지움(그림에 없음). 「구버전으로」는 지금처럼 구버전 로그인 화면으로 간다(Streamlit 세션이 따로라서) — 보고에 적음 |
-| 백테스터 기본값 3분·바이낸스 | 업비트·엔진 봉 단위(지금 서버 1분)·30일 — 첫 실행 약 36분(216회×10초). 기간을 줄이면 빨라짐 |
+| 백테스터 기본값 3분·바이낸스 | 업비트·엔진 봉 단위(지금 서버 1분)·30일. 엔진 종목은 서버가 미리 받아 둔 데이터라 수 초, 다른 종목은 첫 실행 데이터 약 44~55초(엔진 호출과 겹치면 늘어남) + 계산 시간. 다시 실행하면 새 봉만 받음 |
 
 ## Review Focus
 
-1. 업비트 1분·30일 백테스트(216회 × 10초 ≈ 36분) 중 「데이터 가져오기」를 또 누르거나 아래 메뉴로 다른 탭에 가려는 경우 — 두 번째 실행은 막고, 수집 중 다른 탭 이동은 확인 창(「업비트 데이터 수집이 멈춥니다. 이동할까요?」 + `beforeunload`)으로 묻는다. 별도 페이지라 이동하면 수집은 끊긴다(이어 받기 없음). Task 4 시험.
-2. 차트 탭이 열린 다른 창과 백테스터가 동시에 업비트를 부르는 경우 — 공유 문으로 합쳐 10초 1회를 넘지 않아야 한다. Task 3 시험.
+1. 엔진 보호 — v2 서버 수집이 엔진의 확정 봉 조회와 같은 IP 한도(`candle` 그룹 초당 10회)를 쓴다. 엔진에는 429·418 처리가 없고 pyupbit 가 429 를 삼켜 None 을 돌려준다. 그래서 v2 는 초당 5회 상한, 응답 `Remaining-Req` 의 `sec` 가 4 이하이면 다음 초까지 쉼, 429 1회면 60초 멈춤, 418 이면 운영자가 풀 때까지 정지(파일로 남아 재시작 뒤에도 유지), 업비트 요청 매번 직전에 엔진 생존 파일 pid 를 읽어 바뀌면 그 자리에서 멈추고 5분 쉼, 수집은 서버 전체에서 동시에 1건만. Task 4-0 시험 + Task 9 Step 6 배포 관찰(엔진 「응답 없음」 4종·`[V2-CANDLES]` 배포 전후 건수).
+2. 백테스터 수집 중 「데이터 가져오기」를 또 누르거나 다른 탭으로 가는 경우 — 두 번째 실행은 막는다. 다른 탭 이동은 막지 않는다(서버가 끝까지 받아 보관하므로 돌아와 다시 누르면 보관분을 쓴다). Task 4 시험.
+2-2. 차트 탭이 열린 창이 여럿인 경우 — 공유 문으로 합쳐 브라우저 업비트 호출이 10초 1회를 넘지 않아야 한다. Task 3 시험.
 3. 보유가 없거나 거래 기록이 0건인 새 계정 — 홈 「보유」는 「없음」, 최근 거래는 「거래 기록이 없습니다」, 오류 없이 그려져야 한다. Task 2 시험.
 4. 업비트 출처로 시험한 종목이 엔진 종목과 다른 채 「설정 저장」 — 확인 창에 다르다는 경고를 보이고 저장은 엔진 종목 기준(서버 기존 동작). Task 5 시험.
 5. 로그 쪽 번호가 전체 쪽 수보다 큰 주소·빈 로그 — 마지막 쪽으로 맞추고 「기록이 없습니다」. Task 6 시험.
@@ -48,20 +51,21 @@
 ### Task 1: 공통 틀 — 머리 막대·아래 메뉴 순서·PC 휴대폰 폭·기본 블록 제거
 
 **Files:**
-- Modify: `v2/static/index.html`(머리 `header.top`, `#basic`, `nav.bottom`, `basic.css`·`basic.js` 링크)
+- Modify: `v2/static/index.html`(머리 `header.top`, `#basic` → `#pause-row`, `nav.bottom`; `basic.css`·`basic.js` 링크는 유지)
 - Modify: `v2/static/style.css`(641px 이상 PC 규칙 전부, `body.tab-chart` 규칙 삭제 → 모든 폭 480px 가운데)
 - Modify: `v2/static/app.js`(`fitChart`·resize·`$watch` 제거, 주소 `#tab` 읽기·쓰기)
 - Modify: `v2/static/chart.js`(`fitChartHeight` 삭제)
-- Delete: `v2/static/basic.js`, `v2/static/basic.css`, `tests/v2/js/basic.test.mjs`
-- Test: `tests/v2/js/alpine_wiring.test.mjs`, `tests/v2/test_static_lint.py`
+- Modify: `v2/static/basic.js`(기본 블록 그리기 삭제, 매매 중지/재개·로그아웃 제어만 남김 — 아래), `v2/static/basic.css`(남는 단추·알림 띠 규칙만), `tests/v2/js/basic.test.mjs`(사라진 칸 시험 삭제, pause·logout·확인 창 시험 유지)
+- Test: `tests/v2/js/alpine_wiring.test.mjs`, `tests/v2/test_static_lint.py`, `tests/v2/js/basic.test.mjs`
 
 **Interfaces:**
 - Produces: `tabFromHash(hash: string) -> "home"|"chart"|"logs"|"ops"`(app.js, 모르는 값·`#backtester` 는 `"home"`); 아래 메뉴 마크업 순서 홈·차트·백테스터·로그·운용(백테스터는 `<a href="/v2/static/backtester.html">`, 나머지는 `go(tab)`); `go(tab)` 는 `history.replaceState(null, "", "#" + tab)`.
-- 머리 막대: 홈 = 왼쪽 「신버전 대시보드」, 오른쪽 「<표시 이름>님 · 구버전으로」(구버전으로 = `href="/"` 링크). 다른 탭 = 왼쪽 탭 제목(「차트 · <종목> · <봉>」「로그」「운용」), 오른쪽 모드(LIVE/TEST). 표시 이름: `/v2/api/basic` 응답에 `"display_name"` 키를 더한다(`SELECT display_name FROM users WHERE username=? LIMIT 1`, 비었으면 user_id).
-- `/v2/api/basic` 은 남긴다(Task 2 배지가 `engine_running` 을 읽는다). `/v2/api/pause` 도 남긴다(2차 운용 단추용, 화면에서는 부르지 않음, 기존 test_basic_pause 유지).
-- 바꿀 기존 시험(이유: 사용자 지시 「기존 요구 폐기」): `tests/v2/test_static_lint.py` 의 `OWN` 목록에서 basic.js 를 빼고 bt_ui.js(허용 외부 주소 `api.upbit.com`)·labels.js(외부 주소 없음)를 넣음, `test_no_stop_word_in_engine_badge` 는 needle(「정상」·「지연 · 마지막 판단」·「판단 불가」)을 새 배지 글자(「엔진 동작 중」·「판단 지연」·「엔진 멈춤」·「엔진 확인 중」)로 바꾸고 「정지」 낱말 금지 단언은 유지, `test_signal_key_uses_kind`·`test_backtester_menu_link` 는 새 마크업에 맞춰 대상 선택자만 고침(단언 뜻 유지); `tests/v2/js/chart.test.mjs` 의 `fitChartHeight` 시험 삭제; `tests/v2/test_api_read.py` 의 basic 응답 키 시험에 display_name 추가.
+- 머리 막대: 홈 = 왼쪽 「신버전 대시보드」, 오른쪽 「<표시 이름>님 · 구버전으로 · 로그아웃」(구버전으로 = `href="/"` 링크, 로그아웃 = `<button id="logout-btn">`, 누르면 basic.js `logout()` — POST `/v2/api/logout` 뒤 `/` 로 이동, 지금 동작 그대로). 다른 탭 = 왼쪽 탭 제목(「차트 · <종목> · <봉>」「로그」「운용」), 오른쪽 모드(LIVE/TEST). 표시 이름: `/v2/api/basic` 응답에 `"display_name"` 키를 더한다(`SELECT display_name FROM users WHERE username=? LIMIT 1`, 비었으면 user_id).
+- `/v2/api/basic` 은 남긴다(Task 2 배지가 `engine_running` 을 읽는다). `/v2/api/pause`·`/v2/api/logout` 도 남기고 홈 화면에서 부른다(서버 변경 없음, 기존 test_basic_pause 유지).
+- basic.js 가 남기는 것(결정 1026-23 1 가): `confirmText`·`togglePause`(확인 창 → POST `/v2/api/pause` → status 다시 읽기, 실패 문구 GUIDE/BUSY/FAIL 그대로)·`logout`·`PAUSED_BANNER`. 그리는 곳은 두 군데뿐: 홈 배지 줄 바로 아래 `<div id="pause-row">`(단추 「⏸️ 매매 중지」 / 일시정지 중이면 「▶️ 매매 재개」, 응답 전 비활성, 실패 문구, 일시정지 알림 띠)와 머리 막대 `#logout-btn`. 알림 띠 문구의 「아래 '▶️ 매매 재개' 버튼」은 「위 '▶️ 매매 재개' 단추」로 고친다(띠가 단추 아래에 놓이므로). 지우는 것: `INFO_TEXT`·`kstClock` 현재 시각·`modeNotice`·상태 로그·엔진 상태 줄·`assetCells`·`pnlCell` 과 그 그리기. 갱신 주기(7초, 숨김이면 쉼)는 그대로.
+- 바꿀 기존 시험(이유: 사용자 지시 「기존 요구 폐기」): `tests/v2/test_static_lint.py` 의 `OWN` 목록에 bt_ui.js(외부 주소 없음 — 업비트는 서버 경로로 받음)·labels.js(외부 주소 없음)를 넣음(basic.js 는 남김), `tests/v2/js/basic.test.mjs` 는 시험 이름 기준으로 — 삭제: 「제목·안내·최종 상태 로그·엔진 상태 문구」(94행)·「엔진 상태: engine_running false → Stopped 🔴」(107행)·「모드 불일치 경고와 엔진 모드가 제목에 쓰인다」(116행)·「일부 읽기 실패는 안내만 하고 나머지는 그대로 보인다」(237행 — basic 500·title·assets 단언, status 만 읽게 되므로 「status 읽기 실패 → 단추 비활성·안내 문구」 새 시험으로 바꿈)·「kstClock」(76행)·「모드 안내」(81행)·「자산 3칸」(291행)·「가용 0 + 묶임 > 0」(304행)·「💹 칸」(311행)·「현재가 없음이면 평가 0원」(326행) / 새 단언으로 바꿈: 「index.html: 홈 탭 맨 위 블록 자리」(356행 → 배지 줄 아래 `#pause-row`·머리 막대 `#logout-btn`·basic.css·basic.js 연결, 운용 탭 안내 「매매 중지/재개는 홈 화면 위 단추로 합니다.」 유지), 「backtester.html: h1 앞 블록 자리」(368행 → backtester.html 에 `id="basic"`·basic.js·basic.css 없음), 「PC 넘김 없음」(344행 → `tab-chart` 바인딩 단언 삭제, 넘김 스크립트 없음 단언 유지), 「PC 넘김 가드가 없다」(415행 → `getElementById("basic")` 대신 `pause-row`), 「401·403 이면 블록 자리에…」(223행 → `#pause-row` 자리) / 유지: 중지 배너와 단추 문구 전환(126행, 띠 문구만 새 문구), 확인 창 3개(141·151·162행), busy(191), 실패 문구(207), 숨김 tick(247), 7초 tick(267 — 「시계만 갱신」 부분 삭제), 로그아웃(280), 로딩 중(331 — 「모드 확인 불가」 문구 단언 삭제), 외부 주소 없음(381), 읽기 진행 중 강제 읽기(391). basic.js 의 7초 읽기는 `/v2/api/status` 하나로 줄인다(assets·basic 은 app.js 가 읽음 — 같은 DB 두 번 읽기 방지), `test_no_stop_word_in_engine_badge` 는 needle(「정상」·「지연 · 마지막 판단」·「판단 불가」)을 새 배지 글자(「엔진 동작 중」·「판단 지연」·「판단 보류」·「엔진 멈춤」·「엔진 확인 중」)로 바꾸고 「정지」 낱말 금지 단언은 유지, `test_signal_key_uses_kind`·`test_backtester_menu_link` 는 새 마크업에 맞춰 대상 선택자만 고침(단언 뜻 유지); `tests/v2/js/chart.test.mjs` 의 `fitChartHeight` 시험 삭제; `tests/v2/test_api_read.py` 의 basic 응답 키 시험에 display_name 추가.
 
-- [ ] **Step 1: 실패 시험** — `alpine_wiring.test.mjs` 에 추가: `nav.bottom` 의 글자 순서가 `["홈","차트","백테스터","로그","운용"]`; `index.html` 에 `basic.js`·`basic.css`·`id="basic"` 없음; `tabFromHash("#logs")==="logs"`, `tabFromHash("#backtester")==="home"`, `tabFromHash("")==="home"`. `test_static_lint.py` 에 추가: `style.css` 에 `min-width: 641px` 없음, `body` 최대 폭 `480px`. `test_api_read.py`: basic 응답에 `display_name`(가짜 DB "Dev User").
+- [ ] **Step 1: 실패 시험** — `alpine_wiring.test.mjs` 에 추가: `nav.bottom` 의 글자 순서가 `["홈","차트","백테스터","로그","운용"]`; `index.html` 에 `id="basic"` 없음, `id="pause-row"` 1개(홈 탭 안, `<details>` 밖 — project-rules 1-B), 머리 막대에 `id="logout-btn"` 1개; `basic.test.mjs`: 알림 띠 문구에 「위 '▶️ 매매 재개' 단추」, 그린 결과에 「Upbit Trade Bot v1」 없음; `tabFromHash("#logs")==="logs"`, `tabFromHash("#backtester")==="home"`, `tabFromHash("")==="home"`. `test_static_lint.py` 에 추가: `style.css` 에 `min-width: 641px` 없음, `body` 최대 폭 `480px`. `test_api_read.py`: basic 응답에 `display_name`(가짜 DB "Dev User").
 - [ ] **Step 2: 실행 → 실패 확인** — `node --test tests/v2/js/*.test.mjs` · `python3 -m unittest tests.v2.test_static_lint`
 - [ ] **Step 3: 구현** — 위 Interfaces 대로. 머리 막대 마크업은 `header.bar > .bar-title + .bar-right`. 모드 불일치 경고·세션 없음 안내·네트워크 안내 문구(지금 `header.top` 안 `p.warn`)는 막대 아래 그대로 둔다. 「구버전으로 돌아가면 다시 로그인해야 합니다」 안내는 지운다(그림에 없음).
 - [ ] **Step 4: 실행 → 통과 확인** (같은 명령)
@@ -75,18 +79,19 @@
 - Test: `tests/v2/js/home.test.mjs`(새 파일, `harness.mjs` 방식), `tests/v2/test_static_lint.py`(`OWN` 에 `labels.js` 추가, `test_labels_match_server`: labels.js 의 두 `export const … = {…}` 블록을 정규식으로 잘라 `json.loads` 한 뒤 `v2.api_read.REASON_LABELS`·`FAILED_KEY_LABELS` 와 `assertEqual`)
 
 **Interfaces:**
-- Consumes: `/v2/api/status`(`mode_engine`, `paused`, `strategy.value`, `ticker`, `interval`), `/v2/api/assets`(`krw`, `coin`, `price`, `entry_price`, `tp_price`, `sl_price`, `round`), `/v2/api/basic`(엔진 Running 여부), `/v2/api/signals?limit=1`, `/v2/api/trades?limit=10`.
+- Consumes: `/v2/api/status`(`mode_engine`, `paused`, `strategy.value`, `ticker`, `interval`), `/v2/api/assets`(`krw`, `krw_locked`, `coin`, `coin_locked`, `price`, `price_at`, `updated_at`, `entry_price`, `tp_price`, `sl_price`, `round`), `/v2/api/basic`(엔진 Running 여부), `/v2/api/signals?limit=1`, `/v2/api/trades?limit=10`.
 - Produces (app.js, 순수 함수로 export 해 시험): `homeView(status, assets, basic) -> {badges:[{text,cls}], total, krwCoin, pnl:{text,cls}, holding:null|{ticker, round, avg, tp:{label,price}, sl:{label,price}}}`, `signalSentence(row) -> {title:"최신 신호 · HH:MM 봉", text}`, `tradeRow(t, nowMs) -> {time, kind, kindCls, reason, amount}`.
 
 문구·계산(그림 2-가):
 - 배지 4개 순서: 모드(`LIVE`/`TEST`, 빨강 테두리) · 엔진 배지 — `basic.engine_running` 이 true 이고 `status.engine.level` 이 ok 면 「엔진 동작 중」(초록), running true·level delay 면 「엔진 동작 중 · 판단 지연」(노랑), running true·level unknown(`v2/status.py:46·56`) 이면 「엔진 동작 중 · 판단 보류」(회색), running false 면 「엔진 멈춤」(회색), basic 을 못 읽으면 「엔진 확인 중」(회색) · 「전략: <이름>」(파랑, EMA→「EMA (기존)」, MACD→「MACD (기존)」, PULLBACK→「눌림목 분할매수」) · 「일시정지 아님」 또는 「일시정지 중」(회색/노랑).
-- 자산 카드: 「평가 합계」 = krw + coin×price, 원 단위 「3,042,600원」. 「원화 / 코인」 = `krw / coin×price`. 「평가손익」 = (price−entry)×coin 과 (price/entry−1)×100 → `+42,600 (+3.5%)`, 양수 빨강·음수 파랑, 보유 없으면 「—」.
+- 배지 줄 바로 아래: `#pause-row`(Task 1, basic.js 가 그림).
+- 자산 카드: 「평가 합계」 = krw + coin×price, 원 단위 「3,042,600원」. 「원화 / 코인」 = `krw / coin×price`. 「평가손익」 = (price−entry)×coin 과 (price/entry−1)×100 → `+42,600 (+3.5%)`, 양수 빨강·음수 파랑, 보유 없으면 「—」. 그 아래 남기는 2줄(결정 1026-23 1 가): 「원화 잠김 / 코인 잠김」 = `krw_locked`(원) / `coin_locked`(코인 수량, 지금 `num()` 표기), 작은 글씨 「기록 시각 <updated_at> · 현재가 <price_at> 엔진 기록」(KST `HH:MM:SS`, 오늘이 아니면 `MM-DD HH:MM`, 값 없으면 「—」). 평가 합계는 지금처럼 잠김을 더하지 않은 값이며(그림과 같음), 잠김이 0 이 아니면 잠김 줄을 노랑으로 보인다.
 - 보유 카드 제목 「보유 · <종목>」: 「분할 회차」 = 1차는 「—」 고정(`/v2/api/assets` round 는 1차에 항상 null — `api_read.py:260`, 최대 횟수는 2차에서 PULLBACK 설정으로 채움) · 「평균 매수가」 · 「익절 가격 (+N%)」(N = (tp/entry−1)×100, 소수 1자리, 빨강) · 「손절 가격 (−N%)」(파랑). 코인 0 이면 카드 본문 「보유 없음」.
 - 최신 신호 카드: 제목 「최신 신호 · HH:MM 봉」, 본문 한 문장 — 매수 판단 통과 「매수 조건 충족」, 미통과 「매수 대기 — <실패 조건>」, 매도 발동 「매도 — <사유>」, 미발동 「보유 유지 — 익절·손절 가격 안」. 기록 없으면 「신호 기록이 없습니다」.
 - 최근 거래 표: 머리 「시각 · 구분 · 사유 · 금액」. 시각 = 오늘이면 HH:MM, 어제면 「어제」, 그 전은 MM-DD(모두 KST). 구분 = type 별: `BUY` 「매수」(빨강) · `SELL` 「매도」(파랑) · `*_REJECTED` 「거절」(회색) · `HTS_SELL` 「외부 매도」 · `BUY_CANCELED` 「매수 취소」(`services/db.py:1659-1664`). 사유 = `reasonLabel`(대소문자 무시, 아래 표에 없으면 원래 값): `EMA_GC|MACD_GC|GOLDEN`→골든크로스, `PULLBACK`→눌림목, `TAKE_PROFIT|TP`→익절, `STOP_LOSS|SL`→손절, `EMA_DC|MACD_DC|DEADCROSS`→데드크로스, `TRAILING_STOP*`(접두 일치: `_FIXED`·`_RATIO`)→추적 손절, `STALE_POSITION`→정체 청산, `HTS_BUY|HTS_BUY_ADD`→외부 매수, `HTS_SELL`→외부 매도, `FORCE_BUY`→강제 매수, `FORCE_LIQUIDATE`→강제 매도, `BUY_FAILED_API`→주문 실패. 표는 서버 실제 값(2026-10-26 `SELECT reason, COUNT(*) FROM audit_trades GROUP BY reason`: HTS_BUY_ADD·HTS_BUY·EMA_GC·STOP_LOSS·TRAILING_STOP_FIXED·STALE_POSITION·force_buy·EMA_DC·force_liquidate·TAKE_PROFIT·BUY_FAILED_API·HTS_SELL·TRAILING_STOP_RATIO)을 모두 덮는다. 금액 = price×qty 반올림 원 단위, price 나 qty 가 없거나 0 이면 「—」(HTS_SELL 은 가격 없음). 이 표는 `v2/static/labels.js`(새 파일, 홈·로그 공용, export)와 서버 `v2/api_read.py` 의 `REASON_LABELS`·`FAILED_KEY_LABELS` 에 같은 값으로 두고, 두 표가 같은지 시험한다.
 - 실패 조건 한글(`FAILED_KEY_LABELS`, 홈 최신 신호·감사 로그 공용): `NO_SIGNAL`→신호 없음, `SURGE_FILTER`→급등 필터, `WARMUP_IN_PROGRESS`→준비 중, `WEAK_ENTRY_FILTER`→약한 진입 필터, `COOLDOWN`→대기 시간, 그 밖은 원래 값(서버 2026-10-26 미통과 failed_keys 실제 값 4종 포함).
 
-- [ ] **Step 1: 실패 시험** — `home.test.mjs`: (a) LIVE·running·EMA·paused=0 → 배지 글자 `["LIVE","엔진 동작 중","전략: EMA (기존)","일시정지 아님"]`; (b) krw 1,800,000·coin 1242.6·price 1000·entry 965.7 → total `"3,042,600원"`, pnl.cls `"up"`; (c) coin 0 → holding null; (d) `reasonLabel("TAKE_PROFIT")==="익절"`, `reasonLabel("TRAILING_STOP_FIXED")==="추적 손절"`, `reasonLabel("HTS_BUY_ADD")==="외부 매수"`, `reasonLabel("force_buy")==="강제 매수"`, `reasonLabel("XYZ")==="XYZ"`, `tradeRow({type:"HTS_SELL",price:null,qty:5})` 금액 「—」·구분 「외부 매도」, 매수 미통과 `["NO_SIGNAL"]` → `signalSentence` 「매수 대기 — 신호 없음」; (e) 어제 23:00 거래·지금 오늘 10:00 → time `"어제"`; (f) 빈 trades·빈 signals → 오류 없이 빈 문구.
+- [ ] **Step 1: 실패 시험** — `home.test.mjs`: (a) LIVE·running·EMA·paused=0 → 배지 글자 `["LIVE","엔진 동작 중","전략: EMA (기존)","일시정지 아님"]`; (b) krw 1,800,000·coin 1242.6·price 1000·entry 965.7 → total `"3,042,600원"`, pnl.cls `"up"`; (c) coin 0 → holding null; (d) `reasonLabel("TAKE_PROFIT")==="익절"`, `reasonLabel("TRAILING_STOP_FIXED")==="추적 손절"`, `reasonLabel("HTS_BUY_ADD")==="외부 매수"`, `reasonLabel("force_buy")==="강제 매수"`, `reasonLabel("XYZ")==="XYZ"`, `tradeRow({type:"HTS_SELL",price:null,qty:5})` 금액 「—」·구분 「외부 매도」, 매수 미통과 `["NO_SIGNAL"]` → `signalSentence` 「매수 대기 — 신호 없음」; (e) 어제 23:00 거래·지금 오늘 10:00 → time `"어제"`; (f) 빈 trades·빈 signals → 오류 없이 빈 문구; (g) krw_locked 5000·coin_locked 0 → 잠김 줄 글자 `"5,000 / 0"`·노랑 클래스, 둘 다 0 → 노랑 아님; updated_at 오늘 10:42:05 KST → 「기록 시각 10:42:05」, price_at null → 「현재가 — 엔진 기록」.
 - [ ] **Step 2: 실행 → 실패 확인** — `node --test tests/v2/js/home.test.mjs`
 - [ ] **Step 3: 구현** — 위 Interfaces·문구대로. 7초 갱신 `_refreshCards` 의 signals 요청은 `limit=1`, `/v2/api/basic` 을 함께 읽는다.
 - [ ] **Step 4: 실행 → 통과 확인**
@@ -110,28 +115,63 @@
 - [ ] **Step 3: 구현** — app.js 는 `C.gate = createSharedRateGate(10000, window.localStorage)`.
 - [ ] **Step 4: 실행 → 통과 확인**
 
+### Task 4-0: 서버 업비트 시세 중계·보관 (결정 1026-23 2 가)
+
+**Files:**
+- Create: `v2/candles.py`(수집기·보관·미리 받기), `tests/v2/test_candles.py`
+- Modify: `v2/api_read.py`(`CandlesHandler`·`CandlesProgressHandler`, ROUTES), `v2/server.py`(`compress_response=True`, `_serve()` 에서 미리 받기 작업 시작), `tests/v2/test_basic_pause.py:525-532`·`tests/v2/test_server.py:230-244`(아래 「바꿀 기존 시험」)
+
+**Interfaces:**
+- 긴 수집은 배경 작업으로 돌리고 요청은 바로 답한다(nginx `/v2/` 의 기본 `proxy_read_timeout` 60초를 넘지 않게 — 서버 설정 변경 없음. verifier 2회 지적 4, PO 선택).
+- `GET /v2/api/candles?market=KRW-JTO&unit=1&days=30` (로그인 세션 필요, `ReadHandler` 상속, 처리 함수는 `async def get` — `_guard` 는 동기라 쓰지 않고 아래 표로 직접 바꾼다).
+  - 입력 검사: market `^KRW-[A-Z0-9]{1,15}$`(`.strip().upper()` 뒤), unit ∈ {1,3,5,15,60,240}, days 1~30 정수. 어긋나면 400 `{"error":"bad_request","field":…}`.
+  - 보관분이 요청 기간을 덮고 새 봉이 2회 요청 안에 채워지면 그 자리에서 받아 200 `{"market","unit","days","bars":[[t_ms,o,h,l,c], …], "requests": n}` — bars 오름차순·시각 중복 없음·형성 중 봉 제외(봉 시작+unit분 > 지금이면 뺌), 요청 기간(지금−days일) 안의 봉만. `requests` = 이번에 업비트를 부른 횟수(0~2).
+  - 그보다 많이 받아야 하면 배경 작업을 시작(같은 종목·봉 단위 작업이 이미 있으면 그것을 씀)하고 202 `{"job":"running","progress":{"market","unit","done","total"}}`. 화면은 progress 를 2초마다 읽다가 `active:false` 이고 `error` 가 없으면 같은 GET 을 다시 불러 200 을 받는다.
+  - 409 `{"error":"busy","progress":{…}}` — 다른 종목·봉 단위의 **사용자** 작업이 진행 중. 미리 받기 작업이 진행 중이면 409 를 내지 않고, 미리 받기는 지금 요청까지 받은 봉을 보관하고 멈춘 뒤 사용자 작업이 시작된다(같은 종목·봉 단위면 미리 받기 작업을 사용자 속도 5회/초로 바꿔 이어 받는다).
+  - 429 `{"error":"upbit_limit","retry_after":초}` — 429 뒤 60초 멈춤 또는 엔진 재시작 쉼 중. *(최종 검수 수정 2026-10-27: 보관분이 기간을 덮어 업비트 요청이 0회인 요청은 쉼 확인보다 먼저 보관분으로 200 `requests: 0` — 쉼은 업비트를 부르는 경로에만 건다. 418 정지 중에는 보관분도 내주지 않고 503.)* 503 `{"error":"upbit_blocked"}` — 418 정지 중(운영자 해제 전까지). 502 `{"error":"upbit_error"}` — 그 밖의 업비트 오류.
+  - 예외 → 응답 표: `UpbitLimit` → 429, `UpbitBlocked` → 503, `tornado.httpclient.HTTPClientError`(599 시간 초과 포함)·`OSError`·`ValueError`(응답 JSON 깨짐) → 502, `BadRequest` → 400, `sqlite3.Error`(설정 읽기) → 503 `db_unavailable`. 배경 작업 안의 예외는 progress 의 `error` 칸(`"upbit_limit"|"upbit_blocked"|"upbit_error"`)과 `retry_after` 로 전한다.
+- `GET /v2/api/candles/progress` → `{"active":bool,"kind":"user"|"prefetch"|null,"market","unit","done","total","error":null|…,"retry_after":null|초}`. 단위는 모두 「요청 횟수」(화면 「n / N회」).
+- `v2/candles.py`:
+  - `UPBIT_URL = "https://api.upbit.com/v1/candles/minutes/{unit}"` — 이 파일의 유일한 외부 주소. 요청 머리에 `Accept: application/json` 을 주고 `Origin`·`Authorization` 은 붙이지 않는다(Tornado 기본 머리 `Host`·`User-Agent`·`Accept-Encoding` 은 그대로). `tornado.httpclient.AsyncHTTPClient().fetch(…, request_timeout=10, raise_error=False)` 를 try/except 로 감싼다(599·연결 오류는 `raise_error=False` 여도 예외).
+  - 경로는 호출할 때마다 `db.DATA_DIR` 을 읽는다(import 때 고정 금지 — `scripts/v2/dev_server.py:128-141` 의 임시 폴더 돌리기를 그대로 따르게).
+  - `class Collector(fetch, sleep, now, data_dir_fn)` — 시험에서 가짜 fetch·sleep·시계를 넣는다. `async collect(market, unit, days, rate=5.0, kind="user") -> (bars, requests)`.
+  - 상한(엔진 보호, 재제안서 B-3): 서버 전체에서 수집은 `asyncio.Lock` 하나로 동시에 1건. 요청 사이 최소 간격 1/rate 초(사용자 5회/초, 미리 받기 1회/초). 응답 머리 `Remaining-Req` 의 `sec` 가 4 이하이면 다음 요청 전 1초 쉰다.
+  - 429: 즉시 멈추고 `cooldown_until = now+60`. `WARNING` 로그 `[V2-CANDLES] status=429 market=… unit=…`.
+  - 418: 즉시 멈추고 정지 파일 `<data_dir>/v2_candles/.halt.json`(600, 원자적 쓰기, `{"at","status":418,"body":응답 첫 200자}`)을 남긴다. 이 파일이 있으면 v2 를 재시작해도 수집하지 않고 `UpbitBlocked`. 해제는 운영자가 파일을 지울 때만(runbook 에 절차). `ERROR` 로그 `[V2-CANDLES] status=418 HALT`. (verifier 2회 지적 2, PO 선택 — 엔진과 IP 를 공유하므로 자동 재개하지 않는다.)
+  - 엔진 재시작 쉼(Fable 권고 3·verifier 2회 지적 1·7): 업비트 요청 **매번 직전**에 `services/data/.engine_alive.json` 의 `pid` 를 읽는다. 처음 읽은 값은 기준으로만 둔다(쉬지 않음). 값이 바뀌면 진행 중 작업을 그 자리에서 멈추고(받은 봉은 보관) `cooldown_until = 그 pid 를 처음 본 시각+300`. 미리 받기 루프(~~60초~~ 600초, 최종 검수 수정 2026-10-27)도 매 회 pid 를 읽고, 바뀐 것을 발견하면 같은 규칙으로 쉼을 건다(수집이 없을 때 엔진이 재시작해도 그 뒤 300초 안의 사용자 요청은 429 — 업비트를 불러야 하는 요청만, 최종 검수 수정 2026-10-27). 파일이 없거나 깨지면 쉬지 않는다(엔진 멈춤 상태에서도 백테스트는 가능). 같은 pid 안에서 엔진 스레드만 다시 뜨는 경우는 감지하지 못한다(알려진 한계, 보고에 적음).
+  - 보관: `<data_dir>/v2_candles/<market>_<unit>.json`(폴더는 처음 쓸 때 `mkdir(mode=0o700, exist_ok=True)`, 파일은 UMask 0077 로 600). 내용 `{"market","unit","bars":[[t,o,h,l,c],…]}`. 임시 파일(`.tmp`)에 쓴 뒤 `os.replace`. 30일보다 오래된 봉은 쓸 때 잘라낸다. 다시 받을 때는 지금부터 과거로 `to=` 200개씩 받다가 보관분의 마지막 봉 시각에 닿으면 멈추고 합친다(보관분 사이에 빈 곳이 있으면 그 구간도 받는다). 보관 파일은 미리 받기 대상 + 최근 쓴 3개까지(지금 허용 목록 1명이라 4개), 넘으면 미리 받기 대상이 아닌 것 가운데 가장 오래 안 쓴 것부터 지운다(미리 받기 대상 파일은 지우지 않는다). 파일 합계 30MB 초과면 오래된 것을 먼저 지운다. 파일 이름은 검사를 통과한 market·unit 으로만 만든다(경로 탈출 차단). 엔진 glob(`tradebot_*.db`, engine/boot_resume.py:54)과 겹치지 않는다.
+  - 메모리: 업비트 응답 JSON 은 받는 즉시 `[t,o,h,l,c]` 로 바꾸고 원래 dict 는 버린다. 한 번에 한 종목만 메모리에 둔다.
+  - 시각: `candle_date_time_utc` 에 Z 를 붙여 UTC 로 읽고(Issue #2) t 는 UTC 밀리초.
+  - 미리 받기 `async prefetch_loop()`: `_serve()` 가 시작(dev_server 는 `_serve()` 를 쓰지 않으므로 로컬에서는 돌지 않는다 — 미리 받기는 단위 시험과 배포 관찰로 확인). v2 기동 300초 뒤부터 ~~60초마다~~ **600초마다** 한 번 돈다 *(최종 검수 수정 2026-10-27: 처리기 안 2회 요청이 1분봉 약 6시간치 빈 곳을 덮으므로 「엔진 종목 수 초」가 유지된다)*. 대상은 `.v2_allowlist` 사용자들의 현재 전략 설정(`db.active_strategy`·`db.strategy_params`, `ReadHandler._context` 와 같은 규칙)의 종목·봉 단위 가운데 unit 이 위 집합인 것. 엔진 생존 파일이 정상(`engine_alive_running` 이 그 사용자에 True)일 때만, 1회/초로 30일치를 채우고 그 뒤에는 새 봉만. 사용자 요청이 오면 위 409 규칙대로 내준다.
+- 바꿀 기존 시험(결정 1026-23 2 가 — D8 변경): `test_basic_pause.py` 의 `test_v2_code_has_no_upbit_or_engine_imports` 는 `api.upbit.com` 금지를 `candles.py` 만 예외로 하고(나머지 금지어 `pyupbit`·`urllib.request`·`http.client`·`httpx`·`aiohttp`·`requests` import 은 candles.py 에도 유지), `test_server.py` 의 `test_server_code_has_no_upbit_host` 도 candles.py 만 예외. 새 단언: candles.py 의 `https://` 주소는 `UPBIT_URL` 하나, 파일에 `Authorization`·`jwt`·`/v1/accounts`·`/v1/orders`·`access_key` 문자열 없음. `test_server_import_graph_clean` 에 `v2.candles` 추가.
+
+- [ ] **Step 1: 실패 시험** — `test_candles.py`(가짜 fetch 가 업비트 응답 모양 200개씩·최신순, 가짜 시계·sleep): (a) 입력 검사 — `KRW-../x`·`BTCUSDT`·unit 2·days 31 → 400; (b) 1분·30일 빈 보관 → fetch 216회, bars 43,200 이하·오름차순·중복 없음, 형성 중 봉 제외; (c) 보관분 마지막 봉이 10분 전 → 처리기가 그 자리에서 200·`requests` 1; 빈 보관 → 202 와 배경 작업, 끝난 뒤 다시 GET → 200; (d) 응답 머리 `sec=3` → 다음 요청 전 sleep(≥1초) 기록; (e) 429 → 그 뒤 60초 안 collect 는 fetch 0회·retry_after 60; (f) 418 → `.halt.json` 생김(600), 새 Collector(재시작 흉내)도 fetch 0회·503, 파일을 지우면 다시 받음; (g) pid — 처음 값은 쉬지 않음, 수집 도중 pid 가 바뀌면 다음 fetch 0회·받은 봉 보관·300초 뒤 재개, 수집이 없을 때 미리 받기 루프가 pid 변경을 발견하면 그 뒤 300초 안의 사용자 요청 429; (h) 다른 종목 사용자 작업 중 두 번째 요청 → 409, 같은 종목 → 같은 작업; (i) 미리 받기 진행 중 다른 종목 사용자 요청 → 미리 받기 fetch 멈춤·받은 부분 보관·사용자 작업 완료, 같은 종목이면 rate 가 5.0 으로 바뀜; (j) 보관 파일 600, `.tmp` 남지 않음, 5번째 종목 쓰면 미리 받기 대상이 아닌 것 가운데 가장 오래 안 쓴 파일 삭제(미리 받기 대상 파일은 남음), 30일 넘는 봉 잘림; (k) 요청 머리에 Origin·Authorization 없음; (l) 처리기: 세션 없음 401, 정상 200 응답 gzip — 시험 클라이언트는 `decompress_response=False` 로 요청해야 `Content-Encoding: gzip` 을 볼 수 있다(tornado http1connection.py:717-721); fetch 가 599·OSError 를 올리면 progress error `upbit_error`; (m) 미리 받기 — 기동 300초 전 0회, 엔진 생존 아님 0회, 정상이면 rate 1.0 으로 호출; (n) `db.DATA_DIR` 을 바꾸면 보관 폴더도 따라감. 바꾼 기존 시험 2건 통과.
+- [ ] **Step 2: 실행 → 실패 확인** — `python3 -m unittest tests.v2.test_candles tests.v2.test_basic_pause tests.v2.test_server`
+- [ ] **Step 3: 구현**
+- [ ] **Step 4: 실행 → 통과 확인** (같은 명령 + `python3 -m unittest discover -s tests/v2`)
+
 ### Task 4: 백테스터 — 그림 2-다 (업비트/바이낸스, 접힘, 요약)
 
 **Files:**
-- Modify: `v2/static/backtester.html`(배치 전체, 입력 id·기본값은 그대로)
+- Modify: `v2/static/backtester.html`(배치 전체, 입력 id·기본값은 그대로. 위 기본 블록 `<div id="basic">`(40행)과 `basic.css` 링크(37행)·`basic.js` 링크(160행)는 지운다 — 백테스터에는 매매 중지 단추를 두지 않음, 「사라지는 것」 표 「백테스터 위 기본 블록(PC) 삭제」)
 - Create: `v2/static/bt_ui.js`(출처 토글·업비트 수집·요약·스윕 요약·중복 실행 막기)
 - Test: `tests/v2/js/bt_ui.test.mjs`(새), `tests/v2/js/parity.test.mjs`(기본값 30개 시험이 새 배치에서도 통과하는지)
 
 **Interfaces:**
-- Consumes: `backtester.js` 전역 `run`, `fetchKlines`, `runSweep`, `stats`, `lastResults`, `lastCfgBase`, `sweepRows`, `downloadTrades`(이름으로 덮어쓰기·감싸기만, 파일은 안 바꿈); chart.js `createSharedRateGate`, `upbitCandlesUrl`.
-- Produces (bt_ui.js, export 해 시험): `fetchUpbitKlines(market, src, days, {gate, fetchFn, nowFn, onProgress}) -> Promise<{t,o,h,l,c}[]>`(src `1m|3m|5m|1h` → 1·3·5·60분, `to=` 로 과거로 200개씩, 오름차순, 형성 중 봉 제외); `upbitCallCount(src, days) -> number`(1m·30 → 216); `briefSummary(stats) -> [{label,value,cls}]`; `sweepBrief(sweepRows, n=5) -> [{tp,sl,maxSplits,ret}]`.
+- Consumes: `backtester.js` 전역 `run`, `fetchKlines`, `runSweep`, `stats`, `lastResults`, `lastCfgBase`, `sweepRows`, `downloadTrades`(이름으로 덮어쓰기·감싸기만, 파일은 안 바꿈); Task 4-0 `GET /v2/api/candles`·`/v2/api/candles/progress`.
+- Produces (bt_ui.js, export 해 시험): `fetchUpbitKlines(market, src, days, {fetchFn, sleepFn, onProgress, pollMs=2000}) -> Promise<{t,o,h,l,c}[]>`(src `1m|3m|5m|1h` → unit 1·3·5·60, 같은 출처 `/v2/api/candles?market=&unit=&days=` 요청 — `credentials:"same-origin"`. 200 이면 바로 씀. 202 면 `/v2/api/candles/progress` 를 pollMs 마다 읽어 onProgress(done,total), `active:false` 이거나 `kind!=="user"` 이거나 market·unit 이 내 요청과 다르면(내 작업은 끝났고 미리 받기 등 다른 작업이 보이는 것) error 가 없는 한 같은 GET 을 다시 불러 200 을 받음(다시 202 면 이어서 기다림, 전체 상한 5분). 응답 bars `[t,o,h,l,c]` 를 `{t,o,h,l,c}` 로 바꿈); `upbitCallCount(src, days) -> number`(1m·30 → 216, 진행 줄 「전체」 표시용); `briefSummary(stats) -> [{label,value,cls}]`; `sweepBrief(sweepRows, n=5) -> [{tp,sl,maxSplits,ret}]`. bt_ui.js 는 `api.upbit.com` 을 부르지 않는다(시험).
 - `window.fetchKlines` 를 감싼다: 출처가 업비트면 `fetchUpbitKlines`, 바이낸스면 원래 함수. `window.run` 을 감싼다: 실행 중이면 무시. 실행 전 `lastResults` 참조를 기억했다가 실행 뒤 다른 객체로 바뀌었을 때만 요약을 그린다(run 은 오류를 삼키고 이전 결과를 남기므로, 실패 때 이전 요약을 지우고 「결과 없음」).
 - 업비트 종목 형식 `^KRW-[A-Z0-9]+$` 아니면 「업비트 종목은 KRW-XXX 형식입니다」 로 멈춤.
-- 업비트 시각: `candle_date_time_utc` 에는 Z 가 없으므로 `Date.parse(s + "Z")` 로 UTC 로 읽는다(Issue #2).
-- 실패 처리: 응답 429 면 문이 열릴 때까지(최소 10초) 기다려 같은 요청을 다시, 연속 3회 429 면 「업비트 요청이 너무 많습니다. 잠시 뒤 다시 시도해 주세요」로 멈춤(429 가 쌓이면 418 차단이 되므로 더 하지 않는다). 네트워크 오류(fetch 예외 — 업비트는 제한을 넘으면 CORS 오류로 끊을 수 있어 429 를 읽지 못함)는 문 대기 뒤 1회만 다시 하고, 또 실패하면 멈춘다. 그 밖의 HTTP 오류는 바로 멈춘다. 멈출 때 이유를 #status 에 보인다. 진행 문구 옆에 「이 화면을 켜 두세요(화면이 꺼지거나 다른 앱으로 가면 느려지거나 멈춥니다)」.
+- 업비트 시각: 서버가 UTC 밀리초로 준다(Task 4-0).
+- 실패 처리(서버 응답·progress error 기준, 브라우저는 다시 시도하지 않음): 409 → 「다른 업비트 데이터 수집이 진행 중입니다 (n / N회). 끝난 뒤 다시 눌러 주세요」, 429·error `upbit_limit` → 「업비트 요청 한도 — 약 N초 뒤 다시 시도해 주세요」(retry_after), 503 `upbit_blocked`·error `upbit_blocked` → 「업비트가 요청을 막았습니다. 운영자 확인이 필요합니다(바이낸스 데이터는 쓸 수 있습니다)」, 502·504·503 `db_unavailable`·error `upbit_error`·네트워크 오류·5분 상한 → 「업비트 데이터를 받지 못했습니다. 잠시 뒤 다시 시도해 주세요」(503 은 body 의 error 값으로 가름), 401·403 → 「구버전에서 다시 들어와 주세요」. 멈출 때 이유를 #status 에 보인다.
 - 기본값: 출처 업비트, 봉 단위 = 엔진 봉 단위(`status.interval` 이 minute1·3·5·60 이면 그 값, 아니면 3분), 기간 30일. 원래 `backtester.html` 의 정적 기본값(3m·30·JTOUSDT)은 그대로 두고 bt_ui.js 가 열릴 때 바꾼다(parity 기본값 시험은 정적 값을 본다).
-- 바꿀 기존 시험: `parity.test.mjs:38-39`(binance selected·upbit disabled 문자열 단언) → 「#dataSource select 에 binance·upbit 두 option 이 있고 숨김」으로 바꿈(R7 폐기, 결정 1026-19 2 가).
-- 수집 중 이동 막기: 아래 메뉴 링크 클릭 때 `confirm("업비트 데이터 수집이 멈춥니다. 이동할까요?")`, 창 닫기·새로고침에는 `beforeunload`.
+- 바꿀 기존 시험: `parity.test.mjs:38-39`(binance selected·upbit disabled 문자열 단언) → 「#dataSource select 에 binance·upbit 두 option 이 있고 숨김」으로 바꿈(R7 폐기, 결정 1026-23 2 가 — 업비트 출처는 서버 경로).
+- 수집 중 이동: 막지 않는다(서버가 끝까지 받아 보관하므로 돌아와 다시 누르면 보관분을 쓴다). 진행 줄 아래 「다른 화면으로 가도 서버가 계속 받아 둡니다」 한 줄.
 
-화면(그림 2-다, 위에서 아래로): 머리 막대 「백테스터」 + 모드 · 카드 「데이터 출처」 2칸 토글 `[업비트 (KRW)] [바이낸스]`(업비트 기본, 고르면 종목칸이 엔진 종목/`JTOUSDT` 로 바뀜, 원래 `#dataSource` select 는 숨겨 값만 맞춤) · 2열 칸 6개: 「종목」(#symbol) · 「봉 단위 · 기간」(#src + #days) · 「60선 / 200선」(#ma60p / #ma200p) · 「분할 최대 횟수」(#maxSplits) · 「익절 TP %」(#tp) · 「손절 SL %」(#sl) · `<details>` 「… 그 밖의 입력 11개(접힘)」(maType·pullbackP·slopeLB·minSlope·slopeDrop·buyOnGoldenCross·maxPullbackBuys·capital·fee·deadcross·compounding) · 빨간 큰 단추 「데이터 가져오기 + 백테스트」 · 진행 줄(#status, 업비트일 때 「업비트 데이터 수집 중… n / N회 · 남은 약 M분」) · 카드 「결과 요약」(「총 수익률」·「거래 수 / 승률」 `14회 / 64%`·「최대 낙폭」 `-4.1%`) · 카드 「여러 설정 비교 (파라미터 스윕)」(스윕 범위 입력은 `<details>` 접힘 + 「스윕 실행」, 결과 표 「TP · SL · 분할 · 수익률」 상위 5) · `<details>` 「자세한 결과」(원래 #summary·#depth·#weekly·#monthly·#sweepResult·차트 구역·주간·월간·스윕 CSV) · 아래 단추 2개 `[CSV 받기](downloadTrades) [설정 저장](파랑)` · 아래 메뉴(백테스터 선택됨).
+화면(그림 2-다, 위에서 아래로): 머리 막대 「백테스터」 + 모드 · 카드 「데이터 출처」 2칸 토글 `[업비트 (KRW)] [바이낸스]`(업비트 기본, 고르면 종목칸이 엔진 종목/`JTOUSDT` 로 바뀜, 원래 `#dataSource` select 는 숨겨 값만 맞춤) · 2열 칸 6개: 「종목」(#symbol) · 「봉 단위 · 기간」(#src + #days) · 「60선 / 200선」(#ma60p / #ma200p) · 「분할 최대 횟수」(#maxSplits) · 「익절 TP %」(#tp) · 「손절 SL %」(#sl) · `<details>` 「… 그 밖의 입력 11개(접힘)」(maType·pullbackP·slopeLB·minSlope·slopeDrop·buyOnGoldenCross·maxPullbackBuys·capital·fee·deadcross·compounding) · 빨간 큰 단추 「데이터 가져오기 + 백테스트」 · 진행 줄(#status, 업비트일 때 「업비트 데이터 받는 중… n / N회」, 보관분만 쓰면 바로 「계산 중…」) · 카드 「결과 요약」(「총 수익률」·「거래 수 / 승률」 `14회 / 64%`·「최대 낙폭」 `-4.1%`) · 카드 「여러 설정 비교 (파라미터 스윕)」(스윕 범위 입력은 `<details>` 접힘 + 「스윕 실행」, 결과 표 「TP · SL · 분할 · 수익률」 상위 5) · `<details>` 「자세한 결과」(원래 #summary·#depth·#weekly·#monthly·#sweepResult·차트 구역·주간·월간·스윕 CSV) · 아래 단추 2개 `[CSV 받기](downloadTrades) [설정 저장](파랑)` · 아래 메뉴(백테스터 선택됨).
 - 전략 로직 설명 `<details class="note">` 는 「자세한 결과」 아래로 옮긴다(그림에 없음, 내용 보존).
 
-- [ ] **Step 1: 실패 시험** — `bt_ui.test.mjs`: (a) `upbitCallCount("1m",30)===216`, `("3m",30)===72`; (b) 가짜 fetch(200개씩 3회, 최신순) → 결과 오름차순·중복 없음·`to=` 가 매번 더 과거, `candle_date_time_utc:"2026-10-26T00:00:00"` → t `Date.UTC(2026,9,26,0,0)`; (c) 가짜 문이 막으면 `msUntilOpen` 만큼 기다린 뒤 부름(nowFn 가짜 시계); (d) 형성 중 봉 제외; (e) `briefSummary({ret:6.2,trades:14,winRate:64.3,mdd:4.1})` → `["+6.2%","14회 / 64%","-4.1%"]`, ret 클래스 up; (f) 실행 중 `run()` 두 번째 호출은 원래 run 을 다시 부르지 않음; (g) 429 두 번 뒤 200 → 성공·요청 3회, 429 세 번 → 「업비트 요청이 너무 많습니다」 오류, fetch 예외 1회 뒤 200 → 성공, 예외 2회 → 멈춤; (h) 원래 run 이 lastResults 를 바꾸지 않으면 요약 「결과 없음」. parity: `backtester.js` sha 같음, 기본값 30개 같음.
+- [ ] **Step 1: 실패 시험** — `bt_ui.test.mjs`: (a) `upbitCallCount("1m",30)===216`, `("3m",30)===72`; (b) 가짜 fetch 가 `/v2/api/candles?market=KRW-JTO&unit=1&days=30` 에 200 → bars `[[t,o,h,l,c],…]` → `{t,o,h,l,c}` 배열, `api.upbit.com` 호출 0; (c) 202 → progress 3회(done 50·150·216, 마지막 active false) 뒤 같은 GET 다시 → 200, onProgress 3회; progress 가 `active:true, kind:"prefetch"`(또는 다른 market) 이면 기다리지 않고 같은 GET 다시; (d) 409·429(retry_after 60)·503 upbit_blocked·502·504·401·progress error upbit_limit 각각 위 문구로 멈춤, 5분 상한(가짜 시계) 넘으면 멈춤; (e) `briefSummary({ret:6.2,trades:14,winRate:64.3,mdd:4.1})` → `["+6.2%","14회 / 64%","-4.1%"]`, ret 클래스 up; (f) 실행 중 `run()` 두 번째 호출은 원래 run 을 다시 부르지 않음; (g) bt_ui.js 원문에 `api.upbit.com` 없음; (h) 원래 run 이 lastResults 를 바꾸지 않으면 요약 「결과 없음」. parity: `backtester.js` sha 같음, 기본값 30개 같음.
 - [ ] **Step 2: 실행 → 실패 확인**
 - [ ] **Step 3: 구현**
 - [ ] **Step 4: 실행 → 통과 확인** — `node --test tests/v2/js/*.test.mjs`
@@ -182,11 +222,11 @@
 - Modify: `v2/static/index.html`(운용 탭), `v2/static/style.css`
 - Test: `tests/v2/js/alpine_wiring.test.mjs`
 
-- 화면(위에서 아래로 카드 4개): 「매매 전략」 — 「지금 전략」 오른쪽 굵게 `<이름> (기존)`, 파란 큰 단추 「백테스터 규칙으로 전환」, 회색 단추 「기존 전략으로 복귀 (지금은 해당 없음)」 · 「엔진」 — 2칸 「일시정지」·「엔진 정지」 · 「긴급 개입」 — 2칸 「강제 매수」·「강제 매도」(빨강 테두리) · 「운용 설정」 — 본문 「거래 시간 제한 등 (새 전략 운용 중일 때 여기서 바꿉니다)」. 모든 단추 `disabled`, 카드 묶음 위 한 줄 「운용 단추는 2차 공개 때 열립니다.」(결정 1026-19 5 나).
+- 화면(위에서 아래로 카드 4개): 「매매 전략」 — 「지금 전략」 오른쪽 굵게 `<이름> (기존)`, 파란 큰 단추 「백테스터 규칙으로 전환」, 회색 단추 「기존 전략으로 복귀 (지금은 해당 없음)」 · 「엔진」 — 2칸 「일시정지」·「엔진 정지」 · 「긴급 개입」 — 2칸 「강제 매수」·「강제 매도」(빨강 테두리) · 「운용 설정」 — 본문 「거래 시간 제한 등 (새 전략 운용 중일 때 여기서 바꿉니다)」. 모든 단추 `disabled`, 카드 묶음 위 한 줄 「운용 단추는 2차 공개 때 열립니다. 매매 중지/재개는 홈 화면 위 단추로 합니다.」(결정 1026-19 5 나, 1026-23 1 가 — 꺼진 「일시정지」 단추를 보고 중지할 수 없다고 오해하지 않게).
 
 - 바꿀 기존 시험: `test_static_lint.py` 의 `test_operation_buttons_disabled`(8단추·「2차 공개 때 열림」) → 아래 6단추·문구로 바꿈.
 
-- [ ] **Step 1: 실패 시험** — 운용 탭 단추 글자 순서 `["백테스터 규칙으로 전환","기존 전략으로 복귀 (지금은 해당 없음)","일시정지","엔진 정지","강제 매수","강제 매도"]`, 모두 disabled, 「2차 공개 때 열립니다」 1회.
+- [ ] **Step 1: 실패 시험** — 운용 탭 단추 글자 순서 `["백테스터 규칙으로 전환","기존 전략으로 복귀 (지금은 해당 없음)","일시정지","엔진 정지","강제 매수","강제 매도"]`, 모두 disabled, 「2차 공개 때 열립니다」 1회, 「매매 중지/재개는 홈 화면 위 단추로 합니다」 1회.
 - [ ] **Step 2~4:** 실패 확인 → 구현 → 통과 확인 (`node --test tests/v2/js/alpine_wiring.test.mjs`)
 
 ### Task 8: 구버전 입장 버튼 한 번 누르기 — 그림 1-나
@@ -207,7 +247,8 @@
 
 - [ ] **Step 1: 자동 시험 전부** — `node --test tests/v2/js/*.test.mjs` · `python3 -m unittest discover -s tests/v2` · `python3 -m unittest tests.test_v2_entry_button` · `bash scripts/regression_gate.sh` → 모두 0 실패.
 - [ ] **Step 2: 브라우저 실측** — `scripts/v2/dev_server.py`, Chrome DevTools 412×915(모바일)·360×800·1440×900(PC). 탭 5개 + 확인 창 2종(업비트·바이낸스)을 찍고, 승인 요청서 렌더(`pdftoppm -r 80`) 그림과 나란히 둔 대조표(그림 요소 → 화면 요소, 같음/다름)를 만든다. 가로 넘침 0, PC 폭 480px 가운데, 콘솔 오류 0.
-- [ ] **Step 3: 업비트 백테스트 실측** — 업비트 3분·1일(약 1분 소요)로 실제 실행해 결과 요약이 나오는지, 그동안 차트 탭(다른 창)과 함께 열어 업비트 응답 429 가 0인지 네트워크 기록으로 확인.
+- [ ] **Step 3: 업비트 백테스트 실측(로컬 개발 서버, 로컬 맥 IP — 서버 IP 에서 재지 않음)** — (a) 빈 보관 상태에서 업비트 1분·30일·KRW-BTC 를 「데이터 가져오기 + 백테스트」로 실행해 단추 누름부터 결과 요약까지 시간을 잰다(목표: 데이터 ≤55초, 전체 60초 이내 — 넘으면 계산 시간·전송 시간을 나눠 보고). (b) 같은 조건 다시 실행 → 바로 200, 응답 `requests` ≤2, 데이터 수 초. (c) 개발 서버 로그에 업비트 429 0건, 첫 실행의 progress `total` 216·`done` 216. (d) 수집 중 v2 프로세스 최대 메모리(`resource.getrusage(RUSAGE_SELF).ru_maxrss` — macOS 는 바이트, Linux 는 KB 단위, 또는 `/usr/bin/time -l`) 기록 — 150MB 의 절반 아래여야 함. (e) 차트 탭 다른 창을 함께 열어 브라우저 업비트 응답 429 0건.
 - [ ] **Step 3-2: 구버전 입장 버튼 실측** — 로컬 Streamlit(`streamlit run app.py`, TEST 가짜 계정·허용 목록)에서 버튼 글자·위치(입장하기 아래)·한 번 누르면 `/v2/` 로 들어가는지 확인. 안 되면 원인과 함께 보고.
 - [ ] **Step 4: 보고** — `docs/specs/v2-dashboard/impl-report-20261026-proposal-match.md`(그림 대조표·「사라지거나 옮겨지는 것」 표·바꾼 기존 시험 목록과 이유·시험 출력·캡처 목록) + Fable 번들 zip. 대조표에는 그림과 다른 곳을 근거와 함께 적는다: 그림 5-가 업비트 안내(「전환 확인(6절)으로 넘어갑니다」 → 5절 표 「1차는 저장만, 2차 공개 때 엽니다」), 운용 탭 「2차 공개 때 열립니다」 한 줄(결정 5 나), 예시 숫자(11개·종목·봉 단위).
-- [ ] **Step 5: 문서 갱신** — `docs/specs/v2-dashboard/spec.md` 에 폐기 결정(E4·E10 예외 1025-19·R7·1025-18·1026-08)과 basic.js 삭제·125행 차트 줄(60선·200선)을 반영하고, `ui/v2_entry.py` docstring 의 「1차 배포 뒤 동결 파일」 문구를 이번 변경 사실로 고친다. 커밋은 사용자 승인 뒤. verifier → Fable → 사용자 보고. 커밋은 사용자 승인 뒤(`pages/dashboard.py` 버전 갱신 포함).
+- [ ] **Step 5: 문서 갱신** — `docs/specs/v2-dashboard/spec.md` 에 폐기 결정(E4·R7·1025-18·1026-08)과 결정 1026-23(D8 47행·100행 고침: 공개 캔들만·상한·멈춤 조건, 계좌·주문 0 / 234행 수용 기준 A14: 「`v2/candles.py` 의 `UPBIT_URL` 1곳만 예외, `pyupbit`·계좌·주문 경로 0」 / 145행 Upbit 출처 = 서버 중계·보관 / basic.js 는 매매 중지·로그아웃만 남김)·125행 차트 줄(60선·200선)을 반영하고, `docs/operations/v2-runbook.md` 에 `services/data/v2_candles/` 폴더(600, 지워도 다시 받음)와 `[V2-CANDLES]` 로그 확인 줄, 418 정지 해제 절차(원인 확인 → `services/data/v2_candles/.halt.json` 삭제, 엔진 시세 조회 정상 확인 뒤), 끄는 방법(`systemctl stop tradebot-v2` — 엔진 영향 없음, 또는 보관 폴더 유지한 채 tradebot-v2 이전 커밋으로 되돌림)을 더하고, `ui/v2_entry.py` docstring 의 「1차 배포 뒤 동결 파일」 문구를 이번 변경 사실로 고친다. 커밋은 사용자 승인 뒤. verifier → Fable → 사용자 보고. 커밋은 사용자 승인 뒤(`pages/dashboard.py` 버전 갱신 포함, 보고에 「버전: 구 → 신」).
+- [ ] **Step 6: 배포 뒤 관찰(배포 요청서에 그대로 옮김 — 배포는 따로 승인)** — 출처는 `journalctl -u tradebot`(엔진)·`journalctl -u tradebot-v2`(v2). (a) 배포 전 24시간과 배포 뒤 24시간의 엔진 「응답 없음」 4종 건수를 비교한다: `[REST] Batch … 응답 없음`(core/rest_reconcile.py:280-284), `[실시간 API] 응답 없음`(core/data_feed.py:1068), `[백필] API 응답 없음`(:1239), `[SYNC-FILL] API 응답 없음`(:284). 배포 뒤가 배포 전보다 늘면 tradebot-v2 를 멈추고 보고한다. (b) `[V2-CANDLES]` 건수·status 별 수(429·418 은 0 이어야 함). (c) 미리 받기 확인: 기동 약 5분 뒤 수집 시작, 1회/초 216회라 `services/data/v2_candles/` 의 엔진 종목 파일(600)은 기동 약 9분 뒤 생김(verifier 수정 2026-10-27), 그 뒤 운영자 계정으로 엔진 종목 1분·30일 백테스트를 눌러 데이터가 수 초 안에 오는지(브라우저 네트워크 기록의 `/v2/api/candles` 응답 시간). (d) 엔진 종목이 아닌 종목으로 1분·30일 수집을 하는 동안 `systemctl show tradebot-v2 -p MemoryCurrent` 를 1초마다 읽어 최대값을 기록(서버 systemd 249 에는 MemoryPeak·memory.peak 가 없음, 150M 의 절반 아래여야 함). 같은 때 `/sys/fs/cgroup/system.slice/tradebot-v2.service/memory.stat` 의 `anon` 과 `file` 을 따로 기록한다(MemoryCurrent 에는 페이지 캐시가 들어 있다) *(최종 검수 수정 2026-10-27)*. (e) project-rules 1-A 3층: 운영자에게 브라우저 새로고침을 요청해 홈 화면 문구·단추 위치를 확인받는다. (f) 배포 완료 보고에 3점(로컬·서버 HEAD·버전, ExecMainStartTimestamp)과 「버전: 구 → 신」.

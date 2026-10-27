@@ -85,9 +85,55 @@ wc -c .v2_secret
 - `.v2_secret` 은 32바이트 이상(`wc -c` 결과 확인; `utils/v2_entry_token.py` 의 `MIN_SECRET_BYTES`)이면 정상이다. 값은 보지 않는다.
 - 비밀 파일을 바꿀 때 `.bak` 같은 사본을 남기지 않는다.
 
-## 동결 파일 2개
+## 동결 파일 2개 (구버전 프로세스 안 코드 — 바꿀 때는 따로 승인)
 
-`ui/v2_entry.py` 와 `utils/v2_entry_token.py` 는 동결 파일이다. 배포 diff 에 이 두 파일이 보이면 **멈추고 별도 승인**을 받는다. 이 파일들이 바뀌면 구버전 화면(Streamlit)을 담은 `tradebot` 재시작이 필요하다.
+`ui/v2_entry.py` 와 `utils/v2_entry_token.py` 는 구버전 화면(Streamlit)을 담은 `tradebot` 프로세스 안에서 돈다. 배포 diff 에 이 두 파일이 보이면 **배포 요청서에 따로 적고 승인**을 받는다. 바뀐 내용은 `tradebot` 재시작 때만 화면에 반영된다(그 전까지 구버전 화면은 옛 동작 그대로).
+
+- 2026-10-27 변경(결정 1026-19 4 가): `ui/v2_entry.py` — 입장 버튼 「신버전 대시보드 입장 (모드)」 한 번 누르면 바로 `/v2/` 로 들어감(링크 단추·「다시 로그인」 캡션 삭제). `utils/v2_entry_token.py` 는 바뀌지 않았다. **구버전 화면은 엔진(`tradebot`) 재시작 때만 바뀐다** — 배포 뒤 다음 엔진 재시작 전까지는 예전 두 단계(버튼 → 링크) 그대로 보인다.
+
+## 업비트 캔들 보관 (`v2/candles.py`, 2026-10-27 결정 1026-23 2 가)
+
+신버전 서버는 백테스터용으로 업비트 **공개 캔들**만 부른다(`https://api.upbit.com/v1/candles/minutes/{unit}` 하나, 계좌·주문·인증 없음). 엔진의 확정 봉 조회와 같은 서버 IP 한도(`candle` 그룹 초당 10회)를 나눠 쓰므로 초당 5회 상한(미리 받기 1회), `Remaining-Req` `sec` ≤ 4 이면 1초 쉼, 429 → 60초 멈춤, 418 → 정지 파일, 엔진 pid 가 바뀌면 5분 쉼, 동시 수집 1건.
+
+| 항목 | 값 |
+|---|---|
+| 보관 폴더 | `services/data/v2_candles/` (폴더 700, 파일 `<market>_<unit>.json` 600, 소유자 root). 30일 넘는 봉은 잘라낸다. 미리 받기 대상 + 최근 쓴 3개만 남기고 합계 30MB 를 넘지 않는다 |
+| 지워도 되나 | 된다. 지우면 다음 실행 때 다시 받는다(1분·30일 = 업비트 216회, 약 1분 — 엔진 한도를 나눠 쓰므로 필요할 때만). `.halt.json` 은 아래 절차로만 지운다 |
+| 미리 받기 | 엔진이 동작 중인 허용 계정의 엔진 종목·봉 단위를 기동 5분 뒤부터 600초(10분)마다 초당 1회로 받아 둔다(최종 검수 수정 2026-10-27: 60초 → 600초. 그 사이 새 봉은 백테스트 요청 때 처리기 안 2회 요청으로 받는다) |
+
+권한 점검(비밀·권한 점검 절에 더함):
+
+```bash
+cd /root/upbit-tradebot-mvp
+ls -ld services/data/v2_candles
+ls -l services/data/v2_candles/
+```
+
+로그 확인 — `[V2-CANDLES]` 줄은 이상할 때만 찍힌다(정상 수집은 로그 없음).
+
+```bash
+journalctl -u tradebot-v2 --since "24 hours ago" --no-pager | grep -c '\[V2-CANDLES\]'
+journalctl -u tradebot-v2 --since "24 hours ago" --no-pager | grep '\[V2-CANDLES\]' | grep -o 'status=[0-9]*' | sort | uniq -c
+journalctl -u tradebot-v2 --since "24 hours ago" --no-pager | grep '\[V2-CANDLES\]' | grep -E 'HALT|pid changed|error'
+```
+
+- `status=429` — 60초 멈춤 뒤 저절로 풀린다. 하루에 여러 번이면 엔진 「응답 없음」 건수(배포 관찰 항목)와 함께 보고한다.
+- `status=418 HALT` — 업비트가 서버 IP 를 막았다는 뜻. 아래 정지 해제 절차.
+- `halt file write failed … memory halt only` — 정지 파일을 못 썼다. 프로세스 안에서는 정지 상태이지만 재시작하면 풀리므로 원인(폴더 권한·디스크)을 먼저 고친다.
+- `engine pid changed — pause 300s` — 엔진이 재시작됐다. 5분 쉰 뒤 저절로 이어진다.
+
+### 418 정지 해제
+
+1. 원인 확인: `journalctl -u tradebot-v2` 의 `status=418 HALT` 시각 전후 `[V2-CANDLES]` 줄, 엔진 `journalctl -u tradebot` 의 「응답 없음」 4종(`[REST] Batch … 응답 없음`, `[실시간 API] 응답 없음`, `[백필] API 응답 없음`, `[SYNC-FILL] API 응답 없음`).
+2. 엔진 시세 조회가 정상으로 돌아왔는지 확인한다(위 4종이 다시 나오지 않음, 확정 봉 처리 로그 정상).
+3. 정지 파일 내용 확인 뒤 삭제: `cat services/data/v2_candles/.halt.json` (시각·상태·응답 첫 200자, 비밀 값 없음) → `rm services/data/v2_candles/.halt.json`.
+4. **`systemctl restart tradebot-v2`** — 418 정지는 프로세스 안 메모리에도 걸려 있어(파일 쓰기 실패에 대비한 이중 정지) 파일만 지워서는 풀리지 않는다. 엔진(`tradebot`)은 재시작하지 않는다.
+5. 확인: `journalctl -u tradebot-v2 -n 50` 에 새 `HALT` 없음, 백테스터 업비트 실행이 「업비트 데이터 받는 중…」으로 진행.
+
+### 끄는 방법
+
+- 신버전 전체를 끄기: `systemctl stop tradebot-v2` — 엔진에는 영향 없다(별도 프로세스, 업비트 호출은 신버전 쪽에서만 멈춤). 화면까지 닫으려면 「즉시 닫기」 절.
+- 업비트 서버 수집만 되돌리기: 보관 폴더는 그대로 둔 채 tradebot-v2 를 이전 커밋으로 되돌려 재시작한다(배포 승인 대상). 남은 `services/data/v2_candles/` 는 옛 코드가 읽지 않으므로 무해하며 나중에 지워도 된다.
 
 ## 점검 스크립트 출력 읽는 법
 

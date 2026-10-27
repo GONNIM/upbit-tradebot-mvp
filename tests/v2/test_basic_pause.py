@@ -78,12 +78,25 @@ class BasicBase(base.ApiBase):
 class TestBasicCalc(BasicBase):
     def test_shape(self):
         b = self.basic()
-        self.assertEqual(set(b), {"version", "account", "last_status_log", "engine_running",
-                                  "pnl_kind", "pnl_pct"})
+        self.assertEqual(set(b), {"version", "account", "display_name", "last_status_log",
+                                  "engine_running", "pnl_kind", "pnl_pct"})
         self.assertEqual(b["version"], "v1.2026.10.25.1729")
         self.assertEqual(b["account"], "alice")
+        self.assertEqual(b["display_name"], "alice")   # users 행이 없으면 user_id
         self.assertEqual(b["pnl_kind"], "realized")
         self.assertIsNone(b["pnl_pct"])
+
+    def test_display_name_from_users(self):
+        self.conn.execute("INSERT INTO users(username, display_name) VALUES (?,?)",
+                          (self.USER, "Dev User"))
+        self.conn.commit()
+        self.assertEqual(self.basic()["display_name"], "Dev User")
+
+    def test_display_name_blank_falls_back_to_user_id(self):
+        self.conn.execute("INSERT INTO users(username, display_name) VALUES (?,?)",
+                          (self.USER, "  "))
+        self.conn.commit()
+        self.assertEqual(self.basic()["display_name"], self.USER)
 
     def test_unrealized_open_position(self):
         self.position(10.0)
@@ -529,8 +542,17 @@ class TestWriteLint(unittest.TestCase):
         for p in sorted(V2_DIR.glob("*.py")):
             text = p.read_text(encoding="utf-8")
             for b in bad:
+                # 결정 1026-23 2 가(D8 변경): 업비트 공개 시세 주소는 candles.py 한 곳만 허용
+                if b == "api.upbit.com" and p.name == "candles.py":
+                    continue
                 self.assertNotIn(b, text, f"{p.name}: {b}")
             self.assertIsNone(imp.search(text), p.name)
+        cand = (V2_DIR / "candles.py").read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"https://[^\s\"']+", cand),
+                         ["https://api.upbit.com/v1/candles/minutes/{unit}"])
+        for b in ("Authorization", "/v1/accounts", "/v1/orders", "access_key"):
+            self.assertNotIn(b, cand)
+        self.assertNotIn("jwt", cand.lower())
 
 
 class TestLegacyParity(BasicBase):

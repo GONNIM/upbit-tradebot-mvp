@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "v2" / "static"
 VENDOR = STATIC / "vendor"
 URL_RE = re.compile(r"https?://([A-Za-z0-9.\-]+)")
-OWN = ["index.html", "app.js", "chart.js", "style.css", "basic.js", "basic.css"]
+OWN = ["index.html", "app.js", "chart.js", "style.css", "basic.js", "basic.css", "labels.js", "bt_ui.js"]
 
 
 def _read(name):
@@ -25,7 +25,9 @@ class StaticLintTest(unittest.TestCase):
     def test_external_hosts_allowlisted(self):
         for name in OWN:
             self.assertTrue((STATIC / name).exists(), name)
-            self.assertLessEqual(_hosts(name), {"api.upbit.com"}, name)
+            # bt_ui.js 는 서버 경로(/v2/api/candles)만 부른다 — 외부 주소 허용 없음
+            allowed = set() if name == "bt_ui.js" else {"api.upbit.com"}
+            self.assertLessEqual(_hosts(name), allowed, name)
         bt = [n for n in ("backtester.html", "backtester.js") if (STATIC / n).exists()]
         if not bt:
             self.skipTest("Task 7 전")
@@ -54,19 +56,19 @@ class StaticLintTest(unittest.TestCase):
 
     def test_operation_buttons_disabled(self):
         html = _read("index.html")
-        self.assertIn("2차 공개 때 열림", html)
+        self.assertEqual(html.count("2차 공개 때 열립니다"), 1)
         marker = "data-ops"
         self.assertIn(marker, html)
         start = html.index(marker)
-        end = html.find("</section>", start)
+        end = html.index("</main>", start)
         block = html[start:end]
         buttons = re.findall(r"<button\b[^>]*>", block)
         for b in buttons:
             self.assertRegex(b, r"\bdisabled\b")
-        for name in ("전략 전환", "기존 전략 복귀", "엔진 시작", "엔진 정지",
-                     "일시정지·재개", "강제 매수", "강제 매도", "운용 설정"):
+        for name in ("백테스터 규칙으로 전환", "기존 전략으로 복귀 (지금은 해당 없음)",
+                     "일시정지", "엔진 정지", "강제 매수", "강제 매도"):
             self.assertRegex(block, r"<button\b[^>]*disabled[^>]*>\s*" + re.escape(name))
-        self.assertEqual(len(buttons), 8)
+        self.assertEqual(len(buttons), 6)
 
     def test_index_loads_both_vendor_scripts(self):
         html = _read("index.html")
@@ -86,31 +88,60 @@ class StaticLintTest(unittest.TestCase):
     def test_no_double_init(self):
         self.assertNotIn('x-init="init()"', _read("index.html"))
 
-    def test_no_ma200(self):
-        for name in ("index.html", "app.js", "chart.js"):
-            self.assertNotRegex(_read(name), r"(?i)ma\s*200|sma\(\s*[\w.]+\s*,\s*200")
+    def test_chart_matches_figure_2_na(self):
+        """그림 2-나: 단추 4칸·범례·카드 문구, 공유 10초 문, 차트 높이 300px (E4 폐기 — 200선 포함)."""
+        html, js, css = _read("index.html"), _read("app.js"), _read("style.css")
+        for s in ("최근 200봉", "확대 +", "축소 −", "60선", "200선", "▲", "▼",
+                  "이 화면에서 보는 것",
+                  "캔들, 60선·200선(눌림목 기준선), 봇이 실제로 사고판 자리. 손가락으로 확대·이동합니다."):
+            self.assertIn(s, html, s)
+        self.assertIn("createSharedRateGate(10000", js)
+        self.assertNotIn("createRateGate(", js)
+        self.assertRegex(css, r"\.chart\s*\{[^}]*height:\s*300px")
 
     def test_no_stop_word_in_engine_badge(self):
         """엔진 동작 배지에만 적용(운용 버튼의 「엔진 정지」·「일시정지」는 spec 낱말).
-        대상: app.js 의 engineText getter 본문 + index.html 의 id="engine-badge" 줄."""
+        대상: app.js 의 engineBadge 함수 본문. 글자와 색이 한 함수에서 정해진다."""
         js = _read("app.js")
-        m = re.search(r"get engineText\(\)(.*?)get engineClass\(\)", js, re.S)
-        self.assertIsNotNone(m, "app.js engineText 추출 실패")
-        body = m.group(1)
-        lines = [l for l in _read("index.html").splitlines() if 'id="engine-badge"' in l]
-        self.assertEqual(len(lines), 1, "index.html engine-badge 요소 없음")
-        for text in (body, lines[0]):
-            self.assertNotIn("정지", text)
-        for needle in ("정상", "지연 · 마지막 판단", "판단 불가"):
+        m = re.search(r"function engineBadge\(.*?\n\}\n", js, re.S)
+        self.assertIsNotNone(m, "app.js engineBadge 추출 실패")
+        body = m.group(0)
+        self.assertNotIn("정지", body)
+        for needle in ("엔진 동작 중", "판단 지연", "판단 보류", "엔진 멈춤", "엔진 확인 중"):
             self.assertIn(needle, body)
-        self.assertIn("engineText", lines[0])
+        # 옛 level 전용 도우미는 없다(멈춘 엔진이 초록으로 보이던 원인)
+        for old in ("get engineClass", "get engineIcon", "get engineText"):
+            self.assertNotIn(old, js)
+        self.assertIn("home.badges", _read("index.html"))
+
+    def test_labels_match_server(self):
+        """labels.js 의 두 표 == v2.api_read 의 REASON_LABELS·FAILED_KEY_LABELS."""
+        import json
+        from v2 import api_read
+        js = _read("labels.js")
+        for const, server in (("REASON_LABELS", api_read.REASON_LABELS),
+                              ("FAILED_KEY_LABELS", api_read.FAILED_KEY_LABELS)):
+            m = re.search(r"export const " + const + r" = (\{.*?\n\});", js, re.S)
+            self.assertIsNotNone(m, const)
+            self.assertEqual(json.loads(m.group(1)), server, const)
 
     def test_backtester_menu_link(self):
-        self.assertIn("/v2/static/backtester.html", _read("index.html"))
+        html = _read("index.html")
+        nav = html[html.index('<nav class="bottom"'):html.index("</nav>")]
+        self.assertRegex(nav, r'<a\b[^>]*href="/v2/static/backtester\.html"[^>]*>백테스터</a>')
 
-    def test_signal_key_uses_kind(self):
-        text = _read("index.html") + _read("app.js")
-        self.assertRegex(text, r"row\.kind\s*\+\s*'-'\s*\+\s*row\.id")
+    def test_pc_is_phone_width(self):
+        css = _read("style.css")
+        self.assertNotIn("min-width: 641px", css)
+        self.assertNotIn("tab-chart", css)
+        self.assertRegex(css, r"body\s*\{[^}]*max-width:\s*480px")
+
+    def test_home_signal_is_single_card(self):
+        """홈 최신 신호는 1건 카드(그림 2-가). 목록(x-for signals)이 아니므로 kind-id 키가 필요 없다."""
+        html, js = _read("index.html"), _read("app.js")
+        self.assertIn("/v2/api/signals?limit=1", js)
+        self.assertNotRegex(html, r'x-for="[^"]*\bin signals\b')
+        self.assertIn("signalCard.title", html)
 
     def test_no_top_level_browser_globals_in_chart(self):
         node = shutil.which("node")
