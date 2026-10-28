@@ -288,6 +288,54 @@ class PositionState:
             source="bot_market",
         )
 
+    def apply_split_entry(
+        self,
+        qty: float,
+        price: float,
+        ts,
+        source: str,
+        *,
+        base_qty: Optional[float] = None,
+        base_cost: Optional[float] = None,
+        entry_bar: Optional[int] = None,
+    ) -> None:
+        """
+        ✅ 2차 T6: 새 전략(PULLBACK) 분할 체결 1회 반영 — 수량·원가 누적, 평단 = 원가 / 수량. PULLBACK 만 부른다.
+        apply_entry·open_position 은 바꾸지 않는다(EMA·MACD 경로).
+
+        - 기준(보유 수량·원가): base_qty/base_cost 가 있으면 그것(LIVE 체결 콜백 — 발주 때 잡은 값. 그 사이
+          sync_from_wallet 이 qty 를 지갑 수량으로 바꿨어도 체결분을 두 번 더하지 않는다), 없으면 지금 포지션.
+        - 기준 수량이 0 이면 첫 회차 → apply_entry(source) 로 연다(trailing·stale 초기화, 첫 진입 시각 = ts).
+        - 그 뒤 회차는 첫 진입 시각·봉을 그대로 두고 수량·평단만 바꾼다.
+        """
+        qty = float(qty)
+        price = float(price)
+        if not (qty > 0) or not (price > 0):
+            raise ValueError(f"split entry needs qty>0·price>0 (qty={qty} price={price} source={source})")
+        if base_qty is None:
+            base_qty = float(self.qty or 0.0) if self.has_position else 0.0
+            base_cost = base_qty * float(self.avg_price or 0.0)
+        base_qty = float(base_qty or 0.0)
+        base_cost = float(base_cost or 0.0)
+        if base_qty <= 0:
+            self.apply_entry(
+                qty=qty, avg_price=price,
+                entry_bar=entry_bar if entry_bar is not None else (self.entry_bar or 0),
+                entry_ts=ts, source=source,
+            )
+            return
+        new_qty = base_qty + qty
+        new_cost = base_cost + qty * price
+        self.has_position = True
+        self.qty = new_qty
+        self.avg_price = new_cost / new_qty
+        self.pending_order = False
+        self.last_action_ts = ts
+        logger.info(
+            f"✅ [POSITION-SPLIT] source={source} +qty={qty:.6f} @ {price:.2f} → "
+            f"qty={new_qty:.6f} avg={self.avg_price:.4f}"
+        )
+
     def close_position(self, ts, reason: str = "position_close"):
         """
         매도 완료 (포지션 청산)

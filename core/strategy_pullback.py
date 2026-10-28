@@ -382,6 +382,9 @@ _SPLIT_DEFAULTS = {
     "trade_origin": None,  # "live" 실시간 판정이 연 거래 | "replay" 워밍업·BACKFILL 재생이 만든 가상 거래
 }
 _TS_KEYS = ("first_entry_ts", "last_ts")
+# 2차 T6: 실주문이 정한 거래 칸(재생이 실거래 중에 바꾸지 않는 칸 — live_loop._PULLBACK_TRADE_KEYS 와 같은 목록)
+SPLIT_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "first_entry_reason",
+                    "pending_fill", "fill_n", "inv_sum", "trade_origin")
 
 
 def _to_ts(v):
@@ -431,6 +434,7 @@ class IncrementalPullbackStrategy:
             "maxSplits": int(p["maxSplits"]), "maxPullbackBuys": int(p["maxPullbackBuys"]),
             "tp": float(p["tp"]), "sl": float(p["sl"]),
             "deadcross": _yes(p["deadcross"]),
+            "compounding": _yes(p.get("compounding", False)),  # 2차 T6: 배분 기준 + 실현 손익(엔진이 읽음)
             "golden_only": golden_only,
             "eff_max_splits": 1 if golden_only else int(p["maxSplits"]),
         }
@@ -443,6 +447,9 @@ class IncrementalPullbackStrategy:
         self.last_sell_reason: Optional[str] = None
         self.last_eval: dict = {}
         self._buy_undo: Optional[dict] = None  # 2차 T5: 이 봉 BUY 신호가 바꾼 회차 값(주문 없이 끝나면 되돌림)
+        # 2차 T6: 엔진이 실시간 판정 직전에 넣는 표식(판정 상태 아님 — 링·저장에 넣지 않는다)
+        self.fill_wait = False      # LIVE 분할 주문 체결 대기 중(엔진 _pending_split) → 미보유여도 회차 정리를 미룸
+        self.split_desync = False   # 지갑·분할 상태 어긋남(desync=1) → 추가 분할매수 멈춤, 매도는 계속(D11 b)
 
     # ------------------------------------------------ 2차 T5: 엔진·trader 가 읽는 값 (적용본 기준, 읽기 전용)
     @property
@@ -593,7 +600,8 @@ class IncrementalPullbackStrategy:
         if live and position is not None:
             holding = bool(getattr(position, "has_position", False))
             if not holding and self.entry_count > 0:
-                if just_filled and self.trade_origin == "live":
+                if self.trade_origin == "live" and (just_filled or self.fill_wait):
+                    # 2차 T6: LIVE 는 체결 콜백이 올 때까지(엔진이 최대 3봉 기다림) fill_wait 로 미룸을 이어 간다.
                     # 체결 지연: 신호 봉 다음 봉에 실보유가 아직 안 보임 → 정리를 다음 봉으로 미룸.
                     # 미룸 봉에서는 매수를 막는다(새 신호가 pending_fill 을 다시 켜 미룸이 이어지지 않게 — 최대 1봉).
                     deferred = True
@@ -612,6 +620,9 @@ class IncrementalPullbackStrategy:
                 desync = True
                 logger.warning(f"{_RULE_TAG} 실보유 + 판정 회차 0 (POS_DESYNC) → 매수 신호 안 냄 "
                                f"| ts={format_kst(bar.ts)}")
+            if holding and self.split_desync and not desync:
+                # 2차 T6: 지갑과 분할 상태가 어긋남(앱 매수 등) → 추가 분할매수 멈춤. 경고는 엔진이 바뀔 때 1회.
+                desync = True
         else:
             holding = self.entry_count > 0
         polluted = live and bool(getattr(self.indicators, "state_polluted", False))

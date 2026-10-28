@@ -150,7 +150,7 @@ TestHotReloadPositionRegression  (1)   T5 회귀
 
 **수정 후 흐름**:
 1. state 'cancel' + executed_volume > 0 → db_state='CANCELED' (FILLED 아님)
-2. `_finalize_order` 진행, `_fire_fill_callback` **호출 안 함** (조건: `db_state == "FILLED"`)
+2. `_finalize_order` 진행. (2026-10-28 2차 T6 정정) 체결량이 있는 BUY `CANCELED` 는 `_fire_fill_callback(..., state="CANCELED")` 를 **호출한다**(조건: `db_state in ("FILLED", "CANCELED")` · BUY · `exec_volume > 0` · `avg_price > 0`). 엔진 `_on_limit_fill` 은 EMA·MACD 경로에서 `state != "FILLED"` 를 무시하므로(`apply_entry` 안 감) D6 동작은 그대로이고, PULLBACK 분할 주문만 체결 실수량으로 반영한다. 이전 서술 「호출 안 함(조건 `db_state == "FILLED"`)」은 T6 전 코드 기준이다.
 3. 잔고에는 부분만 반영 → 다음 봉 P2 자동 복구 → `apply_entry(source="wallet_sync")` 로 세팅
 
 **정합성 근거**:

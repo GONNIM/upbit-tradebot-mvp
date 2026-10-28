@@ -8,6 +8,7 @@ import jwt as _jwt
 import pyupbit
 import requests as _requests
 import logging
+import threading  # ✅ 2차 T6: last_krw_balance_ok 스레드별 표식
 import time as _time
 from typing import Optional, Dict, Any, Tuple
 
@@ -340,6 +341,36 @@ class UpbitTrader:
             self.last_krw_balance_ok = False
             return 0.0
 
+    # ✅ 2차 T6 (T5 넘김 — 잔고 조회 표식 스레드 안전): last_krw_balance_ok 는 스레드마다 따로 둔다.
+    #   _krw_balance(EMA·MACD 공용, 본문 무변경)가 쓰는 표식을 다른 스레드(trading_control·대시보드 등)가 덮어써도
+    #   엔진 스레드가 읽는 값은 자기 호출 결과다. 기본값 True(이 스레드에서 아직 조회 안 함) — T5 와 같다.
+    @property
+    def last_krw_balance_ok(self) -> bool:
+        tls = self.__dict__.get("_krw_ok_tls")
+        return getattr(tls, "ok", True) if tls is not None else True
+
+    @last_krw_balance_ok.setter
+    def last_krw_balance_ok(self, value) -> None:
+        tls = self.__dict__.get("_krw_ok_tls")
+        if tls is None:
+            tls = self.__dict__.setdefault("_krw_ok_tls", threading.local())
+        tls.ok = value
+
+    def krw_balance_checked(self) -> tuple:
+        """
+        ✅ 2차 T6: PULLBACK 엄격 금액 경로 전용 래퍼 — (가용 KRW, 조회 성공 여부) 를 반환값으로 함께 돌려준다.
+        조회는 _krw_balance 그대로(TEST: DB 가상 잔고, LIVE: get_balance("KRW"), None·예외 = 실패 0.0).
+        성공 여부는 이 스레드의 표식(위 property)에서 읽으므로 다른 스레드의 조회와 섞이지 않는다.
+        """
+        self.last_krw_balance_ok = True
+        try:
+            v = self._krw_balance()
+        except Exception as e:
+            logger.error(f"[실거래] KRW 잔고 조회 예외: {e}")
+            self.last_krw_balance_ok = False
+            return 0.0, False
+        return float(v or 0.0), bool(self.last_krw_balance_ok)
+
     def _coin_balance(self, ticker: str) -> float:
         """
         주어진 ticker(예: 'KRW-PEPE' 또는 'PEPE')에 대한 코인 잔고 반환.
@@ -597,8 +628,11 @@ class UpbitTrader:
             }
         if strict_amount:
             self.last_strict_reject_code = None
-        avail = self._krw_balance()
-        if strict_amount and not getattr(self, "last_krw_balance_ok", True):
+            # ✅ 2차 T6: 엄격 금액은 조회 성공 여부를 반환값으로 받는다(공유 표식 경쟁 없음). EMA·MACD 는 아래 else 그대로.
+            avail, _strict_bal_ok = self.krw_balance_checked()
+        else:
+            avail = self._krw_balance()
+        if strict_amount and not _strict_bal_ok:
             self._audit_strict_unknown(ticker, price, meta, krw_amount, "주문 전 조회")
             return {}
         if avail <= 0:
@@ -697,14 +731,18 @@ class UpbitTrader:
 
         for attempt in range(1, LIVE_BUY_MAX_RETRIES + 1):
             # ✅ B15: 매 시도 직전 활성 KRW 재확인 (사용자 동시 거래 대응)
-            try:
-                current_krw = self._krw_balance()
-            except Exception as e:
-                current_krw = krw_to_use  # 조회 실패 시 기존 값 유지
-                self.last_krw_balance_ok = False  # 2차 T5: 엄격 금액 경로만 읽는다(EMA 무변경)
-                logger.warning(f"[BUY-LIVE] attempt #{attempt} 활성 KRW 재조회 실패: {e}")
+            if strict_amount:
+                # ✅ 2차 T6: 엄격 금액은 반환값으로 성공 여부를 받는다(공유 표식 last_krw_balance_ok 를 읽지 않음)
+                current_krw, _strict_bal_ok = self.krw_balance_checked()
+            else:
+                try:
+                    current_krw = self._krw_balance()
+                except Exception as e:
+                    current_krw = krw_to_use  # 조회 실패 시 기존 값 유지
+                    self.last_krw_balance_ok = False  # 2차 T5: 엄격 금액 경로만 읽는다(EMA 무변경)
+                    logger.warning(f"[BUY-LIVE] attempt #{attempt} 활성 KRW 재조회 실패: {e}")
 
-            if strict_amount and not getattr(self, "last_krw_balance_ok", True):
+            if strict_amount and not _strict_bal_ok:
                 # ✅ 2차 T5 검수 반영: 재시도 직전 재조회 실패 — 잔고 부족과 구분해 주문 전 거절
                 self._audit_strict_unknown(ticker, price, meta, krw_to_use, f"시도 #{attempt} 직전 재조회")
                 return {}

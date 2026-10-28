@@ -339,6 +339,38 @@ _PULLBACK_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "firs
                         "pending_fill", "fill_n", "inv_sum", "trade_origin")
 
 
+def _pullback_restore_split_state(engine, user_id: str, warmup_df, candle_validator) -> None:
+    """2차 T6: 기동(재시작·WO-12 재개) 때 pullback_state 에서 분할 회차·평단·배분 기준·쿨다운을 되살린다.
+    실패해도 기동은 계속(복원 없으면 보유 시 전략 ⑥ POS_DESYNC 가 추가 매수를 막음) — ERROR + CRITICAL 1회."""
+    try:
+        from engine import pullback_params as _pbp
+        try:
+            engine._pullback_params_sha = _pbp.sha256_of(_pbp.applied_path(user_id))
+        except Exception:
+            engine._pullback_params_sha = None
+        res = engine.pullback_restore_on_boot(warmup_df, candle_validator)
+        msg = (f"[PULLBACK-RESTORE] 결과 | restored={res.get('restored')} reason={res.get('reason')} "
+               f"replayed={res.get('replayed')}")
+        logger.info(msg)
+        log_to_file(msg, user_id)
+    except Exception as e:
+        logger.error(f"[PULLBACK-RESTORE] 복원 예외 | {type(e).__name__}: {e}", exc_info=True)
+        try:
+            # 수정 2회차: 복원이 중간에 깨졌으면 저장 행을 덮어쓰지 않게 이 엔진 수명 동안 저장 막음
+            engine._pullback_block_persist("restore_exception")
+        except Exception as _be:
+            logger.error(f"[PULLBACK-RESTORE] 저장 막음 실패 | {type(_be).__name__}: {_be}")
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            _notify(LEVEL_CRITICAL, "🚨 새 전략 분할 상태 복원 실패",
+                    ("재시작 때 새 전략(PULLBACK)의 회차·평단을 되살리지 못했습니다.\n"
+                     "보유 중이면 추가 분할매수는 멈추고 매도는 계속합니다.\n"
+                     "조치: 서버 로그의 [PULLBACK-RESTORE] 줄을 확인하세요."),
+                    dedupe_key=f"pullback_restore:{user_id}", dedupe_ttl=3600)
+        except Exception:
+            pass
+
+
 def _pullback_backfill_step(engine, backfill_ts_list, local_series: pd.DataFrame, closed_ts, user_id: str,
                             candle_validator, *, tag: str = "[PULLBACK-BACKFILL]", catchup: bool = False) -> list:
     """PULLBACK BACKFILL: 봉별 루프 대신 링 버퍼 재생 1회(F15). 돌려주는 빈 목록으로 봉별 루프를 건너뛴다(두 번 넣지 않음).
@@ -354,9 +386,12 @@ def _pullback_backfill_step(engine, backfill_ts_list, local_series: pd.DataFrame
     strategy = getattr(engine, "strategy", None)
     holding = bool(getattr(getattr(engine, "position", None), "has_position", False))
     kept = None
-    if holding and hasattr(strategy, "export_split_state"):
+    if hasattr(strategy, "export_split_state"):
         _st = strategy.export_split_state()
-        kept = {k: _st.get(k) for k in _PULLBACK_TRADE_KEYS}
+        # 2차 T6 (T5 넘김): 미보유여도 실거래 회차(trade_origin=live, 체결 대기 포함)면 회차 칸 유지
+        _live_trade = _st.get("trade_origin") == "live" and int(_st.get("entry_count") or 0) > 0
+        if holding or _live_trade:
+            kept = {k: _st.get(k) for k in _PULLBACK_TRADE_KEYS}
     msg = f"🔄 {tag} {len(backfill_ts_list)}개 봉 → 링 버퍼 재생 시작"
     logger.info(msg)
     log_to_file(msg, user_id)
@@ -1564,6 +1599,9 @@ def run_live_loop(
                 if boot_seed_recover_qty is not None:
                     _boot_seed_recover_from_wallet(engine, params.upbit_ticker, user_id, boot_seed_recover_qty)
                     boot_seed_recover_qty = None
+                # ✅ 2차 T6: PULLBACK 분할 상태 복원(워밍업·지갑 복원 뒤 1회) — EMA·MACD 는 부르지 않음
+                if strategy_tag == "PULLBACK":
+                    _pullback_restore_split_state(engine, user_id, _wu_full_df, candle_validator)
                 # ✅ WO-21: 복원 2경로(boot_seed / wallet_sync) 뒤, 첫 매도 평가 전 1회 — trailing 상태 재계산
                 # 2차 T5: PULLBACK 은 트레일링 스톱을 쓰지 않으므로 건너뜀
                 if engine.position.has_position and strategy_tag != "PULLBACK":

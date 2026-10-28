@@ -102,7 +102,12 @@ class OrderReconciler:
         ✅ SP-PI-2: LIMIT BUY 전량 체결 시 발화되는 콜백 등록.
 
         callback signature:
-            callback(uuid: str, executed_price: float, executed_qty: float, executed_ts: datetime)
+            callback(uuid: str, executed_price: float, executed_qty: float, executed_ts: datetime,
+                     state: str = "FILLED")
+
+        - state (2차 T6): "FILLED"(전량 체결) 또는 "CANCELED"(체결량 > 0 인 BUY 가 cancel 로 끝남 —
+          시장가가 이렇게 끝나기도 함). 콜백은 state 키워드를 받아야 한다. 엔진은 CANCELED 를
+          PULLBACK 분할 주문에서만 반영하고 EMA·MACD 경로에서는 무시한다(D6 부분 체결 미처리 그대로).
 
         - (user_id, ticker) 조합당 하나만 유지 (중복 등록 시 덮어씀)
         - StrategyEngine._on_limit_fill 등록 예정
@@ -145,8 +150,10 @@ class OrderReconciler:
             logger.error(f"[OR] hts-detect callback error | user={user_id} ticker={ticker}: {_e}")
 
     def _fire_fill_callback(self, user_id: str, ticker: str, uuid: str,
-                            exec_price: float, exec_qty: float, exec_ts_iso):
-        """FILLED BUY 감지 시 등록된 fill callback 발화 (에러 격리)."""
+                            exec_price: float, exec_qty: float, exec_ts_iso, state: str = "FILLED"):
+        """FILLED BUY 감지 시 등록된 fill callback 발화 (에러 격리).
+        2차 T6: 체결량 있는 CANCELED BUY(시장가가 cancel 로 끝나는 경우)도 state='CANCELED' 로 발화.
+        엔진 _on_limit_fill 은 state != 'FILLED' 를 EMA·MACD 경로에서 무시(D6 그대로), PULLBACK 분할 체결만 반영."""
         with self._lock:
             cb = self._fill_callbacks.get((user_id, ticker))
         if cb is None:
@@ -165,11 +172,18 @@ class OrderReconciler:
             else:
                 exec_ts = datetime.now(ZoneInfo("Asia/Seoul"))
             cb(uuid=uuid, executed_price=float(exec_price), executed_qty=float(exec_qty),
-               executed_ts=exec_ts)
-            logger.info(
-                f"[OR] fill callback fired | user={user_id} ticker={ticker} uuid={uuid} "
-                f"price={exec_price} qty={exec_qty} ts={exec_ts.isoformat()}"
-            )
+               executed_ts=exec_ts, state=state)
+            if state == "FILLED":
+                logger.info(
+                    f"[OR] fill callback fired | user={user_id} ticker={ticker} uuid={uuid} "
+                    f"price={exec_price} qty={exec_qty} ts={exec_ts.isoformat()}"
+                )
+            else:
+                # 수정 1회차: CANCELED 발화는 DEBUG(EMA 는 반영 없이 무시). 실제 반영 INFO 는 엔진 [SPLIT-FILL] applied
+                logger.debug(
+                    f"[OR] fill callback fired | state={state} user={user_id} ticker={ticker} uuid={uuid} "
+                    f"price={exec_price} qty={exec_qty} ts={exec_ts.isoformat()}"
+                )
         except Exception as e:
             logger.error(f"[OR] fill callback 실행 실패 uuid={uuid}: {e}", exc_info=True)
 
@@ -307,7 +321,8 @@ class OrderReconciler:
 
             # ✅ SP-PI-2: LIMIT BUY 전량 체결(FILLED) 감지 시 fill callback 발화
             # D6 결정: 부분 체결(CANCELED + exec_vol > 0)은 처리하지 않음. FILLED 만 대상.
-            if db_state == "FILLED" and side == "BUY" and exec_volume > 0 and avg_price > 0:
+            # 2차 T6: 체결량 있는 CANCELED 도 state 를 실어 발화(EMA 엔진은 무시 — 위 D6 그대로)
+            if db_state in ("FILLED", "CANCELED") and side == "BUY" and exec_volume > 0 and avg_price > 0:
                 # 최종 체결 시각: trades 최상단(가장 최근) 또는 order created_at fallback
                 exec_ts_iso = None
                 if trades:
@@ -320,7 +335,7 @@ class OrderReconciler:
                 self._fire_fill_callback(
                     user_id=user_id, ticker=ticker, uuid=uuid,
                     exec_price=avg_price, exec_qty=exec_volume,
-                    exec_ts_iso=exec_ts_iso,
+                    exec_ts_iso=exec_ts_iso, state=db_state,
                 )
 
             # ✅ WO-24: 현재가 매수 timeout 취소 확정 → 매수 미체결 취소 기록 (+ 옵션이 켜져 있으면 시장가 전환)

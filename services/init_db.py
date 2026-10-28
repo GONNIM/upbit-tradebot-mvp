@@ -1000,6 +1000,51 @@ def ensure_audit_trades_reject_columns(user_id: str):
     conn.close()
 
 
+@_log_migrate_ok
+def ensure_pullback_tables(user_id: str):
+    """
+    ✅ 2차 T6 (2026-10-28): 새 전략(PULLBACK) 분할 상태 테이블 pullback_state 신설 (⚠ 스키마 변경).
+      - 사용자·모드(TEST/LIVE)마다 1행. 회차·첫 체결 시각·armed·배분 기준·체결 수량·원가·평단·어긋남 표식 등.
+      - 시각 칸(first_entry_ts·buy_fail_bar_ts·last_bar_ts·updated_at)은 늘 KST ISO(+09:00) — services/pullback_state 만 쓴다.
+      - CREATE TABLE IF NOT EXISTS 만 한다. 기존 테이블·칸·행은 건드리지 않는다.
+    되돌리기(코드 revert) 때 옛 코드는 이 테이블을 읽지도 쓰지도 않으므로 무해하다.
+    """
+    conn = _connect(user_id)
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pullback_state (
+            user_id            TEXT NOT NULL,
+            mode               TEXT NOT NULL CHECK (mode IN ('TEST','LIVE')),
+            ticker             TEXT NOT NULL,
+            interval           TEXT NOT NULL,
+            entry_count        INTEGER NOT NULL DEFAULT 0,
+            pullback_count     INTEGER NOT NULL DEFAULT 0,
+            first_entry_ts     TEXT,
+            first_entry_reason TEXT,
+            armed              INTEGER NOT NULL DEFAULT 0,
+            prev_golden        INTEGER,
+            trade_origin       TEXT,
+            pending_fill       INTEGER NOT NULL DEFAULT 0,
+            fill_n             INTEGER NOT NULL DEFAULT 0,
+            inv_sum            REAL NOT NULL DEFAULT 0,
+            sizing_base_krw    REAL,
+            realized_pnl_krw   REAL NOT NULL DEFAULT 0,
+            qty                REAL NOT NULL DEFAULT 0,
+            cost_krw           REAL NOT NULL DEFAULT 0,
+            avg_price          REAL,
+            desync             INTEGER NOT NULL DEFAULT 0,
+            buy_fail_bar_ts    TEXT,
+            params_sha256      TEXT,
+            last_bar_ts        TEXT,
+            updated_at         TEXT NOT NULL,
+            PRIMARY KEY (user_id, mode)
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -1021,6 +1066,7 @@ def ensure_all_schemas(user_id: str):
     ensure_users_trading_paused(user_id)           # ✅ PAUSE-1: users trading_paused 추가
     ensure_wo2_audit_columns(user_id)              # ✅ WO-2: audit_buy_eval 지연 발주·유효성 확인 컬럼 6종
     ensure_audit_trades_reject_columns(user_id)    # ✅ WO-9 (e): audit_trades qty/note/meta (발주 거절 기록)
+    ensure_pullback_tables(user_id)                # ✅ 2차 T6: pullback_state 신설 (새 전략 분할 상태)
 
 
 def init_db_if_needed(user_id):
