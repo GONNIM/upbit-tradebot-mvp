@@ -964,6 +964,85 @@ class TestWindowUnits(Base):
         self.assertEqual(self.up.times[n], self.B + 80)
 
 
+class TestEngineRestartSignals(Base):
+    """2차 T11: 같은 pid 안 엔진 재시작 — 세대 값(gen)·쉼 표식(.engine_restart.json)."""
+
+    def alive(self, gen, pid=100, running=None):
+        at = datetime.fromtimestamp(self.clock.t, db.KST).isoformat()
+        (self.data / ".engine_alive.json").write_text(
+            json.dumps({"at": at, "running": running or {"alice": True}, "pid": pid, "gen": gen}),
+            encoding="utf-8")
+
+    def mark(self, until, at=None):
+        (self.data / ".engine_restart.json").write_text(
+            json.dumps({"user": "alice", "at": at if at is not None else self.clock.t, "until": until}),
+            encoding="utf-8")
+
+    async def test_gen_bumps_on_inner_restart(self):
+        (self.root / "alice_active_strategy.txt").write_text("EMA\n", encoding="utf-8")
+        (self.root / "alice_latest_params_EMA.json").write_text(
+            json.dumps({"ticker": "ZRO", "interval": "minute3"}), encoding="utf-8")
+        self.alive({"alice": 1})
+        await self.c.collect("KRW-JTO", 1, 1)          # 처음 값은 기준만
+        self.assertEqual(len(self.up.calls), 8)
+        self.assertEqual(self.c.window_units, {1})
+        self.clock.t += 2 * DAY
+        self.alive({"alice": 1})
+
+        def hook(i):
+            if i == 8 + 3:
+                self.alive({"alice": 2})               # pid 그대로, 세대 값만 바뀜
+        self.up.hook = hook
+        with self.assertRaises(candles.UpbitLimit) as cm:
+            await self.c.collect("KRW-JTO", 1, 2)
+        self.assertEqual(len(self.up.calls), 11)       # 바뀐 뒤 다음 fetch 0회
+        self.assertEqual(cm.exception.retry_after, 300)
+        self.assertEqual(self.c.window_units, {3})     # window_units 바로 다시 읽음
+        self.clock.t += 299
+        with self.assertRaises(candles.UpbitLimit):
+            await self.c.collect("KRW-JTO", 1, 2)
+        self.assertEqual(len(self.up.calls), 11)
+        self.clock.t += 2
+        self.up.hook = None
+        await self.c.collect("KRW-JTO", 1, 2)
+        self.assertGreater(len(self.up.calls), 11)
+
+    async def test_gen_missing_or_new_user_no_rest(self):
+        self.alive({"alice": 1})
+        self.assertFalse(self.c._observe_pid())
+        for gen in (None, "x", {"alice": 1, "bob": 1}):   # 칸 없음·깨짐·새 사용자 추가는 쉬지 않음
+            self.alive(gen)
+            self.assertFalse(self.c._observe_pid(), gen)
+        self.alive({"alice": 1, "bob": 2})
+        self.assertTrue(self.c._observe_pid())             # 이미 본 사용자의 값이 바뀜
+
+    async def test_rest_mark_until_blocks_fetch(self):
+        self.mark(self.clock.t + 300)
+        with self.assertRaises(candles.UpbitLimit) as cm:
+            await self.c.collect("KRW-JTO", 1, 1)
+        self.assertEqual(self.up.calls, [])               # 표식 until 전 fetch 0
+        self.assertEqual(cm.exception.retry_after, 300)
+        self.clock.t += 301
+        await self.c.collect("KRW-JTO", 1, 1)
+        self.assertGreater(len(self.up.calls), 0)
+
+    async def test_rest_mark_broken_or_past_ignored(self):
+        for raw in ("{broken", json.dumps({"until": "x"}), json.dumps([1])):
+            (self.data / ".engine_restart.json").write_text(raw, encoding="utf-8")
+            self.assertFalse(self.c._observe_rest_mark(), raw)
+        self.mark(self.clock.t - 1)
+        self.assertFalse(self.c._observe_rest_mark())
+        self.mark(self.clock.t + 10_000)                   # 표식 상한: at + 300 을 넘겨 쉬지 않는다
+        self.assertTrue(self.c._observe_rest_mark())
+        self.assertLessEqual(self.c.cooldown_until, self.clock.t + 300)
+
+    async def test_rest_mark_future_at_capped_by_now(self):
+        """수정 1회차: 표식의 at 이 미래(시계 어긋남·위조)여도 쉼은 지금 + 300초를 넘지 않는다."""
+        self.mark(self.clock.t + 10_000, at=self.clock.t + 9_000)
+        self.assertTrue(self.c._observe_rest_mark())
+        self.assertLessEqual(self.c.cooldown_until, self.clock.t + 300)
+
+
 class HandlerTests(AsyncHTTPTestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

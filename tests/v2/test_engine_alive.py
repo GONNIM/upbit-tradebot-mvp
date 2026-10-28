@@ -59,7 +59,8 @@ class AliveTest(unittest.TestCase):
         running = self.mod.engine_alive_tick(m, self.path)
         self.assertEqual(running, {"mcmax33": True, "other": False})
         body = self.read()
-        self.assertEqual(set(body), {"pid", "at", "running"})
+        self.assertEqual(set(body), {"pid", "at", "running", "gen"})
+        self.assertEqual(body["gen"], {})   # 2차 T11: 관리자에 gen_map 이 없으면(가짜) 빈 사전
         self.assertEqual(body["running"], {"mcmax33": True, "other": False})
         self.assertEqual(body["pid"], os.getpid())
         # 한 번도 시작 안 한 계정은 키가 없다 → 신버전은 Stopped
@@ -68,6 +69,21 @@ class AliveTest(unittest.TestCase):
         self.assertFalse(status.engine_alive_running(body, "never", now))
         self.assertTrue(status.engine_alive_running(body, "mcmax33", now))
         self.assertFalse(status.engine_alive_running(body, "other", now))
+
+    def test_gen_written_from_manager(self):
+        """2차 T11: 엔진 재시작 세대 값 — 관리자의 gen_map() 을 그대로 쓴다(같은 pid 안 재시작 감지용)."""
+        class GenManager(FakeManager):
+            def gen_map(self_inner):
+                return {"mcmax33": 4}
+        self.mod.engine_alive_tick(GenManager({"mcmax33": "LIVE"}), self.path)
+        self.assertEqual(self.read()["gen"], {"mcmax33": 4})
+
+        class BrokenGen(FakeManager):
+            def gen_map(self_inner):
+                raise RuntimeError("x")
+        self.mod.engine_alive_tick(BrokenGen({"mcmax33": "LIVE"}), self.path)   # gen 실패해도 running 은 씀
+        self.assertEqual(self.read()["gen"], {})
+        self.assertTrue(self.read()["running"]["mcmax33"])
 
     def test_thread_alive_during_restart_wait_counts_as_running(self):
         # 예외 뒤 재시작 대기(sleep) 중에는 스레드가 살아 있다 → get_running_mode 가 모드를 돌려준다
@@ -95,9 +111,12 @@ class AliveTest(unittest.TestCase):
             with self.assertRaises(OSError):
                 self.mod.engine_alive_tick(FakeManager({"u": None}), self.path)
         self.assertEqual(self.read(), before)   # 기존 파일은 그대로
-        src = SCRIPT.read_text(encoding="utf-8")
+        # 2차 T11 수정 1회차: 쓰기는 링크를 따라가지 않는 공용 도우미(임의 이름 임시 파일 → os.replace, 600)
+        self.assertIn("atomic_write_600(path,", SCRIPT.read_text(encoding="utf-8"))
+        src = (SCRIPT.parent.parent / "core" / "safe_file.py").read_text(encoding="utf-8")
         self.assertIn("os.replace(tmp, path)", src)
         self.assertIn("0o600", src)
+        self.assertEqual(sorted(os.listdir(self.tmp.name)), [".engine_alive.json"])   # 실패해도 임시 파일 남지 않음
 
     def test_loop_survives_manager_errors_and_stops(self):
         calls = {"n": 0}
@@ -159,7 +178,7 @@ class AliveTest(unittest.TestCase):
         cwd = os.getcwd()
         self.addCleanup(os.chdir, cwd)
         self.addCleanup(setattr, st_config, "_main_script_path", saved_path)
-        env = {"TRADEBOT_BOOT_RESUME": "0"}
+        env = {"TRADEBOT_BOOT_RESUME": "0", "TRADEBOT_V2_CONTROL": "0"}   # 2차 T11: 시험 프로세스에서 감시 스레드 안 띄움
         with mock.patch.dict(os.environ, env), \
                 mock.patch.object(self.mod.threading, "Thread", side_effect=thread_factory), \
                 mock.patch.object(bootstrap, "run") as run, \

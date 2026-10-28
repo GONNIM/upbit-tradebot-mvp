@@ -190,6 +190,18 @@ class EngineManager:
         # ✅ WO-12 (2026-09-30): 사용자별 "시작" 잠금 — 기동 재개(boot_resume)와 대시보드 [AUTO-RESUME]
         #   두 경로가 동시에 start_engine 을 불러도 Reconciler 카운트·DB 상태·스레드가 한 번만 만들어지게 한다.
         self._start_locks: dict[str, threading.Lock] = {}
+        # ✅ 2차 T11 (결정 D3): 세션 없는 엔진 경로·재시작 판정 — 인자 없는 구버전 흐름은 읽지 않거나 비어 있다.
+        from core import engine_control as _ec
+        self._ready = _ec.READY                      # user_key → 기동 준비 Event(시작마다 새로, live_loop 가 set)
+        self._gen: dict[str, int] = {}               # user_key → 엔진 시작 세대(_start_engine_internal 마다 +1)
+        self._no_recover: set = set()                # 재시작 실패 판정 → 복구 래퍼가 다시 띄우지 않음
+        self._strategy_override: dict[str, str] = {}  # start_engine(strategy=…) 로 정한 전략(세션 대신)
+
+    def get_gen(self, user_id: str) -> int:
+        return int(self._gen.get(_user_key(user_id, ""), 0))
+
+    def gen_map(self) -> dict:
+        return dict(self._gen)
 
     def _start_lock(self, user_id: str) -> threading.Lock:
         key = _user_key(user_id, "")
@@ -240,6 +252,7 @@ class EngineManager:
         restart_count: int = 0,
         *,
         mode: str | None = None,
+        strategy: str | None = None,
     ) -> bool:
         """
         UI에서 설정된 모드를 캡처해서 엔진을 시작한다.
@@ -248,7 +261,11 @@ class EngineManager:
         - test_mode:
             * 명시되면 그 값 우선
             * None이면 captured_mode가 LIVE면 False, 그 외에는 True
+        - strategy (2차 T11): 주어지면 _engine_runner 가 세션 strategy_type 대신 그 값을 쓴다(신버전 요청 — 세션 없음).
+          활성 전략 파일이 PULLBACK 이면 그것이 먼저(T1 결정 규칙). 인자가 없으면 지금처럼 세션 값.
         """
+        key = _user_key(user_id, "")
+        self._no_recover.discard(key)   # 2차 T11: 새 시작 때 복구 금지 표시를 지운다(구버전 흐름은 표시 없음 — 무변경)
         # ✅ WO-12: mode 가 주어지면 세션(current_mode) 대신 그 값을 쓴다 — 서비스 기동 재개(세션 없음)용.
         if mode is not None:
             captured_mode = str(mode).upper()
@@ -267,7 +284,22 @@ class EngineManager:
                     f"[ENGINE-MANAGER] start_engine skip — 이미 실행 중: user_id={user_id}, mode={_already}"
                 )
                 return False
-            return self._start_engine_locked(user_id, tm, restart_count, captured_mode)
+            # 2차 T11: 지정 전략은 실제로 시작될 때만 남긴다(거부되면 이전 값으로 되돌림 — 돌던 엔진의 복구 재시작 보호)
+            _prev = self._strategy_override.get(key)
+            if strategy:
+                self._strategy_override[key] = str(strategy).upper().strip()
+            else:
+                self._strategy_override.pop(key, None)
+            ok = False
+            try:
+                ok = self._start_engine_locked(user_id, tm, restart_count, captured_mode)
+                return ok
+            finally:
+                if not ok:   # 거부·예외 모두 이전 지정 전략으로 되돌림
+                    if _prev is None:
+                        self._strategy_override.pop(key, None)
+                    else:
+                        self._strategy_override[key] = _prev
 
     def _start_engine_locked(
         self,
@@ -335,7 +367,11 @@ class EngineManager:
 
             # 현재 user_key가 어느 모드로 실행 중인지 기록
             self._engine_mode[key] = captured_mode
-            
+            # ✅ 2차 T11: 시작마다 세대 +1(복구 래퍼 재시작 포함)·준비 Event 새로(live_loop 메인 루프 진입 직전 set)
+            self._gen[key] = self._gen.get(key, 0) + 1
+            _ev = self._ready[key] = threading.Event()
+            _ev.stop_event = stop_event   # 수정 1회차: 이 시작의 엔진만 이 Event 를 잡는다(core.engine_control.attach)
+
             thread = threading.Thread(
                 target=self._engine_runner_with_recovery,
                 kwargs=dict(
@@ -352,12 +388,13 @@ class EngineManager:
             self._threads[key] = thread
             return True
 
-    def stop_engine(self, user_id):
+    def stop_engine(self, user_id, *, mode: str | None = None):
         """
         현재 UI 모드 기준으로 엔진을 정지.
         (_user_key가 user_id만 쓰므로, 사실상 "해당 유저의 엔진 전부"를 의미)
+        2차 T11: mode 가 주어지면 current_mode()(세션) 대신 그 값(신버전 요청 — 세션 없음). 인자가 없으면 지금 그대로.
         """
-        ui_mode = current_mode()
+        ui_mode = current_mode() if mode is None else str(mode).upper()
         key = _user_key(user_id, ui_mode)
 
         # 실제 실행 중이던 모드 (TEST/LIVE) 복원
@@ -413,7 +450,13 @@ class EngineManager:
             self._engine_runner(user_id, stop_event, test_mode, captured_mode)
         except Exception as e:
             key = _user_key(user_id, captured_mode)
-            if restart_count < MAX_RESTART_ATTEMPTS and not stop_event.is_set():
+            # 2차 T11: 재시작 실패 판정(_no_recover)이면 다시 띄우지 않는다. 표시가 없는 구버전 흐름은 지금 그대로.
+            if key in self._no_recover:
+                msg = f"⛔ 엔진 예외 — 재시작 실패 판정이라 자동 재시작 안 함: {e}"
+                logger.error(msg)
+                insert_log(user_id, "ERROR", msg)
+                log_to_file(msg, user_id)
+            elif restart_count < MAX_RESTART_ATTEMPTS and not stop_event.is_set():
                 delay = (
                     RESTART_DELAYS[restart_count]
                     if restart_count < len(RESTART_DELAYS)
@@ -428,7 +471,7 @@ class EngineManager:
                 log_to_file(msg, user_id)
                 
                 time.sleep(delay)
-                if not stop_event.is_set():
+                if not stop_event.is_set() and key not in self._no_recover:
                     self._start_engine_internal(
                         user_id=user_id,
                         test_mode=test_mode,
@@ -460,7 +503,9 @@ class EngineManager:
 
         q: queue.Queue = queue.Queue()
         try:
-            session_strategy = st.session_state.get("strategy_type", None)
+            # 2차 T11: start_engine(strategy=…) 로 정한 전략이 있으면 세션 값 대신(세션을 읽지 않음). 없으면 지금 그대로.
+            _override = self._strategy_override.get(lock_id)
+            session_strategy = _override if _override else st.session_state.get("strategy_type", None)
             strategy_type = _decide_strategy_type(user_id, session_strategy)
 
             # 2차 T5 (T1 거부 대체): PULLBACK 은 기존 load_params 를 쓰지 않는다(신버전 저장 형식의 빠진
@@ -477,7 +522,9 @@ class EngineManager:
                 insert_log(user_id, "ERROR", msg)
                 _pbp._notify_critical(
                     f"새 전략 기동 거부 — {PULLBACK_LIVE_REFUSE_MSG}",
-                    "새 전략(PULLBACK) 실계좌(LIVE) 기동을 거부했습니다. 분할 체결 반영 작업 뒤에 엽니다.",
+                    ("새 전략은 아직 실계좌에서 시작하지 않습니다. 분할 체결 반영 작업이 끝난 뒤에 엽니다.\n"
+                     "지금 실계좌 매매는 시작되지 않았습니다. 운영자가 확인합니다.\n"
+                     "투자자님이 따로 하실 일은 없습니다."),
                     f"pullback_live_refused:{user_id}",
                 )
                 return
@@ -576,6 +623,11 @@ class EngineManager:
             update_engine_status(user_id, "stopped")
             remove_engine_thread(user_id)
             user_lock.release()
+            try:   # 2차 T11 수정 1회차: 신버전 제어의 실행 중 엔진 표에서 이 시작의 항목만 지운다(실패해도 무해)
+                from core import engine_control as _ec
+                _ec.detach(user_id, stop_event)
+            except Exception:
+                pass
 
             msg = f"🛑 엔진 종료: user_id={user_id}, mode={captured_mode}"
             log_to_file(msg, user_id)

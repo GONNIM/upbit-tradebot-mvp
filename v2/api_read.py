@@ -12,7 +12,7 @@ from typing import Optional
 
 import tornado.httpclient
 
-from v2 import candles, db
+from v2 import candles, control, db
 from v2.handlers import ApiHandler
 from v2.status import engine_alive_running, engine_state, interval_sec, mode_state
 
@@ -26,7 +26,7 @@ REASON_LABELS = {
     "TRAILING_STOP": "추적 손절", "TRAILING_STOP_FIXED": "추적 손절", "TRAILING_STOP_RATIO": "추적 손절",
     "STALE_POSITION": "정체 청산",
     "HTS_BUY": "외부 매수", "HTS_BUY_ADD": "외부 매수", "HTS_SELL": "외부 매도",
-    "FORCE_BUY": "강제 매수", "FORCE_LIQUIDATE": "강제 매도",
+    "FORCE_BUY": "강제 매수", "FORCE_LIQUIDATE": "강제 매도", "FORCE": "강제 매수",
     "BUY_FAILED_API": "주문 실패",
 }
 FAILED_KEY_LABELS = {
@@ -738,7 +738,35 @@ class CandlesProgressHandler(ReadHandler):
         self.send_json(self.application.settings["candles"].progress())
 
 
+class ControlResultHandler(ApiHandler):
+    """GET /v2/api/control/result?id= (2차 T11) — 엔진 결과 또는 {"status":"pending","overdue"}. 읽기만."""
+
+    def get(self):
+        rid = self.get_argument("id", "")
+        try:
+            r = control.read_result(self.current_user["user_id"], rid)
+        except ValueError:
+            return self.send_json({"error": "bad_request"}, 400)
+        except OSError:
+            return self.send_json({"error": "unavailable"}, 503)
+        if r is None:
+            return self.send_json({"error": "not_found"}, 404)
+        self.send_json(r)
+
+
+class ControlStateHandler(ApiHandler):
+    """GET /v2/api/control/state (2차 T11) — {"pending": id|null, "reservation": {…}|null}."""
+
+    def get(self):
+        try:
+            self.send_json(control.state(self.current_user["user_id"]))
+        except (OSError, ValueError):
+            self.send_json({"error": "unavailable"}, 503)
+
+
 ROUTES = [
+    (r"/v2/api/control/result", ControlResultHandler),
+    (r"/v2/api/control/state", ControlStateHandler),
     (r"/v2/api/candles", CandlesHandler),
     (r"/v2/api/candles/progress", CandlesProgressHandler),
     (r"/v2/api/basic", BasicHandler),

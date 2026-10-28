@@ -12,6 +12,7 @@ systemd:
     TRADEBOT_PORT (기본 8501), TRADEBOT_ADDRESS (기본 0.0.0.0),
     TRADEBOT_BOOT_DELAY (기본 3초 — 서버 기동 로그가 먼저 찍히도록 두는 짧은 지연)
     TRADEBOT_BOOT_RESUME=0 이면 기동 재개를 끈다 (서버만 기동, 기존 첫 접속 재개와 같음)
+    TRADEBOT_V2_CONTROL=0 이면 신버전 엔진 제어 요청 감시 스레드(2차 T11)를 띄우지 않는다 (기본 켜짐)
 
 엔진 생존 파일 (2026-10-25, 신버전 대시보드 「트레이딩 엔진 상태」):
     데몬 스레드 engine_alive 가 5초마다 services/data/.engine_alive.json 에
@@ -52,22 +53,28 @@ def _boot_resume_thread() -> None:
         logging.getLogger("engine.boot_resume").error(f"[BOOT-RESUME] 기동 스레드 예외: {type(e).__name__}: {e}")
 
 
-def _write_engine_alive(path: str, running: dict) -> None:
-    """임시 파일에 쓴 뒤 os.replace(원자적). 권한 600."""
-    body = {"pid": os.getpid(), "at": datetime.now(_KST).isoformat(), "running": running}
-    tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(json.dumps(body))
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+def _write_engine_alive(path: str, running: dict, gen: dict = None) -> None:
+    """임시 파일에 쓴 뒤 os.replace(원자적). 권한 600.
+    2차 T11: "gen" = {계정: 엔진 시작 세대} — 같은 pid 안 재시작(복구 래퍼 포함)을 신버전 캔들 수집이 알아챈다."""
+    body = {"pid": os.getpid(), "at": datetime.now(_KST).isoformat(), "running": running, "gen": gen or {}}
+    # 2차 T11 수정 1회차: 고정 임시 이름(.engine_alive.json.tmp)+O_TRUNC 는 그 자리의 링크를 따라가 바깥 파일을
+    # 덮어쓴다 → 임의 이름 임시 파일(O_EXCL 600) 뒤 os.replace. 파일 이름·내용·주기는 그대로.
+    from core.safe_file import atomic_write_600
+    atomic_write_600(path, json.dumps(body))
+
+
+STALE_TMP_SEC = 600
+STALE_TMP_PREFIXES = (".engine_alive.json", ".engine_restart.json")
+
+
+def _clean_stale_tmp() -> list:
+    """2차 T11 수정 2회차(N7): 기동 때 생존 파일·쉼 표식 폴더(services/data)의 10분 넘은 우리 임시 파일
+    (`.engine_alive.json…tmp`·`.engine_restart.json…tmp`)만 지운다. 링크·다른 모듈 파일은 건드리지 않는다."""
+    from core.safe_file import clean_stale_tmp
+    removed = clean_stale_tmp(os.path.dirname(ENGINE_ALIVE_PATH), STALE_TMP_PREFIXES, STALE_TMP_SEC)
+    if removed:
+        logger.info(f"[ENGINE-ALIVE] 오래된 임시 파일 정리 {len(removed)}개")
+    return removed
 
 
 def engine_alive_tick(manager, path: str = None) -> dict:
@@ -76,7 +83,14 @@ def engine_alive_tick(manager, path: str = None) -> dict:
     running = {}
     for uid in manager.get_active_user_ids():
         running[str(uid)] = manager.get_running_mode(uid) is not None
-    _write_engine_alive(path or ENGINE_ALIVE_PATH, running)
+    gen = {}
+    try:
+        _gm = getattr(manager, "gen_map", None)
+        if callable(_gm):
+            gen = {str(k): int(v) for k, v in (_gm() or {}).items()}
+    except Exception:  # 세대 값을 못 읽어도 생존 기록은 쓴다
+        gen = {}
+    _write_engine_alive(path or ENGINE_ALIVE_PATH, running, gen)
     return running
 
 
@@ -117,6 +131,17 @@ def _engine_alive_thread() -> None:
         logger.error(f"[ENGINE-ALIVE] 스레드 예외: {type(e).__name__}: {e}")
 
 
+def _control_thread() -> None:
+    """2차 T11 (결정 D3): 신버전 엔진 제어 요청 감시(2초 주기) — 엔진 스레드 밖 데몬. 엔진이 멈춰 있어도 「엔진 시작」 처리.
+    실패해도 서버·엔진은 영향이 없다(신버전 요청만 처리되지 않음 — 화면 「엔진이 응답하지 않습니다」)."""
+    try:
+        time.sleep(float(os.environ.get("TRADEBOT_BOOT_DELAY", "3")) + 2.0)
+        from engine.control_requests import control_loop
+        control_loop()
+    except Exception as e:
+        logger.error(f"[CONTROL] 감시 스레드 예외: {type(e).__name__}: {e}")
+
+
 def main() -> None:
     from streamlit import config as _config
     from streamlit.web import bootstrap
@@ -138,6 +163,11 @@ def main() -> None:
             datefmt="%Y-%m-%d %H:%M:%S",
         )  # core/trader.py·engine/engine_manager.py 등과 같은 형식
 
+    try:
+        _clean_stale_tmp()
+    except Exception as e:  # 정리 실패가 기동을 막으면 안 된다
+        logger.error(f"[ENGINE-ALIVE] 임시 파일 정리 실패: {type(e).__name__}: {e}")
+
     if os.environ.get("TRADEBOT_BOOT_RESUME", "1") != "0":
         threading.Thread(target=_boot_resume_thread, name="boot_resume", daemon=True).start()
 
@@ -145,6 +175,12 @@ def main() -> None:
         threading.Thread(target=_engine_alive_thread, name="engine_alive", daemon=True).start()
     except Exception as e:  # 스레드를 못 띄워도 서버(bootstrap.run)는 반드시 기동한다
         logger.error(f"[ENGINE-ALIVE] 스레드 시작 실패: {type(e).__name__}: {e}")
+
+    if os.environ.get("TRADEBOT_V2_CONTROL", "1") != "0":
+        try:
+            threading.Thread(target=_control_thread, name="v2_control", daemon=True).start()
+        except Exception as e:  # 스레드를 못 띄워도 서버(bootstrap.run)는 반드시 기동한다
+            logger.error(f"[CONTROL] 스레드 시작 실패: {type(e).__name__}: {e}")
 
     bootstrap.run(main_script, False, [], flag_options)
 

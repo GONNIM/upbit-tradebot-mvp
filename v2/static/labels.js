@@ -22,6 +22,7 @@ export const REASON_LABELS = {
   "HTS_SELL": "외부 매도",
   "FORCE_BUY": "강제 매수",
   "FORCE_LIQUIDATE": "강제 매도",
+  "FORCE": "강제 매수",
   "BUY_FAILED_API": "주문 실패"
 };
 

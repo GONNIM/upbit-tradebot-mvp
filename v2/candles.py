@@ -53,6 +53,7 @@ STORE_DIR = "v2_candles"
 HALT_FILE = ".halt.json"
 COOLDOWN_FILE = ".cooldown.json"
 ALIVE_FILE = ".engine_alive.json"
+REST_MARK_FILE = ".engine_restart.json"   # 2차 T11: 엔진 재시작 쉼 표식(엔진 감시 스레드가 stop 전에 씀)
 MIN_MS = 60_000
 DAY_MS = 86_400_000
 
@@ -185,6 +186,7 @@ class Collector:
         self.last_job = None     # 끝난 마지막 작업(progress 용)
         self._lock = None
         self._pid = None
+        self._gen = None         # 2차 T11: 엔진 재시작 세대 값(생존 파일 "gen") — 같은 pid 안 재시작 감지
         self._last_fetch = None
         self._low_sec = False
         self._blocked = False    # 418·429 메모리 정지(정지 파일 쓰기가 실패해도 이 프로세스는 멈춘다)
@@ -300,13 +302,54 @@ class Collector:
         pid = data.get("pid") if isinstance(data, dict) else None
         if not isinstance(pid, int) or isinstance(pid, bool):
             return False
+        gen = self._gen_of(data)
         if self._pid is None or pid == self._pid:
+            first = self._pid is None
             self._pid = pid
-            return False
+            # 2차 T11: 같은 pid 안 엔진 재시작(복구 래퍼 포함) — 이미 본 사용자의 세대 값이 바뀌면 pid 변경과 같은 규칙
+            changed = (not first and self._gen is not None
+                       and any(u in self._gen and self._gen[u] != n for u, n in gen.items()))
+            self._gen = gen if self._gen is None else {**self._gen, **gen}
+            if not changed:
+                return False
+            log.warning("[V2-CANDLES] engine generation changed — pause %ds", COOLDOWN_PID)
+        else:
+            self._gen = gen
+            log.warning("[V2-CANDLES] engine pid changed — pause %ds", COOLDOWN_PID)
         self._pid = pid
         self.cooldown_until = max(self.cooldown_until, self.now() + COOLDOWN_PID)
-        log.warning("[V2-CANDLES] engine pid changed — pause %ds", COOLDOWN_PID)
         self._refresh_window_units(data)          # 엔진 재시작 — 봉 단위가 바뀌었을 수 있다
+        return True
+
+    @staticmethod
+    def _gen_of(data) -> dict:
+        """생존 파일 "gen" = {계정: 정수}. 칸 없음·깨짐은 빈 사전(쉬지 않음)."""
+        g = data.get("gen") if isinstance(data, dict) else None
+        if not isinstance(g, dict):
+            return {}
+        return {str(u): n for u, n in g.items() if isinstance(n, int) and not isinstance(n, bool)}
+
+    def _observe_rest_mark(self) -> bool:
+        """2차 T11 (F11): 엔진 재시작 쉼 표식 .engine_restart.json {"user","at","until"} — until 전이면 쉰다.
+        상한은 min(at, 지금) + COOLDOWN_PID(300초). 없음·깨짐·지난 표식은 쉬지 않는다."""
+        try:
+            with open(Path(self.data_dir_fn()) / REST_MARK_FILE, "rb") as f:
+                data = json.loads(f.read(4096).decode("utf-8"))
+        except (OSError, ValueError):
+            return False
+        if not isinstance(data, dict):
+            return False
+        at, until = data.get("at"), data.get("until")
+        nums = all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in (at, until))
+        if not nums:
+            return False
+        now = self.now()
+        until = min(float(until), float(at) + COOLDOWN_PID, now + COOLDOWN_PID)   # 미래 at 도 지금 + 300초까지
+        if until <= now:
+            return False
+        if until > self.cooldown_until:
+            self.cooldown_until = until
+            log.warning("[V2-CANDLES] engine restart mark — pause until mark")
         return True
 
     # ---- 보관 ----
@@ -428,6 +471,7 @@ class Collector:
             return None
         while True:
             self._observe_pid()
+            self._observe_rest_mark()
             self._check_open()
             wait = self._window_wait()
             if wait <= 0:

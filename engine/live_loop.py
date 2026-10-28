@@ -21,6 +21,7 @@ from core.indicator_state import IndicatorState
 from core.position_state import PositionState
 from core.strategy_incremental import IncrementalMACDStrategy, IncrementalEMAStrategy
 from core.strategy_engine import StrategyEngine
+from core import engine_control as _engine_control  # 2차 T11: 신버전 제어 큐(엔진 스레드 쪽)
 
 # 🚀 REST Reconcile 모듈
 from core.candle_clock import CandleClock
@@ -244,11 +245,16 @@ def _pullback_warmup_check(received: int, required: int, *, holding: bool, user_
         return True
     logger.error(f"[PULLBACK-WARMUP] 봉 부족 → 기동 거부 | received={received} required={required} holding={holding}")
     title = f"🚨 새 전략 워밍업 봉 부족 (받은 {received} / 필요 {required}) — {ticker}"
+    # 2차 T11 (T8 넘김): 투자자가 받는 문구 — 내부 절차 표기 없이, 할 일이 없으면 「따로 하실 일 없음」으로 끝맺음
     if holding:
-        body = ("보유 중 새 전략 워밍업 봉이 부족해 기동하지 않았습니다 — 운영자 확인 필요.\n"
-                "운영자 절차: 수동 청산 또는 활성 전략 파일을 직전 전략으로 되돌리기(배포 절 되돌리기 ①).")
+        body = ("코인을 보유한 채 새 전략을 시작하려 했으나, 업비트에서 받은 과거 봉이 모자라 시작하지 않았습니다.\n"
+                "지금은 이 종목의 자동 매도·매수가 멈춰 있습니다. 운영자가 바로 확인해 수동 정리 또는 기존 전략으로 되돌립니다.\n"
+                "급히 정리하셔야 하면 업비트 앱에서 직접 매도하실 수 있습니다.\n"
+                "그 밖에는 투자자님이 따로 하실 일은 없습니다.")
     else:
-        body = "새 전략 워밍업 봉이 부족해 기동하지 않았습니다. 업비트 응답·네트워크를 확인한 뒤 다시 시작해 주세요."
+        body = ("업비트에서 받은 과거 봉이 모자라 새 전략을 시작하지 않았습니다. 보유 코인이 없어 손실 위험은 없습니다.\n"
+                "운영자가 업비트 응답을 확인한 뒤 다시 시작합니다.\n"
+                "투자자님이 따로 하실 일은 없습니다.")
     try:
         if notify is None:
             from services.notifier import send as notify  # noqa: F811
@@ -284,6 +290,30 @@ def _pullback_warmup_gate(initial_df: pd.DataFrame, wu_action: str, required: in
 
 
 PULLBACK_LIVE_REFUSE_MSG = "새 전략은 실계좌(LIVE)에서 아직 쓸 수 없습니다 (분할 체결 반영 작업 뒤 엽니다)"
+
+
+def _control_attach(engine, user_id: str, stop_event) -> None:
+    """2차 T11: 엔진에 제어 큐를 붙이고 실행 중 엔진으로 등록(core.engine_control). 실패해도 매매는 그대로."""
+    try:
+        _engine_control.attach(engine, user_id, stop_event)
+    except Exception as e:
+        logger.error(f"[CONTROL] 제어 큐 등록 실패(매매 무관) | {type(e).__name__}: {e}")
+
+
+def _control_ready(engine, user_id: str) -> None:
+    """2차 T11: 메인 루프 진입 직전 기동 준비 신호. 실패해도 매매는 그대로."""
+    try:
+        _engine_control.mark_ready(engine, user_id)
+    except Exception as e:
+        logger.error(f"[CONTROL] 준비 신호 실패(매매 무관) | {type(e).__name__}: {e}")
+
+
+def _control_drain(engine) -> None:
+    """2차 T11: 메인 루프 맨 앞 — 신버전 제어 큐 비우기(봉 처리와 같은 스레드, 실행 잠금 밖). 큐가 비면 아무 일 없음."""
+    try:
+        _engine_control.drain_control_queue(engine)
+    except Exception as e:
+        logger.error(f"[CONTROL] 제어 큐 처리 예외(매매 계속) | {type(e).__name__}: {e}")
 
 
 def _pullback_seed_warmup(engine, initial_df: pd.DataFrame, pullback_cfg: dict, candle_validator=None):
@@ -356,7 +386,9 @@ def _pullback_restore_split_state(engine, user_id: str, warmup_df, candle_valida
                f"replayed={res.get('replayed')}")
         logger.info(msg)
         log_to_file(msg, user_id)
+        engine._pullback_restore_ok = True
     except Exception as e:
+        engine._pullback_restore_ok = False  # 2차 T11: 기동 준비 신호를 세우지 않는다(전환 성공 판정 실패)
         logger.error(f"[PULLBACK-RESTORE] 복원 예외 | {type(e).__name__}: {e}", exc_info=True)
         _blocked = False
         try:
@@ -1020,14 +1052,20 @@ def run_live_loop(
     if strategy_tag == "PULLBACK" and (pullback_cfg is None or RUN_MODE != "UPBIT_MATCH" or not test_mode):
         if pullback_cfg is None:
             _why = "pullback_cfg 없음(적용본 로더 미경유)"
+            _why_text = "새 전략 설정을 읽지 못했습니다."
         elif RUN_MODE != "UPBIT_MATCH":
             _why = f"RUN_MODE={RUN_MODE}"
+            _why_text = "봇이 새 전략을 쓸 수 없는 운영 방식으로 돌고 있습니다."
         else:
             _why = PULLBACK_LIVE_REFUSE_MSG
+            _why_text = PULLBACK_LIVE_REFUSE_MSG
         logger.error(f"[PULLBACK-PARAMS] 기동 거부 | {_why} | user_id={user_id}")
+        # 2차 T11 (T8 넘김): 투자자용 문구 — 내부 표기(전략 코드·설정 변수)는 위 로그에만
         _pullback_critical(
             f"🚨 새 전략 기동 거부 — {params.upbit_ticker}",
-            f"새 전략(PULLBACK) 엔진을 시작하지 않았습니다.\n사유: {_why}\n운영자 확인 필요.",
+            (f"새 전략을 시작하지 않았습니다.\n사유: {_why_text}\n"
+             "새 전략 매매는 시작되지 않았습니다. 운영자가 확인합니다.\n"
+             "투자자님이 따로 하실 일은 없습니다."),
             f"pullback_boot_refused:{user_id}",
         )
         stop_event.set()
@@ -1263,6 +1301,7 @@ def run_live_loop(
     )
 
     logger.info("✅ StrategyEngine 초기화 완료 (CandleBuffer + IndicatorState + PositionState)")
+    _control_attach(engine, user_id, stop_event)  # ✅ 2차 T11: 제어 큐·실행 중 엔진 등록(주문·판정 무관)
 
     # ============================================================
     # 2단계: 워밍업 (초기 시드)
@@ -1645,7 +1684,9 @@ def run_live_loop(
             except Exception:
                 _cond_path = None
 
+            _control_ready(engine, user_id)  # ✅ 2차 T11: 메인 루프 진입 직전 — 기동 준비 신호(PULLBACK 은 재생·복원 뒤)
             while not stop_event.is_set():
+                _control_drain(engine)  # ✅ 2차 T11: 신버전 제어 큐(강제 매매) — 비었으면 아무 일 없음
                 now = now_utc()
 
                 if clock.should_close(now):

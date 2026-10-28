@@ -229,7 +229,7 @@ class StaticChecks(unittest.TestCase):
     def test_server_import_graph_clean(self):
         # Task 4·8 이 v2.api_read·v2.api_write 를 이 목록에 추가한다.
         code = ("import sys, v2.server, v2.handlers, v2.auth, v2.db, "
-                "v2.status, v2.api_read, v2.candles; "
+                "v2.status, v2.api_read, v2.api_write, v2.candles, v2.control; "
                 "bad = sorted(m for m in sys.modules if m.split('.')[0] in "
                 "('config','streamlit','pyupbit','services','engine')); "
                 "print('BAD:' + ','.join(bad))")

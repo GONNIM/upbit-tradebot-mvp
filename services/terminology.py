@@ -98,6 +98,7 @@ PULLBACK_REASON_LABEL: dict[str, str] = {
     "TP": "익절",
     "SL": "손절",
     "DEADCROSS": "데드크로스",
+    "FORCE": "강제 매수",   # 2차 T11: 신버전 강제 매수(회차 +1)
 }
 
 # 감사 failed_keys(새 전략) → 화면 문구

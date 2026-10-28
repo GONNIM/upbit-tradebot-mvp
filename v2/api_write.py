@@ -17,7 +17,7 @@ import re
 import sqlite3
 from datetime import datetime
 
-from v2 import auth, db, params_schema
+from v2 import auth, control, db, params_schema
 from v2.handlers import ApiHandler
 
 log = logging.getLogger(__name__)
@@ -190,6 +190,32 @@ class PauseHandler(ApiHandler):
         self.send_json({"ok": True, "paused": req["paused"]})
 
 
+class ControlHandler(ApiHandler):
+    """POST /v2/api/control {"kind","payload"} (2차 T11) — 세션 user·입장 모드로 엔진 제어 요청 파일을 쓴다.
+    진행 중 요청이 있으면 409 busy. 실행은 엔진 프로세스가 한다(이 프로세스는 엔진 모듈이 없다)."""
+
+    def post(self):
+        raw = self.request.body or b""
+        if len(raw) > 8 * 1024:
+            return self.send_json({"error": "bad_request"}, 400)
+        try:
+            req = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.send_json({"error": "bad_request"}, 400)
+        if not isinstance(req, dict):
+            return self.send_json({"error": "bad_request"}, 400)
+        u = self.current_user
+        try:
+            rid = control.write_request(u["user_id"], u["mode"], req.get("kind"), req.get("payload", {}))
+        except control.Busy as e:
+            return self.send_json({"error": "busy", "pending": e.pending}, 409)
+        except ValueError:
+            return self.send_json({"error": "bad_request"}, 400)
+        except OSError:
+            return self.send_json({"error": "file_write_failed"}, 500)
+        self.send_json({"id": rid}, 202)
+
+
 class LogoutHandler(ApiHandler):
     """POST /v2/api/logout — 이 브라우저의 신버전 세션 쿠키만 지운다(서버 폐기 없음)."""
 
@@ -200,6 +226,7 @@ class LogoutHandler(ApiHandler):
 
 ROUTES = [
     (r"/v2/api/pause", PauseHandler),
+    (r"/v2/api/control", ControlHandler),
     (r"/v2/api/logout", LogoutHandler),
     (r"/v2/api/params/save", SaveHandler),
     (r"/v2/api/params/current", CurrentHandler),

@@ -673,7 +673,8 @@ class TestSchema(unittest.TestCase):
                     mods = [node.module or ""]
                     if node.module == "v2":
                         for a in node.names:
-                            self.assertIn(a.name, {"db", "params_schema", "auth"}, name)
+                            # 2차 T11: control(엔진 제어 요청 파일 쓰기 — 표준 라이브러리 + v2.db 만) 허용
+                            self.assertIn(a.name, {"db", "params_schema", "auth", "control"}, name)
                 for mod in mods:
                     top = mod.split(".")[0]
                     self.assertTrue(top in std or mod in allowed_v2, (name, mod))

@@ -1719,6 +1719,7 @@ class StrategyEngine:
     def _pullback_skip(self, bar: Bar, indicators, *, code: str, note: str, ctx: Dict[str, Any]) -> None:
         """분할 매수 건너뜀: 감사 BUY_REJECTED 1행 + 알림(같은 거래·같은 사유 1회). 회차는 늘리지 않는다(호출부가 되돌림)."""
         logger.warning(f"⏭️ [PULLBACK-SKIP] {code} | {note}")
+        self._pullback_last_skip_code = code  # 2차 T11: 신버전 강제 매수 결과 사유(_pullback_force_buy)
         self._audit_buy_blocked(bar.ts, indicators, price=bar.close, code=code, note=note, extra=ctx)
         try:
             from services.notifier import send as _notify, LEVEL_WARNING
@@ -1842,6 +1843,81 @@ class StrategyEngine:
             )
         except Exception as e:
             logger.warning(f"[PULLBACK-NOTIFY] 매수 알림 실패(무해) | {type(e).__name__}")
+
+    def _pullback_force_buy(self) -> Dict[str, Any]:
+        """
+        2차 T11 (D6): 신버전 「강제 매수」 — 엔진 스레드(core.engine_control.drain_control_queue)에서만 부른다.
+        회당 금액 1회·회차 +1·사유 FORCE. _execution_lock 안에서 _execute_pullback_buy 를 부른다(시장가 엄격 금액 —
+        안에서 잠금을 다시 잡지 않음, 체결 콜백 _on_limit_fill 과 분할 상태 갱신이 겹치지 않게).
+        주문이 나가지 않으면(건너뜀·실패) 올린 회차를 되돌린다(봉 판정의 F12 와 같음). armed 는 바꾸지 않는다(링 기록도).
+        수정 1회차: 먼저 봉 판정과 같은 지갑 대조(지갑 0 → 분할 상태·판정 회차 정리), 판정 체결 대기(pending_fill)면 거부.
+        반환: {"status": "done"|"rejected", "code", "detail"}
+        """
+        with self._execution_lock:
+            st = self.strategy
+            c = getattr(st, "cfg", {}) or {}
+            if self._pending_split is not None:
+                return {"status": "rejected", "code": "fill_pending", "detail": {}}
+            last = self.buffer.get_last_bar() if self.buffer is not None else None
+            if last is None or not float(getattr(last, "close", 0) or 0) > 0:
+                return {"status": "rejected", "code": "no_price", "detail": {}}
+            px = float(last.close)
+            bar = Bar(ts=self.last_bar_ts or last.ts, open=px, high=px, low=px, close=px, volume=0.0,
+                      is_closed=True, is_confirmed=True, source="FORCE")
+            # 수정 1회차: 봉 판정과 같은 지갑 대조를 먼저 — 강제 매도(엔진 밖 체결) 뒤 다음 봉 전이어도 옛 회차·옛 수량으로
+            # 사지 않게. 지갑 0 이면 _pullback_wallet_check 가 분할 상태를 정리하고, 판정 회차는 여기서 0 으로 맞춘다
+            # (봉 판정의 「실보유 없음 + 판정 회차」 정리와 같음 — 실시간 거래라 armed 해제).
+            self._reconcile_position_with_wallet()
+            self._pullback_wallet_check(bar)
+            if not self.position.has_position and int(getattr(st, "entry_count", 0) or 0) > 0 \
+                    and self._pending_split is None:
+                logger.warning(f"[PULLBACK-FORCE] 실보유 없음 + 판정 회차 {st.entry_count} → 회차 0 으로 맞춘 뒤 강제 매수")
+                st._reset_trade()
+                if st.ring is not None and st.last_ts is not None:
+                    st.ring.amend_last_split(st.last_ts, st)
+            if getattr(st, "pending_fill", False):
+                # 판정 체결 대기(이 봉에 이미 매수 — 다음 봉 판정이 풀어 줌): 겹쳐 사면 회차·체결 반영이 꼬인다
+                return {"status": "rejected", "code": "fill_pending", "detail": {}}
+            if self._pullback_desync:
+                return {"status": "rejected", "code": "desync", "detail": {}}
+            max_n = int(c.get("eff_max_splits") or 0)
+            if int(getattr(st, "entry_count", 0) or 0) >= max_n:
+                return {"status": "rejected", "code": "splits_full", "detail": {"max_splits": max_n}}
+            armed = getattr(st, "armed", False)
+            st._save_buy_undo(True)
+            if int(st.entry_count or 0) == 0:
+                st.first_entry_reason = "FORCE"
+            st.entry_count = int(st.entry_count or 0) + 1
+            st.trade_origin = "live"
+            st.pending_fill = True
+            st.last_buy_reason = "FORCE"
+            round_n = st.entry_count
+            self._pullback_buy_placed = False
+            self._pullback_pending_set = False
+            self._pullback_last_skip_code = None
+            _fb = self._pullback_buy_fail_bar
+            cooling = _fb is not None and self.bar_count - _fb < PULLBACK_BUY_FAIL_COOLDOWN_BARS
+            _raised = True
+            try:
+                self._execute_pullback_buy(bar, self._pullback_ind_dict())
+                _raised = False
+            finally:
+                placed = self._pullback_buy_placed
+                if not placed:
+                    if _raised and self._pullback_pending_set:
+                        self.position.set_pending(False)
+                    st.rollback_last_buy()
+                    st.armed = armed
+                    if st.ring is not None and st.last_ts is not None:   # 수정 1회차: 링 기록도 armed 복원
+                        st.ring.amend_last_split(st.last_ts, st)
+                self._pullback_pending_set = False
+            self._pullback_persist()
+        if placed:
+            logger.info(f"[PULLBACK-FORCE] 강제 매수 {round_n}회차 주문 | user={self.user_id} ticker={self.ticker}")
+            return {"status": "done", "code": "ok", "detail": {"round": round_n}}
+        code = self._pullback_last_skip_code or ("split_order_cooldown" if cooling else "order_failed")
+        logger.warning(f"[PULLBACK-FORCE] 강제 매수 주문 없음 | code={code} user={self.user_id}")
+        return {"status": "rejected", "code": code, "detail": {"round": round_n}}
 
     def _execute_pullback_buy(self, bar: Bar, indicators: Dict[str, Any]) -> None:
         """
