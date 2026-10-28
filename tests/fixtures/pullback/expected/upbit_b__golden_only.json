@@ -1,0 +1,342 @@
+{
+ "meta": {
+  "fixture": "upbit_b",
+  "cfg": "golden_only",
+  "bar_count": 10078,
+  "script_sha256": "4418dad6123ad852849f146130227366b6891c79cacf5dcce6281860d2de2576"
+ },
+ "buys": [
+  {
+   "signal_bar_t": 1792615500000,
+   "fill_bar_t": 1792615560000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792680180000,
+   "fill_bar_t": 1792680240000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792685460000,
+   "fill_bar_t": 1792685520000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792685700000,
+   "fill_bar_t": 1792685760000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792685820000,
+   "fill_bar_t": 1792685880000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792697520000,
+   "fill_bar_t": 1792697580000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792704300000,
+   "fill_bar_t": 1792704360000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792722900000,
+   "fill_bar_t": 1792722960000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792744620000,
+   "fill_bar_t": 1792744680000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792760580000,
+   "fill_bar_t": 1792760640000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792767000000,
+   "fill_bar_t": 1792767060000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792773720000,
+   "fill_bar_t": 1792773780000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792789020000,
+   "fill_bar_t": 1792789080000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792809720000,
+   "fill_bar_t": 1792809780000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792830600000,
+   "fill_bar_t": 1792830660000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792844700000,
+   "fill_bar_t": 1792844760000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792862520000,
+   "fill_bar_t": 1792862580000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792881600000,
+   "fill_bar_t": 1792881660000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792904640000,
+   "fill_bar_t": 1792904700000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792928640000,
+   "fill_bar_t": 1792928700000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792940460000,
+   "fill_bar_t": 1792940520000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792990140000,
+   "fill_bar_t": 1792990200000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793004240000,
+   "fill_bar_t": 1793004300000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793026980000,
+   "fill_bar_t": 1793027040000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793034660000,
+   "fill_bar_t": 1793034720000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793051220000,
+   "fill_bar_t": 1793051280000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793058360000,
+   "fill_bar_t": 1793058420000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793088240000,
+   "fill_bar_t": 1793088300000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793097660000,
+   "fill_bar_t": 1793097720000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1793148840000,
+   "fill_bar_t": 1793148900000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  }
+ ],
+ "sells": [
+  {
+   "bar_t": 1792623720000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792682100000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792685640000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792685760000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792686660000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792700520000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792708020000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792731660000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792747740000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792760760000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792768320000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792777440000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792793400000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792813740000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792831860000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792851540000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792877880000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792899960000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792906620000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792934880000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792954560000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1792997280000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793020260000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793032560000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793039880000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793053320000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793066100000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793093700000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793136660000,
+   "type": "TP",
+   "entries": 1
+  },
+  {
+   "bar_t": 1793158440000,
+   "type": "TP",
+   "entries": 1
+  }
+ ]
+}

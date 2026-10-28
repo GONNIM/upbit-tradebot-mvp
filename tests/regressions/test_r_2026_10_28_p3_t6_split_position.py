@@ -53,7 +53,8 @@ except ImportError:  # 구현 전 실패 시험 단계
     pbs = None
 
 KST = ZoneInfo("Asia/Seoul")
-T5_COMMIT = "0b04570"  # T5 커밋 — EMA 공용 함수 무변경 대조 기준
+# EMA 공용 함수 무변경 대조 기준 — 2차 T10: 기준 해시는 baseline_commits 한 곳에서만 정한다(올리는 규칙도 그 파일)
+from tests.regressions.baseline_commits import EMA_BASELINE_COMMIT as T5_COMMIT  # noqa: E402
 
 
 def need_store(case):

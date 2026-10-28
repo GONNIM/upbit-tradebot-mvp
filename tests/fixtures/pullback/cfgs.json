@@ -1,0 +1,37 @@
+{
+ "meta": {
+  "note": "2차 T10 일치 시험 조합 (계획 T10 「조합」, spec 6절). base 에서 하나씩 바꿈. 모양은 원본 run() 543-556행과 같음(buyOnGoldenCross bool, deadcross·compounding \"yes\"|\"no\"). base = tests/v2/js/fixtures/pullback_cfg_base.json",
+  "original": "docs/specs/MA60_200_GoldenCross_Pullback_Backtester_2610201820.html 143~938행",
+  "original_script_sha256": "4418dad6123ad852849f146130227366b6891c79cacf5dcce6281860d2de2576",
+  "fixtures": ["upbit_a", "upbit_b", "upbit_c"]
+ },
+ "base": {
+  "maType": "ema",
+  "ma60p": 60,
+  "ma200p": 200,
+  "pullbackP": 60,
+  "slopeLB": 20,
+  "minSlope": 0,
+  "slopeDrop": 0,
+  "buyOnGoldenCross": true,
+  "maxSplits": 5,
+  "maxPullbackBuys": 5,
+  "tp": 1.0,
+  "sl": 1.5,
+  "capital": 10000,
+  "fee": 0.05,
+  "deadcross": "yes",
+  "compounding": "no"
+ },
+ "cfgs": {
+  "base": {},
+  "golden_no": {"buyOnGoldenCross": false},
+  "golden_only": {"maxSplits": 0},
+  "pb_lt_splits": {"maxPullbackBuys": 2},
+  "slope_drop": {"slopeDrop": 0.3},
+  "deadcross_no": {"deadcross": "no"},
+  "compounding_yes": {"compounding": "yes"},
+  "sma": {"maType": "sma"},
+  "splits_full_armed": {"maxSplits": 2}
+ }
+}

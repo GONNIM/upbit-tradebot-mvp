@@ -42,7 +42,8 @@ from tests.regressions.test_r_2026_10_28_p3_t5_pullback_engine import (  # noqa:
     CALM, DIP, EngineCase, FakeTrader, TICKER, USER, bar,
 )
 
-BASE_COMMIT = "2749080"   # 2차 T7 커밋 — T8 전 원본(EMA 경로 비교 기준)
+# EMA 경로 비교 기준 — 2차 T10: 기준 해시는 baseline_commits 한 곳에서만 정한다(올리는 규칙도 그 파일)
+from tests.regressions.baseline_commits import EMA_BASELINE_COMMIT as BASE_COMMIT  # noqa: E402
 NO_ACTION = "투자자님이 따로 하실 일은 없습니다."
 # 투자자 알림에 넣지 않는 내부 표기(영문 태그·표 이름·작업 번호)
 INTERNAL = re.compile(r"PULLBACK|\[[A-Z_-]+\]|audit_|pullback_state|split_|\bT\d+\b|\bF\d+\b|_SYNC|DESYNC")

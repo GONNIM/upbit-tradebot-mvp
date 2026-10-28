@@ -41,7 +41,8 @@ from tests.regressions.test_r_2026_10_28_p3_t5_pullback_engine import (  # noqa:
     CALM, DIP, EngineCase, FakeTrader, bar,
 )
 
-BASE_COMMIT = "ebe4605"  # 2차 T8 커밋 — T9 전 원본(EMA 경로 비교 기준)
+# EMA 경로 비교 기준 — 2차 T10: 기준 해시는 baseline_commits 한 곳에서만 정한다(올리는 규칙도 그 파일)
+from tests.regressions.baseline_commits import EMA_BASELINE_COMMIT as BASE_COMMIT  # noqa: E402
 KST = "Asia/Seoul"
 
 

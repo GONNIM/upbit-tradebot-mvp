@@ -1,0 +1,287 @@
+{
+ "meta": {
+  "fixture": "upbit_b",
+  "cfg": "deadcross_no",
+  "bar_count": 10078,
+  "script_sha256": "4418dad6123ad852849f146130227366b6891c79cacf5dcce6281860d2de2576"
+ },
+ "buys": [
+  {
+   "signal_bar_t": 1792583220000,
+   "fill_bar_t": 1792583280000,
+   "round": 1,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792583340000,
+   "fill_bar_t": 1792583400000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792583460000,
+   "fill_bar_t": 1792583520000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792584000000,
+   "fill_bar_t": 1792584060000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792584060000,
+   "fill_bar_t": 1792584120000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792597620000,
+   "fill_bar_t": 1792597680000,
+   "round": 1,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792597980000,
+   "fill_bar_t": 1792598040000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792598220000,
+   "fill_bar_t": 1792598280000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792598280000,
+   "fill_bar_t": 1792598340000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792598460000,
+   "fill_bar_t": 1792598520000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792680180000,
+   "fill_bar_t": 1792680240000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792680480000,
+   "fill_bar_t": 1792680540000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792681140000,
+   "fill_bar_t": 1792681200000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792685700000,
+   "fill_bar_t": 1792685760000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792685820000,
+   "fill_bar_t": 1792685880000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792862520000,
+   "fill_bar_t": 1792862580000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792867320000,
+   "fill_bar_t": 1792867380000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792870380000,
+   "fill_bar_t": 1792870440000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792870620000,
+   "fill_bar_t": 1792870680000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792871160000,
+   "fill_bar_t": 1792871220000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792928640000,
+   "fill_bar_t": 1792928700000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792930500000,
+   "fill_bar_t": 1792930560000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792930620000,
+   "fill_bar_t": 1792930680000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792930680000,
+   "fill_bar_t": 1792930740000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792933320000,
+   "fill_bar_t": 1792933380000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792990140000,
+   "fill_bar_t": 1792990200000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792993320000,
+   "fill_bar_t": 1792993380000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792993620000,
+   "fill_bar_t": 1792993680000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792993740000,
+   "fill_bar_t": 1792993800000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792994040000,
+   "fill_bar_t": 1792994100000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793138340000,
+   "fill_bar_t": 1793138400000,
+   "round": 1,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793138400000,
+   "fill_bar_t": 1793138460000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793138520000,
+   "fill_bar_t": 1793138580000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793139000000,
+   "fill_bar_t": 1793139060000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793139180000,
+   "fill_bar_t": 1793139240000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793160540000,
+   "fill_bar_t": 1793160600000,
+   "round": 1,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793160600000,
+   "fill_bar_t": 1793160660000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793161920000,
+   "fill_bar_t": 1793161980000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793162820000,
+   "fill_bar_t": 1793162880000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1793163000000,
+   "fill_bar_t": 1793163060000,
+   "round": 5,
+   "trigger": "PULLBACK"
+  }
+ ],
+ "sells": [
+  {
+   "bar_t": 1792594080000,
+   "type": "TP",
+   "entries": 5
+  },
+  {
+   "bar_t": 1792635540000,
+   "type": "SL",
+   "entries": 5
+  },
+  {
+   "bar_t": 1792851480000,
+   "type": "SL",
+   "entries": 5
+  },
+  {
+   "bar_t": 1792913160000,
+   "type": "SL",
+   "entries": 5
+  },
+  {
+   "bar_t": 1792979100000,
+   "type": "SL",
+   "entries": 5
+  },
+  {
+   "bar_t": 1793136660000,
+   "type": "TP",
+   "entries": 5
+  },
+  {
+   "bar_t": 1793158500000,
+   "type": "TP",
+   "entries": 5
+  }
+ ]
+}

@@ -43,6 +43,8 @@ env/
 !v2/static/vendor/*.txt
 # 백테스터 이식 비교 시험의 Binance 고정 입력은 추적
 !tests/v2/js/fixtures/*.json
+# 새 전략(PULLBACK) 일치 시험의 업비트 확정 봉·조합·기준값 고정 파일은 추적 (2차 T10)
+!tests/fixtures/pullback/**/*.json
 
 # 백업 디렉토리 (Boilerplate 적용 중 생성)
 .backup/
@@ -78,6 +80,7 @@ WO-2026-001_IMPLEMENTATION_REPORT.md
 !/tests/
 !/tests/regressions/
 !/tests/regressions/**
+/tests/regressions/**/__pycache__/
 !/tests/__init__.py
 
 # 새 문서 구조는 추적 (docs/, README.md, DOCS_REORGANIZATION_*.md 제외)
