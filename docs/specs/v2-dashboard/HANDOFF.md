@@ -224,7 +224,7 @@ docs/specs/v2-dashboard/HANDOFF.md 를 읽고 그대로 시작하라.
 - Step 2 스크립트: `scripts/v2/v1_probe.py`(2026-10-22 22:58 실행, 결과는 measure Step 2 절). plan Task 0 Step 2 는 scratchpad 보관이었으나 세션 교대로 새 세션이 볼 수 있게 저장소에 둔다(`scripts/v2/` 는 plan Task 9 가 정한 위치).
 
 ### 2026-10-22 보고·진행 방식 (사용자 지시)
-- 이후 모든 보고는 claude-studio 규칙의 양식을 따른다: `/Users/gonnim/GON-Dev/claude-studio/agents/po.md` 「보고 양식」(결론 / 한 것·확인한 것·남은 것 / 결정해 주실 것 / 산출물), Fable 질의서·답변서는 po.md 「질의서 양식」·`fable-advisor.md` 「답변 양식」.
+- 이후 모든 보고는 claude-studio 규칙의 양식을 따른다: `/Users/gonnim/GON-Dev/claude-studio/agents/po.md` 「보고 양식」(결론 / 바뀐 것 / 자세히 / 정해 주실 것 / 지금 남은 일), Fable 질의서·답변서는 po.md 「질의서 양식」·`fable-advisor.md` 「답변 양식」.
 - Fable 질의 규칙(세션 시작 훅이 넣음)을 지킨다. 파일 쓰기·커밋·결정 요청·단계 넘김 직전마다 Fable 판정 「진행」을 받는다. 같은 단계 재질의 2회 뒤에도 「진행」이 아니면 멈추고 사용자에게 묻는다.
 - Fable 호출: 프로젝트에 fable-advisor 역할이 없으므로 Agent 도구 `model: "fable"` + `fable-advisor.md` 본문을 프롬프트 앞에 붙인다. 질의·답변은 `docs/fable/YYYY-MM-DD-<단계>-<번호>.md`(po.md 23행·세션 시작 훅 규칙의 경로). po.md 22행은 fable-advisor 역할이 없으면 멈추라고 하지만, Agent `model: "fable"` 방식은 세션 시작 훅 규칙 [3]이 정한 대안이고 2026-10-22 세션에서 이 방식으로 진행했다. 프로젝트에 역할 배치는 백로그.
 - 같은 지시를 `CLAUDE.md` 「축적된 규칙」에도 적었다. 메모리 저장은 사용자 허용 전이라 하지 않았다(핸드북 규칙 3).
