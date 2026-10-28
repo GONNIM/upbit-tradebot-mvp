@@ -287,6 +287,8 @@ def _feed_bar(ind, ring, strategy, bar, step: Optional[Callable]):
 
 
 def _kst_iso(ts) -> str:
+    # 쓰는 곳: 봉 시각(bar.ts) → 감사 bar_time·판정 기록 bar_ts. 시간대 없음 = UTC(엔진 봉 시각 규칙).
+    # 저장값 복원(_to_ts, 시간대 없음=KST)과 다르다.
     t = pd.Timestamp(ts)
     if t.tzinfo is None:
         t = t.tz_localize("UTC")  # 엔진 봉 시각은 UTC (Issue #2: 시간대 명시)
@@ -388,11 +390,46 @@ SPLIT_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "first_en
 
 
 def _to_ts(v):
-    """T6 저장 형식(KST ISO 문자열) 등 → tz 있는 pd.Timestamp. 시간대 없는 값은 KST 로 본다(Issue #2)."""
+    """T6 저장 형식(KST ISO 문자열) 등 → tz 있는 pd.Timestamp. 시간대 없는 값은 KST 로 본다(Issue #2).
+    쓰는 곳: 분할 상태 복원(restore_split_state 의 first_entry_ts·last_ts — pullback_state 저장값은 KST).
+    봉 시각(bar.ts)에는 쓰지 않는다 — 봉 시각의 시간대 없음은 UTC(_kst_iso·is_trading_time)."""
     if v is None or (isinstance(v, pd.Timestamp) and v.tzinfo is not None):
         return v
     t = pd.Timestamp(v)
     return t.tz_localize(_KST) if t.tzinfo is None else t
+
+
+def _hhmm_minutes(s: str) -> int:
+    """"HH:MM" → 하루 안의 분(0~1439). 형식이 틀리면 ValueError (로더 _HHMM_RE 와 같은 범위)."""
+    if not isinstance(s, str) or len(s) != 5 or s[2] != ":" or not (s[:2] + s[3:]).isdigit():
+        raise ValueError(f"trading time format: {s!r}")
+    h, m = int(s[:2]), int(s[3:])
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError(f"trading time range: {s!r}")
+    return h * 60 + m
+
+
+def is_trading_time(ts, start: str, end: str) -> bool:
+    """
+    2차 T9 (결정 D5): ts 가 거래 시간(KST) 안인지. 시작 포함·끝 제외.
+      시작 < 끝 : start ≤ t < end (같은 날)
+      시작 > 끝 : t ≥ start 또는 t < end (자정 넘김 — 09:00~02:00 이면 01:59 안, 02:00 밖)
+      시작 == 끝: 하루 종일 안(live_loop_old._is_trading_hours 와 같은 결과)
+    ts 는 시간대가 있어야 한다. 없는 값은 엔진 봉 시각 규칙대로 UTC 로 본다(Issue #2 — _kst_iso 와 같음).
+    쓰는 곳: _off_hours 의 판정 시각(봉 시작 bar.ts + 봉 단위). 저장값 복원(_to_ts, 시간대 없음=KST)과 다르다.
+    분 단위로 비교한다(초는 버림).
+    """
+    t = pd.Timestamp(ts)
+    if t.tzinfo is None:
+        t = t.tz_localize("UTC")
+    k = t.tz_convert(_KST)
+    now = k.hour * 60 + k.minute
+    s, e = _hhmm_minutes(start), _hhmm_minutes(end)
+    if s < e:
+        return s <= now < e
+    if s > e:
+        return now >= s or now < e
+    return True
 
 
 def _yes(v) -> bool:
@@ -437,8 +474,16 @@ class IncrementalPullbackStrategy:
             "compounding": _yes(p.get("compounding", False)),  # 2차 T6: 배분 기준 + 실현 손익(엔진이 읽음)
             "golden_only": golden_only,
             "eff_max_splits": 1 if golden_only else int(p["maxSplits"]),
+            # 2차 T9 (결정 D5): 거래 시간 제한 — 적용본 선택 4키(engine/pullback_params.OPTIONAL_KEYS), 없으면 꺼짐
+            "enable_trading_hours": p.get("enable_trading_hours", False) is True,
+            "trading_start_time": str(p.get("trading_start_time", "09:00")),
+            "trading_end_time": str(p.get("trading_end_time", "02:00")),
+            "allow_sell_during_off_hours": p.get("allow_sell_during_off_hours", True) is not False,
         }
         c = self.cfg
+        if c["enable_trading_hours"]:
+            _hhmm_minutes(c["trading_start_time"])  # 형식이 틀리면 생성 실패(로더가 먼저 거름)
+            _hhmm_minutes(c["trading_end_time"])
         self.indicators = PullbackIndicators(c["ma60p"], c["ma200p"], c["pullbackP"], c["slopeLB"], c["maType"])
         self.ring: Optional[PullbackSnapshotRing] = PullbackSnapshotRing(RING_CAPACITY)
         self.restore_split_state(dict(_SPLIT_DEFAULTS))
@@ -562,6 +607,15 @@ class IncrementalPullbackStrategy:
         self.armed = False
         self.trade_origin = None
 
+    def _off_hours(self, bar_ts) -> bool:
+        """2차 T9: 이 봉의 판정 시각이 거래 시간 밖인지. 판정 시각 = 봉 마감(봉 시작 + 봉 단위) KST —
+        판정·주문이 나가는 순간이자 원본 체결 시각(다음 봉 시가)과 같은 순간. 꺼짐이면 늘 False."""
+        c = self.cfg
+        if not c["enable_trading_hours"]:
+            return False
+        judge = pd.Timestamp(bar_ts) + pd.Timedelta(minutes=self.interval_min)
+        return not is_trading_time(judge, c["trading_start_time"], c["trading_end_time"])
+
     def _is_active(self, v: dict) -> bool:
         """원본 isFilterActive 229-240."""
         t, m, s, s_lb = v.get("maTrend"), v.get("ma200"), v.get("slope200"), v.get("slope200_lb")
@@ -667,16 +721,28 @@ class IncrementalPullbackStrategy:
             elif bar.low <= sl_price:
                 signal = ("SELL", "SL")
 
+        # 2차 T9 (결정 D5·13-7 가): 거래 시간 밖이면 주문이 될 신호만 막는다. 지표·prev_golden 은 위에서 이미
+        # 갱신했고, armed 는 원본 규칙대로 켜고 끈다(막힌 매수 봉에서는 armed 유지). 회차는 늘리지 않는다.
+        # 재생(워밍업·BACKFILL)도 같은 규칙 — 판정 상태가 실시간 경로와 같게 흐른다.
+        off = self._off_hours(bar.ts)
+        blocked = None
+        if signal is not None and off and not c["allow_sell_during_off_hours"]:
+            blocked = signal       # 매도 막음: 거래 정리 안 함(보유·회차 그대로) → 열린 첫 봉에서 다시 평가
+            signal = None
+
         origin = "live" if live else "replay"
         exit_round = None
+        golden_buy = (c["buyOnGoldenCross"] and just_crossed and self.entry_count == 0 and not holding
+                      and active and self.entry_count < c["eff_max_splits"])
         if signal is not None:
             exit_round = (self.entry_count, self.pullback_count)  # 2차 T8: 매도 체결 행 회차(정리 전 값)
             self._reset_trade()
+        elif blocked is not None:
+            pass  # 시간 밖 매도 막음 — 보유 중이라 매수 판정도 하지 않음(시간 밖)
         elif buy_block:
             pass  # 매수 판정(4·5) 건너뜀 — armed 도 그대로
         # 4) 골든크로스 1차 매수
-        elif (c["buyOnGoldenCross"] and just_crossed and self.entry_count == 0 and not holding
-              and active and self.entry_count < c["eff_max_splits"]):
+        elif golden_buy and not off:
             self._save_buy_undo(live)
             self.entry_count += 1
             self.first_entry_reason = "GOLDEN"
@@ -686,12 +752,17 @@ class IncrementalPullbackStrategy:
             signal = ("BUY", "GOLDEN")
             split_round = self.entry_count
         else:
+            if golden_buy:
+                # 2차 T9: 시간 밖 골든크로스 = 놓침. 열린 뒤 다시 사지 않는다(prev_golden 이미 갱신) → 눌림목 경로.
+                blocked = ("BUY", "GOLDEN")
             # 5) 눌림목 → 재돌파
             capped = self.pullback_count >= c["maxPullbackBuys"]
             if not c["golden_only"] and not capped and active and self.entry_count < c["eff_max_splits"]:
                 if pm is not None and bar.low < pm:
                     self.armed = True
-                if self.armed and pm is not None and bar.close > pm:
+                if self.armed and pm is not None and bar.close > pm and off:
+                    blocked = ("BUY", "PULLBACK")  # 2차 T9: 매수 막음 — armed 유지(결정 13-7 가), 회차 불변
+                elif self.armed and pm is not None and bar.close > pm:
                     self._save_buy_undo(live)
                     if self.entry_count == 0:
                         self.first_entry_reason = "PULLBACK"
@@ -720,8 +791,16 @@ class IncrementalPullbackStrategy:
             "signal": signal[0] if signal else None, "reason": signal[1] if signal else None,
             "split_round": split_round,
             "failed_keys": ([] if (signal and live) else (["REPLAY"] if not live else
-                            (list(buy_block) if buy_block else ["NO_SIGNAL"]))),
+                            (["OFF_HOURS", *buy_block] if blocked is not None else
+                             (list(buy_block) if buy_block else ["NO_SIGNAL"])))),
+            "off_hours": off,
+            "blocked_signal": f"{blocked[0]}:{blocked[1]}" if blocked is not None else None,
         }
+        if blocked is not None and live:
+            logger.info(f"[PULLBACK-HOURS] 거래 시간 밖 — {blocked[0]}:{blocked[1]} 주문 막음 "
+                        f"(armed={self.armed} 회차={self.entry_count}) | 판정 시각(봉 마감 KST)="
+                        f"{format_kst(pd.Timestamp(bar.ts) + pd.Timedelta(minutes=self.interval_min))} "
+                        f"| 거래 시간 {c['trading_start_time']}~{c['trading_end_time']}")
         if exit_round is not None:
             ev["exit_round"], ev["exit_pullback_round"] = exit_round
         if not live:
@@ -760,6 +839,7 @@ class IncrementalPullbackStrategy:
         """
         last_eval → (failed_keys, checks) — 감사 audit_buy_eval·audit_sell_eval 의 칸(계획 T8, 스키마 변경 없음).
           failed_keys: [] (이 봉 신호) | NOT_ACTIVE·WAIT_PULLBACK·WAIT_GOLDEN·SPLITS_FULL·PULLBACK_CAP·DESYNC
+                       | OFF_HOURS (2차 T9: 거래 시간 밖이라 막힌 매수·매도 — checks.blocked_signal)
                        | 판정 안 함·막음 표식 TENTATIVE·UNCONFIRMED·DUPLICATE·PENDING_FILL·STATE_POLLUTED·REPLAY
           checks: strategy·round·pullback_round·armed·active·inactive_reason·maTrend·ma200·maPullback·slope200·
                   buy_reason·golden_event(+ 화면·관찰용 덧칸)
@@ -804,6 +884,9 @@ class IncrementalPullbackStrategy:
             "mode": ev.get("mode"),
             "bar_ts": ev.get("bar_ts"),
             "failed_keys": failed,
+            # 2차 T9: 거래 시간 밖 봉 표식·막힌 신호("BUY:PULLBACK"·"BUY:GOLDEN"·"SELL:TP" 등)
+            "off_hours": _b("off_hours"),
+            "blocked_signal": ev.get("blocked_signal"),
         }
         if ev.get("note"):
             checks["note"] = ev["note"]

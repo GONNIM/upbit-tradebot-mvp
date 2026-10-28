@@ -117,6 +117,7 @@ PULLBACK_STATE_LABEL: dict[str, str] = {
     "TENTATIVE": "잠정 봉(판정 안 함)",
     "UNCONFIRMED": "확정 전 봉(판정 안 함)",
     "DUPLICATE": "이미 본 봉(판정 안 함)",
+    "OFF_HOURS": "거래 시간 밖 — 주문 막음",  # 2차 T9 (결정 D5)
 }
 
 # 회차 건너뜀·주문 전 차단 원인(엔진 알림 제목·감사 체결 표 「새 전략 내용」 공용)
@@ -178,10 +179,17 @@ def pullback_eval_text(failed_keys, checks) -> str:
         return "-"
     k = keys[0]
     text = PULLBACK_STATE_LABEL.get(k, k)
-    if k == "WAIT_PULLBACK" and isinstance(rnd, int):
+    if k == "OFF_HOURS" and isinstance(ck.get("blocked_signal"), str) and ":" in ck["blocked_signal"]:
+        # 2차 T9: 「거래 시간 밖 — 매수 막음 · 눌림목 매수」 / 「거래 시간 밖 — 매도 막음 · 익절」
+        side, reason = ck["blocked_signal"].split(":", 1)
+        what = "매수" if side == "BUY" else "매도"
+        text = f"거래 시간 밖 — {what} 막음 · {PULLBACK_REASON_LABEL.get(reason, reason)}"
+    elif k == "WAIT_PULLBACK" and isinstance(rnd, int):
         text = f"{text} — {rnd + 1}회차 준비"
     elif k == "NOT_ACTIVE" and ck.get("inactive_reason") in _INACTIVE_LABEL:
         text = f"{text}({_INACTIVE_LABEL[ck['inactive_reason']]})"
+    if k != "OFF_HOURS" and ck.get("off_hours") in (1, True):
+        text = f"{text} · 거래 시간 밖"  # 2차 T9: 막힌 신호가 없는 시간 밖 봉
     return text
 
 

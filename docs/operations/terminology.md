@@ -58,7 +58,7 @@
   - 대시보드: `fetch_logs` 결과 전체 (매수·매도·상태·전체·에러 로그)
   - 감사 로그 페이지: BUY 평가, SELL 평가, 체결 표의 문자열 칸
 
-## 5. 새 전략(눌림목 분할매수) 용어 — 2차 T8 (2026-10-28, ⚠ 운영자 확인 대상 — 배포 전 확정)
+## 5. 새 전략(눌림목 분할매수) 용어 — 2차 T8 (2026-10-28, 운영자 확인 완료 10/28 — 결정 1028-10 「그대로 확정」)
 
 - 출처: pullback spec 5절, `services/terminology.py` 의 `PULLBACK_TERMS`·`PULLBACK_REASON_LABEL`·`PULLBACK_STATE_LABEL`.
 - 적용 범위: 감사 로그 페이지(새 전략 행이 있을 때만 「전략」·「새 전략 상태」·「새 전략 내용」 칸), 새 전략 텔레그램 알림. EMA·MACD 행의 표시는 바꾸지 않는다.
@@ -86,6 +86,7 @@
 | `PULLBACK_CAP` | 눌림목 매수 한도 다 참 |
 | `DESYNC` | 보유 수량 어긋남 — 추가 매수 멈춤 |
 | `WARMUP` | 준비 중(지표 계산) |
+| `OFF_HOURS` (+ `blocked_signal`) | 거래 시간 밖 — 매수 막음 · 눌림목 매수 / 거래 시간 밖 — 매도 막음 · 익절 (거래 시간 제한을 켰을 때, 판정 시각 = 봉 마감 KST). 막힌 신호가 없는 시간 밖 봉은 원래 문구 뒤에 「 · 거래 시간 밖」 |
 | `PENDING_FILL` · `STATE_POLLUTED` · `TENTATIVE` · `UNCONFIRMED` · `DUPLICATE` | 체결 대기 · 지표 확인 필요 — 매수 멈춤 · 잠정 봉 · 확정 전 봉 · 이미 본 봉 |
 
 체결 표: audit_trades `type = PULLBACK_SYNC` → 「🔄 새 전략 수량 맞춤」(지갑 대조 어긋남 기록, 체결 아님 — 손익 집계 제외). 거래 행 분류(T7 `classify`) 라벨: `PULLBACK` 「새 전략」, `EMA`·`MACD` 그대로, 옛 NULL 행 「옛 기록(EMA/MACD)」, 분류 불명 「-」(화면 경고 없음 — 결정 1028-06).
