@@ -949,6 +949,8 @@ class TestRecovery(unittest.TestCase):
             mock.patch.object(mod, "insert_log"),
             mock.patch.object(mod, "log_to_file"),
             mock.patch.object(mod.time, "sleep"),
+            # 1028-15: 예외 종료가 이제 운영자 경보(services.notifier.send)를 탄다 — 실제 발송 시도 차단
+            mock.patch("services.notifier.send", return_value=False),
         ]
         for p in ps:
             p.start()
@@ -975,19 +977,12 @@ class TestRecovery(unittest.TestCase):
 
     def test_failed_start_not_recovered(self):
         self.assertEqual(self._run(mark=True), [])                 # 실패 판정 표시 → 복구 래퍼 재시작 0
-        # 구버전 흐름(표시 없음)은 기준 커밋 원본과 같은 재시작 호출.
-        # 주의(수정 1회차): 이 시험의 _engine_runner 는 가짜(예외만 던짐)라 실제 _engine_runner 의 `finally: stop_event.set()`
-        # 을 거치지 않는다. 실제로는 그 finally 가 stop_event 를 켜 복구 래퍼의 `not stop_event.is_set()` 조건이 거짓 →
-        # 복구 래퍼는 한 번도 재시작하지 않는다(기준 커밋 포함 기존 결함 — EMA 경로라 고치지 않고 보고, 별도 작업 후보).
-        src = bc.git_show("engine/engine_manager.py")
-        if src is None:
-            self.skipTest("git 기준 원본 없음")
-        base = types.ModuleType("engine_manager_base_rec")
-        base.__file__ = str(ROOT / "engine" / "engine_manager_base_rec.py")
-        exec(compile(src, base.__file__, "exec"), base.__dict__)
-        now, old = self._run(mark=False), self._run(mark=False, mod=base)
-        self.assertEqual(now, old)
-        self.assertEqual(now[0], 1)                                # 첫 재시작 호출은 있음
+        # 1028-15 (나): 재시작 분기를 지웠다 — 표시가 없어도 재시작 0.
+        # 이전에는 여기서 기준 커밋 원본과 같은 재시작 호출(첫 호출 restart_count=1)을 확인했으나, 그 호출은 가짜 runner
+        # 라서만 보였다. 실제 _engine_runner 의 `finally: stop_event.set()`(D1)과 자기 스레드 판정(D3) 때문에 운영에서는
+        # 한 번도 일어나지 않던 호출이었다(계획 docs/plans/2026-10-28-engine-recovery-fix/plan.md 1장).
+        # 진짜 runner 를 거치는 재시작 0회 확인은 test_r_2026_10_29_engine_exit_alert.TestS5NoRestart 가 맡는다.
+        self.assertEqual(self._run(mark=False), [])
 
     def test_start_engine_clears_no_recover(self):
         em = engine_manager.EngineManager()

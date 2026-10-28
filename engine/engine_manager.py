@@ -164,6 +164,42 @@ def _decide_strategy_type(user_id: str, session_strategy) -> str:
     return strategy_type
 
 
+# ✅ 1028-15 (나): 엔진 예외 종료 경보 — 자동 재시작 없음(2단계 1028-18). 계획 docs/plans/2026-10-28-engine-recovery-fix/plan.md
+WORKER_JOIN_SEC = 2.0        # 관리 루프가 끝난 뒤 작업 스레드를 기다리는 시간(stop_engine join 10초 안)
+DRAIN_MAX_SEC = 1.0          # 큐 비우기 시간 상한
+DRAIN_MAX_EVENTS = 100       # 큐 비우기 개수 상한
+ENGINE_EXIT_DEDUPE_TTL = 3600
+ENGINE_EXIT_TITLE_BOOT = "엔진 기동 중 실패 — 자동 매매가 시작되지 않았습니다"
+ENGINE_EXIT_TITLE_TRADING = "엔진이 매매 중 멈췄습니다"
+ENGINE_EXIT_BODY_BOOT = "엔진이 시작하는 도중 오류로 멈췄습니다."
+ENGINE_EXIT_BODY_TRADING = "엔진이 오류로 멈췄습니다."
+ENGINE_EXIT_BODY_TAIL = "지금 자동 매매는 멈춰 있습니다. 운영자가 확인하고 다시 시작합니다."
+# 대시보드 「트레이딩 엔진 로그」(투자자에게 보임)에 남기는 짧은 문구 — 예외 원문은 journal·파일에만(결정 ③)
+ENGINE_EXIT_INVESTOR_LOG = "엔진이 오류로 멈췄습니다. 운영자가 확인하고 다시 시작합니다."
+
+
+class EngineWorkerError(RuntimeError):
+    """작업 스레드(run_live_loop) 예외를 관리 스레드의 예외 경로로 넘기는 표식. 원인은 __cause__."""
+
+
+def _run_live_loop_guarded(holder: dict, attempt_stop: threading.Event, *args, **kwargs):
+    """
+    ✅ 1028-15 (나): 작업 스레드 감싸기.
+    - run_live_loop 예외를 holder["exc"] 에 담는다(관리 스레드가 읽어 예외 종료로 판정). 다시 raise 해
+      스레드 excepthook traceback 은 지금처럼 journal 에 남는다.
+    - finally 에서 그 시도의 stop_event 를 켠다: 메인 try(live_loop.py:1460) 이전에서 죽어도
+      관리 루프가 끝난다(D4 조용한 멈춤 제거).
+    - run_live_loop 는 호출 시점에 모듈 전역에서 찾는다(시험의 patch 가 그대로 먹게).
+    """
+    try:
+        run_live_loop(*args, **kwargs)
+    except BaseException as e:
+        holder["exc"] = e
+        raise
+    finally:
+        attempt_stop.set()
+
+
 def _user_key(user_id: str, captured_mode: str) -> str:
     """
     user_id 기준으로 엔진 키를 만든다.
@@ -184,7 +220,8 @@ class EngineManager:
         self._events = {}
         self._global_lock = threading.Lock()
         self._restart_counts = {}
-        self._live_engine_count = 0
+        # ✅ 1028-15: LIVE 엔진 사용자 집합(멱등). 정수 카운트는 아래 읽기 속성 _live_engine_count.
+        self._live_users: set = set()
         # user_key(_user_key) → 마지막으로 실행된 모드(TEST/LIVE)
         self._engine_mode: dict[str, str] = {}
         # ✅ WO-12 (2026-09-30): 사용자별 "시작" 잠금 — 기동 재개(boot_resume)와 대시보드 [AUTO-RESUME]
@@ -194,8 +231,14 @@ class EngineManager:
         from core import engine_control as _ec
         self._ready = _ec.READY                      # user_key → 기동 준비 Event(시작마다 새로, live_loop 가 set)
         self._gen: dict[str, int] = {}               # user_key → 엔진 시작 세대(_start_engine_internal 마다 +1)
-        self._no_recover: set = set()                # 재시작 실패 판정 → 복구 래퍼가 다시 띄우지 않음
+        # 재시작 실패 판정 표식. 1028-15 (나)에서 자동 재시작을 지워 지금은 쓰기만 한다(1028-18 에서 다시 읽음).
+        self._no_recover: set = set()
         self._strategy_override: dict[str, str] = {}  # start_engine(strategy=…) 로 정한 전략(세션 대신)
+
+    @property
+    def _live_engine_count(self) -> int:
+        """LIVE 엔진 수(읽기 전용) — _live_users 의 크기. 1028-15 전의 정수 카운트를 읽던 곳 호환."""
+        return len(self._live_users)
 
     def get_gen(self, user_id: str) -> int:
         return int(self._gen.get(_user_key(user_id, ""), 0))
@@ -331,9 +374,9 @@ class EngineManager:
         if captured_mode == MODE_LIVE:
             rec = get_reconciler()
             rec.start()  # Idempotent: 이미 실행 중이면 자동 스킵
-            if self._live_engine_count == 0:
+            if not self._live_users:
                 rec.load_inflight_from_db(fetch_inflight_orders)
-            self._live_engine_count += 1  # ✅ FIX: SET → INCREMENT
+            self._live_users.add(_user_key(user_id, captured_mode))  # ✅ 1028-15: 사용자별 집합(멱등)
 
         # ✅ 재시작 자동 재개를 위해 last_mode를 DB에 저장
         try:
@@ -422,10 +465,12 @@ class EngineManager:
         log_to_file(msg, user_id)
         insert_log(user_id, "INFO", msg)
 
-        # LIVE 엔진 카운트 / Reconciler 중지 처리
+        # LIVE 엔진 집합 / Reconciler 중지 처리
+        # ✅ 1028-15: discard 라 두 번 정지·꺼진 엔진 정지도 다른 사용자 항목을 깎지 않는다(멱등).
+        #   예외 종료는 여기를 거치지 않으므로 집합에 남는다(Reconciler 유지 — 미체결 추적 보존).
         if running_mode == MODE_LIVE:
-            self._live_engine_count = max(0, self._live_engine_count - 1)
-            if self._live_engine_count == 0:
+            self._live_users.discard(key)
+            if not self._live_users:
                 try:
                     get_reconciler().stop()
                 except Exception:
@@ -440,49 +485,58 @@ class EngineManager:
         captured_mode: str,
     ):
         """
-        🔄 24시간 안정성: 예외 발생 시 자동 재시작 메커니즘
-        최대 3회까지 재시도 (1분, 5분, 15분 간격)
+        엔진 관리 스레드 본문.
+
+        ✅ 1028-15 (나): 자동 재시작은 없다. 2025-08-25(02fcae9) 부터 있던 재시작 분기는 runner finally 의
+        stop_event.set()(D1)과 자기 스레드 판정(D3) 때문에 한 번도 동작하지 않았으므로 지웠다.
+        자동 재시작은 2단계 1028-18 에서 다시 설계한다(계획 부록 B).
+        예외 종료(runner 본문 예외 또는 작업 스레드 예외)는 CRITICAL 로그 + 운영자 텔레그램 1건으로 알린다.
+        판정은 예외 유무로만 한다(stop_event 는 쓰지 않음). 정상 종료(사용자 정지·PULLBACK 거부 등)는 알리지 않는다.
         """
-        MAX_RESTART_ATTEMPTS = 3
-        RESTART_DELAYS = [60, 300, 900]  # 1분, 5분, 15분
-        
         try:
             self._engine_runner(user_id, stop_event, test_mode, captured_mode)
         except Exception as e:
-            key = _user_key(user_id, captured_mode)
-            # 2차 T11: 재시작 실패 판정(_no_recover)이면 다시 띄우지 않는다. 표시가 없는 구버전 흐름은 지금 그대로.
-            if key in self._no_recover:
-                msg = f"⛔ 엔진 예외 — 재시작 실패 판정이라 자동 재시작 안 함: {e}"
-                logger.error(msg)
-                insert_log(user_id, "ERROR", msg)
-                log_to_file(msg, user_id)
-            elif restart_count < MAX_RESTART_ATTEMPTS and not stop_event.is_set():
-                delay = (
-                    RESTART_DELAYS[restart_count]
-                    if restart_count < len(RESTART_DELAYS)
-                    else 900
-                )
-                msg = (
-                    f"🔄 엔진 예외 발생, {delay}초 후 재시작 "
-                    f"({restart_count + 1}/{MAX_RESTART_ATTEMPTS}): {e}"
-                )
-                logger.error(msg)
-                insert_log(user_id, "ERROR", msg)
-                log_to_file(msg, user_id)
-                
-                time.sleep(delay)
-                if not stop_event.is_set() and key not in self._no_recover:
-                    self._start_engine_internal(
-                        user_id=user_id,
-                        test_mode=test_mode,
-                        restart_count=restart_count + 1,
-                        captured_mode=captured_mode,
-                    )
-            else:
-                msg = f"❌ 엔진 최종 실패: 재시작 횟수 초과 또는 사용자 중단 요청"
-                logger.critical(msg)
-                insert_log(user_id, "CRITICAL", msg)
-                log_to_file(msg, user_id)
+            self._report_engine_exit(user_id, stop_event, captured_mode, e)
+
+    def _report_engine_exit(self, user_id: str, stop_event: threading.Event, captured_mode: str, e: BaseException):
+        """예외 종료 경보 — 원문은 journal·파일, 투자자 화면(logs)에는 짧은 문구, 텔레그램은 운영자 채널만."""
+        key = _user_key(user_id, captured_mode)
+        cause = e.__cause__ if (isinstance(e, EngineWorkerError) and e.__cause__ is not None) else e
+        # 준비 신호(_ready)는 문구를 고르는 데에만 쓴다: 이 시작의 Event 가 섰으면 매매 중 멈춤.
+        ev = self._ready.get(key)
+        trading = bool(ev is not None and getattr(ev, "stop_event", None) is stop_event and ev.is_set())
+        phase = "trading" if trading else "boot"
+        msg = (
+            f"[ENGINE-EXIT] 예외 종료 — 자동 재시작 없음, 운영자 시작 필요 | user_id={user_id} "
+            f"phase={phase} mode={captured_mode} exc={type(cause).__name__}: {cause}"
+        )
+        try:
+            logger.critical(msg)
+        except Exception:
+            pass
+        try:
+            log_to_file(msg, user_id)
+        except Exception:
+            pass
+        try:
+            insert_log(user_id, "CRITICAL", ENGINE_EXIT_INVESTOR_LOG)
+        except Exception:
+            pass
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL, AUDIENCE_OPERATOR
+            title = ENGINE_EXIT_TITLE_TRADING if trading else ENGINE_EXIT_TITLE_BOOT
+            head = ENGINE_EXIT_BODY_TRADING if trading else ENGINE_EXIT_BODY_BOOT
+            mode_text = "실계좌" if captured_mode == MODE_LIVE else "모의"
+            body = f"{head}\n{ENGINE_EXIT_BODY_TAIL}\n사용자: {user_id} · 모드: {mode_text}"
+            _notify(LEVEL_CRITICAL, title, body,
+                    dedupe_key=f"engine_exit_exception:{user_id}",
+                    dedupe_ttl=ENGINE_EXIT_DEDUPE_TTL,
+                    audience=AUDIENCE_OPERATOR)
+        except Exception as ne:
+            try:
+                logger.warning(f"[ENGINE-EXIT] 알림 실패 | {type(ne).__name__}")
+            except Exception:
+                pass
 
     def _engine_runner(
         self,
@@ -569,9 +623,11 @@ class EngineManager:
             set_thread_status(user_id, True)
 
             # 실제 매매 루프 (MACD/EMA 공통) 실행 스레드
+            # ✅ 1028-15: 감싸기 함수로 예외를 holder 에 담고, 끝날 때 이 시도의 stop_event 를 켠다(D4).
+            worker_holder: dict = {}
             worker = threading.Thread(
-                target=run_live_loop,
-                args=(params, q, trader, stop_event, test_mode, user_id),
+                target=_run_live_loop_guarded,
+                args=(worker_holder, stop_event, params, q, trader, stop_event, test_mode, user_id),
                 # 2차 T5: PULLBACK 만 적용본 dict 를 넘긴다 (EMA·MACD 는 빈 kwargs — 지금과 같은 호출)
                 kwargs=({"pullback_cfg": pullback_cfg} if pullback_cfg is not None else {}),
                 daemon=True,
@@ -592,7 +648,8 @@ class EngineManager:
             log_to_file(f"🚀 엔진 시작: user_id={user_id}, mode={captured_mode}", user_id)
 
             # run_live_loop → q 로 들어오는 이벤트 처리 루프
-            while not stop_event.is_set():
+            # ✅ 1028-15: 작업 스레드가 죽으면(메인 try 이전 포함) 루프도 끝난다(D4 이중 방어).
+            while not stop_event.is_set() and worker.is_alive():
                 try:
                     event = q.get(timeout=0.5)
                     self._process_event(
@@ -608,10 +665,20 @@ class EngineManager:
                     msg = f"이벤트 처리 예외(mode={captured_mode}): {e}"
                     insert_log(user_id, "ERROR", msg)
                     log_to_file(msg, user_id)
+
+            # ✅ 1028-15: 순서 = 루프 종료 → 작업 스레드 join → 큐 비우기(N7). 마지막 EXCEPTION·체결 기록을 남기고
+            #   holder 를 확정한다. 시간·개수 상한으로 stop_engine 의 10초 join 안에 끝낸다(em stop_engine·user_lock).
+            worker.join(timeout=WORKER_JOIN_SEC)
+            self._drain_events(user_id, q, params, captured_mode)
+            _wexc = worker_holder.get("exc")
+            if _wexc is not None:
+                raise EngineWorkerError(f"작업 스레드 예외: {type(_wexc).__name__}: {_wexc}") from _wexc
         except Exception as e:
             msg = f"❌ 엔진 예외(mode={captured_mode}): {e}"
             logger.exception(msg)
-            insert_log(user_id, "ERROR", msg)
+            if not isinstance(e, EngineWorkerError):
+                # 작업 스레드 예외는 큐의 `❌ 예외:` 줄로 이미 남는다 — 화면(logs)에 원문 줄을 새로 더하지 않는다(1028-15 결정 ③)
+                insert_log(user_id, "ERROR", msg)
             log_to_file(msg, user_id)
             update_engine_status(user_id, "error", note=msg)
             # 🔄 예외 상위로 전파 (재시작 메커니즘 활성화)
@@ -632,6 +699,24 @@ class EngineManager:
             msg = f"🛑 엔진 종료: user_id={user_id}, mode={captured_mode}"
             log_to_file(msg, user_id)
             insert_log(user_id, "INFO", msg)
+
+    def _drain_events(self, user_id: str, q: queue.Queue, params, captured_mode: str) -> int:
+        """✅ 1028-15 (N7): 관리 루프가 끝난 뒤 큐에 남은 이벤트를 한 번 비운다. 1초·100건 중 먼저 오는 쪽에서 멈춤."""
+        n = 0
+        t0 = time.monotonic()
+        while n < DRAIN_MAX_EVENTS and time.monotonic() - t0 < DRAIN_MAX_SEC:
+            try:
+                event = q.get_nowait()
+            except queue.Empty:
+                break
+            n += 1
+            try:
+                self._process_event(user_id, event, params.upbit_ticker, params.order_ratio, captured_mode)
+            except Exception as e:
+                msg = f"이벤트 처리 예외(mode={captured_mode}): {e}"
+                insert_log(user_id, "ERROR", msg)
+                log_to_file(msg, user_id)
+        return n
 
     def _process_event(
         self,

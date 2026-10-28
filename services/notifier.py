@@ -93,6 +93,33 @@ def _get_credentials(level: Optional[str] = None) -> Tuple[Optional[str], Option
     return str(token), str(chat)
 
 
+AUDIENCE_OPERATOR = "operator"
+_OPERATOR_CHAT_KEY = "TELEGRAM_CHAT_ID_OPERATOR"
+
+
+def _get_operator_credentials() -> Tuple[Optional[str], Optional[str]]:
+    """
+    ✅ 1028-15 (나): 운영자 전용 채널. 투자자도 보는 기본·등급 채널로 **넘어가지 않는다**.
+
+    - 토큰: 기존과 같이 환경변수 TELEGRAM_BOT_TOKEN → streamlit secrets.
+    - 채팅 ID: TELEGRAM_CHAT_ID_OPERATOR 만 환경변수 → streamlit secrets 에서 찾는다.
+      없으면 채팅 ID 는 None (TELEGRAM_CHAT_ID·TELEGRAM_CHAT_ID_<LEVEL> 로 대체하지 않음).
+    - _get_credentials(level="OPERATOR") 를 쓰지 않는다: 그 함수는 등급 키가 없으면 기본 채널로 넘어간다.
+    """
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    chat = os.environ.get(_OPERATOR_CHAT_KEY)
+    if not token or not chat:
+        try:
+            import streamlit as _st  # type: ignore
+            if not token:
+                token = _st.secrets.get("TELEGRAM_BOT_TOKEN")
+            if not chat:
+                chat = _st.secrets.get(_OPERATOR_CHAT_KEY)
+        except Exception:
+            pass
+    return (str(token) if token else None), (str(chat) if chat else None)
+
+
 def _should_skip_by_dedupe(key: Optional[str], ttl: int) -> bool:
     if not key:
         return False
@@ -126,9 +153,14 @@ def send(
     body: str = "",
     dedupe_key: Optional[str] = None,
     dedupe_ttl: int = _DEFAULT_DEDUPE_TTL,
+    audience: Optional[str] = None,
 ) -> bool:
     """
     Telegram으로 알림 1건 전송.
+
+    - audience=None(기본): 지금과 같은 등급별 채널(_get_credentials).
+    - audience="operator" (1028-15): 운영자 전용 채널만(_get_operator_credentials). 운영자 채팅 ID 가 없으면
+      보내지 않고 `[NOTIFY] operator 채널 없음 — 로그만` 1줄만 남긴다(투자자 채널로 넘어가지 않음).
 
     Returns:
         True  — sendMessage 200 응답
@@ -147,8 +179,15 @@ def send(
 
         if _should_skip_by_dedupe(dedupe_key, dedupe_ttl):
             return False
-        # ✅ [Phase 3-C] level 기반 채널 라우팅
-        token, chat = _get_credentials(level=level)
+        if audience == AUDIENCE_OPERATOR:
+            # ✅ 1028-15: 운영자 전용 — 기본·등급 채널로 대체하지 않는다
+            token, chat = _get_operator_credentials()
+            if not chat:
+                logger.info("[NOTIFY] operator 채널 없음 — 로그만")
+                return False
+        else:
+            # ✅ [Phase 3-C] level 기반 채널 라우팅
+            token, chat = _get_credentials(level=level)
         if not token or not chat:
             return False
         if _requests is None:
