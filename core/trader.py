@@ -13,6 +13,7 @@ import time as _time
 from typing import Optional, Dict, Any, Tuple
 
 from config import ACCESS, SECRET, MIN_FEE_RATIO
+from core.pullback_audit import split_trade_audit, pullback_sell_reject_text  # ✅ 2차 T8: PULLBACK 만 (표준 라이브러리만)
 from services.db import (
     get_account,
     get_coin_balance,
@@ -452,6 +453,17 @@ class UpbitTrader:
             _sl_log = sl_price if sl_price is not None else _sl_strat
             _ts_log = ts_pct if ts_pct is not None else _ts_strat
 
+            # ✅ 2차 T8: 새 전략(PULLBACK) 분할 주문만 체결 행에 회차·평단(meta)을 남기고 entry_price = 체결 뒤 평단.
+            #   EMA·MACD(meta 에 PULLBACK 회차 없음)는 아래 호출 인자가 지금과 같다(_pb_extra 빈 dict).
+            _pb_extra: Dict[str, Any] = {}
+            try:
+                _pb = split_trade_audit(meta, side=side, fill_price=px, fill_qty=q)
+            except Exception as _pe:  # 회차 칸 실패는 체결 기록을 막지 않는다(칸 없이 지금과 같은 행)
+                _pb = None
+                logger.warning(f"[PULLBACK-AUDIT] 체결 행 회차·평단 계산 실패 → 칸 없이 기록 | {type(_pe).__name__}: {_pe}")
+            if _pb is not None:
+                _pb_extra["meta"], entry_price = _pb
+
             # DB 감사 기록
             insert_trade_audit(
                 self.user_id,
@@ -476,6 +488,7 @@ class UpbitTrader:
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
                 strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
                 note=meta.get("audit_note"),  # ✅ WO-26: 약매수 진입·포지션 비고 (없으면 None)
+                **_pb_extra,
             )
 
             # 운영 로그
@@ -1448,17 +1461,24 @@ class UpbitTrader:
                     # ✅ WO-9 (a): 거절 코드별 안내 + dedupe 를 거절 코드 단위·300s(5분봉 1개)로
                     _guide = guidance_for_upbit_error(err_summary, default="보유 수량 또는 API 권한 점검")
                     _reason = (meta or {}).get("reason")
-                    _notify(
-                        LEVEL_CRITICAL,
-                        f"❌ 매도 거절 — {ticker}",
-                        (
+                    if str(self.strategy_type or "").upper() == "PULLBACK":
+                        # ✅ 2차 T8 (T5 넘김): 새 전략 매도 거절 알림 — 투자자가 받는 문구, 할 일로 끝맺음.
+                        #   EMA·MACD 는 아래 else 의 기존 문구 그대로.
+                        _title, _body = pullback_sell_reject_text(ticker, _reason, qty, _label, err_summary)
+                    else:
+                        _title = f"❌ 매도 거절 — {ticker}"
+                        _body = (
                             f"사유: {_label}\n"
                             f"신호: {_reason or '-'}\n"
                             f"수량: {qty:.6f}\n\n"
                             f"💡 {_guide}\n"
                             f"─────\n"
                             f"err: {_raw}"
-                        ),
+                        )
+                    _notify(
+                        LEVEL_CRITICAL,
+                        _title,
+                        _body,
                         dedupe_key=f"sell_reject:{ticker}:{error_code_of(err_summary)}",
                         dedupe_ttl=300,
                     )

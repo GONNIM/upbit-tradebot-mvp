@@ -14,6 +14,10 @@ from services.page_context import bootstrap_page_context, navigate_to  # ✅ SP-
 from engine.params import load_active_strategy_with_conditions, load_params
 from urllib.parse import urlencode
 from services.terminology import display_df as _term_display_df  # ✅ WO-11: 옛 용어 표시층 변환
+# ✅ 2차 T8: 새 전략(PULLBACK) 행이 있을 때만 「전략」·「새 전략 상태/내용」 칸 (EMA·MACD 만이면 화면 그대로)
+from services.terminology import add_pullback_eval_columns, add_pullback_trade_columns
+from services.trade_strategy import classify_rows as _classify_trade_rows  # 화면 「전략」 칸(경고 없음, 결정 1028-06)
+from services.db import fetch_trades_audit_with_strategy
 from pathlib import Path
 
 from config import REFRESH_INTERVAL, CONDITIONS_JSON_FILENAME
@@ -496,7 +500,8 @@ if section == "buy":
                 st.info("📉 Base EMA GAP 전략 모드 - GAP 전용 컬럼 표시")
             else:
                 # ✅ 일반 EMA/MACD 전략: 기존 로직
-                df_buy["delta"] = df_buy["macd"] - df_buy["signal"]
+                # ✅ 2차 T8: 새 전략 행은 macd/signal 이 비어 있다 — 숫자 변환 후 계산(EMA 값은 그대로)
+                df_buy["delta"] = pd.to_numeric(df_buy["macd"], errors="coerce") - pd.to_numeric(df_buy["signal"], errors="coerce")
 
                 def _cross_type(delta):
                     if delta > 0:
@@ -506,6 +511,14 @@ if section == "buy":
                     else:
                         return "⚪ Neutral"
                 df_buy["cross_type"] = df_buy["delta"].apply(_cross_type)
+                df_buy = add_pullback_eval_columns(df_buy)  # ✅ 2차 T8 (새 전략 행 없으면 그대로)
+                if "strategy_label" in df_buy.columns:
+                    # 새 전략 행: 크로스 칸은 60선·200선 기준(checks.golden)
+                    df_buy["cross_type"] = [
+                        (("🟢 Golden" if _ck.get("golden") else "🔴 Dead")
+                         if _lb and isinstance(_ck, dict) and _ck.get("golden") is not None else _ct)
+                        for _lb, _ck, _ct in zip(df_buy["strategy_label"], df_buy["checks"], df_buy["cross_type"])
+                    ]
 
                 # ✅ B13 최적화: BUY_SIGNAL 시각 식별용 '신호' 컬럼 (벡터 연산, Styler 미사용)
                 df_buy["signal_icon"] = df_buy["overall_ok"].map(
@@ -519,7 +532,9 @@ if section == "buy":
                 column_order = [
                     "signal_icon",
                     "via_backfill_display",
-                    "timestamp", "bar_time", "ticker", "bar", "price", "delta", "cross_type",
+                    "timestamp", "bar_time", "ticker", "bar", "price",
+                    "strategy_label", "pullback_state",  # ✅ 2차 T8: 새 전략 행이 있을 때만 있는 칸
+                    "delta", "cross_type",
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                     "have_position", "overall_ok",
@@ -539,6 +554,9 @@ if section == "buy":
                     rename_map["via_backfill_display"] = "재평가"
                 if "weak_entry_display" in df_buy_display.columns:
                     rename_map["weak_entry_display"] = "약매수"  # ✅ WO-26
+                if "strategy_label" in df_buy_display.columns:  # ✅ 2차 T8
+                    rename_map["strategy_label"] = "전략"
+                    rename_map["pullback_state"] = "새 전략 상태"
                 if rename_map:
                     df_buy_display = df_buy_display.rename(columns=rename_map)
 
@@ -744,7 +762,8 @@ elif section == "sell":
             else:
                 # ✅ 일반 EMA/MACD 전략: 기존 로직
                 # ✅ delta 계산: macd - signal (전략별 칼럼명 변경 전에 계산)
-                df_sell["delta"] = df_sell["macd"] - df_sell["signal"]
+                # ✅ 2차 T8: 새 전략 행은 macd/signal 이 비어 있다 — 숫자 변환 후 계산(EMA 값은 그대로)
+                df_sell["delta"] = pd.to_numeric(df_sell["macd"], errors="coerce") - pd.to_numeric(df_sell["signal"], errors="coerce")
 
                 # ✅ cross_type 계산: Golden / Dead / Neutral
                 def _cross_type(delta):
@@ -755,6 +774,13 @@ elif section == "sell":
                     else:
                         return "⚪ Neutral"
                 df_sell["cross_type"] = df_sell["delta"].apply(_cross_type)
+                df_sell = add_pullback_eval_columns(df_sell)  # ✅ 2차 T8 (새 전략 행 없으면 그대로)
+                if "strategy_label" in df_sell.columns:
+                    df_sell["cross_type"] = [
+                        (("🟢 Golden" if _ck.get("golden") else "🔴 Dead")
+                         if _lb and isinstance(_ck, dict) and _ck.get("golden") is not None else _ct)
+                        for _lb, _ck, _ct in zip(df_sell["strategy_label"], df_sell["checks"], df_sell["cross_type"])
+                    ]
 
                 # ✅ B13 보강: SELL 신호(triggered=1) 시각 식별용 '신호' 컬럼 (벡터 연산)
                 df_sell["signal_icon"] = df_sell["triggered"].map(
@@ -767,7 +793,9 @@ elif section == "sell":
                 # ✅ 컬럼 순서 재배치 — '신호' 컬럼을 가장 왼쪽에 배치
                 column_order = [
                     "signal_icon",
-                    "timestamp", "bar_time", "ticker", "bar", "price", "tp_price", "sl_price", "highest", "delta", "cross_type",
+                    "timestamp", "bar_time", "ticker", "bar", "price",
+                    "strategy_label", "pullback_state",  # ✅ 2차 T8: 새 전략 행이 있을 때만 있는 칸
+                    "tp_price", "sl_price", "highest", "delta", "cross_type",
                     "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                     "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                     "ts_pct", "ts_armed", "bars_held",
@@ -782,6 +810,9 @@ elif section == "sell":
                 # signal_icon 한글 컬럼명 (일반 EMA/MACD 분기)
                 if "signal_icon" in df_sell_display.columns:
                     df_sell_display = df_sell_display.rename(columns={"signal_icon": "신호"})
+                if "strategy_label" in df_sell_display.columns:  # ✅ 2차 T8
+                    df_sell_display = df_sell_display.rename(
+                        columns={"strategy_label": "전략", "pullback_state": "새 전략 상태"})
 
             # ✅ Arrow 직렬화를 위해 dict/list 타입 컬럼을 문자열로 변환
             if "checks" in df_sell_display.columns:
@@ -815,10 +846,11 @@ elif section == "trades":
              "주문 전 차단 = 봇이 주문 전에 매수를 중단한 건 (주문 없음, 손익 집계 제외)\n\n"
              "미체결 취소 = 현재가 매수가 대기 봉 안에 체결되지 않아 자동 취소된 건 (체결 아님)",
     )
-    df_tr = fetch_trades_audit(user_id, ticker=ticker or None, limit=rows) or []
+    # ✅ 2차 T8: 같은 행·순서 + (id, strategy_type) — 「새 전략」 라벨용 (표시 칸 순서 목록에 없는 두 칸은 화면에 안 나옴)
+    df_tr = fetch_trades_audit_with_strategy(user_id, ticker=ticker or None, limit=rows) or []
     if df_tr:
         if isinstance(df_tr, list):
-            df_tr = pd.DataFrame(df_tr, columns=TRADES_AUDIT_COLUMNS)
+            df_tr = pd.DataFrame(df_tr, columns=TRADES_AUDIT_COLUMNS + ["id", "strategy_type"])
 
         # ✅ WO-9 (e): 거절 행 식별 → 필터 적용 → ⛔ 표시
         # ✅ WO-25: 행 단위 분류 — BUY_REJECTED 중 meta.stage=pre_order 는 "주문 전 차단"
@@ -836,6 +868,7 @@ elif section == "trades":
             st.warning(
                 f"⛔ 주문 전 차단 {_n_preorder}건 — 봇이 주문 전에 매수를 중단했습니다. 사유 열을 확인하세요."
             )
+        _raw_types = df_tr["type"].tolist()  # ✅ 2차 T8 수정 1회차: 새 전략 칸은 화면 문자열로 바꾸기 전 유형으로 판정
         df_tr["type"] = [trade_type_display_row(_t, _m) for _t, _m in zip(df_tr["type"], df_tr["meta"])]
 
         # ✅ bar_time이 NULL인 경우에만 계산 (하위 호환성)
@@ -872,6 +905,12 @@ elif section == "trades":
 
         df_tr = _term_display_df(df_tr)  # ✅ WO-11: 옛 용어 → 새 용어 (표시만, DB 무변경)
 
+        # ✅ 2차 T8 (T7 넘김): 새 전략 행이 있으면 「전략」(classify 결과)·「새 전략 내용」(회차·평단·판정가) 칸.
+        #   전략이 비어 구분할 수 없는 행은 「-」 — 화면 경고는 띄우지 않는다(결정 1028-06). 새 전략 행이 없으면 표는 그대로.
+        if any(str(_s or "").strip().upper() == "PULLBACK" for _s in df_tr["strategy_type"]):
+            _classes = _classify_trade_rows(user_id, zip(df_tr["id"].tolist(), df_tr["strategy_type"].tolist()))
+            df_tr = add_pullback_trade_columns(df_tr, _classes, raw_types=_raw_types)
+
         # ✅ WO-26: note 는 거절·미체결 행이면 '거절 사유', 매수·매도 행이면 '비고'(약매수 진입·포지션) 칸에 보인다
         if "note" in df_tr.columns:
             _note_is_reason = df_tr["_kind"].isin(["거절", PREORDER_KIND, "미체결 취소"]).tolist()
@@ -887,7 +926,9 @@ elif section == "trades":
 
             # ✅ Base EMA GAP 전용 컬럼 순서 (delta 제거, 핵심 정보만)
             column_order = [
-                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "memo", "price", "qty",
+                "timestamp", "bar_time", "ticker", "bar", "type",
+                "strategy_label", "pullback_detail",  # ✅ 2차 T8: 새 전략 행이 있을 때만 있는 칸
+                "reason", "note", "memo", "price", "qty",
                 "entry_price", "bars_held", "tp", "sl", "highest"
             ]
             column_order = [col for col in column_order if col in df_tr_display.columns]
@@ -900,6 +941,8 @@ elif section == "trades":
                 "ticker": "티커",
                 "bar": "BAR",
                 "type": "유형",
+                "strategy_label": "전략",  # ✅ 2차 T8
+                "pullback_detail": "새 전략 내용",
                 "reason": "사유",
                 "note": "거절 사유",
                 "memo": "비고",  # ✅ WO-26: 약매수 진입·포지션 비고
@@ -924,7 +967,9 @@ elif section == "trades":
 
             # ✅ 컬럼 순서 재배치: bar_time을 timestamp 바로 뒤에
             column_order = [
-                "timestamp", "bar_time", "ticker", "bar", "type", "reason", "note", "memo", "price", "qty", "delta",
+                "timestamp", "bar_time", "ticker", "bar", "type",
+                "strategy_label", "pullback_detail",  # ✅ 2차 T8: 새 전략 행이 있을 때만 있는 칸
+                "reason", "note", "memo", "price", "qty", "delta",
                 "ema_fast" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "macd",
                 "ema_slow" if (strategy_tag == "EMA" or strategy_tag == "BASE_EMA_GAP") else "signal",
                 "entry_price", "entry_bar", "bars_held", "tp", "sl", "highest", "ts_pct", "ts_armed", "interval_sec"
@@ -932,7 +977,8 @@ elif section == "trades":
             # 존재하는 컬럼만 필터링
             column_order = [col for col in column_order if col in df_tr_display.columns]
             df_tr_display = df_tr_display[column_order].rename(
-                columns={"note": "거절 사유", "memo": "비고", "qty": "시도수량"}  # ✅ WO-26: memo = 약매수 비고
+                columns={"note": "거절 사유", "memo": "비고", "qty": "시도수량",  # ✅ WO-26: memo = 약매수 비고
+                         "strategy_label": "전략", "pullback_detail": "새 전략 내용"}  # ✅ 2차 T8 (없으면 무시)
             )
 
         # ✅ WO-9 (e): 거절 행 옅은 붉은 배경 (아이콘 ⛔ + 글자와 함께 — 색만으로 구분하지 않음)

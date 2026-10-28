@@ -817,12 +817,15 @@ class TestFix2(_Base):
         return [(a, k) for a, k in sent if str(k.get("dedupe_key", "")).startswith("strategy_unknown:")]
 
     def test_no_unknown_warning_on_screen(self):
+        """감사 화면에 분류 불명 경고 함수·행 수 조회·경고 문구가 없다(결정 1028-06).
+        2차 T8 수정 1회차: 범위를 경고로 좁힘 — 화면의 「전략」 칸은 classify_rows 를 직접 import 해도 된다."""
         src = (ROOT / "pages/audit_viewer.py").read_text(encoding="utf-8")
-        self.assertNotIn("분류 불명", src)
-        self.assertNotIn("count_unknown_rows", src)
-        self.assertNotIn("trade_strategy", src)
+        for banned in ("분류 불명", "전략 구분 확인 필요", "전략 구분이 비어",
+                       "count_unknown_rows", "report_unknown_rows", "unknown_warning_text"):
+            self.assertNotIn(banned, src, banned)
         names = {n.id for n in ast.walk(ast.parse(src)) if isinstance(n, ast.Name)}
-        self.assertNotIn("unknown_warning_text", names)
+        names |= {a.name for n in ast.walk(ast.parse(src)) if isinstance(n, ast.ImportFrom) for a in n.names}
+        self.assertFalse(names & {"unknown_warning_text", "count_unknown_rows", "report_unknown_rows"})
 
     def test_unknown_rows_logged_and_notified_once(self):
         """n>0: WARNING [STRATEGY-UNKNOWN] user=… audit_trades=n orders=m(로그에만) + 쉬운 말 알림 1회(dedupe 24시간)."""
@@ -869,29 +872,30 @@ class TestFix2(_Base):
         set_engine_status(U, True, last_mode="LIVE")
 
     def test_slow_notify_does_not_delay_resume(self):
-        """알림이 오래 걸려도(가짜 send 0.5초) 엔진 재개(start)가 먼저 불린다."""
+        """알림이 오래 걸려도(가짜 send 0.5초) 엔진 재개(start)가 먼저 불린다.
+        2차 T8 수정 1회차: 절대 시간 단언(0.4초, 부하에 흔들림)을 빼고 send 안에서 「start 가 이미 불렸음」을 단언."""
         self._unknown_db()
         self._set_live_target()
         events = []
+        started_before_send = []
 
         def slow_send(level, title, body="", dedupe_key=None, dedupe_ttl=None):
             if str(dedupe_key or "").startswith("strategy_unknown:"):
-                events.append(("send_begin", time.monotonic()))
+                started_before_send.append("start" in events)   # 표식: 알림 시작 때 재개가 이미 끝났는가
+                events.append("send_begin")
                 time.sleep(0.5)
             return True
 
         def start(uid):
-            events.append(("start", time.monotonic()))
+            events.append("start")
             return True
 
         from engine import boot_resume
-        t0 = time.monotonic()
         with mock.patch("services.notifier.send", side_effect=slow_send):
             res = boot_resume.boot_resume_all(users=[U], verify=lambda: (True, "ok", 1.0), start=start)
         self.assertEqual(res, {U: "success"})
-        names = [e[0] for e in events]
-        self.assertEqual(names, ["start", "send_begin"])
-        self.assertLess(events[0][1] - t0, 0.4)  # 재개는 느린 알림을 기다리지 않음
+        self.assertEqual(events, ["start", "send_begin"])
+        self.assertEqual(started_before_send, [True])  # 재개는 느린 알림을 기다리지 않음
 
     def test_report_exception_does_not_affect_other_users(self):
         """report 예외(첫 사용자)여도 모든 사용자 재개는 그대로, 다음 사용자 report 는 불림."""

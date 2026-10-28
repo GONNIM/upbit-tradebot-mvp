@@ -325,11 +325,14 @@ def _pullback_mark_polluted(engine, user_id: str, why: str) -> None:
     if ind is not None:
         ind.state_polluted = True
     logger.error(f"[PULLBACK-POLLUTED] {why} → 신규 매수 중지(매도 계속), 재시작으로만 해제")
+    from core.strategy_engine import NO_ACTION_TEXT
+    # 2차 T8: 엔진 쪽 지표 오염 알림과 같은 투자자용 문구(원인 원문은 위 로그에만)
     _pullback_critical(
         f"🚨 새 전략 지표 오염 — {getattr(engine, 'ticker', '')}",
-        (f"새 전략(PULLBACK) 지표를 바로잡지 못했습니다: {why}\n"
-         "신규 매수를 멈췄고 익절·손절·데드크로스 매도는 계속합니다.\n"
-         "조치: 봇 재시작(워밍업 재시드)으로만 해제됩니다."),
+        ("새 전략 지표 값을 믿을 수 없어 새 매수를 멈췄습니다.\n"
+         "익절·손절·데드크로스 매도는 계속합니다.\n"
+         "운영자가 봇을 재시작하면 풀립니다(재시작 때 지표를 다시 계산합니다).\n"
+         f"{NO_ACTION_TEXT}"),
         f"pullback_polluted:{user_id}:{getattr(engine, 'ticker', '')}",
     )
 
@@ -355,17 +358,25 @@ def _pullback_restore_split_state(engine, user_id: str, warmup_df, candle_valida
         log_to_file(msg, user_id)
     except Exception as e:
         logger.error(f"[PULLBACK-RESTORE] 복원 예외 | {type(e).__name__}: {e}", exc_info=True)
+        _blocked = False
         try:
-            # 수정 2회차: 복원이 중간에 깨졌으면 저장 행을 덮어쓰지 않게 이 엔진 수명 동안 저장 막음
-            engine._pullback_block_persist("restore_exception")
+            # 수정 2회차: 복원이 중간에 깨졌으면 저장 행을 덮어쓰지 않게 이 엔진 수명 동안 저장 막음.
+            # 2차 T8 수정 1회차: 저장 멈춤 알림은 따로 보내지 않고 아래 복원 실패 알림 하나에 함께 적는다.
+            engine._pullback_block_persist("restore_exception", kind="restore_exception", notify=False)
+            _blocked = True
         except Exception as _be:
             logger.error(f"[PULLBACK-RESTORE] 저장 막음 실패 | {type(_be).__name__}: {_be}")
         try:
             from services.notifier import send as _notify, LEVEL_CRITICAL
+            from core.strategy_engine import NO_ACTION_TEXT
+            _persist_line = ("기존 기록을 지키려고 이번 실행 동안 기록 저장을 멈췄습니다. "
+                             "재시작하면 이번 실행의 회차·실현 손익이 이어지지 않을 수 있습니다.\n") if _blocked else ""
             _notify(LEVEL_CRITICAL, "🚨 새 전략 분할 상태 복원 실패",
-                    ("재시작 때 새 전략(PULLBACK)의 회차·평단을 되살리지 못했습니다.\n"
-                     "보유 중이면 추가 분할매수는 멈추고 매도는 계속합니다.\n"
-                     "조치: 서버 로그의 [PULLBACK-RESTORE] 줄을 확인하세요."),
+                    ("재시작 때 새 전략의 회차·평단을 되살리지 못했습니다.\n"
+                     "보유 중이면 추가 분할 매수는 멈추고, 익절·손절·데드크로스 매도는 계속합니다.\n"
+                     f"{_persist_line}"
+                     "운영자가 확인합니다.\n"
+                     f"{NO_ACTION_TEXT}"),
                     dedupe_key=f"pullback_restore:{user_id}", dedupe_ttl=3600)
         except Exception:
             pass

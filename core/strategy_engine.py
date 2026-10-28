@@ -42,6 +42,15 @@ PULLBACK_MIN_ORDER_KRW = 5000
 #   · 지갑·분할 상태 수량 차이 허용 비율(최소 단위 0.1% — 넘으면 지갑 우선 + desync=1)
 PULLBACK_FILL_WAIT_BARS = 3
 PULLBACK_SYNC_TOL = 0.001
+# ✅ 2차 T8: PULLBACK 매도 평가 감사 trigger_key (EMA·MACD 의 이름과 같은 꼴)
+PULLBACK_SELL_TRIGGER_KEY = {"TP": "Take Profit", "SL": "Stop Loss", "DEADCROSS": "Dead Cross"}
+NO_ACTION_TEXT = "투자자님이 따로 하실 일은 없습니다."  # 2차 T8: 새 전략 텔레그램 끝맺음(할 일이 없을 때)
+
+
+def _fmt_price(x) -> str:
+    """2차 T8 알림·화면용 가격 표기(업비트 호가 단위 대략 — 끝자리 0 은 지움)."""
+    from services.terminology import format_price
+    return format_price(x)
 
 
 def register_pending_buy_uuid(user_id: str, ticker: str, uuid: str, wait_bars: int) -> bool:
@@ -1269,10 +1278,10 @@ class StrategyEngine:
                     from services.notifier import send as _notify, LEVEL_CRITICAL
                     _notify(
                         LEVEL_CRITICAL,
-                        f"🚨 새 전략 분할 상태 저장 실패 — {self.ticker}",
-                        ("새 전략(PULLBACK)의 회차·평단 기록을 DB 에 남기지 못했습니다.\n"
-                         "매매는 계속하지만 재시작하면 분할 회차를 잃을 수 있습니다.\n"
-                         "조치: 서버 로그의 [PULLBACK-STATE] 줄과 DB 마이그레이션을 확인하세요."),
+                        f"🚨 새 전략 기록 저장 실패 — {self.ticker}",
+                        ("새 전략의 회차·평단 기록을 남기지 못했습니다.\n"
+                         "매매는 계속하지만 재시작하면 분할 회차를 잃을 수 있습니다. 운영자가 확인합니다.\n"
+                         f"{NO_ACTION_TEXT}"),
                         dedupe_key=f"pullback_state_save:{self.user_id}:{self.ticker}",
                         dedupe_ttl=3600,
                     )
@@ -1280,13 +1289,39 @@ class StrategyEngine:
                 pass
         return ok
 
-    def _pullback_block_persist(self, why: str) -> None:
-        """수정 1회차: 저장 행을 덮어쓰지 않도록 이 엔진 수명 동안 저장·청산 초기화를 막는다. CRITICAL 로그 1줄."""
+    _PERSIST_BLOCK_HEAD = {
+        "read_error": "저장된 새 전략 기록(회차·평단)을 읽지 못했습니다.",
+        "other_market": "저장된 새 전략 기록이 지금 종목·봉 단위와 다릅니다.",
+        "restore_exception": "재시작 때 새 전략 기록을 되살리다 오류가 났습니다.",
+    }
+
+    def _pullback_block_persist(self, why: str, kind: Optional[str] = None, *, notify: bool = True) -> None:
+        """수정 1회차: 저장 행을 덮어쓰지 않도록 이 엔진 수명 동안 저장·청산 초기화를 막는다. CRITICAL 로그 1줄.
+        2차 T8 (T6 LIVE 거부 해제 전 조건 8): 막음을 시작할 때 텔레그램 CRITICAL 1회(원인 원문은 로그에만).
+        notify=False: 호출부가 저장 멈춤 사실을 자기 알림 본문에 함께 적는다(복원 예외 — live_loop)."""
         if getattr(self, "_pullback_persist_blocked", False):
             return
         self._pullback_persist_blocked = True
         logger.critical(f"🚨 [PULLBACK-STATE] 저장 막음 — {why} | 저장 행은 그대로 둠(재시작·T12 정리 전까지) "
                         f"| user={self.user_id} ticker={self.ticker} mode={self._pullback_mode()}")
+        if kind is None:
+            kind = "restore_exception" if why == "restore_exception" else "read_error"
+        if not notify:
+            return
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            _notify(
+                LEVEL_CRITICAL,
+                f"🚨 새 전략 기록 저장 멈춤 — {self.ticker}",
+                (f"{self._PERSIST_BLOCK_HEAD.get(kind, self._PERSIST_BLOCK_HEAD['read_error'])}\n"
+                 "기존 기록을 지키려고 이번 실행 동안 기록 저장을 멈췄습니다. 매매는 계속합니다.\n"
+                 "재시작하면 이번 실행의 회차·실현 손익이 이어지지 않을 수 있습니다. 운영자가 확인합니다.\n"
+                 f"{NO_ACTION_TEXT}"),
+                dedupe_key=f"pullback_persist_block:{self.user_id}:{self.ticker}",
+                dedupe_ttl=3600,
+            )
+        except Exception:
+            pass
 
     def _pullback_set_pb_from_position(self) -> None:
         p = self.position
@@ -1310,6 +1345,24 @@ class StrategyEngine:
             )
         except Exception as e:
             logger.error(f"[PULLBACK-SYNC] 감사 기록 실패: {e}")
+        # 2차 T8 (T6 넘김): 동기화 알림 — 어긋남이 시작될 때 1회(호출부가 바뀔 때만 부른다) + 같은 사유 1시간 dedupe
+        try:
+            from services.notifier import send as _notify, LEVEL_WARNING
+            head = {
+                "wallet_more": "업비트 지갑의 보유 수량이 새 전략 기록보다 많습니다(앱에서 직접 산 주문 등).",
+                "wallet_less": "업비트 지갑의 보유 수량이 새 전략 기록보다 적습니다(앱에서 직접 판 주문 등).",
+                "restart_mismatch": "재시작 때 업비트 지갑의 보유 수량이 새 전략 기록과 달랐습니다.",
+            }.get(cls, "업비트 지갑의 보유 수량이 새 전략 기록과 다릅니다.")
+            _notify(
+                LEVEL_WARNING,
+                f"⚠️ 새 전략 보유 수량 맞춤 — {self.ticker}",
+                (f"{head}\n지갑 수량 {float(wallet):,.8g}개 기준으로 맞추고 추가 분할 매수를 멈췄습니다.\n"
+                 f"익절·손절·데드크로스 매도는 계속합니다.\n{NO_ACTION_TEXT}"),
+                dedupe_key=f"pullback_sync:{self.user_id}:{self.ticker}:{cls}",
+                dedupe_ttl=3600,
+            )
+        except Exception:
+            pass
 
     def _pullback_on_exit(self, realized_pnl: float, *, reason: str) -> None:
         """청산(봇 매도 체결·지갑 0) 뒤: 실현 손익 누적, 분할 수량·원가·어긋남·배분 기준 초기화(pullback spec 3절 5).
@@ -1417,6 +1470,8 @@ class StrategyEngine:
             f"보유 qty={self._pb_qty:.8f} 평단={self.position.avg_price:.4f}"
         )
         self._pullback_persist()
+        self._pullback_notify_buy(int(sp.get("round") or 1), sp.get("reason"), self.position.avg_price,
+                                  sp.get("per_buy"), str(uuid))
 
     def pullback_restore_on_boot(self, series=None, validator=None) -> Dict[str, Any]:
         """
@@ -1439,7 +1494,7 @@ class StrategyEngine:
         except pbs.PullbackStateReadError as e:
             # 수정 1회차: 읽기 오류를 「행 없음」으로 보면 첫 봉 저장이 기존 행을 덮어쓴다 → 저장 막음
             res["reason"] = "read_error"
-            self._pullback_block_persist(f"복원 읽기 오류({e})")
+            self._pullback_block_persist(f"복원 읽기 오류({e})", kind="read_error")
             self.pullback_restore_result = res
             return res
         if row is None:
@@ -1455,7 +1510,8 @@ class StrategyEngine:
             logger.warning(f"[PULLBACK-RESTORE] 저장 종목·봉 단위가 다름 → 쓰지 않음 | saved={row.get('ticker')}/"
                            f"{row.get('interval')} now={self.ticker}/{interval}")
             # 수정 1회차: 다른 종목·봉 단위의 행을 이 엔진이 덮어쓰지 않게 저장 막음(정리는 T12)
-            self._pullback_block_persist(f"저장 행 종목·봉 단위 다름({row.get('ticker')}/{row.get('interval')})")
+            self._pullback_block_persist(f"저장 행 종목·봉 단위 다름({row.get('ticker')}/{row.get('interval')})",
+                                         kind="other_market")
             self.pullback_restore_result = res
             return res
         if row.get("params_sha256") and self._pullback_params_sha and row["params_sha256"] != self._pullback_params_sha:
@@ -1577,32 +1633,44 @@ class StrategyEngine:
         return d
 
     def _record_pullback_audit(self, bar: Bar, action: Action) -> None:
-        """PULLBACK 봉 판정 감사 1행 (칸 모양은 T8 — 지금은 checks 에 last_eval 을 그대로 넣는다)."""
+        """
+        PULLBACK 봉 판정 감사 (2차 T8 칸 모양 — 스키마 변경 없음, X10).
+          - 미보유: audit_buy_eval 1행(checks = 전략 audit_view, failed_keys = 매수 대기 사유).
+          - 보유: audit_sell_eval 1행(tp/sl = 평단 × (1 ± %), trigger_key ∈ Take Profit|Stop Loss|Dead Cross).
+            보유 중 분할 매수 신호 봉은 audit_buy_eval(have_position=1)도 1행.
+          - macd/signal 칸은 비운다(EMA·MACD 칸 — 새 전략 지표는 checks 에).
+        """
         try:
-            ev = dict(getattr(self.strategy, "last_eval", {}) or {})
-            checks = {**ev, "strategy": "PULLBACK", "strategy_mode": "PULLBACK", "price": float(bar.close),
-                      "via_backfill": False, "via_tentative": not bool(getattr(bar, "is_confirmed", True))}
+            from services.terminology import pullback_eval_text
+            st = self.strategy
+            if hasattr(st, "audit_view"):
+                failed, checks = st.audit_view()
+            else:
+                ev = dict(getattr(st, "last_eval", {}) or {})
+                failed, checks = list(ev.get("failed_keys") or []), {**ev, "strategy": "PULLBACK"}
+            checks.update({"price": float(bar.close), "via_backfill": False,
+                           "via_tentative": not bool(getattr(bar, "is_confirmed", True))})
             bar_time = bar.ts.astimezone(ZoneInfo("Asia/Seoul")).isoformat()
-            failed = list(ev.get("failed_keys") or [])
-            if not self.position.has_position:
+            notes = f"새 전략 · {pullback_eval_text(failed, checks)}"
+            holding = bool(self.position.has_position)
+            if not holding or action == Action.BUY:
                 insert_buy_eval(
                     user_id=self.user_id, ticker=self.ticker, interval_sec=self.interval_sec,
-                    bar=self.bar_count, price=float(bar.close), macd=ev.get("maTrend"), signal=ev.get("ma200"),
-                    have_position=False, overall_ok=(action == Action.BUY), failed_keys=failed,
-                    checks=checks, notes=f"PULLBACK {action.value} {ev.get('reason') or ''}".strip(),
-                    bar_time=bar_time,
+                    bar=self.bar_count, price=float(bar.close), macd=None, signal=None,
+                    have_position=holding, overall_ok=(action == Action.BUY), failed_keys=failed,
+                    checks=checks, notes=notes, bar_time=bar_time,
                 )
-            else:
+            if holding:
+                _sell = action in (Action.SELL, Action.CLOSE)
                 insert_sell_eval(
                     user_id=self.user_id, ticker=self.ticker, interval_sec=self.interval_sec,
-                    bar=self.bar_count, price=float(bar.close), macd=ev.get("maTrend"), signal=ev.get("ma200"),
-                    tp_price=ev.get("tp_price") or 0, sl_price=ev.get("sl_price") or 0,
+                    bar=self.bar_count, price=float(bar.close), macd=None, signal=None,
+                    tp_price=checks.get("tp_price") or 0, sl_price=checks.get("sl_price") or 0,
                     highest=None, ts_pct=None, ts_armed=False,
                     bars_held=self.position.get_bars_held(self.bar_count),
-                    checks=checks, triggered=(action in (Action.SELL, Action.CLOSE)),
-                    trigger_key=(ev.get("reason") if action in (Action.SELL, Action.CLOSE) else None),
-                    notes=f"PULLBACK {action.value} {ev.get('reason') or ''}".strip(),
-                    bar_time=bar_time,
+                    checks=checks, triggered=_sell,
+                    trigger_key=(PULLBACK_SELL_TRIGGER_KEY.get(checks.get("sell_reason")) if _sell else None),
+                    notes=notes, bar_time=bar_time,
                 )
         except Exception as e:
             logger.warning(f"[PULLBACK-AUDIT] 판정 감사 기록 실패(무해): {e}")
@@ -1622,9 +1690,10 @@ class StrategyEngine:
                 LEVEL_CRITICAL,
                 f"🚨 새 전략 지표 오염 — {self.ticker}",
                 (
-                    "새 전략(PULLBACK) 지표 상태를 믿을 수 없어 신규 매수를 멈췄습니다.\n"
+                    "새 전략 지표 값을 믿을 수 없어 새 매수를 멈췄습니다.\n"
                     "익절·손절·데드크로스 매도는 계속합니다.\n"
-                    "조치: 봇 재시작(워밍업 재시드)으로만 해제됩니다."
+                    "운영자가 봇을 재시작하면 풀립니다(재시작 때 지표를 다시 계산합니다).\n"
+                    f"{NO_ACTION_TEXT}"
                 ),
                 dedupe_key=f"pullback_polluted:{self.user_id}:{self.ticker}",
                 dedupe_ttl=3600,
@@ -1655,20 +1724,45 @@ class StrategyEngine:
             from services.notifier import send as _notify, LEVEL_WARNING
             _fe = getattr(self.strategy, "first_entry_ts", None)
             trade_key = _fe.isoformat() if hasattr(_fe, "isoformat") else "flat"
+            title, body = self._pullback_skip_text(code, ctx)
+            # 2차 T8 dedupe(F12): 같은 거래·같은 사유는 1시간에 1회
             _notify(
-                LEVEL_WARNING,
-                f"⚠️ 분할 매수 건너뜀 — {self.ticker}",
-                f"{note}\n사유 코드: {code}",
-                dedupe_key=f"pullback_skip:{self.user_id}:{self.ticker}:{code}:{trade_key}",
+                LEVEL_WARNING, title, body,
+                dedupe_key=f"pullback_skip:{self.user_id}:{trade_key}:{code}",
                 dedupe_ttl=3600,
             )
         except Exception:
             pass
 
+    # 2차 T8: 회차 건너뜀 알림 — (제목 끝 원인, 본문). 투자자가 받는다(내부 코드·표 이름 없음).
+    from services.terminology import PULLBACK_SKIP_CAUSE as _PULLBACK_SKIP_CAUSE  # 감사 화면과 같은 원인 표
+
+    def _pullback_skip_text(self, code: str, ctx: Dict[str, Any]) -> tuple:
+        n = int(ctx.get("split_round") or 1)
+        per_buy = ctx.get("per_buy")
+        per_txt = f"회당 {int(per_buy):,}원" if per_buy is not None else "회당 매수 금액"
+        cause = self._PULLBACK_SKIP_CAUSE.get(code, "주문 전 확인 실패")
+        title = f"⚠️ 새 전략 {n}회차 건너뜀 — {cause}"
+        head = f"{self.ticker} 새 전략 {n}회차 매수를 건너뛰었습니다."
+        if code == "split_krw_short":
+            body = (f"{head}\n{per_txt}과 수수료를 낼 원화가 모자랍니다. 금액을 줄여 사지 않습니다.\n"
+                    "업비트 앱의 미체결 주문·출금을 확인해 주세요.")
+        elif code == "split_below_min":
+            body = (f"{head}\n{per_txt}이 업비트 최소 주문금액 5,000원보다 작습니다.\n"
+                    f"운영자가 운용 금액과 분할 횟수를 확인합니다. {NO_ACTION_TEXT}")
+        elif code == "split_krw_unknown":
+            body = (f"{head}\n업비트에서 원화 잔고 조회 실패로 이번 회차는 주문하지 않았습니다.\n"
+                    f"다음 신호에서 다시 확인합니다. {NO_ACTION_TEXT}")
+        elif code == "split_no_capital":
+            body = f"{head}\n운용 금액이 정해지지 않았습니다. 운영자가 확인합니다. {NO_ACTION_TEXT}"
+        else:
+            body = f"{head}\n봉 마감이 확인되지 않아 다음 마감 봉에서 다시 판단합니다. {NO_ACTION_TEXT}"
+        return title, body
+
     _PULLBACK_REJECT_TEXT = {
         "split_krw_short": ("원화 잔고 부족 — 회당 금액을 줄여 사지 않았습니다.\n"
-                            "업비트 앱에서 직접 넣은 외부 미체결 주문이 원화를 묶고 있는지 확인하세요."),
-        "split_krw_unknown": "원화 잔고 조회 실패 — 업비트 응답을 확인하세요(잔고 부족 아님).",
+                            "업비트 앱에서 직접 넣은 외부 미체결 주문이 원화를 묶고 있을 수 있습니다."),
+        "split_krw_unknown": "원화 잔고 조회 실패 — 업비트 응답이 없어 주문하지 않았습니다.",
     }
 
     def _pullback_start_cooldown(self, bar: Bar, indicators, round_n: int, *, code: Optional[str],
@@ -1679,19 +1773,31 @@ class StrategyEngine:
         fail_bar = self.bar_count
         iv = int(self.interval_sec or 60)
         from datetime import timedelta
-        resume_ts = bar.ts + timedelta(seconds=iv * n)
+        resume_ts = bar.ts + timedelta(seconds=iv * n)          # 다시 주문하는 봉의 시작 시각
         resume_kst = resume_ts.astimezone(ZoneInfo("Asia/Seoul")).strftime("%m/%d %H:%M")
+        # 2차 T8 (T5 넘김): 주문은 봉 마감 때 나간다 — 고지 시각은 그 봉의 마감 시각
+        resume_close_kst = (resume_ts + timedelta(seconds=iv)).astimezone(ZoneInfo("Asia/Seoul")).strftime("%m/%d %H:%M")
         minutes = iv * n / 60
         minutes_txt = f"{minutes:.0f}" if float(minutes).is_integer() else f"{minutes:.1f}"
         if code:
-            reason = f"{code} — {self._PULLBACK_REJECT_TEXT.get(code, '주문 전 거절')}"
+            reason = self._PULLBACK_REJECT_TEXT.get(code, "주문 전 확인에서 멈춤")
         elif err:
-            reason = str(err)
+            from services.error_messages import format_error_block, error_code_of
+            import re as _re
+            _label, _raw = format_error_block(str(err))
+            _ecode = error_code_of(str(err))
+            if _ecode == "unknown":   # 알려진 표에 없는 코드는 원문 「[code]」 에서 코드만
+                _m = _re.search(r"\[([a-z][a-z0-9_]{2,})\]", str(err))
+                _ecode = _m.group(1) if _m else "unknown"
+            if _label == "알 수 없음":
+                _label = "거래소가 주문을 받지 않음"
+            reason = f"{_label} (거래소 응답: {_ecode})"   # 원문은 위 WARNING·감사 note 에만
         else:
-            reason = "주문 전 거절(사유 코드 없음 — 감사 로그의 매수 거절 행 확인)"
+            reason = "주문 전 확인에서 멈춤"
         note = (f"매수 주문 실패({code or err or 'preorder_reject'}) → 새 매수 {n}봉(약 {minutes_txt}분) 쉼 "
                 f"— 실패 봉 #{fail_bar} 포함 #{fail_bar}~#{fail_bar + n - 1}, 끝나는 봉 #{fail_bar + n} "
-                f"{resume_kst} KST 부터 재주문(봇 매도 체결 시 바로 해제) — {round_n}회차")
+                f"({resume_kst} KST 시작) {resume_close_kst} KST 마감 때부터 재주문(봇 매도 체결 시 바로 해제) "
+                f"— {round_n}회차")
         logger.warning(f"⏸️ [PULLBACK-COOLDOWN] {note}")
         self._audit_buy_blocked(bar.ts, indicators, price=bar.close, code="split_order_cooldown", note=note,
                                 extra={**ctx, "cooldown_bars": n, "fail_bar": fail_bar,
@@ -1706,7 +1812,7 @@ class StrategyEngine:
                 f"⏸️ 새 전략 매수 잠시 쉼 — {self.ticker}",
                 (f"{round_n}회차 매수 주문이 실패했습니다.\n"
                  f"사유: {reason}\n"
-                 f"새 매수를 {n}봉(약 {minutes_txt}분) 쉽니다 — {resume_kst} 봉부터 다시 주문합니다.\n"
+                 f"새 매수를 {n}봉(약 {minutes_txt}분) 쉽니다 — {resume_close_kst} 봉 마감 때부터 다시 주문합니다.\n"
                  f"매도(익절·손절·데드크로스)는 계속합니다.\n"
                  f"할 일: 업비트 앱에서 원화 잔고와 미체결 주문(앱에서 넣은 외부 주문)을 확인해 주세요."),
                 dedupe_key=f"pullback_cooldown:{self.user_id}:{self.ticker}:{trade_key}:{bar.ts.isoformat()}",
@@ -1714,6 +1820,28 @@ class StrategyEngine:
             )
         except Exception:
             pass
+
+    def _pullback_notify_buy(self, round_n: int, reason: Optional[str], avg_price, per_buy: Optional[int],
+                             key: str, *, dry_run: bool = False) -> None:
+        """2차 T8: 분할 매수 체결 알림(INFO) — 「🟢 새 전략 매수 n회차 · <사유> — <종목> 평단 <x>원」.
+        TEST·dry-run 은 주문 직후, LIVE 는 체결 반영(_pullback_apply_fill) 때. dedupe = 주문 uuid."""
+        try:
+            from services.notifier import send as _notify, LEVEL_INFO
+            from services.terminology import PULLBACK_REASON_LABEL
+            label = PULLBACK_REASON_LABEL.get(str(reason or "").upper(), PULLBACK_REASON_LABEL["PULLBACK"])
+            max_n = int(getattr(self.strategy, "cfg", {}).get("eff_max_splits") or 0)
+            per_txt = f"회당 {int(per_buy):,}원, " if per_buy else ""
+            what = ("모의 실행(실제 주문 없음)으로 반영됐습니다" if dry_run else "체결됐습니다")
+            _notify(
+                LEVEL_INFO,
+                f"🟢 새 전략 매수 {round_n}회차 · {label} — {self.ticker} 평단 {_fmt_price(avg_price)}원",
+                (f"새 전략(눌림목 분할매수) {round_n}회차 매수가 {what}({per_txt}최대 {max_n}회).\n"
+                 f"{NO_ACTION_TEXT}"),
+                dedupe_key=f"pullback_buy:{self.user_id}:{key}",
+                dedupe_ttl=3600,
+            )
+        except Exception as e:
+            logger.warning(f"[PULLBACK-NOTIFY] 매수 알림 실패(무해) | {type(e).__name__}")
 
     def _execute_pullback_buy(self, bar: Bar, indicators: Dict[str, Any]) -> None:
         """
@@ -1788,16 +1916,22 @@ class StrategyEngine:
             )
             return
 
+        # 주문 전 분할 수량·원가(기준) — 체결 반영(엔진)과 체결 감사 행 평단(trader·reconciler, 2차 T8)이 같은 값을 쓴다
+        base_qty = float(self._pb_qty or 0.0) if holding else 0.0
+        base_cost = float(self._pb_cost or 0.0) if holding else 0.0
         meta = {
             "bar": self.bar_count,
             "reason": getattr(st, "last_buy_reason", None) or "PULLBACK",
             "bar_time": bar.ts.astimezone(ZoneInfo("Asia/Seoul")).isoformat(),
             "interval_sec": self.interval_sec,
+            "interval": self.interval_sec,   # 수정 1회차: trader·reconciler 체결 행이 읽는 키(PULLBACK 만)
             "split_round": round_n,
             "pullback_round": ctx["pullback_round"],
             "sizing_base": base,
             "per_buy": per_buy,
             "strategy_type": "PULLBACK",
+            "base_qty": base_qty,      # 2차 T8: 체결 행 avg_after 계산용
+            "base_cost": base_cost,
         }
         self.position.set_pending(True)
         self._pullback_pending_set = True
@@ -1820,8 +1954,6 @@ class StrategyEngine:
         self._pullback_buy_fail_bar = None
         self._pullback_buy_fail_ts = None
         qty, price = float(result.get("qty") or 0.0), float(result.get("price") or bar.close)
-        base_qty = float(self._pb_qty or 0.0) if holding else 0.0
-        base_cost = float(self._pb_cost or 0.0) if holding else 0.0
         if qty <= 0 and result.get("uuid") == "DRY_RUN":
             # 수정 1회차: dry-run 은 실주문·체결 콜백이 없다 → 체결 대기로 두지 않고 주문 금액/가격 추정 수량으로 바로 반영
             qty = float(per_buy) / price if price > 0 else 0.0
@@ -1842,6 +1974,12 @@ class StrategyEngine:
             self._pullback_set_pb_from_position()
             logger.info(f"✅ [PULLBACK] {round_n}회차 매수 | 회당 {per_buy:,}원 qty={qty:.6f} price={price:.2f} "
                         f"| 보유 qty={self.position.qty:.6f} avg={self.position.avg_price:.2f}")
+            _uuid = result.get("uuid")
+            _dry = _uuid == "DRY_RUN"
+            # dry-run 은 uuid 가 늘 「DRY_RUN」 — 회차·봉 시각을 키에 넣어 회차마다 알림(1시간 dedupe 에 묶이지 않게)
+            _key = (f"DRY_RUN-{round_n}-{bar.ts.isoformat()}" if _dry
+                    else (_uuid or f"test-{bar.ts.isoformat()}-{round_n}"))
+            self._pullback_notify_buy(round_n, meta["reason"], self.position.avg_price, per_buy, _key, dry_run=_dry)
         if self.q is not None:
             self.q.put((bar.ts, "BUY", qty, price, meta["reason"], None, None))
 
@@ -2380,6 +2518,20 @@ class StrategyEngine:
         # ✅ WO-26: 약매수 포지션 매도 행 비고
         if self.position.take_profit_override is not None:
             meta["audit_note"] = weak_position_note(self.position.take_profit_override)
+        if self.strategy_type == "PULLBACK":
+            # ✅ 2차 T8: 매도 체결 행 meta — 판정가(TP·SL 가격 또는 데드크로스 판정 봉 종가)·판정 사유·회차
+            #   (요청서 8절 「익절 판정인데 손해」 관찰용. 체결가는 trader·reconciler 가 fill_price 로 더한다)
+            _ev = getattr(self.strategy, "last_eval", {}) or {}
+            _jr = str(sell_reason or "").upper()
+            _jp = {"TP": _ev.get("tp_price"), "SL": _ev.get("sl_price")}.get(_jr, float(bar.close))
+            meta.update({
+                "strategy_type": "PULLBACK",
+                "interval": self.interval_sec,   # 수정 1회차: 체결 행 봉 단위(EMA meta 는 그대로)
+                "split_round": int(_ev.get("exit_round") or 0),
+                "pullback_round": int(_ev.get("exit_pullback_round") or 0),
+                "judged_reason": _jr or None,
+                "judged_price": (float(_jp) if _jp is not None else float(bar.close)),
+            })
 
         result = self.trader.sell_market(
             self.position.qty,
@@ -2543,6 +2695,9 @@ class StrategyEngine:
                 }
 
             notes = f"⏳ WARMUP 진행 중 {warmup_progress}"
+            if self.strategy_type == "PULLBACK":
+                checks["failed_keys"] = ["WARMUP"]
+                notes = f"새 전략 · 준비 중(지표 계산) {warmup_progress}"
 
             # 포지션 없을 때: BUY 평가 로그 기록
             if not self.position.has_position:
@@ -2560,7 +2715,8 @@ class StrategyEngine:
                     signal=signal,
                     have_position=False,
                     overall_ok=False,
-                    failed_keys=["WARMUP_IN_PROGRESS"],
+                    # ✅ 2차 T8: PULLBACK 은 감사 failed_keys 목록의 WARMUP (EMA·MACD 는 그대로)
+                    failed_keys=(["WARMUP"] if self.strategy_type == "PULLBACK" else ["WARMUP_IN_PROGRESS"]),
                     checks=checks,
                     notes=notes,
                     bar_time=bar_ts_kst.isoformat(),

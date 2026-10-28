@@ -450,6 +450,7 @@ class IncrementalPullbackStrategy:
         # 2차 T6: 엔진이 실시간 판정 직전에 넣는 표식(판정 상태 아님 — 링·저장에 넣지 않는다)
         self.fill_wait = False      # LIVE 분할 주문 체결 대기 중(엔진 _pending_split) → 미보유여도 회차 정리를 미룸
         self.split_desync = False   # 지갑·분할 상태 어긋남(desync=1) → 추가 분할매수 멈춤, 매도는 계속(D11 b)
+        self._pos_desync_logged = False  # 2차 T8: POS_DESYNC 경고는 상태가 바뀔 때 1회
 
     # ------------------------------------------------ 2차 T5: 엔진·trader 가 읽는 값 (적용본 기준, 읽기 전용)
     @property
@@ -618,8 +619,14 @@ class IncrementalPullbackStrategy:
             elif holding and self.entry_count == 0:
                 # 이 전략이 연 거래가 아님(앱 매수·매도 거절) → 매수 신호를 내지 않음
                 desync = True
-                logger.warning(f"{_RULE_TAG} 실보유 + 판정 회차 0 (POS_DESYNC) → 매수 신호 안 냄 "
-                               f"| ts={format_kst(bar.ts)}")
+                if not self._pos_desync_logged:
+                    # 2차 T8 (T4 넘김): 보유 중 봉마다 찍히던 경고를 상태가 바뀔 때 1회로
+                    self._pos_desync_logged = True
+                    logger.warning(f"{_RULE_TAG} 실보유 + 판정 회차 0 (POS_DESYNC) → 매수 신호 안 냄 "
+                                   f"(풀릴 때까지 다시 남기지 않음) | ts={format_kst(bar.ts)}")
+            if not (holding and self.entry_count == 0) and self._pos_desync_logged:
+                self._pos_desync_logged = False
+                logger.info(f"{_RULE_TAG} POS_DESYNC 풀림 | ts={format_kst(bar.ts)}")
             if holding and self.split_desync and not desync:
                 # 2차 T6: 지갑과 분할 상태가 어긋남(앱 매수 등) → 추가 분할매수 멈춤. 경고는 엔진이 바뀔 때 1회.
                 desync = True
@@ -661,7 +668,9 @@ class IncrementalPullbackStrategy:
                 signal = ("SELL", "SL")
 
         origin = "live" if live else "replay"
+        exit_round = None
         if signal is not None:
+            exit_round = (self.entry_count, self.pullback_count)  # 2차 T8: 매도 체결 행 회차(정리 전 값)
             self._reset_trade()
         elif buy_block:
             pass  # 매수 판정(4·5) 건너뜀 — armed 도 그대로
@@ -713,7 +722,89 @@ class IncrementalPullbackStrategy:
             "failed_keys": ([] if (signal and live) else (["REPLAY"] if not live else
                             (list(buy_block) if buy_block else ["NO_SIGNAL"]))),
         }
+        if exit_round is not None:
+            ev["exit_round"], ev["exit_pullback_round"] = exit_round
         if not live:
             ev["replay_signal"] = f"{signal[0]}:{signal[1]}" if signal else None
         self.last_eval = ev
         return signal
+
+    # ------------------------------------------------ 2차 T8: 감사 칸 모양
+    def _inactive_reason(self, ev: dict) -> Optional[str]:
+        """감시 구간 밖 사유(원본 isFilterActive 순서): not_golden → slope_low → slope_drop. 감시 구간이면 None."""
+        if "active" not in ev or ev.get("active"):
+            return None
+        t, m, s, s_lb = ev.get("maTrend"), ev.get("ma200"), ev.get("slope200"), ev.get("slope200_lb")
+        if t is None or m is None or not (t > m):
+            return "not_golden"
+        if s is None or s < self.cfg["minSlope"]:
+            return "slope_low"
+        if self.cfg["slopeDrop"] > 0 and s_lb is not None and (s_lb - s) > self.cfg["slopeDrop"]:
+            return "slope_drop"
+        return None
+
+    def _wait_key(self, ev: dict) -> str:
+        """신호 없는 실시간 봉의 매수 대기 사유(감사 failed_keys 1개)."""
+        c = self.cfg
+        if int(ev.get("entry_count") or 0) >= c["eff_max_splits"]:
+            return "SPLITS_FULL"
+        if not ev.get("active"):
+            return "NOT_ACTIVE"
+        if c["golden_only"]:
+            return "WAIT_GOLDEN"
+        if int(ev.get("pullback_count") or 0) >= c["maxPullbackBuys"]:
+            return "PULLBACK_CAP"
+        return "WAIT_PULLBACK"
+
+    def audit_view(self) -> tuple:
+        """
+        last_eval → (failed_keys, checks) — 감사 audit_buy_eval·audit_sell_eval 의 칸(계획 T8, 스키마 변경 없음).
+          failed_keys: [] (이 봉 신호) | NOT_ACTIVE·WAIT_PULLBACK·WAIT_GOLDEN·SPLITS_FULL·PULLBACK_CAP·DESYNC
+                       | 판정 안 함·막음 표식 TENTATIVE·UNCONFIRMED·DUPLICATE·PENDING_FILL·STATE_POLLUTED·REPLAY
+          checks: strategy·round·pullback_round·armed·active·inactive_reason·maTrend·ma200·maPullback·slope200·
+                  buy_reason·golden_event(+ 화면·관찰용 덧칸)
+        """
+        ev = dict(self.last_eval or {})
+        raw = list(ev.get("failed_keys") or [])
+        if raw == ["NO_SIGNAL"]:
+            failed = [self._wait_key(ev)]
+        else:
+            failed = ["DESYNC" if k == "POS_DESYNC" else k for k in raw]
+        sig, reason = ev.get("signal"), ev.get("reason")
+
+        def _b(k):
+            return None if ev.get(k) is None else int(bool(ev.get(k)))
+
+        checks = {
+            "strategy": "PULLBACK",
+            "strategy_mode": "PULLBACK",
+            "round": ev.get("entry_count"),
+            "pullback_round": ev.get("pullback_count"),
+            "armed": _b("armed"),
+            "active": _b("active"),
+            "inactive_reason": self._inactive_reason(ev),
+            "maTrend": ev.get("maTrend"),
+            "ma200": ev.get("ma200"),
+            "maPullback": ev.get("maPullback"),
+            "slope200": ev.get("slope200"),
+            "buy_reason": reason if sig == "BUY" else None,
+            "golden_event": _b("just_crossed"),
+            # 덧칸(화면·관찰용)
+            "golden": _b("golden"),
+            "slope200_lb": ev.get("slope200_lb"),
+            "holding": _b("holding"),
+            "avg": ev.get("avg"),
+            "tp_price": ev.get("tp_price"),
+            "sl_price": ev.get("sl_price"),
+            "split_round": ev.get("split_round"),
+            "max_splits": ev.get("max_splits"),
+            "max_pullback_buys": ev.get("max_pullback_buys"),
+            "sell_reason": reason if sig == "SELL" else None,
+            "exit_round": ev.get("exit_round"),
+            "mode": ev.get("mode"),
+            "bar_ts": ev.get("bar_ts"),
+            "failed_keys": failed,
+        }
+        if ev.get("note"):
+            checks["note"] = ev["note"]
+        return failed, checks

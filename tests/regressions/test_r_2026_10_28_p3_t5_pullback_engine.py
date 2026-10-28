@@ -386,7 +386,8 @@ class TestSellReject(EngineCase):
         rejected = [c for c in audit.call_args_list if c.args[4] == "SELL_REJECTED"]
         self.assertEqual(len(rejected), 1)
         bodies = [c.args[2] for c in self.notify.call_args_list if "매도 거절" in c.args[1]]
-        self.assertTrue(bodies and "지정가 매도 주문이 있는지 확인" in bodies[0])
+        # 2차 T8: 새 전략 매도 거절 문구(계획 시험 문구 「외부 미체결 매도 주문 확인」) — EMA 문구는 T8 시험이 고정
+        self.assertTrue(bodies and "외부 미체결 매도 주문을 확인해 주세요" in bodies[0])
         # (T4 넘김 4) 매도 거절 뒤: 회차는 0, 보유는 그대로 → 다음 봉도 TP 재평가, 매수는 POS_DESYNC 로 막힘
         self.assertTrue(self.eng.position.has_position)
         self.assertIs(self.feed(bar(2, **tp_bar)), Action.SELL)
@@ -1087,7 +1088,9 @@ class TestReviewRound(EngineCase):
         self.assertEqual(self.eng._pullback_buy_fail_bar, 1)
         notes = self._cool_notices()
         self.assertEqual(len(notes), 1)
-        self.assertIn("split_krw_short", notes[0].args[2])
+        # 2차 T8: 투자자 알림에는 내부 코드(split_krw_short)를 넣지 않고 원인을 한글로 적는다
+        self.assertIn("원화 잔고 부족", notes[0].args[2])
+        self.assertNotIn("split_krw_short", notes[0].args[2])
         self.assertIn("외부", notes[0].args[2])
         self.assertEqual(len(self._cool_rows(tr)), 1)
 

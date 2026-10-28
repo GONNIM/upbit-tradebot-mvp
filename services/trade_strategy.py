@@ -100,6 +100,28 @@ def classify(strategy_type, row_id: int, bounds: Optional[dict]) -> str:
     return UNKNOWN
 
 
+def classify_rows(user_id: str, rows, table: str = "audit_trades") -> list:
+    """
+    2차 T8: (id, strategy_type) 목록 → 행마다 classify 결과(감사 화면 「전략」 칸). 표식은 한 번만 읽는다.
+    읽기 실패는 strategy_type 만으로(NULL = LEGACY) 분류한다 — 화면 경고는 띄우지 않는다(결정 1028-06).
+    """
+    rows = list(rows or [])
+    bounds = None
+    try:
+        from services.db import get_db
+        with get_db(user_id) as conn:
+            bounds = read_bounds(conn, table)
+    except Exception as e:
+        logger.warning(f"[STRATEGY-COL] 화면 분류 표식 읽기 실패 → 전략 칸만으로 분류: {e}")
+    out = []
+    for rid, st in rows:
+        try:
+            out.append(classify(st, int(rid) if rid is not None else 0, bounds))
+        except Exception:
+            out.append(UNKNOWN)
+    return out
+
+
 def count_unknown_rows(user_id: str, table: str = "audit_trades") -> int:
     """분류 불명(NULL·표식 뒤·되돌림 구간 밖) 행 수. 칸 없음·오류 = 0."""
     try:

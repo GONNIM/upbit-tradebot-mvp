@@ -9,6 +9,7 @@ from services.db import (
     sync_all_positions_from_balances,  # ✅ Issue #18: 전체 포트폴리오 동기화
     insert_trade_audit,  # ✅ LIVE 모드 체결 로그 추가
 )
+from core.pullback_audit import split_trade_audit  # ✅ 2차 T8: PULLBACK 체결 행 회차·평단 (표준 라이브러리만)
 
 
 logger = logging.getLogger(__name__)
@@ -549,6 +550,20 @@ class OrderReconciler:
                     meta = self._pending.get(uuid, {}).get("meta", {})
 
                 try:
+                    _strategy = self._order_strategy_type(user_id, uuid)  # ✅ 2차 T7: 발주 때 전략 (전환 뒤 늦은 체결도)
+                    # ✅ 2차 T8 (F14): 새 전략 분할 주문(주문 행 전략 PULLBACK + 발주 meta 에 회차)만 체결 행에
+                    #   회차·평단(meta)을 옮기고 entry_price = 체결 뒤 평단. EMA·MACD 는 _pb_extra 빈 dict(지금과 같은 인자).
+                    _pb_extra: Dict[str, Any] = {}
+                    _entry_price = meta.get("entry_price")
+                    try:
+                        _pb = (split_trade_audit(meta, side=side, fill_price=avg_px or 0.0, fill_qty=exec_vol)
+                               if str(_strategy or "").upper() == "PULLBACK" else None)
+                    except Exception as _pe:  # 회차 칸 실패는 체결 기록을 막지 않는다
+                        _pb = None
+                        logger.warning(f"[PULLBACK-AUDIT] LIVE 체결 행 회차·평단 계산 실패 → 칸 없이 기록 uuid={uuid} "
+                                       f"| {type(_pe).__name__}: {_pe}")
+                    if _pb is not None:
+                        _pb_extra["meta"], _entry_price = _pb
                     insert_trade_audit(
                         user_id=user_id,
                         ticker=ticker,
@@ -559,7 +574,7 @@ class OrderReconciler:
                         price=avg_px or 0.0,
                         macd=meta.get("macd"),
                         signal=meta.get("signal"),
-                        entry_price=meta.get("entry_price"),
+                        entry_price=_entry_price,
                         entry_bar=meta.get("entry_bar"),
                         bars_held=meta.get("bars_held"),
                         tp=meta.get("tp"),
@@ -570,7 +585,8 @@ class OrderReconciler:
                         timestamp=None,  # ✅ 실시간 체결 시각 (now_kst())
                         bar_time=meta.get("bar_time"),  # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
                         note=meta.get("audit_note"),  # ✅ WO-26: "약매수 진입 · 익절 x%" / "약매수 포지션 · 기준 x%"
-                        strategy_type=self._order_strategy_type(user_id, uuid),  # ✅ 2차 T7: 발주 때 전략 (전환 뒤 늦은 체결도)
+                        strategy_type=_strategy,
+                        **_pb_extra,
                     )
                     logger.info(f"[OR] audit_trades inserted: uuid={uuid} side={side} px={avg_px} vol={exec_vol}")
                 except Exception as e:

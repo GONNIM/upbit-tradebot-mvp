@@ -1715,6 +1715,7 @@ _TRADE_TYPE_DISPLAY = {
     "BUY_REJECTED": "⛔ 매수 거절",
     "HTS_SELL": "외부 매도",  # ✅ WO-22: 지갑 0 닫힘 기록 (앱 매도 등, 가격 미상 — 손익 집계 제외)
     "BUY_CANCELED": "⏱ 매수 미체결 취소",  # ✅ WO-24: 현재가 매수 대기 봉 timeout 취소 (체결 아님 — 손익·매수 집계 제외)
+    "PULLBACK_SYNC": "🔄 새 전략 수량 맞춤",  # ✅ 2차 T8: 새 전략 지갑 대조 어긋남 기록 (체결 아님 — 손익 집계 제외, EMA 는 쓰지 않음)
 }
 
 
@@ -1787,6 +1788,33 @@ def fetch_trades_audit(user_id: str, ticker: str | None = None, limit=500):
             # 마이그레이션(ensure_audit_trades_reject_columns) 전 DB — 신규 3열은 None 으로 채움
             cur.execute(f"SELECT {base_cols}, NULL, NULL, NULL FROM audit_trades{where}{tail}", params)
             return cur.fetchall()
+
+
+def fetch_trades_audit_with_strategy(user_id: str, ticker: str | None = None, limit=500):
+    """
+    ✅ 2차 T8: fetch_trades_audit 와 같은 행·순서 + 끝에 (id, strategy_type) 2칸 — 감사 화면의 「새 전략」 라벨용.
+    strategy_type 칸이 없는 DB(마이그레이션 전)는 NULL. fetch_trades_audit 는 바꾸지 않는다.
+    """
+    where = " WHERE 1=1"
+    params: list = []
+    if ticker:
+        where += " AND ticker = ?"
+        params.append(ticker)
+    tail = " ORDER BY timestamp DESC LIMIT ?"
+    params.append(limit)
+    base_cols = ", ".join(TRADES_AUDIT_COLUMNS[:18])
+    with get_db(user_id) as conn:
+        cur = conn.cursor()
+        for extra in ("qty, note, meta, id, strategy_type", "qty, note, meta, id, NULL",
+                      "NULL, NULL, NULL, id, NULL"):
+            try:
+                cur.execute(f"SELECT {base_cols}, {extra} FROM audit_trades{where}{tail}", params)
+                return cur.fetchall()
+            except sqlite3.OperationalError as e:
+                if "no such column" not in str(e).lower():   # 칸 없는 옛 DB 만 다음 질의로, 잠김 등은 올린다
+                    raise
+                continue
+        return []
 
 
 def has_open_by_orders_volume(user_id: str, ticker: str) -> bool:
