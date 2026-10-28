@@ -474,6 +474,7 @@ class UpbitTrader:
                 timestamp=None,  # ✅ 실시간 체결 시각 (now_kst() 자동)
                 bar_time=meta.get("bar_time"),  # ✅ 해당 봉의 시각
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
                 note=meta.get("audit_note"),  # ✅ WO-26: 약매수 진입·포지션 비고 (없으면 None)
             )
 
@@ -540,6 +541,7 @@ class UpbitTrader:
                 timestamp=None,
                 bar_time=m.get("bar_time"),
                 settings_history_id=self._get_settings_history_id(),
+                strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
                 qty=float(qty) if qty is not None else None,
                 note=note or reject_note(err_summary),
                 meta=_json.dumps(err_meta, ensure_ascii=False, default=str),
@@ -698,6 +700,7 @@ class UpbitTrader:
                 profit_krw=0,
                 entry_bar=entry_bar,  # ✅ bars_held 추적용
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
             )
 
             self._audit_trade(
@@ -897,6 +900,7 @@ class UpbitTrader:
                     requested_at=now_kst(),
                     entry_bar=_entry_bar,
                     settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                    strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
                 )
             except Exception as e:
                 logger.warning(f"[BUY-LIVE] insert_order(FAILED) 실패: {e}")
@@ -927,6 +931,7 @@ class UpbitTrader:
                 entry_bar=entry_bar,  # ✅ bars_held 추적용
                 meta=meta_json,  # ✅ 전략 컨텍스트 저장
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
             )
 
             # ❌ LIVE 모드에서는 reconciler가 체결 후 audit 기록 담당
@@ -1223,6 +1228,7 @@ class UpbitTrader:
                     requested_at=now_kst(),
                     entry_bar=(meta or {}).get("bar"),
                     settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                    strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
                 )
             except Exception as e:
                 logger.warning(f"[BUY-LIMIT] insert_order(FAILED) 실패: {e}")
@@ -1253,6 +1259,7 @@ class UpbitTrader:
                 entry_bar=enriched_meta.get("bar"),
                 meta=meta_json,
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
             )
 
             insert_log(
@@ -1374,6 +1381,7 @@ class UpbitTrader:
                 current_coin=new_coin,
                 profit_krw=total_gain,
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
             )
 
             self._audit_trade(
@@ -1509,6 +1517,7 @@ class UpbitTrader:
                 requested_at=now_kst(),
                 meta=meta_json,  # ✅ 전략 컨텍스트 저장
                 settings_history_id=self._get_settings_history_id(),  # ✅ P1
+                strategy_type=self.strategy_type,  # ✅ 2차 T7: 거래 행 전략 칸
             )
 
             # ❌ LIVE 모드에서는 reconciler가 체결 후 audit 기록 담당

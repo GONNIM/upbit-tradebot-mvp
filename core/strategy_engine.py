@@ -665,6 +665,7 @@ class StrategyEngine:
                 entry_bar=self.position.entry_bar, bars_held=None, tp=None, sl=None, highest=None,
                 ts_pct=None, ts_armed=None, qty=float(qty) if qty is not None else None,
                 note="외부 매도 — 지갑 잔고 0 감지 (앱 매도 등). 체결 가격은 알 수 없음",
+                strategy_type=getattr(self, "strategy_type", None),  # ✅ 2차 T7: 그때 엔진 활성 전략
             )
             logger.info(f"[POSITION-SYNC] 외부 매도 기록 (audit_trades HTS_SELL) | qty={qty} entry={entry_price}")
         except Exception as e:
@@ -1305,6 +1306,7 @@ class StrategyEngine:
                 tp=None, sl=None, highest=None, ts_pct=None, ts_armed=None, qty=float(wallet), note=note,
                 meta=_json.dumps({"wallet_qty": wallet, "state_qty": state_qty, "class": cls,
                                   "strategy_type": "PULLBACK"}, ensure_ascii=False),
+                strategy_type="PULLBACK",  # ✅ 2차 T7: 거래 행 전략 칸
             )
         except Exception as e:
             logger.error(f"[PULLBACK-SYNC] 감사 기록 실패: {e}")

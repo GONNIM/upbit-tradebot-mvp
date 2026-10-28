@@ -1045,6 +1045,181 @@ def ensure_pullback_tables(user_id: str):
     conn.close()
 
 
+# ✅ 2차 T7 (2026-10-28): 거래 행 전략 칸 — 옛 행 표식(schema_marks) 이름
+STRATEGY_MARK_TABLES = ("audit_trades", "orders")
+STRATEGY_COLUMN = "strategy_type"
+
+
+def strategy_mark_name(table: str, kind: str) -> str:
+    """kind: 'legacy_max_id' | 'revert_from' | 'revert_to' → 예: 'audit_trades.strategy_type.legacy_max_id'"""
+    return f"{table}.{STRATEGY_COLUMN}.{kind}"
+
+
+def _schema_mark_names(conn) -> set:
+    if not _table_exists(conn, "schema_marks"):
+        return set()
+    return {r[0] for r in conn.execute("SELECT name FROM schema_marks").fetchall()}
+
+
+def _trade_strategy_work(conn, *, close_revert_gap: bool = False) -> list:
+    """해야 할 일 목록(읽기만). 비면 다 된 DB — 쓰기·BEGIN 없이 끝낸다(D1).
+    close_revert_gap=True(엔진 기동 마이그레이션만): 열린 되돌림 구간(revert_from 만 있음)을 닫는 일도 넣는다."""
+    names = _schema_mark_names(conn)
+    work = []
+    for t in STRATEGY_MARK_TABLES:
+        if not _table_exists(conn, t):
+            continue  # 표가 아직 없음 — 다음 호출 때 (_ensure_column 관례)
+        if not _column_exists(conn, t, STRATEGY_COLUMN):
+            work.append((t, "add_column"))
+        elif strategy_mark_name(t, "legacy_max_id") not in names:
+            work.append((t, "repair_mark"))
+        if (close_revert_gap and strategy_mark_name(t, "revert_from") in names
+                and strategy_mark_name(t, "revert_to") not in names):
+            work.append((t, "revert_to"))
+    return work
+
+
+def ensure_trade_strategy_columns(user_id: str) -> bool:
+    """
+    ✅ 2차 T7 (2026-10-28): 거래 행 전략 칸 (⚠ 스키마 변경 — 배포 승인 대상)
+      - audit_trades.strategy_type · orders.strategy_type (TEXT) 칸 추가
+      - schema_marks 신설: '<표>.strategy_type.legacy_max_id' = 칸 추가 직전 MAX(id) (그 이하 NULL 행 = 옛 EMA/MACD)
+      - 먼저 읽기(D1): 칸 2개·표식 2개가 다 있으면 쓰기 없이 끝낸다(BEGIN IMMEDIATE 도 없음).
+      - 칸은 있고 표식이 없음(D3): 표식 = COALESCE(전략이 처음 기록된 행 id - 1, MAX(id), 0), WARNING.
+      - 표식과 칸 추가는 한 트랜잭션(SQLite ALTER TABLE ADD COLUMN 은 트랜잭션 안에서 함께 되돌려짐).
+    로그인·대시보드·DB 경로(ensure_all_schemas)가 부른다. 되돌림 구간(revert_to)은 쓰지 않는다 —
+    그것은 엔진 기동 마이그레이션의 close_strategy_revert_gap 만 한다(수정 1회차: 되돌리기 직전 화면 렌더가
+    구간을 먼저 닫아 버리던 결함).
+    실패해도 예외를 올리지 않는다(ERROR 로그, False) — 로그인·대시보드·엔진 기동은 계속.
+    옛 코드(revert)는 칸 목록을 직접 적어 insert 하므로 새 칸은 NULL — 무해.
+    """
+    return _run_trade_strategy_migration(user_id, close_revert_gap=False, fn_name="ensure_trade_strategy_columns")
+
+
+def close_strategy_revert_gap(user_id: str) -> bool:
+    """
+    ✅ 2차 T7 수정 1회차 — 엔진 기동 마이그레이션(engine/boot_resume.py) 전용.
+    칸·표식 보장(ensure_trade_strategy_columns 와 같음) + 되돌린 뒤 재배포(D2): revert_from 이 있고 revert_to 가 없으면
+    그때 MAX(id) 를 revert_to 로 기록. 재배포 = tradebot 재시작이므로 기동 때만 닫는다(로그인·대시보드 경로는 닫지 않음).
+    실패해도 예외 없음(ERROR, False).
+    """
+    return _run_trade_strategy_migration(user_id, close_revert_gap=True, fn_name="close_strategy_revert_gap")
+
+
+def _run_trade_strategy_migration(user_id: str, *, close_revert_gap: bool, fn_name: str) -> bool:
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    conn = None
+    try:
+        conn = _connect(user_id)
+        if not _trade_strategy_work(conn, close_revert_gap=close_revert_gap):
+            _log_trade_strategy_ok(fn_name, user_id)
+            return True
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            # 잠금 뒤 다시 읽기 (다른 프로세스가 먼저 했을 수 있음)
+            work = _trade_strategy_work(conn, close_revert_gap=close_revert_gap)
+            if not work:
+                conn.execute("COMMIT")  # 쓴 것 없음 — 잠금만 놓는다
+                _log_trade_strategy_ok(fn_name, user_id)
+                return True
+            now_iso = datetime.now(ZoneInfo("Asia/Seoul")).isoformat()
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_marks (
+                    name  TEXT PRIMARY KEY,
+                    value INTEGER NOT NULL,
+                    at    TEXT NOT NULL
+                )
+                """
+            )
+            gaps = []  # (표, revert_from, revert_to) — 로그는 COMMIT 뒤 한 번에 (두 표 모두 빈 구간일 때만 EMPTY)
+            for table, job in work:
+                if job == "add_column":
+                    conn.execute(
+                        f"INSERT OR IGNORE INTO schema_marks(name, value, at) "
+                        f"SELECT ?, COALESCE(MAX(id), 0), ? FROM {table}",
+                        (strategy_mark_name(table, "legacy_max_id"), now_iso),
+                    )
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {STRATEGY_COLUMN} TEXT")
+                    logger.info(f"[migrate] added {table}.{STRATEGY_COLUMN} (TEXT) + legacy mark (user_id={user_id})")
+                elif job == "repair_mark":
+                    conn.execute(
+                        f"INSERT OR IGNORE INTO schema_marks(name, value, at) "
+                        f"SELECT ?, COALESCE((SELECT MIN(id) FROM {table} WHERE {STRATEGY_COLUMN} IS NOT NULL) - 1, "
+                        f"(SELECT MAX(id) FROM {table}), 0), ?",
+                        (strategy_mark_name(table, "legacy_max_id"), now_iso),
+                    )
+                    v = conn.execute("SELECT value FROM schema_marks WHERE name=?",
+                                     (strategy_mark_name(table, "legacy_max_id"),)).fetchone()
+                    logger.warning(
+                        f"[migrate] strategy mark repaired | table={table} legacy_max_id={v[0] if v else None} "
+                        f"(user_id={user_id})"
+                    )
+                elif job == "revert_to":
+                    conn.execute(
+                        f"INSERT OR IGNORE INTO schema_marks(name, value, at) "
+                        f"SELECT ?, COALESCE(MAX(id), 0), ? FROM {table}",
+                        (strategy_mark_name(table, "revert_to"), now_iso),
+                    )
+                    v = conn.execute("SELECT value FROM schema_marks WHERE name=?",
+                                     (strategy_mark_name(table, "revert_to"),)).fetchone()
+                    f = conn.execute("SELECT value FROM schema_marks WHERE name=?",
+                                     (strategy_mark_name(table, "revert_from"),)).fetchone()
+                    gaps.append((table, f[0] if f else None, v[0] if v else None))
+            conn.execute("COMMIT")
+            _log_revert_gaps(gaps, user_id)
+        except Exception:
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            raise
+        _log_trade_strategy_ok(fn_name, user_id)
+        return True
+    except Exception as e:
+        logger.error(f"[migrate] {fn_name} 실패 — 기동 계속 (user_id={user_id}): {e}")
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _log_revert_gaps(gaps: list, user_id: str) -> None:
+    """
+    되돌림 구간 닫기 로그. 두 표 모두 빈 구간(revert_to == revert_from — mark_revert 뒤 옛 코드가 한 행도 쓰지 않음)이면
+    EMPTY WARNING 1줄(새 코드인 채 재시작했을 수 있음). 한 표라도 행이 있으면 표마다 일반 gap closed.
+    """
+    if not gaps:
+        return
+    all_tables_empty = (
+        {t for t, _, _ in gaps} == set(STRATEGY_MARK_TABLES)
+        and all(f is not None and f == to for _, f, to in gaps)
+    )
+    if all_tables_empty:
+        detail = " ".join(f"{t}={to}" for t, _, to in gaps)
+        logger.warning(
+            f"[migrate] strategy revert gap EMPTY — mark_revert 뒤 새 코드로 재시작했는지 확인 | "
+            f"revert_from=revert_to {detail} (user_id={user_id})"
+        )
+        return
+    for t, f, to in gaps:
+        logger.warning(
+            f"[migrate] strategy revert gap closed | table={t} revert_from={f} revert_to={to} (user_id={user_id})"
+        )
+
+
+def _log_trade_strategy_ok(fn_name: str, user_id: str) -> None:
+    key = (fn_name, user_id)
+    if key not in _MIGRATE_OK_LOGGED:
+        _MIGRATE_OK_LOGGED.add(key)
+        logger.info(f"[migrate] {fn_name} OK (user_id={user_id})")
+
+
 def ensure_all_schemas(user_id: str):
     """
     코어 + 감사 + orders 확장 스키마를 한 번에 보장
@@ -1067,6 +1242,7 @@ def ensure_all_schemas(user_id: str):
     ensure_wo2_audit_columns(user_id)              # ✅ WO-2: audit_buy_eval 지연 발주·유효성 확인 컬럼 6종
     ensure_audit_trades_reject_columns(user_id)    # ✅ WO-9 (e): audit_trades qty/note/meta (발주 거절 기록)
     ensure_pullback_tables(user_id)                # ✅ 2차 T6: pullback_state 신설 (새 전략 분할 상태)
+    ensure_trade_strategy_columns(user_id)         # ✅ 2차 T7: 거래 행 전략 칸 + schema_marks (실패해도 예외 없음)
 
 
 def init_db_if_needed(user_id):

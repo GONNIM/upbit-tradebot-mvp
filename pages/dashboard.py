@@ -492,7 +492,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.28.1033")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.28.1143")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -721,6 +721,7 @@ with col40:
 st.divider()
 
 from services.init_db import init_db_if_needed, get_db_path
+from services.trade_strategy import force_trade_strategy_type  # ✅ 2차 T7 (X5)
 init_db_if_needed(user_id)
 st.caption(f"DB file: `{get_db_path(user_id)}`")
 
@@ -2398,7 +2399,9 @@ with btn_col1:
         coin_value = coin_balance * last_price if last_price else 0
         if coin_value < 5000:
             trader = UpbitTrader(
-                user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
+                user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live),
+                # ✅ 2차 T7 (X5): 거래 행 전략 칸 — PULLBACK 운용 중이면 PULLBACK, 아니면 화면 전략
+                strategy_type=force_trade_strategy_type(user_id, params_obj.strategy_type),
             )
             msg = force_buy_in(
                 user_id, trader, params_obj.upbit_ticker,
@@ -2426,7 +2429,9 @@ with btn_col2:
         coin_value = coin_balance * last_price if last_price else 0
         if coin_value >= 5000:
             trader = UpbitTrader(
-                user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live)
+                user_id, risk_pct=params_obj.order_ratio, test_mode=(not is_live),
+                # ✅ 2차 T7 (X5): 거래 행 전략 칸 — PULLBACK 운용 중이면 PULLBACK, 아니면 화면 전략
+                strategy_type=force_trade_strategy_type(user_id, params_obj.strategy_type),
             )
             msg = force_liquidate(user_id, trader, params_obj.upbit_ticker, interval_sec=params_obj.interval_sec)
             if msg.startswith("❌"):

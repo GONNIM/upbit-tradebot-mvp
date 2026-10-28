@@ -618,16 +618,20 @@ def fetch_trades_for_snapshot(user_id: str, snapshot_id: int) -> list[dict]:
     else:
         where.append("))")
 
-    sql = (
-        "SELECT id, timestamp, ticker, type, reason, price, "
-        "       entry_price, bars_held, settings_history_id "
-        "FROM audit_trades "
-        f"WHERE {' '.join(where)} "
-        "ORDER BY id DESC"  # ✅ 최신 거래가 상위
-    )
     with get_db(user_id) as conn:
+        # ✅ 2차 T7: 구버전 이력은 EMA·MACD·옛 행(표식 이하·되돌림 구간 NULL)만 — PULLBACK·분류 불명 행 제외.
+        #   strategy_type 칸이 없는 DB(마이그레이션 전)는 조건 없음 = 지금과 같음.
+        from services.trade_strategy import read_bounds, old_history_sql
+        _frag, _fparams = old_history_sql(read_bounds(conn, "audit_trades"))
+        sql = (
+            "SELECT id, timestamp, ticker, type, reason, price, "
+            "       entry_price, bars_held, settings_history_id "
+            "FROM audit_trades "
+            f"WHERE {' '.join(where)}{_frag} "
+            "ORDER BY id DESC"  # ✅ 최신 거래가 상위
+        )
         cur = conn.cursor()
-        cur.execute(sql, tuple(params))
+        cur.execute(sql, tuple(params) + tuple(_fparams))
         rows = cur.fetchall()
     cols = ["id", "timestamp", "ticker", "type", "reason", "price",
             "entry_price", "bars_held", "settings_history_id"]
@@ -664,14 +668,17 @@ def compute_pnl_for_snapshot(user_id: str, snapshot_id: int) -> dict:
     orders_by_id = {}
     if sells:
         with get_db(user_id) as conn:
+            # ✅ 2차 T7: orders 도 같은 조건(orders 표식) — PULLBACK·분류 불명 주문은 짝으로 쓰지 않음
+            from services.trade_strategy import read_bounds, old_history_sql
+            _ofrag, _ofparams = old_history_sql(read_bounds(conn, "orders"))
             cur = conn.cursor()
             cur.execute(
                 "SELECT id, ticker, side, executed_volume, avg_price, paid_fee, "
                 "       executed_at, timestamp, state "
                 "FROM orders WHERE user_id=? AND side='SELL' "
                 "AND state IN ('FILLED','PARTIALLY_FILLED') "
-                "AND (executed_at >= ? OR timestamp >= ?)",
-                (user_id, start_ts, start_ts),
+                f"AND (executed_at >= ? OR timestamp >= ?){_ofrag}",
+                (user_id, start_ts, start_ts) + tuple(_ofparams),
             )
             for r in cur.fetchall():
                 orders_by_id[r[0]] = {

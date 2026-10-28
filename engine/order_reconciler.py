@@ -149,6 +149,34 @@ class OrderReconciler:
         except Exception as _e:
             logger.error(f"[OR] hts-detect callback error | user={user_id} ticker={ticker}: {_e}")
 
+    @staticmethod
+    def _order_strategy_type(user_id: str, uuid: str):
+        """✅ 2차 T7: 체결·미체결 취소 감사 행 전략 = 그 주문 행의 orders.strategy_type (예외 없음, 못 찾으면 None)."""
+        try:
+            from services.db import fetch_order_strategy_type
+            st = fetch_order_strategy_type(user_id, uuid)
+            if st is None:
+                logger.warning(f"[OR] 주문 전략 없음 → 감사 행 전략 비움(분류 불명) | uuid={uuid}")
+            return st
+        except Exception as e:
+            logger.warning(f"[OR] 주문 전략 조회 예외 uuid={uuid}: {e}")
+            return None
+
+    def _engine_strategy_type(self, user_id: str, ticker: str):
+        """✅ 2차 T7: HTS 감지 감사 행 전략 = 그 종목 엔진(HTS 콜백 주인)의 활성 전략, 엔진이 없으면 활성 전략 파일 (예외 없음)."""
+        try:
+            cbs = getattr(self, "_hts_callbacks", None) or {}
+            with self._lock:
+                cb = cbs.get((user_id, ticker))
+            st = getattr(getattr(cb, "__self__", None), "strategy_type", None)
+            if st:
+                return str(st).strip().upper()
+            from services.trade_strategy import active_strategy
+            return active_strategy(user_id)
+        except Exception as e:
+            logger.warning(f"[OR] 엔진 전략 조회 예외 user={user_id} ticker={ticker}: {e}")
+            return None
+
     def _fire_fill_callback(self, user_id: str, ticker: str, uuid: str,
                             exec_price: float, exec_qty: float, exec_ts_iso, state: str = "FILLED"):
         """FILLED BUY 감지 시 등록된 fill callback 발화 (에러 격리).
@@ -420,6 +448,7 @@ class OrderReconciler:
                 kind="BUY_CANCELED", reason="BUY_CANCELED", price=limit_price, macd=meta.get("macd"), signal=meta.get("signal"),
                 entry_price=None, entry_bar=None, bars_held=None, tp=None, sl=None, highest=None, ts_pct=None, ts_armed=None,
                 bar_time=meta.get("bar_time"), qty=order_qty, note=note,
+                strategy_type=self._order_strategy_type(user_id, uuid),  # ✅ 2차 T7: 주문 행 전략 그대로
                 meta=_json.dumps({
                     "uuid": uuid, "order_qty": order_qty, "executed_qty": exec_qty, "remaining_qty": remaining,
                     "limit_price": limit_price, "wait_bars": wait_bars, "waited_sec": round(waited, 1),
@@ -541,6 +570,7 @@ class OrderReconciler:
                         timestamp=None,  # ✅ 실시간 체결 시각 (now_kst())
                         bar_time=meta.get("bar_time"),  # ✅ 해당 봉의 시각 (전략 신호 발생 봉)
                         note=meta.get("audit_note"),  # ✅ WO-26: "약매수 진입 · 익절 x%" / "약매수 포지션 · 기준 x%"
+                        strategy_type=self._order_strategy_type(user_id, uuid),  # ✅ 2차 T7: 발주 때 전략 (전환 뒤 늦은 체결도)
                     )
                     logger.info(f"[OR] audit_trades inserted: uuid={uuid} side={side} px={avg_px} vol={exec_vol}")
                 except Exception as e:
@@ -831,6 +861,7 @@ class OrderReconciler:
                                         ts_armed=None,
                                         timestamp=None,
                                         bar_time=None,
+                                        strategy_type=self._engine_strategy_type(user_id, ticker),  # ✅ 2차 T7: 엔진 활성 전략
                                     )
                                     logger.info(
                                         f"✅ [HTS-DETECT] audit_trades 기록 완료 | "

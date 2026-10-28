@@ -91,8 +91,9 @@ class TestPullbackStateMigration(_TmpDb):
         src = (ROOT / "services/init_db.py").read_text(encoding="utf-8")
         fn = next(n for n in ast.walk(ast.parse(src))
                   if isinstance(n, ast.FunctionDef) and n.name == "ensure_all_schemas")
-        last = fn.body[-1]
-        self.assertEqual(ast.unparse(last).strip(), "ensure_pullback_tables(user_id)")  # 맨 끝에 추가
+        # 맨 끝에 추가 — 2차 T7 이 그 뒤에 ensure_trade_strategy_columns 를 더함(T7 시험이 마지막 줄을 고정)
+        tail = [ast.unparse(s).strip() for s in fn.body[-2:]]
+        self.assertEqual(tail, ["ensure_pullback_tables(user_id)", "ensure_trade_strategy_columns(user_id)"])
 
     def test_new_db_twice_one_table(self):
         self.idb.initialize_db(U)

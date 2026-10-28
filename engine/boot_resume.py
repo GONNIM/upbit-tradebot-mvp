@@ -125,10 +125,12 @@ def boot_resume_all(
 
     # 1) 기동 시점 마이그레이션 (대상 여부와 무관하게 알려진 사용자 전부)
     try:
-        from services.init_db import ensure_all_schemas
+        from services.init_db import ensure_all_schemas, close_strategy_revert_gap
         for uid in known:
             try:
                 ensure_all_schemas(uid)
+                # ✅ 2차 T7 수정 1회차: 되돌린 뒤 재배포(D2) 구간 닫기는 기동 때만 (로그인·대시보드 경로는 닫지 않음)
+                close_strategy_revert_gap(uid)
             except Exception as e:
                 logger.error(f"[BOOT-RESUME] 마이그레이션 실패: user={uid} err={e}")
     except Exception as e:
@@ -137,6 +139,7 @@ def boot_resume_all(
     targets = list_resume_targets(known)
     logger.info(f"[BOOT-RESUME] start | known={known} targets={targets}")
     if not targets:
+        _report_unknown_strategy_rows(known)
         return results
 
     if start is None:
@@ -190,4 +193,22 @@ def boot_resume_all(
                     f"사유: {_STATE[uid]['reason']}\n\n💡 대시보드 접속 시 수동으로 시작하세요.",
                     f"boot_resume:{uid}:fail",
                 )
+    _report_unknown_strategy_rows(known)
     return results
+
+
+def _report_unknown_strategy_rows(users) -> None:
+    """
+    ✅ 2차 T7 수정 3회차: 분류 불명 행 알림(결정 1028-06)은 전체 재개가 끝난 뒤 사용자마다 따로 부른다.
+    텔레그램 전송이 동기(시간 초과 5초)라 재개 앞에서 부르면 EMA 기동 재개가 늦어진다. 예외는 그 사용자만 로그.
+    """
+    try:
+        from services.trade_strategy import report_unknown_rows
+    except Exception as e:
+        logger.error(f"[BOOT-RESUME] 분류 불명 점검 모듈 로드 실패: {e}")
+        return
+    for uid in users or []:
+        try:
+            report_unknown_rows(uid)
+        except Exception as e:
+            logger.error(f"[BOOT-RESUME] 분류 불명 점검 실패: user={uid} err={e}")

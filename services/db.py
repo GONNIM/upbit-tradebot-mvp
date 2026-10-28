@@ -128,22 +128,22 @@ def insert_order(
     entry_bar: int | None = None,  # ✅ bars_held 추적용
     meta: str | None = None,  # ✅ 전략 컨텍스트 (JSON)
     settings_history_id: int | None = None,  # ✅ P1 — 거래 → 설정 라벨링
+    strategy_type: str | None = None,  # ✅ 2차 T7 — 발주 때 전략 (EMA/MACD/PULLBACK). 없으면 칸을 넣지 않음
 ):
     ensure_schema(user_id)
     with get_db(user_id) as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO orders (
-                user_id, timestamp, ticker, side, price, volume, status,
-                current_krw, current_coin, profit_krw,
-                provider_uuid, state, requested_at, executed_at, canceled_at,
-                executed_volume, avg_price, paid_fee, updated_at, entry_bar, meta,
-                settings_history_id
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
+        _insert_with_strategy(
+            cursor,
+            "orders",
+            [
+                "user_id", "timestamp", "ticker", "side", "price", "volume", "status",
+                "current_krw", "current_coin", "profit_krw",
+                "provider_uuid", "state", "requested_at", "executed_at", "canceled_at",
+                "executed_volume", "avg_price", "paid_fee", "updated_at", "entry_bar", "meta",
+                "settings_history_id",
+            ],
+            [
                 user_id,
                 now_kst(),
                 ticker,
@@ -166,9 +166,64 @@ def insert_order(
                 entry_bar,  # ✅ entry_bar 저장
                 meta,  # ✅ 전략 컨텍스트 저장 (JSON)
                 settings_history_id,  # ✅ P1 — 거래 → 설정 라벨링
-            ),
+            ],
+            strategy_type,
         )
         conn.commit()
+
+
+# ✅ 2차 T7: 거래 행 전략 칸 기록 (orders·audit_trades 공용)
+_STRATEGY_COL_MISSING_WARNED: set = set()
+
+
+def _norm_strategy_type(strategy_type) -> str | None:
+    if strategy_type is None:
+        return None
+    s = str(strategy_type).strip().upper()
+    return s or None
+
+
+def _insert_with_strategy(cursor, table: str, cols: list, vals: list, strategy_type) -> None:
+    """
+    cols/vals 로 INSERT 1행. strategy_type 이 있으면 strategy_type 칸을 더한다.
+    칸이 없는 DB(마이그레이션 실패·전)면 WARNING 1회(표·프로세스당) 후 칸 없이 다시 넣는다 — 실매매 기록은 멈추지 않는다.
+    strategy_type 이 없으면 지금과 같은 칸 목록 그대로.
+    """
+    st = _norm_strategy_type(strategy_type)
+    if st is not None:
+        try:
+            cursor.execute(
+                f"INSERT INTO {table} ({', '.join(cols + ['strategy_type'])}) "
+                f"VALUES ({', '.join('?' * (len(cols) + 1))})",
+                list(vals) + [st],
+            )
+            return
+        except sqlite3.OperationalError as e:
+            if "strategy_type" not in str(e):
+                raise
+            if table not in _STRATEGY_COL_MISSING_WARNED:
+                _STRATEGY_COL_MISSING_WARNED.add(table)
+                logger.warning(f"[STRATEGY-COL] {table}.strategy_type 칸 없음 — 전략 없이 기록 (마이그레이션 확인): {e}")
+    cursor.execute(
+        f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
+        list(vals),
+    )
+
+
+def fetch_order_strategy_type(user_id: str, provider_uuid: str | None) -> str | None:
+    """✅ 2차 T7: 주문 행(provider_uuid)의 strategy_type. 없음·칸 없음·오류 = None."""
+    if not provider_uuid:
+        return None
+    try:
+        with get_db(user_id) as conn:
+            row = conn.execute(
+                "SELECT strategy_type FROM orders WHERE provider_uuid=? ORDER BY id DESC LIMIT 1",
+                (provider_uuid,),
+            ).fetchone()
+        return _norm_strategy_type(row[0]) if row else None
+    except Exception as e:
+        logger.warning(f"[STRATEGY-COL] 주문 전략 조회 실패 uuid={provider_uuid}: {e}")
+        return None
 
 
 def fetch_recent_orders(user_id, limit=10):
@@ -1495,6 +1550,7 @@ def insert_trade_audit(
     qty: float | None = None,      # ✅ WO-9 (e): 시도 수량 (거절 행)
     note: str | None = None,       # ✅ WO-9 (e): 사용자용 한글 설명 (거절 행)
     meta: str | None = None,       # ✅ WO-9 (e): 거절 코드·응답 요지 JSON 문자열
+    strategy_type: str | None = None,  # ✅ 2차 T7: 거래 행 전략 (없으면 칸을 넣지 않음 — 지금과 같음)
 ):
     cols = [
         "timestamp", "bar_time", "ticker", "interval_sec", "bar", "type", "reason", "price",
@@ -1516,10 +1572,7 @@ def insert_trade_audit(
             vals.append(_v)
     with get_db(user_id) as conn:
         cur = conn.cursor()
-        cur.execute(
-            f"INSERT INTO audit_trades ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})",
-            vals,
-        )
+        _insert_with_strategy(cur, "audit_trades", cols, vals, strategy_type)
         conn.commit()
 
 
