@@ -823,16 +823,18 @@ class TestEngineManager(InTmpCwd):
 
 class TestNoActivePullbackWriter(unittest.TestCase):
     def test_no_path_writes_pullback_active_or_applied(self):
-        """T1 「T5 완료 전까지 활성 파일에 PULLBACK 을 쓰는 경로를 만들지 않는다(쓰는 곳은 T12)」 — 아직 없음."""
+        """T1 「T5 완료 전까지 활성 파일에 PULLBACK 을 쓰는 경로를 만들지 않는다(쓰는 곳은 T12)」.
+        2차 T12(10/29): 쓰는 곳은 engine/strategy_switch.py 한 곳만(전환·복귀) — 그 밖에는 여전히 없음."""
         offenders = []
         for p in ROOT.rglob("*.py"):
             rel = p.relative_to(ROOT).as_posix()
             if rel.startswith(("tests/", ".venv", "venv/", ".superpowers")) or "/site-packages/" in rel:
                 continue
             text = p.read_text(encoding="utf-8", errors="ignore")
-            if "apply_saved(" in text and rel != "engine/pullback_params.py":
+            if "apply_saved(" in text and rel not in ("engine/pullback_params.py", "engine/strategy_switch.py"):
                 offenders.append(rel)
-            if "save_active_strategy(" in text and rel not in ("engine/params.py", "pages/set_config.py"):
+            if "save_active_strategy(" in text and rel not in ("engine/params.py", "pages/set_config.py",
+                                                                "engine/strategy_switch.py"):
                 offenders.append(rel)
         self.assertEqual(offenders, [])
         # set_config 가 고를 수 있는 전략 목록(STRATEGY_TYPES)에 PULLBACK 이 없다 → 화면에서 활성 파일에 못 씀

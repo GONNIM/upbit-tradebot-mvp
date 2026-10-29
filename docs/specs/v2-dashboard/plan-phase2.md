@@ -128,7 +128,7 @@
 | 거래 행 `strategy_type` 기록(trader·reconciler·HTS·강제 매매) | T7 | 행에 칸 하나를 더 씀 | 불변(쓰기만) | `test_ema_rows_tagged_all_paths` |
 | 구버전 이력 조회 WHERE | T7 | PULLBACK·분류 불명 행 제외 | 불변 | `test_a18_history_same_before_after` |
 | `start_engine`·`stop_engine` 인자(`strategy`·`mode`) | T11 | 인자가 있을 때만 세션 대신 사용 | 불변(인자 없으면 지금 경로) | WO-12 시험 전부, `test_old_engine_behaviour_unchanged` |
-| 예약 중 매수 차단(`execute` BUY 게이트) | T12 | 예약이 있으면 EMA·MACD BUY 도 차단 | 예약 중에만 바뀜(요청서 6절) | `test_reserved_blocks_all_buys`, `test_no_reservation_ema_buy_unchanged` |
+| 예약 중 매수 차단(엔진 바깥 래퍼 — 모의 엔진의 `execute`·`_execute_buy` 인스턴스 속성, 사용자 결정 1029-03-1) | T12 | 예약이 있으면 봇 자동 매수(EMA·MACD 골든크로스·WO-2 지연 매수) 차단, 사용자 강제 매수는 허용. 실계좌 엔진에는 래퍼 없음 | 예약 중에만 바뀜(요청서 6절). EMA 함수 파일 무변경 | `test_reserved_blocks_bot_buys`, `test_reserved_blocks_wo2_delayed_buy`, `test_no_reservation_ema_buy_unchanged`, `test_no_reservation_test_trace_equals_base`, `test_wrapper_absent_on_live` |
 | 예약 조회 실패 | T12 | DB 읽기 예외(잠금·디스크 등) → 「예약 있음」으로 보고 BUY 차단 + WARNING `[SWITCH-STATE] read failed`(안전 쪽). 매도는 계속. **단, `strategy_switch` 테이블이 없음(마이그레이션 실패 — `engine/boot_resume.py:131-133` 은 로그만 남김) + 활성 전략 EMA/MACD 이면 「예약 없음」으로 보고 매수 계속 + CRITICAL 1회(dedupe 1시간) 「새 전략 테이블 없음 — 마이그레이션 확인」.** 테이블 없음 + 활성 PULLBACK 은 BUY 차단(정상 경로에서는 생기지 않음) | 조회 실패 때만 매수 멈춤, 테이블 없음 + EMA/MACD 는 불변 | `test_reservation_read_failure_blocks_buy_only`, `test_switch_table_missing_ema_buys_and_alerts` |
 | 구버전 화면 잠금·배지(`pages/*.py`, `app.py`) | T15 | PULLBACK·예약 중에만 잠김 | 엔진 판정 무관 | T15 시험 |
 | reconciler 체결 콜백(분할 체결) | T6 | 콜백에 `state` 인자를 더하고, BUY·체결량 있는 `CANCELED` 도 부름. 엔진은 `_pending_split_uuid` 일치 때만 새 경로, 그 밖은 `state == "FILLED"` 일 때만 지금 경로 | 불변(지금도 `FILLED` BUY 에만 부름 — `engine/order_reconciler.py:318`) | `test_limit_fill_callback_unchanged_for_ema` |
@@ -205,7 +205,7 @@
 | 5절 | 바이낸스 결과 = 저장만 | T13 | `save.test.mjs` 「바이낸스 사용 불가 유지」, `test_apply_rejects_binance_source` |
 | 6절 | 전환 단추 → 확인 창(한 번 더) | T12, T14 | `ops.test.mjs` 「전환 확인 창」 |
 | 6절 | 보유 없음 즉시 전환 | T12 | `test_switch_request_flat_immediate` |
-| 6절 | 보유 중 예약, 기존 방식이 매도까지 관리, 추가 매수 안 함, 취소 가능 | T12 | `test_switch_reserved_while_holding`, `test_reserved_blocks_all_buys`, `test_cancel_reservation` |
+| 6절 | 보유 중 예약, 기존 방식이 매도까지 관리, 봇 추가 매수 안 함(사용자 강제 매수는 허용 — 결정 1029-03-3), 취소 가능 | T12 | `test_switch_reserved_while_holding`, `test_reserved_blocks_bot_buys`, `test_force_buy_allowed_during_reservation`, `test_cancel_reservation` |
 | 6절 | 매도 완료 다음 봉 자동 전환 | T12 | `test_reserved_switch_on_next_bar_after_flat` + 「매도 완료」 경우별 시험 |
 | 6절 | 재시작 뒤 예약 유지 | T12 | `test_reservation_survives_restart` |
 | 6절 | 복귀 = 직전 전략·종목·봉 단위, 보유 중이면 새 전략 매도 규칙으로 판 뒤 | T12 | `test_revert_to_previous`, `test_revert_reserved_uses_pullback_exit_rules` |
@@ -235,7 +235,7 @@
 
 1. 「저장만 하기」가 매매·신버전 화면 종목·봉 경계 창·미리 받기 어느 것도 바꾸지 않아야 한다 → T13 `test_save_only_does_not_change_applied`·`test_save_only_does_not_change_v2_reads`.
 2. 보유 중 적용본이 깨진 채 재시작해도 익절·손절·데드크로스가 멈추지 않아야 한다 → T2 `test_boot_holding_corrupt_applied_uses_last_good`.
-3. 예약 중에는 어떤 매수도 나가면 안 된다(EMA 의 새 골든크로스 포함) → T12 `test_reserved_blocks_all_buys`.
+3. 예약 중에는 봇 자동 매수(EMA·MACD 골든크로스·WO-2 지연 매수) 차단, 사용자 강제 매수는 허용(사용자 결정 1029-03-3) → T12 `test_reserved_blocks_bot_buys`·`test_reserved_blocks_wo2_delayed_buy`·`test_force_buy_allowed_during_reservation`.
 4. 회당 금액이 모자라면 금액을 줄여 사지 않고 건너뛰어야 한다 → T5 `test_split_never_shrinks_amount`.
 5. 신버전 요청이 엔진 프로세스 안에서만 실행되고, 같은 요청이 두 번 실행되지 않아야 한다 → T11 `test_control_duplicate_ignored`·`test_control_expired_60s`.
 6. 새 전략 거래가 구버전 설정 이력 화면·손익에 섞이지 않고, EMA 거래는 계속 보여야 한다 → T7 `test_old_history_excludes_pullback_rows`·`test_ema_rows_tagged_all_paths`.
@@ -1005,7 +1005,8 @@ COMMIT;
 - Modify ★ `services/init_db.py`(`strategy_switch` 테이블 — X1, 결정 13-1 에 따름, `ensure_pullback_tables` 안)
 - Modify ★ `core/strategy_engine.py`(예약 중 매수 차단, 매도 완료 감지 → 전환 신호)
 - Modify ★ `engine/control_requests.py`(switch·revert·cancel 실행)
-- Test: `tests/regressions/test_r_2026_10_28_p4_t12_switch.py`
+- Test: `tests/regressions/test_r_2026_10_29_p4_t12_switch.py`
+- (구현 메모 참조) 실제 고친 곳은 위와 다르다: `core/strategy_engine.py` 는 바꾸지 않았다(EMA 함수 AST 고정 — 결정 1029-03-1). 래퍼는 `core/engine_control.py` `attach` 에서, 처리·감시는 `engine/strategy_switch.py`, 요청 갈고리는 `engine/control_requests.py`, 기동 완료 Event 는 `scripts/tradebot_boot.py`.
 
 **새 테이블 `strategy_switch`(초안, X1 — 결정 13-1 에 따름):**
 ```
@@ -1030,14 +1031,17 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 
 **흐름:**
 1. 신버전 「백테스터 규칙으로 전환」 → 확인 창(한 번 더, T14) → `switch` 요청 `{"saved_sha256"}`(D9).
-2. 엔진: 저장본 검사(T2 거절 조건) → 해시 확인 → 보유 판정(지갑 기준) → **미체결 매수 주문 확인(F8):** `orders` 에 그 종목 BUY `REQUESTED`·`PARTIALLY_FILLED`(지정가 현재가 매수 대기 포함, `has_pending_bot_limit_buy` `services/db.py:787`)가 있으면 「보유 중」과 같게 예약으로 둔다. 예약 중 그 주문이 체결되면 기존 전략이 매도까지 관리하고, 취소되면(WO-24) 지갑 0 확인 뒤 전환한다.
-3. **보유 없음 → 즉시 전환(F9):** `apply_saved` 로 적용본 만들기 → `strategy_switch` 1행(state `RESERVED`, note `switching`) → 활성 전략 파일 `PULLBACK`(`save_active_strategy`, `engine/params.py:447-460`) → `restart_engine(mode, strategy="PULLBACK")`(T11) → **기동 성공(`restart_engine` 결과 done = 워밍업 완료 Event `_ready` 가 180초 안에 세워짐, T11) 뒤에만** 행을 `DONE` → 알림·로그. 기동이 실패하면(T2 경우 9·10, 워밍업 부족, `old_thread_alive`, `start_not_ready`) 복구 래퍼가 다시 띄우지 않게 한 뒤(T11 `_no_recover`) 행을 `FAILED`, 활성 전략 파일을 직전 전략으로 되돌리고 직전 전략으로 `restart_engine` 을 한 번 시도, CRITICAL 「전략 전환 실패 — 기존 전략으로 계속합니다」.
-4. **보유 중 → 예약:** `strategy_switch` 1행(RESERVED). 활성 전략은 그대로. 기존 전략이 매도까지 관리한다. 예약 중에는 모든 매수를 막는다(`execute` 의 BUY 를 `_audit_buy_blocked(code="switch_reserved")`) — EMA 의 새 골든크로스도 막힘. 재시작하면 DB 에서 다시 읽어 유지.
+2. 엔진: 저장본 검사(T2 거절 조건) → 해시 확인 → 보유 판정(지갑 기준) → **미체결 매수 주문 확인(F8):** `orders` 에 그 종목 BUY `REQUESTED`·`PARTIALLY_FILLED`(지정가 현재가 매수 대기 포함, `has_pending_bot_limit_buy` `services/db.py:792` 와 같은 조건, 조회 예외는 「있음」)가 있으면 「보유 중」과 같게 예약으로 둔다. 예약 중 그 주문이 체결되면 기존 전략이 매도까지 관리하고, 취소되면(WO-24) 지갑 0 확인 뒤 전환한다.
+3. **보유 없음 → 즉시 전환(F9):** `apply_saved` 로 적용본 만들기 → `strategy_switch` 1행(state `RESERVED`, note `switching`) → 활성 전략 파일 `PULLBACK`(`save_active_strategy`, `engine/params.py:447-460`) → `restart_engine(mode, strategy="PULLBACK")`(T11) → **기동 성공(`restart_engine` 결과 done = 워밍업 완료 Event `_ready` 가 180초 안에 세워짐, T11) 뒤에만** 행을 `DONE` → 알림·로그. 기동이 실패하면(T2 경우 9·10, 워밍업 부족, `old_thread_alive`, `start_not_ready`) T11 `_no_recover` 표시를 남긴 뒤(표식만 남음(1028-18 에서 다시 읽음)) 행을 `FAILED`, 활성 전략 파일을 직전 전략으로 되돌리고 직전 전략으로 `restart_engine` 을 한 번 시도, CRITICAL 「전략 전환 실패 — 기존 전략으로 계속합니다」.
+4. **보유 중 → 예약:** `strategy_switch` 1행(RESERVED). 활성 전략은 그대로. 기존 전략이 매도까지 관리한다. 예약 중에는 봇 자동 매수(EMA·MACD 골든크로스·WO-2 지연 매수) 차단, 사용자 강제 매수는 허용(`execute` 의 BUY·`_execute_buy` 를 감싼 래퍼가 `_audit_buy_blocked(code="switch_reserved")` — 사용자 결정 1029-03-1·3). 끼어든 강제 매수분은 예약을 유지한 채 기존 전략이 판 뒤 전환한다(결과 문구로 1회 안내). 재시작하면 DB 에서 다시 읽어 유지.
 5. **매도 완료 → 다음 봉 자동 전환:** 엔진 스레드가 봉 시작 때 「예약 있음 + 지갑 0 확인」이면 전환 신호(메모리 큐)를 감시 스레드에 넘긴다(엔진 스레드가 자기를 멈추면 join 교착 — 그래서 감시 스레드가 실행). 감시 스레드가 3번 절차를 실행하고 행을 DONE.
+   - (10/29 사용자 결정 1029-03-3·Fable 2회째 권고 4) 「예약 있음 + 지갑 0」에는 **F8 — 미체결 봇 매수 없음**(`has_pending_bot_limit_buy`, `services/db.py:792` 와 같은 조건 — 조회 예외는 「미체결 있음」으로 봄, T12 구현 메모)도 든다. LIVE 현재가 매수가 켜져 있으면 강제 매수도 지정가로 나가기 때문이다(`services/trading_control.py:287-292`).
+   - 감시 스레드는 **활성 파일을 쓰기 직전에 「지갑 0 + 미체결 매수 없음」을 다시 확인**한다. 그사이 매수가 끼어들었으면 예약을 그대로 둔다(행 note 를 비워 보유 중 예약으로).
+   - 구현(구현 메모 참조): 엔진 스레드가 신호를 미는 대신, 감시 스레드가 예약이 있을 때만 엔진 제어 큐에 보유 확인 항목(`switch_flat_check`)을 넣어 엔진 스레드가 지갑·미체결·포지션·직전 봉을 읽는다. 「지갑 0 + 미체결 없음」을 본 봉 다음 봉에도 같으면 전환한다.
 6. **복귀:** `revert` 요청. 직전 전략·종목·봉 단위 = 마지막 DONE `SWITCH` 행의 `from_*`. 기록이 없으면 신버전이 EMA/MACD 선택을 받아 `{"strategy":…}` 로 보낸다(기본값으로 복귀하지 않음). 보유 중이면 예약(REVERT RESERVED) — PULLBACK 이 데드크로스(설정 시)·TP·SL 만 적용하고 추가 매수 안 함(pullback spec 4.7). 매도 완료 다음 봉에 활성 전략 파일 = 직전 전략, 그 전략 params 의 종목·봉 단위 확인 후 재시작.
 7. **예약 취소:** `cancel_reservation` → 행 CANCELED, 매수 차단 해제.
 8. 전환·예약·완료·복귀·취소마다: `logs` 1줄, `strategy_switch` 행, 텔레그램 1회(문구 표).
-9. **기동 때 처리 중 행 복구(2회째 3):** 3번 도중 프로세스가 죽으면 `state='RESERVED'·note='switching'` 행이 남는다. 감시 스레드는 시작 때 기동 재개(`boot_resume`)가 끝난 뒤(`engine/boot_resume.py` 의 완료 Event — 새로 둠, 없으면 기동 뒤 60초) 이런 행을 찾아:
+9. **기동 때 처리 중 행 복구(2회째 3):** 3번 도중 프로세스가 죽으면 `state='RESERVED'·note='switching'` 행이 남는다. 감시 스레드는 시작 때 기동 재개(`boot_resume`)가 끝난 뒤(완료 Event `core.engine_control.BOOT_RESUME_DONE` — `engine/boot_resume.py` 는 바이트 고정이라 `scripts/tradebot_boot.py` `_boot_resume_thread` 의 `finally` 에서 세움(PO 결정), 없으면 감시 시작 뒤 60초) 이런 행을 찾아:
    - 활성 전략 파일 = `to_strategy` 이고 그 엔진의 `_ready` 가 180초 안에 세워짐 → `DONE`(note `recovered`) + 알림 「전환 완료(재시작 뒤 확인)」.
    - 활성 전략 파일 = `to_strategy` 인데 엔진이 안 뜸·`_ready` 시간 초과 → `FAILED`, 활성 파일을 `from_strategy` 로 되돌리고 `restart_engine(from)` 1회, CRITICAL.
    - 활성 전략 파일 = `from_strategy`(파일 쓰기 전에 죽음) → `FAILED`(note `aborted_before_switch`), 엔진은 그대로, 알림 「전환이 끝나지 않았습니다 — 다시 눌러 주세요」.
@@ -1059,7 +1063,7 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 | 사건 | 문구 |
 |---|---|
 | 즉시 전환 | 「🔁 전략 전환 완료 → 눌림목 분할매수 (<종목> · <봉>). 투자자님이 따로 하실 일은 없습니다.」 |
-| 예약 | 「⏳ 전환 예약 — 지금 보유분은 기존 방식으로 매도까지 관리합니다. 예약 중에는 추가로 사지 않습니다. 투자자님이 따로 하실 일은 없습니다.」 |
+| 예약 | 「⏳ 전환 예약 — 지금 보유분은 기존 방식으로 매도까지 관리합니다. 예약 중에는 봇이 추가로 사지 않습니다. 투자자님이 따로 하실 일은 없습니다.」(결정 1029-03-3 으로 「봇이」를 더함) |
 | 예약 뒤 완료 | 「🔁 전환 예약 완료 → 눌림목 분할매수. 투자자님이 따로 하실 일은 없습니다.」 |
 | 복귀 | 「↩️ 기존 전략으로 복귀 → <EMA|MACD> (<종목> · <봉>). 투자자님이 따로 하실 일은 없습니다.」 |
 | 예약 취소 | 「✖️ 전환 예약 취소 — 지금 전략을 그대로 씁니다. 투자자님이 따로 하실 일은 없습니다.」 |
@@ -1068,7 +1072,7 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 - [ ] **Step 1: 실패 시험**
   - `test_switch_request_flat_immediate`: 미보유 → 활성 파일 PULLBACK, 적용본 해시 = 요청 해시, 재시작 1회, 행 DONE.
   - `test_switch_reserved_while_holding`: 보유 → 행 RESERVED, 활성 파일 EMA 그대로.
-  - `test_reserved_blocks_all_buys`: 예약 중 EMA 골든크로스 → 주문 0, 감사 `switch_reserved`.
+  - `test_reserved_blocks_bot_buys`(옛 이름 `test_reserved_blocks_all_buys`): 예약 중 봇 자동 매수(EMA 골든크로스) → 주문 0, 감사 `switch_reserved`. 사용자 강제 매수는 허용(`test_force_buy_allowed_during_reservation`), WO-2 지연 매수도 차단(`test_reserved_blocks_wo2_delayed_buy`).
   - `test_reserved_switch_on_next_bar_after_flat`: 매도 체결 → 다음 봉에서 전환, 그 봉 매수 0.
   - 「매도 완료」 표 6줄을 각각: `test_flat_by_engine_sell`, `test_flat_by_v2_force_sell`, `test_flat_by_old_force_sell`, `test_flat_by_app_sell`, `test_partial_sell_keeps_reservation`, `test_sell_reject_repeat_keeps_reservation_and_notifies`.
   - `test_reservation_survives_restart`.
@@ -1088,6 +1092,36 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
   - `test_boot_recovers_switching_row_done`, `test_boot_recovers_switching_row_failed_reverts_file`, `test_boot_recovers_switching_row_aborted`, `test_boot_keeps_holding_reservation`(9번 네 경우).
 - [ ] **Step 2~4:** 실패 확인 → 구현 → 통과·게이트.
 - [ ] **Step 5: 커밋 승인 요청** — 「⚠ 스키마 변경: `strategy_switch` 신설(X1)」.
+
+**T12 구현 메모 (10/29, 사용자 결정 1029-03 「권고대로」·PO 결정 — 기록 `docs/fable/2026-10-29-phase2-t12-decision-1.md`):**
+- **결정 1 — 매수 차단 = 엔진 바깥 래퍼, 모의 엔진에만.** `core/engine_control.attach`(live_loop `_control_attach` 안에서 불림) 끝에서 `engine/strategy_switch.install_buy_gate` 가 `engine.trader.test_mode is True` 인 엔진에만 인스턴스 속성 `execute`·`_execute_buy` 를 「예약이 있을 때만 BUY 차단」으로 감싼다. 실계좌 엔진은 감싸지 않는다(인스턴스 속성 없음 — 클래스 함수 그대로, `test_wrapper_absent_on_live`). `core/strategy_engine.py`·`core/strategy_incremental.py`·`engine/params.py`·`engine/live_loop.py`·`engine/boot_resume.py`·`services/trading_control.py` 는 바꾸지 않았다(T9·T11 고정 시험 그대로 통과). 계획 Files 의 「`core/strategy_engine.py`(예약 중 매수 차단, 매도 완료 감지)」는 이 래퍼와 감시 스레드 보유 확인으로 갈음.
+  - 막는 것 = 봇 자동 매수: `execute(BUY)`(EMA·MACD 골든크로스, PULLBACK 회차 — 복귀 예약 중) + `_execute_buy`(WO-2 지연 매수 재판정, `core/strategy_engine.py:2334`). 매도는 래퍼가 건드리지 않는다.
+  - 예약 조회는 처음부터 `mode` 로 거른다(`WHERE user_id=? AND mode=? AND kind IN ('SWITCH','REVERT') AND state='RESERVED'`). 매수 시도 때만 읽는다(봉마다 읽지 않음).
+  - 조회 실패 규칙(132행) 그대로: 읽기 예외 → 차단 + WARNING `[SWITCH-STATE] read failed`. 테이블 없음 + EMA/MACD → 예약 없음 + CRITICAL(1시간 dedupe, **운영자 전용 채널** `audience="operator"` — 1028-15 notifier 경로). 테이블 없음 + PULLBACK → 차단. DB 파일 자체가 없으면 읽기 예외로 본다(차단, 파일을 만들지 않음).
+  - 읽기 연결은 보통 연결 + `PRAGMA query_only=ON`(uri `mode=ro` 아님 — WAL DB 에 `-shm` 이 없으면 읽기 전용 연결이 「unable to open」으로 실패해 예약 조회가 `-shm` 이 없을 때 실패하기 때문, `test_reservation_read_wal_without_shm`).
+- **결정 2 — D4 유지(활성 전략 파일 하나).** switch·revert 는 다른 모드 엔진이 없을 때만(`mode_conflict` — `_engine_stop`·`_force` 와 같은 판정을 `restart_engine` 앞에서). LIVE switch·revert 는 엔진에 손대지 않고 `live_not_supported`. 복귀 = 직전 전략(EMA 또는 MACD)·그 설정 파일의 종목·봉 단위(기록과 다르면 WARNING 뒤 설정 파일 값). 활성 PULLBACK 인 채 LIVE 시작은 지금처럼 거부·CRITICAL(`engine/engine_manager.py:570-583`, 무변경).
+- **결정 3 — 예약 중 사용자 강제 매수 허용.** 구버전 `force_buy_in`·신버전 `force_buy`(엔진 안 EMA·PULLBACK `_pullback_force_buy`)는 래퍼를 지나지 않는다. 예약은 그대로, 전환은 그 보유분이 팔린 뒤. 신버전 강제 매수 결과 문구·알림에 「전환 예약은 그대로입니다 …」 1회(`post_force_buy` 갈고리). 구버전 강제 매수 화면 문구는 T15(구버전 파일 범위).
+- **흐름 5:** 감시 스레드(`Monitor` tick, 2초)가 실행 중 모의 엔진에 예약이 있을 때만 제어 큐로 보유 확인(`switch_flat_check`). 판정 = 지갑(모의: 가상 잔고 가용+잠김) 0 + F8 미체결 봇 매수 없음 + 엔진 포지션·체결 대기·WO-2 대기 없음. 그 상태를 본 봉 다음 봉에도 같으면 전환. 활성 파일 쓰기 직전 다시 확인. 예약 중 매도 거절(`SELL_REJECTED`)이 2건 쌓이면 알림 1회(예약 유지).
+  - **조회 실패 = 보유 중(fail closed).** 가용 수량 조회 예외는 그대로 올리고, 잠김 수량·F8 은 `services/db.py` 함수(`get_coin_balance_locked`·`has_pending_bot_limit_buy` — 둘 다 예외 때 0/False)를 쓰지 않고 `engine/strategy_switch._locked_qty`·`_pending_buy` 가 같은 조건으로 직접 읽어 예외면 「보유 중」·「미체결 있음」으로 본다(`services/db.py` 의미는 그대로). 상태 칸이 없는 옛 `orders`·잠김 칸이 없는 옛 `account_positions` 만 「없음」(db.py 와 같음).
+  - 감시 tick 의 보유 확인 큐 대기는 3초(`MONITOR_QUEUE_WAIT_SEC`, 요청 처리 기본 20초 아님 — 전역 잠금을 쥔 채 오래 기다리지 않게, `Controller._through_engine(..., queue_wait=)`). 넘으면 보유 중으로 보고 다음 tick.
+- **즉시 전환 실패 되돌림:** 직전 전략 재기동 1회는 **전환 요청 때 엔진이 돌고 있었을 때만** 한다(멈춘 엔진에서 전환이 실패하면 엔진을 새로 띄우지 않음 — `test_switch_done_only_after_ready`). 계획 3번 문장과 다른 점. 활성 파일 쓰기 실패(`active_write_failed`)는 `restart_engine` 을 부르기 전이라 엔진이 멈춘 적이 없으므로 재시작하지 않는다(`restarted=False`, `test_active_write_failure_does_not_restart_unstopped_engine`).
+- **(fix round 1 — verifier 「수정 후 승인」 반영)**
+  - **전환 도중 다른 모드 엔진(항목 1):** `execute_switch` 가 `get_running_mode(user) in (None, mode)` 를 두 번 다시 본다 — ① 활성 파일 쓰기 직전, ② `restart_engine` 직전. 그사이 실계좌 엔진이 떴으면 재시작·FAILED 없이 멈춘다(②면 쓴 활성 파일만 직전 전략으로 되돌림). 예약 완료(감시) 경로는 예약 유지(note 지움, 결과 코드 `mode_conflict`), 즉시 요청은 행 `CANCELED·note mode_conflict` + `rejected mode_conflict`(거절한 요청이 매수를 막아 두지 않게). 보유 확인 항목은 모의(TEST)·요청 mode 와 같은 엔진 큐에만 넣고, 아니면 「보유 중」.
+  - **감시 TEST 가드(항목 2):** `Monitor.check_user`·`settle_switching`(엔진 모드), `recover_all`·`recover_row`(행 mode)가 모의가 아닌 것은 건너뛰고 (사용자, 모드, 자리)마다 WARNING 1회.
+  - **DONE 기록 실패(항목 3):** 재시작 뒤 DONE 기록이 실패하면 운영자 CRITICAL 1회(`audience="operator"`) + 0.5초 간격 3회까지 다시 시도. 끝내 실패하면 결과는 `ok`·`done_record_pending`, 행은 RESERVED·switching 으로 남고, 기동 복구 뒤 감시 tick(`settle_switching`)이 「그 모드 엔진 실행 + 준비 신호 + 활성 파일 = 대상」이면 `DONE·note settled` 로 정리한다(요청 처리·전환 실행과 같은 전역 잠금 안이라 진행 중 전환과 겹치지 않음). (fix round 2) 조건에 「실행 중 엔진의 `strategy_type` = 행 `to_strategy`」를 더했고, 기동 복구 전 tick 에서는 정리하지 않는다(`test_settle_needs_running_engine_strategy_equal_target`, `test_settle_not_before_boot_recovery`).
+  - **투자자 문구(항목 8):** 새 투자자용 문구(사건·결과 코드·감사 메모)에 내부 코드·표 이름 없음(`test_investor_texts_have_no_internal_names`). 운영자 전용 문구(테이블 없음·DONE 기록 실패)만 내부 이름을 적고 운영자 채널로 보낸다.
+  - **알려진 순서(항목 10, 그대로 둠):** 예약 중 봇 매수 차단 감사 코드는 `switch_reserved` 이고, 같은 봉에 매매 일시중지(PAUSE-1 `trading_paused`, `core/strategy_engine.py:2083`)가 함께 걸려 있으면 래퍼가 엔진 `execute` 바깥에서 먼저 막아 감사에는 `switch_reserved` 만 남는다(래퍼가 없으면 `trading_paused`). 둘 다 주문 0 이라 매매 결과는 같고, 감사 코드 하나만 다르다.
+- **기동 완료 Event(PO 결정):** `core.engine_control.BOOT_RESUME_DONE` 을 `scripts/tradebot_boot._boot_resume_thread` `finally` 에서 세운다. 60초 예비 규칙 유지. 복구 대상은 사용자 DB 파일(`services/data/tradebot_*.db`)의 `RESERVED·note switching` 행.
+- **`_no_recover`:** 표식만 남음(1028-18 에서 다시 읽음).
+- **알림:** 전환·예약·완료·복귀·취소 사건마다 텔레그램 1회(사건 문구 — 끝 「따로 하실 일은 없습니다」). 요청에서 생긴 전환·복귀 사건은 그 뒤에 S1 줄(「직접 요청하지 않으셨다면 …」)을 붙이고, T11 요청 알림은 이 사건 알림으로 갈음한다(`event_notified`).
+- **설치:** `scripts/tradebot_boot._control_thread` 가 `control_loop` 앞에서 `engine.strategy_switch.install()` 1회(switch·revert·cancel_reservation 처리, 결과 뒤 갈고리, tick). 설치 전(T11 시험 환경)에는 그대로 `not_ready`.
+- **LIVE 전환 지원은 미룸:** PULLBACK LIVE 거부를 해제할 때 LIVE switch 와 함께 래퍼(실계좌 엔진에도 붙일지)와 D4(활성 파일 모드별 분리 여부)를 다시 본다.
+- 시험: `tests/regressions/test_r_2026_10_29_p4_t12_switch.py` 82건(1차 55 + fix round 1 25 + fix round 2 2). 변이(T12+T11 시험): 실행자 스크립트 61/61(1차 19 + fix round 1 21 + fix round 2 2 + verifier V01~V19 합침), verifier 스크립트 19/19(fix round 1 때).
+- 남은 한계:
+  - `recover_all` 의 TEST 거름은 `recover_row` 가드와 겹쳐 하나만 지우는 변이는 잡을 수 없다(둘이 같은 결과).
+  - 짧은 경합이 남는다. 재확인 ② 와 `restart_engine` 안 `stop_engine` 사이에 LIVE 엔진이 뜨면 그 LIVE 엔진이 멈춰질 수 있다. `_write_active` 와 ② 사이의 LIVE 시작은 활성 PULLBACK 이라 LIVE 시작 거부(CRITICAL, 주문 없음)로 끝난다. `engine/engine_manager.py` 가 바이트 고정이라 LIVE switch·D4 를 다시 볼 때 함께 닫는다.
+  - 전역 잠금을 쥔 채 가장 오래 기다리는 곳(`_record_done` 다시 시도 최대 약 1초, 감시 보유 확인의 엔진 안 실행 대기 `exec_wait`)은 알고 있으며 미룬다.
+- T5 시험 `test_no_path_writes_pullback_active_or_applied` 의 허용 목록에 `engine/strategy_switch.py` 를 더했다(그 시험 문구 「쓰는 곳은 T12」대로).
 
 ### T13: 「이 설정으로 동작」·「저장만 하기」 — 저장본/적용본 분리 (결정 D9, 요청서 5절)
 
@@ -1173,6 +1207,8 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 - Modify `app.py`(로그인 이동 540·569, 수동 검증 386-394 — D10), Modify ★ `services/auto_verify.py`(84 — D10)
 - Test: `tests/regressions/test_r_2026_10_28_p4_t15_old_ui.py`, 기존 `tests/regressions/test_r_2026_08_05_audit_viewer_accessibility.py` 유지
 
+> **(10/29 T12 메모 — 사용자 결정 1029-03-3, Fable 2회째 막음 1):** 예약 중(활성 EMA/MACD)에는 구버전 표시·강제 매수·강제 매도 종목 = 활성 전략 params 종목. PULLBACK 표시 경로(`to_live_params(적용본)`)는 활성 파일이 PULLBACK 일 때만. (전환 예약 중에는 적용본이 아직 없을 수 있다 — 적용본은 전환 때 만든다.) 예약 중 구버전 강제 매수는 열림(봇 자동 매수만 막힘) — 화면 확인 문구에 「전환 예약은 그대로이며 이번 매수분을 지금 전략이 판 뒤 바뀝니다」를 넣는다.
+
 **표시 경로(멈추지 않게):** PULLBACK 운용·예약 중이면 `pages/dashboard.py` 는 `load_params(…, "PULLBACK")`·`st.stop()`(736-738) 대신 `params_obj = engine.pullback_params.to_live_params(적용본, capital)` 을 쓴다. 종목 = 적용본 `ticker`, 회차 = `pullback_state.entry_count / effMaxSplits`.
 
 **배지·상태(그림 6-나):** 맨 위 `st.info("새 전략(눌림목 분할매수) 운용 중 — 설정은 신버전에서 관리합니다")`(예약 중이면 「전환 예약 중 — 설정은 신버전에서 관리합니다」). 「상태 (보기만)」: 전략 「눌림목 분할매수」, 보유 「n / 최대회」. `set_config.py`·`set_buy_sell_conditions.py` 상단에도 같은 배지(v2 spec 4.6 D3).
@@ -1233,7 +1269,7 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 | 홈 | 최신 신호 | armed | 「눌림 대기 중 — 가격이 60선 아래로 내려옴. 다시 위에서 마감하면 n회차 매수」 |
 | 홈 | 최신 신호 | 회차 다 참 | 「보유 유지 — 분할 n / n회 모두 매수함. 익절·손절 가격 안」 |
 | 홈 | 최신 신호 | 어긋남(`desync`) | 「보유 유지 — 앱 주문이 섞여 추가 매수를 멈췄습니다. 익절·손절은 그대로」 |
-| 홈 | 최신 신호 | 예약 중 | 「전환 예약 중 — 추가 매수 안 함」 |
+| 홈 | 최신 신호 | 예약 중 | 「전환 예약 중 — 봇 추가 매수 안 함」 |
 | 홈 | 최근 거래 구분 | PULLBACK 매수 | 「매수 n회」 + 사유 「골든크로스」·「눌림목」 |
 | 차트 2-나 | 선 | PULLBACK | 적용본 `ma60p`·`ma200p`·`maType` 으로 계산(범례 「— <ma60p>선 · — <ma200p>선」). EMA/MACD 는 지금 60·200 |
 | 차트 | 표시 | — | 회차 매수마다 ▲, 매도 ▼ |

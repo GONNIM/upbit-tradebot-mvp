@@ -51,6 +51,14 @@ def _boot_resume_thread() -> None:
         boot_resume_all(boot_started_at=BOOT_STARTED_AT)
     except Exception as e:  # 기동 재개 실패가 서버 기동을 막으면 안 된다
         logging.getLogger("engine.boot_resume").error(f"[BOOT-RESUME] 기동 스레드 예외: {type(e).__name__}: {e}")
+    finally:
+        # 2차 T12 (PO 결정): 기동 재개 완료 신호 — 감시 스레드가 이 뒤에 처리 중 전환 행을 복구한다.
+        # (engine/boot_resume.py 는 바이트 고정이라 여기서 세운다. 신호가 없으면 감시 시작 60초 뒤 예비 규칙.)
+        try:
+            from core.engine_control import BOOT_RESUME_DONE
+            BOOT_RESUME_DONE.set()
+        except Exception as e:
+            logger.error(f"[BOOT-RESUME] 완료 신호 실패(60초 예비 규칙으로) | {type(e).__name__}")
 
 
 def _write_engine_alive(path: str, running: dict, gen: dict = None) -> None:
@@ -137,6 +145,12 @@ def _control_thread() -> None:
     try:
         time.sleep(float(os.environ.get("TRADEBOT_BOOT_DELAY", "3")) + 2.0)
         from engine.control_requests import control_loop
+        try:
+            # 2차 T12: 전환·예약·복귀·예약 취소 처리와 예약 완료 tick 을 붙인다. 실패해도 T11 요청 처리는 그대로.
+            from engine.strategy_switch import install as _install_switch
+            _install_switch()
+        except Exception as e:
+            logger.error(f"[CONTROL] 전환 처리 설치 실패(전환 요청은 not_ready) | {type(e).__name__}: {e}")
         control_loop()
     except Exception as e:
         logger.error(f"[CONTROL] 감시 스레드 예외: {type(e).__name__}: {e}")

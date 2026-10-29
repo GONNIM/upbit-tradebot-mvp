@@ -29,6 +29,11 @@ _RUNNING: Dict[str, tuple] = {}
 _RUNNING_LOCK = threading.Lock()
 
 FORCE_KINDS = ("force_buy", "force_sell")
+# 2차 T12: 감시 스레드가 예약 완료 판정용으로 넣는 보유 확인(엔진 스레드에서 지갑·미체결·포지션을 읽음 — 주문 없음)
+FLAT_CHECK_KIND = "switch_flat_check"
+# 2차 T12 (PO 결정): 기동 재개 완료 신호 — scripts/tradebot_boot._boot_resume_thread 가 finally 에서 세운다.
+# 감시 스레드의 「처리 중 전환 행 복구」는 이 신호 뒤(없으면 감시 시작 60초 뒤) 1회.
+BOOT_RESUME_DONE = threading.Event()
 
 
 class ControlItem:
@@ -68,6 +73,13 @@ def attach(engine, user_id: str, stop_event: Optional[threading.Event] = None) -
     engine._control_stop_event = stop_event
     with _RUNNING_LOCK:
         _RUNNING[user_id] = (engine, stop_event)
+    # 2차 T12 (사용자 결정 1029-03-1): 모의(TEST) 엔진에만 「예약이 있을 때만 봇 자동 매수 차단」 래퍼.
+    # 실계좌(LIVE) 엔진은 감싸지 않는다(install_buy_gate 가 trader.test_mode 를 보고 바로 돌아감 — 실행·바이트 그대로).
+    try:
+        from engine.strategy_switch import install_buy_gate
+        install_buy_gate(engine, user_id)
+    except Exception as e:
+        logger.error(f"[SWITCH] 예약 매수 차단 래퍼 설치 실패 | user={user_id} | {type(e).__name__}: {e}")
 
 
 def detach(user_id: str, stop_event: Optional[threading.Event]) -> None:
@@ -162,4 +174,7 @@ def _execute(engine, item: ControlItem) -> Dict[str, Any]:
                               interval_sec=getattr(engine, "interval_sec", 60),
                               strategy_type=getattr(engine, "strategy_type", None))
         return _msg_result(msg, "order_failed")
+    if item.kind == FLAT_CHECK_KIND:
+        from engine import strategy_switch as ss   # 지연 import(엔진 스레드에서 처음 쓸 때)
+        return {"status": "done", "code": "ok", "detail": ss.engine_flat_state(engine)}
     return {"status": "rejected", "code": "unsupported_kind", "detail": {}}

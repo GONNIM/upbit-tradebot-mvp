@@ -16,10 +16,14 @@
   (사용자, 종류, code) 60초에 1회(REJECT_NOTIFY_SEC). 주문·전환·정지 종류는 「직접 요청하지 않으셨다면
   운영자에게 알려 주세요」로 끝맺는다(신버전 침해 시 모르는 요청을 바로 알게).
 - switch·revert·cancel_reservation·apply_params·ops_settings 는 T12~T14 가 register_handler 로 채운다(그 전에는 not_ready).
+  2차 T12: engine/strategy_switch.install() 이 switch·revert·cancel_reservation 처리, 강제 매수 결과 뒤 처리
+  (register_post_hook — 예약 중 사용자 강제 매수면 「예약 그대로」 안내), 훑기 뒤 tick(register_tick_hook — 예약 완료·
+  기동 때 처리 중 행 복구)을 붙인다. install 은 scripts/tradebot_boot._control_thread 가 control_loop 앞에서 1회 부른다.
+  결과 detail 의 note_text 는 결과 문구·알림 뒤에 붙이고, event_notified 면 요청 알림 대신 그 사건 알림 1회로 갈음한다.
 
 재시작(restart_engine, F7·F11): 쉼 표식 → (엔진이 있으면) stop_engine → 옛 스레드 끝 대기(30초, 관리자 표에서 빠진
-같은 이름 스레드 포함) → start_engine → 준비 신호 대기(180초). 실패면 복구 래퍼가 다시 띄우지 않게(_no_recover) 한 뒤
-(엔진이 있으면) 정지. 알려진 한계는 계획 T11 절.
+같은 이름 스레드 포함) → start_engine → 준비 신호 대기(180초). 실패면 _no_recover 표식을 남긴 뒤(1028-15 에서 자동
+재시작을 지워 지금은 표식만 남음 — 1028-18 에서 다시 읽음) (엔진이 있으면) 정지. 알려진 한계는 계획 T11 절.
 
 수정 1회차(검수 반영)
 - 파일: 링크를 따라가지 않는다(core.safe_file — 임의 이름 임시 파일·O_NOFOLLOW 읽기·폴더 링크·권한 확인).
@@ -100,7 +104,8 @@ DEFAULT_CAP_GROUP = "other"  # 위에 없는 종류(예약 취소·설정 적용
 # 멈춤 중에도 실행(30초 창은 그대로): 엔진 정지·강제 매도 = 매매를 멈추거나 보유를 줄이는 쪽
 ALWAYS_RUN_KINDS = ("engine_stop", "force_sell")
 # 실제로 업비트 주문(또는 엔진 시작·정지)을 시도한 결과 code — 30초 창·시간당 수에 센다
-ATTEMPTED_CODES = ("ok", "order_failed", "result_unknown", "exception", "started", "stopped", "start_failed")
+ATTEMPTED_CODES = ("ok", "order_failed", "result_unknown", "exception", "started", "stopped", "start_failed",
+                   "reserved", "switch_failed")   # 2차 T12: 예약·전환 실패도 엔진 상태를 바꾼 시도
 
 USER_RE = re.compile(r"^[A-Za-z0-9_]{1,32}$")
 ID_RE = re.compile(r"^[0-9]{14}-[0-9a-f]{8}$")
@@ -166,6 +171,20 @@ CODE_TEXT = {
     "result_unknown": "엔진이 2분 안에 결과를 알려 주지 않아 처리 결과를 확인하지 못했습니다.",
     "exception": "처리 중 오류가 났습니다.",
     "unsupported_kind": "처리할 수 없는 요청입니다.",
+    # 2차 T12 (전환·예약·복귀·예약 취소)
+    "reserved": "예약했습니다. 지금 보유분(또는 체결 대기 매수)을 지금 전략이 매도까지 관리한 뒤 바뀝니다. "
+                "예약 중에는 봇이 추가로 사지 않습니다.",
+    "switch_failed": "전략을 바꾸지 못해 기존 전략으로 계속합니다. 운영자가 확인합니다.",
+    "live_not_supported": "새 전략 전환·복귀는 아직 실계좌(LIVE)에서 할 수 없어 처리하지 않았습니다. 엔진은 그대로입니다.",
+    "already_reserved": "이미 전환(또는 복귀) 예약이 있어 처리하지 않았습니다.",
+    "already_pullback": "이미 새 전략으로 운용 중이라 처리하지 않았습니다.",
+    "not_pullback": "지금은 새 전략 운용 중이 아니라 돌아갈 것이 없습니다.",
+    "saved_invalid": "저장한 새 전략 설정을 읽지 못했거나 값이 맞지 않아 처리하지 않았습니다.",
+    "sha_mismatch": "다른 저장이 끼어들었습니다. 다시 저장해 주세요.",
+    "choose_strategy": "돌아갈 전략 기록이 없습니다. EMA 또는 MACD 를 골라 주세요.",
+    "no_reservation": "취소할 예약이 없습니다.",
+    "reservation_unknown": "예약 상태를 읽지 못해 처리하지 않았습니다.",
+    "switch_table_missing": "전환 기록 표가 없어 처리하지 않았습니다(운영자 확인).",
 }
 NO_ACTION_TEXT = "투자자님이 따로 하실 일은 없습니다."   # core.strategy_engine.NO_ACTION_TEXT 와 같은 글
 UNKNOWN_REQUEST_TEXT = "직접 요청하지 않으셨다면 운영자에게 바로 알려 주세요."
@@ -288,6 +307,30 @@ def register_handler(kind: str, fn: Callable) -> None:
     if kind not in KINDS:
         raise ValueError(kind)
     _EXTRA_HANDLERS[kind] = fn
+
+
+# 2차 T12: 실행 결과 뒤 처리 fn(controller, req, result) -> result, 훑기 뒤 tick fn(controller)
+_POST_HOOKS: list = []
+_TICK_HOOKS: list = []
+
+
+def register_post_hook(fn: Callable) -> None:
+    if fn not in _POST_HOOKS:
+        _POST_HOOKS.append(fn)
+
+
+def register_tick_hook(fn: Callable) -> None:
+    if fn not in _TICK_HOOKS:
+        _TICK_HOOKS.append(fn)
+
+
+def run_tick_hooks(controller) -> None:
+    """control_loop 가 훑기 뒤 부른다. 갈고리 하나의 예외는 로그 1줄(다음 갈고리·다음 회차 계속)."""
+    for fn in list(_TICK_HOOKS):
+        try:
+            fn(controller)
+        except Exception as e:
+            logger.error(f"[CONTROL] tick 예외(다음 회차) | {type(e).__name__}: {e}")
 
 
 class Controller:
@@ -573,9 +616,13 @@ class Controller:
         text_key = code
         if code == "control_suspended":
             text_key = f"control_suspended_{(result.get('detail') or {}).get('group', DEFAULT_CAP_GROUP)}"
-        res = {"id": rid, "status": status, "code": code,
-               "message": CODE_TEXT.get(text_key, CODE_TEXT.get(code, CODE_TEXT["exception"])),
-               "at": _kst_iso(self.now()), "detail": result.get("detail") or {}}
+        detail = result.get("detail") or {}
+        note_text = detail.get("note_text") if isinstance(detail.get("note_text"), str) else None
+        message = CODE_TEXT.get(text_key, CODE_TEXT.get(code, CODE_TEXT["exception"]))
+        if note_text:
+            message = f"{message} {note_text}"      # 2차 T12: 예약 중 강제 매수 「예약 그대로」 안내 등
+        res = {"id": rid, "status": status, "code": code, "message": message,
+               "at": _kst_iso(self.now()), "detail": detail}
         try:
             _atomic_write_600(f"res-{rid}.json", res, dir_fd=d.fd)
         except Exception as e:
@@ -586,6 +633,8 @@ class Controller:
                     f"status={status} code={code}")
         if kind not in KINDS or code in ("user_mismatch", "control_suspended"):
             return                           # 멈춤은 운영자 CRITICAL 1회로 갈음(요청마다 알리지 않음)
+        if detail.get("event_notified"):
+            return                           # 2차 T12: 전환·예약·복귀·취소 사건 알림 1회로 갈음(텔레그램 1회)
         if code not in ATTEMPTED_CODES:
             # 시도가 아닌 거절(잔고 없음·모드 다름·too_frequent 등)은 (사용자, 종류, code) 60초에 1회 — 수정 4회차.
             # 시도한 결과(ok·order_failed·exception·result_unknown·started·stopped·start_failed)는 요청마다.
@@ -594,7 +643,7 @@ class Controller:
             if last is not None and self.mono() - last < REJECT_NOTIFY_SEC:
                 return
             self._reject_notified[k] = self.mono()
-        self._notify(rid, kind, status, code)
+        self._notify(rid, kind, status, code, note_text)
 
     def _prune(self, d: _UserDir) -> None:
         try:
@@ -609,11 +658,13 @@ class Controller:
         for _, name in files[:-KEEP_RESULTS] if len(files) > KEEP_RESULTS else []:
             self._unlink(name, d)
 
-    def _notify(self, rid: str, kind: str, status: str, code: str) -> None:
+    def _notify(self, rid: str, kind: str, status: str, code: str, note_text: Optional[str] = None) -> None:
         label = KIND_LABEL.get(kind, "요청")
         title = f"📨 신버전 대시보드 요청 — {label}: {STATUS_LABEL.get(status, '실패')}"
         lines = [f"신버전 대시보드에서 들어온 「{label}」 요청을 처리했습니다.",
                  CODE_TEXT.get(code, CODE_TEXT["exception"])]
+        if note_text:
+            lines.append(note_text)
         if status == "error":
             lines.append("운영자가 확인합니다.")
         lines.append(UNKNOWN_REQUEST_TEXT if kind in SENSITIVE_KINDS else NO_ACTION_TEXT)
@@ -633,13 +684,22 @@ class Controller:
             "force_sell": self._force,
         }.get(kind)
         if fn is not None:
-            return fn(req)
+            return self._post(req, fn(req))
         extra = _EXTRA_HANDLERS.get(kind)
         if extra is not None:
-            return extra(self, req)
+            return self._post(req, extra(self, req))
         if kind in KINDS:
             return _result("rejected", "not_ready")
         return _result("rejected", "unsupported_kind")
+
+    def _post(self, req: dict, result: Dict[str, Any]) -> Dict[str, Any]:
+        """2차 T12: 결과 뒤 처리 갈고리(없으면 그대로). 갈고리 예외는 결과를 바꾸지 않는다(주문은 이미 끝남)."""
+        for fn in list(_POST_HOOKS):
+            try:
+                result = fn(self, req, result) or result
+            except Exception as e:
+                logger.warning(f"[CONTROL] 결과 뒤 처리 예외(결과 그대로) | {type(e).__name__}")
+        return result
 
     @staticmethod
     def _stale_threads(user: str) -> list:
@@ -714,17 +774,19 @@ class Controller:
         r["detail"]["engine"] = "absent"
         return r
 
-    def _through_engine(self, engine, kind, req):
+    def _through_engine(self, engine, kind, req, queue_wait: Optional[float] = None):
         """엔진 제어 큐에 넣고 기다린다. 이 스레드는 엔진 잠금을 잡지 않는다.
-        실행이 시작되기 전 queue_wait 초 → 취소(engine_busy). 시작 뒤에는 exec_wait 초까지(넘으면 result_unknown)."""
+        실행이 시작되기 전 queue_wait 초 → 취소(engine_busy). 시작 뒤에는 exec_wait 초까지(넘으면 result_unknown).
+        queue_wait 인자: T12 감시 tick 의 보유 확인처럼 전역 잠금을 쥔 채 짧게만 기다릴 때(없으면 self.queue_wait)."""
         from core import engine_control as ec
+        qwait = self.queue_wait if queue_wait is None else float(queue_wait)
         item = ec.ControlItem(kind, req.get("payload") or {}, req.get("id"))
         engine.control_queue.put(item)
         t0 = self.mono()
         while not item.done.is_set() and not item.started:
-            if self.mono() - t0 >= self.queue_wait:
+            if self.mono() - t0 >= qwait:
                 if item.try_cancel():
-                    logger.warning(f"[CONTROL] 엔진 응답 없음 {self.queue_wait:.0f}초 → 취소(주문 없음) | id={item.req_id}")
+                    logger.warning(f"[CONTROL] 엔진 응답 없음 {qwait:.0f}초 → 취소(주문 없음) | id={item.req_id}")
                     return _result("error", "engine_busy")
                 break                    # 막 시작됨 — 끝날 때까지(늦은 이중 주문 없음)
             self.sleep(WAIT_STEP_SEC)
@@ -823,6 +885,7 @@ def control_loop(stop: Optional[threading.Event] = None, controller: Optional[Co
     while not stop.is_set():
         try:
             ctl.scan_once()
+            run_tick_hooks(ctl)          # 2차 T12: 예약 완료·기동 복구(갈고리가 없으면 아무 일 없음)
             delay = POLL_SEC
         except Exception as e:
             logger.error(f"[CONTROL] 감시 루프 예외 → {LOOP_ERROR_SLEEP_SEC:.0f}초 뒤 다시 | {type(e).__name__}: {e}")

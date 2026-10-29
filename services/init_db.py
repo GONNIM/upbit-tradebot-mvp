@@ -1041,6 +1041,36 @@ def ensure_pullback_tables(user_id: str):
         )
         """
     )
+    # ✅ 2차 T12 (2026-10-29, X1·결정 13-1): 전략 전환·복귀·예약 기록 strategy_switch 신설 (⚠ 스키마 변경).
+    #   - 손익 집계 밖(audit_trades 에 넣지 않음). 예약 조회는 (user_id, mode, kind IN SWITCH/REVERT, state RESERVED).
+    #   - PARAMS 행(결정 13-8, T13)은 늘 state='DONE' 이고 예약 판정에 쓰지 않는다.
+    #   - 시각 칸(requested_at·done_at)은 늘 KST ISO(+09:00) — engine/strategy_switch 만 쓴다.
+    #   - CREATE … IF NOT EXISTS 만 한다. 되돌리기(코드 revert) 때 옛 코드는 이 테이블을 읽지도 쓰지도 않는다.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS strategy_switch (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT NOT NULL,
+            mode          TEXT NOT NULL CHECK (mode IN ('TEST','LIVE')),
+            kind          TEXT NOT NULL CHECK (kind IN ('SWITCH','REVERT','PARAMS')),
+            from_strategy TEXT NOT NULL,
+            from_ticker   TEXT,
+            from_interval TEXT,
+            to_strategy   TEXT NOT NULL,
+            to_ticker     TEXT,
+            to_interval   TEXT,
+            params_sha256 TEXT,
+            state         TEXT NOT NULL CHECK (state IN ('RESERVED','DONE','CANCELED','FAILED')),
+            requested_at  TEXT NOT NULL,
+            done_at       TEXT,
+            request_id    TEXT,
+            note          TEXT
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(user_id, mode, state)"
+    )
     conn.commit()
     conn.close()
 
