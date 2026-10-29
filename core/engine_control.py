@@ -31,6 +31,8 @@ _RUNNING_LOCK = threading.Lock()
 FORCE_KINDS = ("force_buy", "force_sell")
 # 2차 T12: 감시 스레드가 예약 완료 판정용으로 넣는 보유 확인(엔진 스레드에서 지갑·미체결·포지션을 읽음 — 주문 없음)
 FLAT_CHECK_KIND = "switch_flat_check"
+# 2차 T13 (사용자 결정 1029-05 A): 감시 스레드가 넣는 새 전략 설정 적용 — 엔진 스레드에서 적용본 쓰기·cfg 교체·기록
+APPLY_KIND = "pullback_apply"
 # 2차 T12 (PO 결정): 기동 재개 완료 신호 — scripts/tradebot_boot._boot_resume_thread 가 finally 에서 세운다.
 # 감시 스레드의 「처리 중 전환 행 복구」는 이 신호 뒤(없으면 감시 시작 60초 뒤) 1회.
 BOOT_RESUME_DONE = threading.Event()
@@ -177,4 +179,7 @@ def _execute(engine, item: ControlItem) -> Dict[str, Any]:
     if item.kind == FLAT_CHECK_KIND:
         from engine import strategy_switch as ss   # 지연 import(엔진 스레드에서 처음 쓸 때)
         return {"status": "done", "code": "ok", "detail": ss.engine_flat_state(engine)}
+    if item.kind == APPLY_KIND:
+        from engine import pullback_apply as pa    # 2차 T13: 새 전략 설정 적용(엔진 스레드 — 봉 처리 사이)
+        return pa.engine_apply(engine, item.payload)
     return {"status": "rejected", "code": "unsupported_kind", "detail": {}}

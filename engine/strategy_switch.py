@@ -197,17 +197,18 @@ def fetch_row(user_id: str, row_id: int) -> Optional[Dict[str, Any]]:
 def insert_row(user_id: str, *, mode: str, kind: str, from_strategy: str, to_strategy: str,
                from_ticker=None, from_interval=None, to_ticker=None, to_interval=None,
                params_sha256=None, state: str = "RESERVED", request_id=None, note=None,
-               requested_at: Optional[str] = None) -> int:
+               requested_at: Optional[str] = None, done_at: Optional[str] = None) -> int:
+    """done_at: 2차 T13 PARAMS 행(늘 DONE)이 한 문장으로 끝나게. T12 행은 넘기지 않는다(NULL)."""
     conn = _connect_rw(user_id)
     try:
         if not _table_exists(conn):
             raise SwitchTableMissing(TABLE)
         cur = conn.execute(
             f"INSERT INTO {TABLE} (user_id, mode, kind, from_strategy, from_ticker, from_interval, to_strategy, "
-            f"to_ticker, to_interval, params_sha256, state, requested_at, request_id, note) "
-            f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            f"to_ticker, to_interval, params_sha256, state, requested_at, request_id, note, done_at) "
+            f"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (user_id, mode, kind, from_strategy, from_ticker, from_interval, to_strategy, to_ticker, to_interval,
-             params_sha256, state, requested_at or kst_iso(), request_id, note))
+             params_sha256, state, requested_at or kst_iso(), request_id, note, done_at))
         conn.commit()
         return int(cur.lastrowid)
     finally:
@@ -727,6 +728,14 @@ def execute_switch(ctl, user: str, mode: str, row_id: int, *, was_running: bool,
     running = ctl.manager.get_running_mode(user)
     if running not in (None, mode):
         return _mode_conflict_mid_switch(ctl, user, row, running, origin, wrote_active=False)
+    if dst == "PULLBACK":
+        # 2차 T13 (사용자 결정 1029-05 B): 다른 종목·봉 단위의 옛 분할 상태 행(회차 0·수량 0)이 남아 있으면 새 값으로 정리 —
+        # 그대로 두면 전환 직후 기록 저장이 막히고 투자자에게 CRITICAL 이 간다. 진행 중 행은 손대지 않는다(로그만).
+        try:
+            from engine import pullback_apply as _pa
+            _pa.cleanup_stale_row(user, mode, row["to_ticker"], row["to_interval"])
+        except Exception as e:
+            logger.error(f"{TAG} 옛 분할 상태 행 정리 예외(전환은 계속) | user={user} | {type(e).__name__}: {e}")
     if not _write_active(user, dst):
         return _fail(ctl, user, mode, row, "active_write_failed", was_running=was_running, restarted=False,
                      sensitive=sensitive)

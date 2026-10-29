@@ -482,6 +482,8 @@ class TestWriteLint(unittest.TestCase):
         self.assertEqual(names, sorted([
             "db.py:CREATE TABLE IF NOT EXISTS v2_settings_history",   # 신버전 전용 이력 DB
             "db.py:INSERT INTO v2_settings_history",
+            # 2차 T13: 「이 설정으로 동작」 적용 시각 — 신버전 전용 이력 DB 의 applied_at 한 칸(실매매 DB 아님)
+            "db.py:UPDATE v2_settings_history SET applied_at=? WHERE id=? AND u",
             "db.py:INSERT INTO users",
             "db.py:INSERT INTO logs",
         ]), found)

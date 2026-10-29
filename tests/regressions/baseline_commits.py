@@ -37,6 +37,9 @@ from typing import Optional
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 EMA_BASELINE_COMMIT = "f4aac1f"     # 2차 T9 커밋 (push 됨) — 2026-10-28 T10 에서 0b04570·2749080·ebe4605 를 하나로
+# 3) FIXED_FILES_COMMIT — 「실계좌 EMA 경로 바이트 고정 8개」(T12 커밋 메시지) 대조 기준 = 2차 T12 커밋(push 됨).
+#    쓰는 시험: T13 test_fixed_files_unchanged_since_t12. 올리는 규칙은 1) 과 같다(8개 중 하나를 일부러 바꾸는 작업만).
+FIXED_FILES_COMMIT = "6b6f0b5"
 REVERT_OLD_CODE_COMMIT = "1747fcc"  # 서버 실행본(2차 배포 전) — 되돌리기 무해성 시험의 옛 코드
 
 

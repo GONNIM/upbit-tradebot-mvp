@@ -201,7 +201,7 @@ class ReadHandler(ApiHandler):
         params = {}
         if value:
             try:
-                params = db.strategy_params(user_id, value)
+                params = db.active_params(user_id, value)   # 2차 T13: PULLBACK 이면 적용본(저장본 아님)
             except ValueError:
                 params = {}
         ticker = db.normalize_ticker(params.get("ticker"))   # 'JTO' → 'KRW-JTO' (엔진과 같은 규칙)

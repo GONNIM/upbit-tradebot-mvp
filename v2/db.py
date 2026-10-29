@@ -232,3 +232,58 @@ def strategy_params(user_id: str, strategy: str) -> dict:
 def pullback_params_path(user_id: str) -> Path:
     _require_user(user_id)
     return REPO_ROOT / f"{user_id}_latest_params_PULLBACK.json"
+
+
+def applied_params_path(user_id: str) -> Path:
+    """2차 T13: 엔진만 쓰는 새 전략 적용본(engine/pullback_params.applied_path 와 같은 이름). 신버전은 읽기만."""
+    _require_user(user_id)
+    return REPO_ROOT / f"{user_id}_applied_params_PULLBACK.json"
+
+
+def active_params(user_id: str, strategy: Optional[str] = None) -> dict:
+    """2차 T13 (결정 D9): 지금 엔진이 쓰는 전략의 설정. PULLBACK 이면 적용본(저장본 아님), 그 밖은 strategy_params.
+    strategy 를 안 주면 활성 전략 파일을 읽는다. 없거나 깨지면 {}."""
+    if strategy is None:
+        strategy, _mtime = active_strategy(user_id)
+    if not strategy:
+        return {}
+    if strategy == "PULLBACK":
+        try:
+            data = json.loads(applied_params_path(user_id).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+    return strategy_params(user_id, strategy)
+
+
+SQL_LAST_HISTORY = ("SELECT id, note FROM v2_settings_history WHERE user_id=? "
+                    "ORDER BY id DESC LIMIT 1")
+SQL_SET_APPLIED = ("UPDATE v2_settings_history SET applied_at=? "
+                   "WHERE id=? AND user_id=? AND applied_at IS NULL")
+
+
+def last_history(user_id: str) -> "tuple[Optional[int], Optional[str]]":
+    """(마지막 저장 행 id, 시험한 데이터 출처 'upbit'|'binance'|None). 이력 DB 가 없으면 만들지 않고 (None, None)."""
+    p = v2hist_path(user_id)
+    if not p.exists():
+        return (None, None)
+    conn = open_v2hist(user_id)
+    try:
+        r = conn.execute(SQL_LAST_HISTORY, (user_id,)).fetchone()
+    finally:
+        conn.close()
+    if not r:
+        return (None, None)
+    note = r[1] if isinstance(r[1], str) else ""
+    return (int(r[0]), note[len("source="):] if note.startswith("source=") else None)
+
+
+def set_applied_at(user_id: str, history_id: int, at: str) -> bool:
+    """2차 T13: 「이 설정으로 동작」 적용이 끝난 저장 행에 applied_at(KST ISO) 1회. 바뀐 행이 있으면 True."""
+    conn = open_v2hist(user_id)
+    try:
+        cur = conn.execute(SQL_SET_APPLIED, (at, int(history_id), user_id))
+        conn.commit()
+        return cur.rowcount == 1
+    finally:
+        conn.close()

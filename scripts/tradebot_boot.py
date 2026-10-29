@@ -151,6 +151,12 @@ def _control_thread() -> None:
             _install_switch()
         except Exception as e:
             logger.error(f"[CONTROL] 전환 처리 설치 실패(전환 요청은 not_ready) | {type(e).__name__}: {e}")
+        try:
+            # 2차 T13: 「이 설정으로 동작」(apply_params) 처리. 실패해도 다른 요청 처리는 그대로.
+            from engine.pullback_apply import install as _install_apply
+            _install_apply()
+        except Exception as e:
+            logger.error(f"[CONTROL] 설정 적용 처리 설치 실패(적용 요청은 not_ready) | {type(e).__name__}: {e}")
         control_loop()
     except Exception as e:
         logger.error(f"[CONTROL] 감시 스레드 예외: {type(e).__name__}: {e}")

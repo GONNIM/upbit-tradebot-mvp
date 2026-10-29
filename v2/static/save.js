@@ -94,8 +94,69 @@
 
   function runNote(source) {
     return source === "upbit"
-      ? "「이 설정으로 동작」은 2차 공개 때 열립니다."
+      ? "「이 설정으로 동작」을 누르면 저장한 뒤, 지금 전략이 기존 방식(EMA·MACD)이면 전환 확인으로 넘어가고 " +
+        "새 전략이면 바로 적용합니다."
       : "바이낸스 데이터 결과는 참고용입니다. 실제 매매에 쓰시려면 업비트 데이터로 다시 시험해 주십시오.";
+  }
+
+  // ---- 2차 T13: 「이 설정으로 동작」 (결정 D9) ----
+  var SWITCH_CONFIRM = "지금 보유분이 있으면 기존 방식으로 판 뒤 바뀝니다. 전환할까요?";
+  var START_CONFIRM = "엔진이 멈춰 있습니다. 엔진을 시작할까요?";
+  var NO_RESPONSE_TEXT = "엔진이 응답하지 않습니다 — 잠시 뒤 결과를 다시 확인해 주세요";
+  var POLL_STEP_MS = 2000;
+  var POLL_MAX_MS = 60000;
+
+  // 누르면 할 일: 바이낸스·전략 모름 → "disabled", EMA·MACD → "switch"(전환 확인 창),
+  // 새 전략 + 엔진 멈춤 → "ask_start"(「엔진을 시작할까요?」), 새 전략 + 엔진 동작(또는 확인 불가) → "apply"
+  function runPlan(status, basic, source) {
+    if (source !== "upbit") return "disabled";
+    var strat = status && status.strategy && status.strategy.value;
+    if (strat === "EMA" || strat === "MACD") return "switch";
+    if (strat !== "PULLBACK") return "disabled";
+    if (basic && basic.engine_running === false) return "ask_start";
+    return "apply";
+  }
+
+  function runButtonDisabled(s) {
+    return !s.preloaded || !s.hasTicker || !!s.saving || !!s.running || !!s.ran || s.plan === "disabled";
+  }
+
+  // 엔진 결과(GET /v2/api/control/result) → 화면 한 줄. 결과 파일 message 는 엔진이 쓴 투자자용 문구다.
+  function runResultText(res) {
+    if (!res || res.status === "pending") return NO_RESPONSE_TEXT;
+    if (res.message) return String(res.message);
+    return res.status === "done" ? "요청대로 처리했습니다." : "처리하지 못했습니다.";
+  }
+
+  // 요청 POST 실패 문구
+  function controlPostText(status, body) {
+    body = body || {};
+    if (status === 409) return "앞 요청을 처리하는 중입니다. 잠시 뒤 다시 눌러 주세요.";
+    if (status === 400 && body.error === "source_not_upbit") {
+      return "바이낸스 데이터 결과는 참고용이라 적용할 수 없습니다. 업비트 데이터로 다시 시험해 저장해 주세요.";
+    }
+    if (status === 401) return GUIDE_TEXT;
+    if (status === 403) return "권한 없음";
+    return "요청을 보내지 못했습니다";
+  }
+
+  // 결과를 2초마다 60초까지 읽는다. get(url) → Promise<json>, wait(ms) → Promise. 끝나면 결과(못 받으면 null).
+  function pollResult(get, wait, id, stepMs, maxMs) {
+    var step = stepMs == null ? POLL_STEP_MS : stepMs;
+    var max = maxMs == null ? POLL_MAX_MS : maxMs;
+    var spent = 0;
+    function once() {
+      return get("/v2/api/control/result?id=" + encodeURIComponent(id)).then(function (r) {
+        if (r && r.status && r.status !== "pending") return r;
+        return null;
+      }, function () { return null; }).then(function (r) {
+        if (r) return r;
+        if (spent >= max) return null;
+        spent += step;
+        return wait(step).then(once);
+      });
+    }
+    return once();
   }
 
   // 업비트로 시험한 종목이 엔진 종목과 다를 때의 경고(같거나 비교 불가면 null). 저장은 엔진 종목 기준.
@@ -177,6 +238,9 @@
     NUMBER_IDS: NUMBER_IDS, TEXT_IDS: TEXT_IDS, GUIDE_TEXT: GUIDE_TEXT,
     testedText: testedText, stateRows: stateRows, runBtnLabel: runBtnLabel, runNote: runNote,
     symbolWarning: symbolWarning, preloadAll: preloadAll,
+    runPlan: runPlan, runButtonDisabled: runButtonDisabled, runResultText: runResultText,
+    controlPostText: controlPostText, pollResult: pollResult,
+    SWITCH_CONFIRM: SWITCH_CONFIRM, START_CONFIRM: START_CONFIRM, NO_RESPONSE_TEXT: NO_RESPONSE_TEXT,
   };
 
   if (typeof document === "undefined") return;   // node 시험용
@@ -185,12 +249,18 @@
   var preloaded = false, saving = false, saved = false, hasTicker = false;
   var lastSavedSpan = null, snapshot = null, testedBox = null, runBtn = null, runNoteBox = null;
   var gate = makeGate();
+  // 2차 T13: 「이 설정으로 동작」 상태
+  var plan = "disabled", running = false, ran = false, lastSave = null;
 
   function setMsg(text) { msgBox.textContent = text; }
 
   function refreshButton() {
     doBtn.disabled = saveButtonDisabled({
       preloaded: preloaded, hasTicker: hasTicker, saving: saving, saved: saved });
+    if (runBtn) {
+      runBtn.disabled = runButtonDisabled({ preloaded: preloaded, hasTicker: hasTicker, saving: saving,
+        running: running, ran: ran, plan: plan });
+    }
   }
 
   function addLine(label, value, big) {
@@ -263,6 +333,7 @@
     if (sw) addSmall("경고", sw);
     lastSavedSpan = addSmall("마지막 저장", lastSavedText(null, current));
     hasTicker = !!status.ticker;
+    plan = runPlan(status, basic, snapshot.source);
     setMsg(hasTicker ? "" : "엔진 종목을 알 수 없어 저장할 수 없습니다");
     refreshButton();
   }
@@ -281,6 +352,10 @@
     hasTicker = false;
     saved = false;
     lastSavedSpan = null;
+    plan = "disabled";
+    running = false;
+    ran = false;
+    lastSave = null;
     refreshButton();
     preloadAll(getJson).then(function (r) {
       if (!gate.isCurrent(g)) return;   // 더 최근에 연 미리 읽기가 있으면 버린다
@@ -313,13 +388,16 @@
     }).catch(function () {});
   }
 
+  // 저장 성공이면 응답 본문, 아니면 null 로 끝나는 Promise. 이미 저장했으면 그 응답.
   function doSave() {
-    if (saving || !preloaded || !hasTicker || saved || !snapshot) return;
+    if (saved && lastSave) return Promise.resolve(lastSave);
+    if (saving || !preloaded || !hasTicker || saved || !snapshot) return Promise.resolve(null);
     saving = true;
     refreshButton();
     setMsg("저장 중…");
     var status = 0;   // 보내는 본문은 창을 열 때 모은 스냅샷 그대로
-    fetch("/v2/api/params/save", {
+    var out = null;
+    return fetch("/v2/api/params/save", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -331,12 +409,85 @@
       setMsg(saveMessage(status, body));
       if (status === 200 && body.ok) {
         saved = true;   // 창을 닫을 때까지 다시 저장하지 못하게 한다(이력 중복 방지)
+        lastSave = body;
+        out = body;
         updateLastSaved(body);
       }
     }).catch(function () {
       setMsg("저장 결과를 확인하지 못했습니다 — 마지막 저장 시각을 다시 확인하세요");
     }).then(function () {
       saving = false;
+      refreshButton();
+      return out;
+    });
+  }
+
+  function wait(ms) { return new Promise(function (res) { setTimeout(res, ms); }); }
+
+  // 엔진 제어 요청 1건 → 결과(못 받으면 null). POST 실패는 문구를 띄우고 null.
+  function sendControl(kind, payload) {
+    var status = 0;
+    return fetch("/v2/api/control", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: kind, payload: payload || {} }),
+    }).then(function (r) {
+      status = r.status;
+      return r.json().catch(function () { return {}; });
+    }).then(function (body) {
+      if (status !== 202 || !body.id) { setMsg(controlPostText(status, body)); return null; }
+      setMsg("엔진에 요청했습니다 — 결과를 기다리는 중…");
+      return pollResult(getJson, wait, body.id).then(function (res) {
+        setMsg(runResultText(res));
+        return res ? { id: body.id, res: res } : null;
+      });
+    }).catch(function () { setMsg("요청을 보내지 못했습니다"); return null; });
+  }
+
+  function markApplied(save, sent) {
+    if (!save || !sent || !sent.res || sent.res.status !== "done") return;
+    fetch("/v2/api/params/applied", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ history_id: save.history_id, request_id: sent.id }),
+    }).catch(function () {});
+  }
+
+  function applyNow(save) {
+    return sendControl("apply_params", { saved_sha256: save.saved_sha256 }).then(function (sent) {
+      markApplied(save, sent);
+    });
+  }
+
+  function doRun() {
+    if (running || ran || plan === "disabled" || !snapshot || snapshot.source !== "upbit") return;
+    running = true;
+    refreshButton();
+    doSave().then(function (save) {
+      if (!save || !save.saved_sha256) return null;
+      if (plan === "switch") {
+        if (!window.confirm(SWITCH_CONFIRM)) { setMsg("저장만 했습니다. 전환하지 않았습니다."); return null; }
+        return sendControl("switch", { saved_sha256: save.saved_sha256 });
+      }
+      if (plan === "ask_start") {
+        if (!window.confirm(START_CONFIRM)) {
+          setMsg("저장만 했습니다. 엔진을 시작한 뒤 다시 눌러 주세요.");
+          return null;
+        }
+        return sendControl("engine_start", {}).then(function (sent) {
+          if (sent && sent.res && sent.res.status === "done") return applyNow(save);
+          return null;
+        });
+      }
+      return applyNow(save);
+    }).then(function () {
+      ran = true;      // 창을 닫을 때까지 다시 보내지 않는다(겹친 요청 방지)
+    }, function () {
+      setMsg("결과를 확인하지 못했습니다");
+    }).then(function () {
+      running = false;
       refreshButton();
     });
   }
@@ -355,7 +506,8 @@
         !testedBox || !runBtn || !runNoteBox) return;
     openBtn.addEventListener("click", openDialog);
     closeBtn.addEventListener("click", closeDialog);
-    doBtn.addEventListener("click", doSave);
+    doBtn.addEventListener("click", function () { doSave(); });
+    runBtn.addEventListener("click", doRun);
   }
 
   if (document.readyState === "loading") {

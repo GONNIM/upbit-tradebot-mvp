@@ -272,7 +272,7 @@ class Collector:
             unit = 1
             try:
                 value, _mtime = db.active_strategy(user)
-                iv = db.strategy_params(user, value).get("interval") if value else None
+                iv = db.active_params(user, value).get("interval") if value else None   # 2차 T13: PULLBACK = 적용본
                 m = _MINUTE_RE.fullmatch(iv) if isinstance(iv, str) else None
                 if m and int(m.group(1)) in UNITS:
                     unit = int(m.group(1))
@@ -653,7 +653,7 @@ class Collector:
             if not value:
                 continue
             try:
-                params = db.strategy_params(user, value)
+                params = db.active_params(user, value)   # 2차 T13: PULLBACK 이면 적용본
             except ValueError:
                 continue
             market = db.normalize_ticker(params.get("ticker"))

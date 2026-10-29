@@ -105,7 +105,8 @@ DEFAULT_CAP_GROUP = "other"  # 위에 없는 종류(예약 취소·설정 적용
 ALWAYS_RUN_KINDS = ("engine_stop", "force_sell")
 # 실제로 업비트 주문(또는 엔진 시작·정지)을 시도한 결과 code — 30초 창·시간당 수에 센다
 ATTEMPTED_CODES = ("ok", "order_failed", "result_unknown", "exception", "started", "stopped", "start_failed",
-                   "reserved", "switch_failed")   # 2차 T12: 예약·전환 실패도 엔진 상태를 바꾼 시도
+                   "reserved", "switch_failed",   # 2차 T12: 예약·전환 실패도 엔진 상태를 바꾼 시도
+                   "apply_failed")                # 2차 T13: 설정 적용 실패(재시작 시도 포함)
 
 USER_RE = re.compile(r"^[A-Za-z0-9_]{1,32}$")
 ID_RE = re.compile(r"^[0-9]{14}-[0-9a-f]{8}$")
@@ -185,6 +186,16 @@ CODE_TEXT = {
     "no_reservation": "취소할 예약이 없습니다.",
     "reservation_unknown": "예약 상태를 읽지 못해 처리하지 않았습니다.",
     "switch_table_missing": "전환 기록 표가 없어 처리하지 않았습니다(운영자 확인).",
+    # 2차 T13 (설정 적용 — 사용자 결정 1029-05). 보유 중 거절 2개는 투자자 체감 변경(배포 때 통보).
+    "holding_interval_change": "보유 중에는 봉 단위를 바꿀 수 없습니다 — 매도 뒤 다시 적용해 주세요",
+    "holding_splits_increase": "보유 중에는 분할 매수 횟수를 늘릴 수 없습니다 — 매도 뒤 다시 적용해 주세요",
+    "source_not_upbit": "바이낸스 데이터로 시험한 설정은 참고용이라 적용하지 않았습니다. "
+                        "업비트 데이터로 다시 시험해 저장해 주세요.",
+    "apply_not_pullback": "지금은 새 전략으로 운용 중이 아니라 적용하지 않았습니다. "
+                          "먼저 백테스터 규칙으로 전환해 주세요.",
+    "invalid_ticker": "종목 이름이 맞지 않아 적용하지 않았습니다.",
+    "apply_live_not_supported": "새 전략 설정 적용은 아직 실계좌(LIVE)에서 할 수 없습니다. 모의(TEST)에서만 할 수 있습니다.",
+    "apply_failed": "설정을 적용하지 못해 이전 설정으로 계속합니다. 운영자가 확인합니다.",
 }
 NO_ACTION_TEXT = "투자자님이 따로 하실 일은 없습니다."   # core.strategy_engine.NO_ACTION_TEXT 와 같은 글
 UNKNOWN_REQUEST_TEXT = "직접 요청하지 않으셨다면 운영자에게 바로 알려 주세요."
@@ -812,9 +823,12 @@ class Controller:
         th = th if th is not None else self._thread_of(user)
         return th is not None and th.is_alive()
 
-    def restart_engine(self, user: str, mode: str, strategy: Optional[str]) -> Dict[str, Any]:
+    def restart_engine(self, user: str, mode: str, strategy: Optional[str],
+                       before_start: Optional[Callable[[], Optional[Dict[str, Any]]]] = None) -> Dict[str, Any]:
         """(1) 쉼 표식 (2) 엔진이 있으면 stop (3) 옛 스레드 끝 대기 30초 (4) start (5) 준비 신호 대기 180초.
-        실패면 복구 금지 뒤 (엔진이 있으면) 정지. 시작이 이미 실행·다른 모드로 거부되면 끄지 않고 그 코드."""
+        실패면 복구 금지 뒤 (엔진이 있으면) 정지. 시작이 이미 실행·다른 모드로 거부되면 끄지 않고 그 코드.
+        2차 T13: before_start — 옛 스레드가 모두 끝난 뒤·start 앞에서 1회 부른다(엔진이 없는 틈 — 봉 단위 변경의
+        pullback_state 행 정리). 결과 dict 를 돌려주면 시작하지 않고 그 결과로 끝낸다(엔진은 멈춘 채, 호출자가 되돌림)."""
         m = self.manager
         try:
             self.write_rest_mark(user)
@@ -840,6 +854,15 @@ class Controller:
                     pass
                 return _result("error", "old_thread_alive")
             self.sleep(0.2)
+        if before_start is not None:
+            try:
+                stop_res = before_start()
+            except Exception as e:
+                logger.error(f"[CONTROL] 시작 전 처리 예외 → 시작 안 함 | user={user} | {type(e).__name__}: {e}")
+                stop_res = _result("error", "exception", {"error": type(e).__name__})
+            if stop_res is not None:
+                logger.warning(f"[CONTROL] 시작 전 처리가 멈춤 → 시작 안 함 | user={user} code={stop_res.get('code')}")
+                return stop_res
         ok = m.start_engine(user, mode=mode, strategy=strategy)   # start_engine 이 _no_recover 를 지운다
         if not ok:
             running = m.get_running_mode(user)

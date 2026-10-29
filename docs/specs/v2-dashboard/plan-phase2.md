@@ -1169,7 +1169,39 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 - [ ] **Step 2~4:** 실패 확인 → 구현 → 통과·게이트.
 - [ ] **Step 5: 커밋 승인 요청**
 
+**T13 구현 메모 (10/29, 사용자 결정 1029-05 「권고대로」·PO 결정 — 기록 `docs/fable/2026-10-29-phase2-t13-decision-1.md`):**
+- **실제 고친 곳은 Files 와 다르다.** `engine/live_loop.py`(mtime 감시 `_maybe_reload_pullback`)·`core/strategy_pullback.py` 는 바꾸지 않았다. 바이트 고정 8개(`core/strategy_engine.py`·`core/strategy_incremental.py`·`engine/params.py`·`engine/live_loop.py`·`engine/boot_resume.py`·`services/trading_control.py`·`engine/engine_manager.py`·`services/db.py`)는 T12 커밋과 같다(`test_fixed_files_unchanged_since_t12`, 기준 `tests/regressions/baseline_commits.FIXED_FILES_COMMIT`). 적용은 새 파일 `engine/pullback_apply.py`(처리·엔진 안 교체·행 정리), 요청 갈고리 `engine/control_requests.py`(`restart_engine(..., before_start=)`·문구), 큐 종류 `core/engine_control.py`(`APPLY_KIND = "pullback_apply"`), 설치 `scripts/tradebot_boot._control_thread`, 전환 때 옛 행 정리 `engine/strategy_switch.execute_switch`.
+- **결정 A — `apply_params` 처리.** T12 `_guard`(LIVE → `live_not_supported`, 다른 모드 엔진 → `mode_conflict`) → 해시 형식 → 전환·복귀 예약 중이면 `already_reserved`(PO 결정) → 활성 전략 PULLBACK 아니면 `apply_not_pullback` → v2hist 마지막 저장 출처가 업비트가 아니면 `source_not_upbit` → 저장본 해시·검증(`sha_mismatch`·숫자 든 종목 `invalid_ticker`) → `apply_saved` 전 적용본·last_good 바이트를 읽어 둠.
+  - 엔진 실행 중·MA·종목·봉 단위 변경 없음: 엔진 제어 큐 항목이 엔진 스레드에서 ① 생성자와 같은 방식으로 cfg 만들기(`golden_only`·`eff_max_splits`·거래 시간 검증) ② `apply_saved` ③ cfg 교체 ④ `engine._pullback_params_sha` 갱신 ⑤ TP/SL 엔진 값 ⑥ `PARAMS·DONE` 1행. 다음 확정 봉부터 쓴다.
+  - 엔진 멈춤: `apply_saved` + `PARAMS` 행만.
+  - MA 기간·방식 변경: `Controller.restart_engine` 으로 지표 다시 시드(재시작 워밍업, 그동안 매수 없음). 실패하면 이전 적용본 바이트로 되돌리고 1회 재기동, 운영자 CRITICAL(`audience="operator"`), 결과 `apply_failed`. 계획의 「감사 `RESEED`」는 재시작 워밍업 감사로 갈음.
+- **결정 B — 종목·봉 단위 변경(계획 규칙 「종목·봉 단위 변경: 예약 전환」을 갈음).** 미보유일 때만 받는다. 보유 중이면 거절 「보유 중에는 봉 단위를 바꿀 수 없습니다 — 매도 뒤 다시 적용해 주세요」. 엔진 실행 중이면 `restart_engine` 의 `before_start` 갈고리(옛 스레드 끝남 대기 뒤, `start_engine` 앞)가 `pullback_state` 행을 다시 읽어 회차>0·수량>0·체결 대기면 행을 고치지 않고 적용본을 되돌린 뒤 거절, 아니면 종목·봉 단위를 고치고 `buy_fail_bar_ts`·`prev_golden`·`last_bar_ts` 를 비운다(`realized_pnl_krw` 유지). 재시작 실패면 적용본과 행 종목·봉 단위를 함께 되돌린다. EMA→PULLBACK 전환은 `_write_active` 앞에서 옛 행이 회차 0 이면 같은 정리를 한다. 옛 행이 회차>0 이면 손대지 않는다(기존 복원 막음·CRITICAL 그대로 — 편차로 보고).
+- **결정 C — 분할 한도.** 보유 중 늘림은 거절 「보유 중에는 분할 매수 횟수를 늘릴 수 없습니다 — 매도 뒤 다시 적용해 주세요」(1회 매수 금액이 회차마다 `floor(base/eff_max_splits)` 로 다시 계산되기 때문). 줄임은 바로 적용(지금 회차 이상이면 추가 매수만 멈춤). **pullback spec 4.6 정정(9절):** 「분할 한도 늘림은 보유 중 거절」을 더한다.
+- **체감 변경:** 위 투자자 거절 문구 2개는 배포 때 체감 변경 통보 대상이다(10절 통보 문안에 넣는다).
+- **변경 기록 `apply` 값:** `next_bar`·`immediate`(보유 중 TP/SL·데드크로스 바뀜)·`reseed`(MA 변경)·`restart`(종목·봉 단위 변경 — 새 값, T16 문구 표에 넣을 것). `immediate`·`next_bar` 모두 실제로는 다음 확정 봉 처리부터 쓰인다(엔진 안 교체가 봉 사이에서 일어나므로). **R1 의 전환 부분은 T14 로 미룬다(PO 결정, fix 1):** T12 전환 적용 때 `PARAMS` 행을 쓰면 T12 시험의 `strategy_switch` 행 수 단언(약 40건)이 함께 바뀌어야 한다. T14 의 `ops_settings` 도 `PARAMS` 행을 쓰므로, 전환 때의 `PARAMS` 행은 T14 가 물려받아 그 시험 조정과 함께 넣는다. T13 은 `apply_params` 경로의 `PARAMS` 행만 쓴다.
+- **신버전:** `v2/db.active_params`(PULLBACK → 적용본, 없으면 빈 dict) 를 `_context`·`_engine_ticker`·`candles._engine_units`·`_targets` 가 쓴다. 저장은 이전 저장본의 선택 4키(형식이 맞을 때만)를 보존하고 응답에 `saved_sha256`. `POST /v2/api/control` kind `apply_params` 는 마지막 저장이 업비트 출처가 아니면 400 `source_not_upbit`. 새 경로 `POST /v2/api/params/applied {history_id, request_id}` 가 엔진 결과 done·`applied_sha256` 있음·마지막 저장 행일 때만 v2hist `applied_at` 을 결과 시각으로 1회 채운다. 종목 정규식은 `^KRW-[A-Z]{1,15}$` 로 맞췄다. 백테스터 종목은 자유 입력이라 숫자가 든 기호(예: KRW-1INCH)는 저장 때 400. 엔진은 원래 그 종목을 받지 않음(engine/pullback_params.py:66). 투자자 통보 대상 아님.
+- **화면(`v2/static/save.js`):** 안내 문구는 「(6절)」 내부 참조 대신 「「이 설정으로 동작」을 누르면 저장한 뒤, 지금 전략이 기존 방식(EMA·MACD)이면 전환 확인으로 넘어가고 새 전략이면 바로 적용합니다.」. 확인 창은 브라우저 기본 `window.confirm`(전환·엔진 시작). 결과는 2초마다 60초까지 읽는다. `backtester.html` 은 바꾸지 않았다. `pages/*.py` 무변경.
+- **시험:** `tests/regressions/test_r_2026_10_29_p4_t13_apply.py` 49건(1차 44 + fix 1 5), `tests/regressions/test_r_2026_10_29_p4_t13_v2.py` 15건(1차 14 + fix 1 1), `tests/v2/js/save.test.mjs` T13 7건. 계획 이름과 다른 것: 파일 날짜 2026_10_29, `test_apply_interval_change_is_reserved_switch` → `test_interval_change_flat_restarts_and_cleans_row`·`test_interval_change_while_holding_rejected`(결정 B). T5 시험 `apply_saved(` 허용 목록에 `engine/pullback_apply.py`, v2 쓰기 lint 기대 목록에 `applied_at` UPDATE 를 더했다. 변이 56/56(실행자 스크립트 — 1차 46 + fix 1 10, verifier V14·V15 합침).
+- **(fix round 1 — verifier 「수정 후 승인」 반영)**
+  - 실계좌(LIVE) 적용 요청은 적용 전용 코드 `apply_live_not_supported`·문구 「새 전략 설정 적용은 아직 실계좌(LIVE)에서 할 수 없습니다. 모의(TEST)에서만 할 수 있습니다.」(T12 `live_not_supported` 문구는 전환·복귀를 말하므로).
+  - `POST /v2/api/params/applied` 는 결과의 `applied_sha256` 이 지금 저장본 파일 해시(= 마지막 저장 행의 저장본 — 이력 행에 해시 칸이 없음)와 같을 때만 채운다. 다르면 409 `stale_result`.
+  - `restore_row_market` 도 `entry_count=0 AND qty=0 AND pending_fill=0` 조건(그사이 회차가 생긴 행은 덮지 않음, False + CRITICAL 로그).
+  - 갈고리의 「보유 중」 거절은 보통 거절: 적용본 되돌림 + WARNING, 운영자 「재시작 실패」 CRITICAL 없음. 엔진은 정지 단계에서 이미 멈췄으므로 이전 설정으로 다시 띄운다(보유분 관리). 그 기동이 실패할 때만 CRITICAL.
+- **남은 한계:**
+  - 체결 대기(`pending_fill`) 행도 보유로 본다(결정보다 엄격).
+  - 전환 경로의 옛 행 정리는 전환이 실패해도 되돌리지 않는다(회차 0 행이라 매매 영향 없음).
+  - 적용본 되돌리기 자체가 실패하면 로그·운영자 CRITICAL 만 남는다.
+  - 재시작에서 옛 스레드가 끝나지 않으면(`old_thread_alive`) 옛 엔진이 옛 값으로 계속 돌 수 있다(T11 그대로).
+  - 엔진 프로세스의 v2hist 읽기는 실패하면 거절(fail closed).
+  - 적용 재시작(MA·봉 단위 변경)은 전역 잠금을 쥔 채 정지 대기·준비 대기를 하므로, 그동안 다른 사용자의 요청이 기다리다 만료될 수 있다(T12 전환과 같은 구조 — 미룸).
+  - 구버전 화면의 `start_engine` 은 전역 잠금 밖이라, 적용 재시작 도중 구버전에서 엔진을 시작하면 겹칠 수 있다(`engine/engine_manager.py` 바이트 고정 — LIVE 전환·D4 를 다시 볼 때 함께).
+  - V13 엔진 보유 판정의 `_pending_split` 은 실계좌 전용 상태라 지금 시험으로 잡지 못한다(PULLBACK LIVE 를 열 때 시험).
+  - 겹친 방어로 하나만 지우는 변이가 살아남는 곳: V12(엔진 안 `classify` 재확인 — 감시 스레드가 먼저 거름), V19(활성 파일 확인 — `_active` 와 겹침), V17(화면 `markApplied` done 확인 — 서버 `not_applied` 가 막음).
+  - 화면 DOM 흐름(확인 창·결과 읽기)은 순수 함수 시험과 소스 순서 단언뿐이며, 배포 뒤 브라우저 실측으로만 확인한다.
+
 ### T14: 운용 탭 단추 (요청서 2-마, 결정 D6·D11)
+
+> **(T13 fix 1 넘김, PO 결정)** R1 변경 기록의 전환 부분 — T12 전환 적용 때의 `strategy_switch` `PARAMS·DONE` 행 — 을 T14 가 `ops_settings` 의 `PARAMS` 행과 함께 넣는다(T12 시험 행 수 단언 조정 포함, T13 구현 메모).
 
 **Files:**
 - Modify `v2/static/index.html`(운용 탭), `v2/static/app.js`, Create `v2/static/ops.js`

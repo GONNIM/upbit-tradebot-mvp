@@ -197,7 +197,9 @@ test("창 문구: 시험한 데이터 줄·지금 상태 4행·안내", () => {
   assert.deepEqual(JSON.parse(JSON.stringify(rows2)), [["모드", "TEST"], ["동작 중인 전략", "PULLBACK"], ["엔진", "멈춤"], ["보유", "KRW-JTO 2"]]);
   assert.equal(S.runBtnLabel("upbit"), "이 설정으로 동작");
   assert.equal(S.runBtnLabel("binance"), "이 설정으로 동작 (사용 불가)");
-  assert.match(S.runNote("upbit"), /「이 설정으로 동작」은 2차 공개 때 열립니다\./);
+  // 2차 T13: 1차 안내 「2차 공개 때 열립니다」 → 동작 안내(전환 확인 또는 바로 적용)
+  assert.match(S.runNote("upbit"), /전환 확인으로 넘어가고 새 전략이면 바로 적용합니다\./);
+  assert.doesNotMatch(S.runNote("upbit"), /2차 공개/);
   assert.match(S.runNote("binance"), /바이낸스 데이터 결과는 참고용입니다\. 실제 매매에 쓰시려면 업비트 데이터로 다시 시험해 주십시오\./);
   assert.equal(S.symbolWarning({ source: "upbit", params: { symbol: "KRW-BTC" } }, "KRW-JTO") !== null, true);
   assert.equal(S.symbolWarning({ source: "upbit", params: { symbol: "KRW-JTO" } }, "KRW-JTO"), null);
@@ -232,4 +234,90 @@ test("preloadAll: basic 실패만 null 로 받고 나머지는 그대로, 다른
   assert.deepEqual(JSON.parse(JSON.stringify(rows[2])), ["엔진", "확인 불가"]);
   const rows3 = S.stateRows({}, {}, { engine_running: false }, "KRW-JTO");
   assert.deepEqual(JSON.parse(JSON.stringify(rows3[2])), ["엔진", "멈춤"]);
+});
+
+// ---- 2차 T13: 「이 설정으로 동작」 ----
+const ST = (v) => ({ strategy: { value: v } });
+
+test("T13 업비트 + EMA → 이 설정으로 동작 활성, 누르면 전환 확인 창", () => {
+  const S = load();
+  assert.equal(S.runPlan(ST("EMA"), { engine_running: true }, "upbit"), "switch");
+  assert.equal(S.runPlan(ST("MACD"), { engine_running: false }, "upbit"), "switch");
+  assert.equal(S.runButtonDisabled({ preloaded: true, hasTicker: true, plan: "switch" }), false);
+  assert.equal(S.SWITCH_CONFIRM, "지금 보유분이 있으면 기존 방식으로 판 뒤 바뀝니다. 전환할까요?");
+  const src = fs.readFileSync(SAVE_JS, "utf8");
+  const run = src.slice(src.indexOf("function doRun("));
+  const a = run.indexOf("window.confirm(SWITCH_CONFIRM)");
+  const b = run.indexOf('sendControl("switch"');
+  assert.ok(a > 0 && a < b, "전환 확인 창이 전환 요청보다 먼저");
+});
+
+test("T13 업비트 + PULLBACK → 적용 요청(apply_params, 저장본 해시)", () => {
+  const S = load();
+  assert.equal(S.runPlan(ST("PULLBACK"), { engine_running: true }, "upbit"), "apply");
+  assert.equal(S.runPlan(ST("PULLBACK"), null, "upbit"), "apply");    // 엔진 확인 불가 → 엔진이 답함
+  const src = fs.readFileSync(SAVE_JS, "utf8");
+  assert.match(src, /sendControl\("apply_params", \{ saved_sha256: save\.saved_sha256 \}\)/);
+  assert.match(src, /\/v2\/api\/params\/applied/);
+});
+
+test("T13 엔진 꺼짐 질문 → 예 = engine_start 뒤 적용", () => {
+  const S = load();
+  assert.equal(S.runPlan(ST("PULLBACK"), { engine_running: false }, "upbit"), "ask_start");
+  assert.match(S.START_CONFIRM, /엔진을 시작할까요\?$/);
+  const src = fs.readFileSync(SAVE_JS, "utf8");
+  const run = src.slice(src.indexOf("function doRun("));
+  const a = run.indexOf("window.confirm(START_CONFIRM)");
+  const b = run.indexOf('sendControl("engine_start"');
+  const c = run.indexOf("applyNow(save)", b);
+  assert.ok(a > 0 && a < b && b < c);
+});
+
+test("T13 바이낸스 사용 불가 유지 — 참고용 문구·단추 비활성", () => {
+  const S = load();
+  assert.equal(S.runPlan(ST("PULLBACK"), { engine_running: true }, "binance"), "disabled");
+  assert.equal(S.runPlan(ST("EMA"), { engine_running: true }, "binance"), "disabled");
+  assert.equal(S.runButtonDisabled({ preloaded: true, hasTicker: true, plan: "disabled" }), true);
+  assert.equal(S.runBtnLabel("binance"), "이 설정으로 동작 (사용 불가)");
+  assert.match(S.runNote("binance"), /참고용입니다/);
+  assert.match(S.controlPostText(400, { error: "source_not_upbit" }), /참고용/);
+});
+
+test("T13 단추 비활성: 미리 읽기 전·종목 모름·진행 중·한 번 보낸 뒤·전략 모름", () => {
+  const S = load();
+  const ok = { preloaded: true, hasTicker: true, plan: "apply" };
+  assert.equal(S.runButtonDisabled(ok), false);
+  for (const k of [{ preloaded: false }, { hasTicker: false }, { saving: true }, { running: true }, { ran: true }]) {
+    assert.equal(S.runButtonDisabled(Object.assign({}, ok, k)), true, JSON.stringify(k));
+  }
+  assert.equal(S.runPlan({}, { engine_running: true }, "upbit"), "disabled");
+});
+
+test("T13 결과 문구: 엔진 message 그대로, 응답 없음 60초, 요청 겹침", async () => {
+  const S = load();
+  assert.equal(S.runResultText({ status: "rejected", message: "다른 저장이 끼어들었습니다. 다시 저장해 주세요." }),
+    "다른 저장이 끼어들었습니다. 다시 저장해 주세요.");
+  assert.equal(S.runResultText(null), S.NO_RESPONSE_TEXT);
+  assert.match(S.NO_RESPONSE_TEXT, /엔진이 응답하지 않습니다/);
+  assert.match(S.controlPostText(409, { error: "busy" }), /앞 요청을 처리하는 중/);
+  // 2초마다 60초까지: pending 만 오면 31회 읽고 null
+  let n = 0;
+  const r = await S.pollResult(() => { n += 1; return Promise.resolve({ status: "pending" }); },
+    () => Promise.resolve(), "x", 2000, 60000);
+  assert.equal(r, null);
+  assert.equal(n, 31);
+  let m = 0;
+  const r2 = await S.pollResult(() => { m += 1; return Promise.resolve(m < 3 ? { status: "pending" } : { status: "done", message: "요청대로 처리했습니다." }); },
+    () => Promise.resolve(), "x", 2000, 60000);
+  assert.equal(r2.status, "done");
+  assert.equal(m, 3);
+});
+
+test("T13 투자자 문구에 내부 코드 없음", () => {
+  const S = load();
+  const texts = [S.runNote("upbit"), S.SWITCH_CONFIRM, S.START_CONFIRM, S.NO_RESPONSE_TEXT,
+    S.controlPostText(409, {}), S.controlPostText(400, { error: "source_not_upbit" }), S.controlPostText(500, {})];
+  for (const t of texts) {
+    assert.doesNotMatch(t, /[a-z]+_[a-z_]+|PULLBACK|sha|6절/, t);
+  }
 });

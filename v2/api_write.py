@@ -10,6 +10,7 @@
   (알려진 틈: 복구는 GET current 와 v2hist 마지막 행 대조).
 - 오류 응답 본문에는 파일 내용·경로·예외 문자열을 넣지 않는다.
 """
+import hashlib
 import json
 import logging
 import os
@@ -23,7 +24,7 @@ from v2.handlers import ApiHandler
 log = logging.getLogger(__name__)
 
 MAX_BODY_BYTES = 64 * 1024
-_TICKER_RE = re.compile(r"^KRW-[A-Z0-9]{1,20}$")
+_TICKER_RE = re.compile(r"^KRW-[A-Z]{1,15}$")   # 2차 T13: 엔진 로더와 같게(영문 대문자만)
 SQL_SAVED_AT = "SELECT saved_at FROM v2_settings_history WHERE id=? LIMIT 1"
 
 
@@ -80,6 +81,10 @@ class SaveHandler(ApiHandler):
             return self.send_json({"error": "file_write_failed"}, 500)
 
         file_dict = params_schema.to_engine_file(params, ticker)
+        try:   # 2차 T13: 이전 저장본의 선택 4키(거래 시간)는 지우지 않는다(깨진 이전 파일이면 보존할 것 없음)
+            file_dict = params_schema.keep_optional(file_dict, json.loads(old))
+        except ValueError:
+            pass
         new_text = json.dumps(file_dict, ensure_ascii=False, indent=2) + "\n"
         try:
             _write_in_place(path, new_text)
@@ -102,9 +107,11 @@ class SaveHandler(ApiHandler):
             return self.send_json({"error": "file_changed"}, 500)
 
         # 8. 응답 (saved_at 조회 실패는 저장 실패가 아니다)
+        # 2차 T13: 「이 설정으로 동작」이 엔진에 넘길 저장본 해시(파일에 쓴 바이트 그대로)
         self.send_json({"ok": True, "history_id": history_id,
                         "saved_at": self._saved_at(user, history_id),
-                        "ticker": ticker, "interval": file_dict["interval"]})
+                        "ticker": ticker, "interval": file_dict["interval"],
+                        "saved_sha256": hashlib.sha256(new_text.encode("utf-8")).hexdigest()})
 
     @staticmethod
     def _engine_ticker(user):
@@ -112,7 +119,7 @@ class SaveHandler(ApiHandler):
         if not value:
             return None
         try:
-            sp = db.strategy_params(user, value)
+            sp = db.active_params(user, value)   # 2차 T13: PULLBACK 운용 중이면 적용본 종목
         except ValueError:
             return None
         t = db.normalize_ticker(sp.get("ticker"))   # 'JTO' → 'KRW-JTO'
@@ -205,6 +212,14 @@ class ControlHandler(ApiHandler):
         if not isinstance(req, dict):
             return self.send_json({"error": "bad_request"}, 400)
         u = self.current_user
+        if req.get("kind") == "apply_params":
+            # 2차 T13: 「이 설정으로 동작」은 업비트 데이터로 시험한 마지막 저장만(바이낸스 결과는 참고용 — 엔진도 다시 본다)
+            try:
+                _hid, source = db.last_history(u["user_id"])
+            except (sqlite3.Error, OSError, ValueError):
+                return self.send_json({"error": "db_unavailable"}, 503)
+            if source != "upbit":
+                return self.send_json({"error": "source_not_upbit"}, 400)
         try:
             rid = control.write_request(u["user_id"], u["mode"], req.get("kind"), req.get("payload", {}))
         except control.Busy as e:
@@ -214,6 +229,53 @@ class ControlHandler(ApiHandler):
         except OSError:
             return self.send_json({"error": "file_write_failed"}, 500)
         self.send_json({"id": rid}, 202)
+
+
+class AppliedHandler(ApiHandler):
+    """POST /v2/api/params/applied {"history_id", "request_id"} (2차 T13) — 엔진 적용 결과가 done 이고 그 행이 마지막 저장이면
+    v2hist 그 행 applied_at 을 결과 시각(KST ISO)으로 1회 채운다. 결과 파일은 읽기만(엔진이 쓴 것)."""
+
+    def post(self):
+        raw = self.request.body or b""
+        if len(raw) > 1024:
+            return self.send_json({"error": "bad_request"}, 400)
+        try:
+            req = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, RecursionError):
+            return self.send_json({"error": "bad_request"}, 400)
+        if not isinstance(req, dict):
+            return self.send_json({"error": "bad_request"}, 400)
+        hid, rid = req.get("history_id"), req.get("request_id")
+        if isinstance(hid, bool) or not isinstance(hid, int) or not isinstance(rid, str):
+            return self.send_json({"error": "bad_request"}, 400)
+        user = self.current_user["user_id"]
+        try:
+            res = control.read_result(user, rid)
+        except ValueError:
+            return self.send_json({"error": "bad_request"}, 400)
+        detail = (res or {}).get("detail") if isinstance(res, dict) else None
+        if not res or res.get("status") != "done" or not isinstance(detail, dict) \
+                or not isinstance(detail.get("applied_sha256"), str):
+            return self.send_json({"error": "not_applied"}, 409)
+        try:
+            last_id, _source = db.last_history(user)
+            if last_id != hid:
+                return self.send_json({"error": "not_latest"}, 409)
+            # fix 1: 그 결과가 이 저장을 적용한 것이어야 한다(옛 request_id 결과로 새 저장 행을 채우지 않음).
+            # 이력 행에는 해시 칸이 없고, 마지막 저장 행의 저장본 = 지금 저장본 파일이라 그 바이트 해시와 비교한다.
+            try:
+                saved_sha = hashlib.sha256(db.pullback_params_path(user).read_bytes()).hexdigest()
+            except OSError:
+                return self.send_json({"error": "not_applied"}, 409)
+            if detail["applied_sha256"] != saved_sha:
+                return self.send_json({"error": "stale_result"}, 409)
+            at = res.get("at") if isinstance(res.get("at"), str) else db.now_kst_iso()
+            changed = db.set_applied_at(user, hid, at)
+        except FileNotFoundError:
+            return self.send_json({"error": "no_data"}, 404)
+        except sqlite3.Error:
+            return self.send_json({"error": "db_unavailable"}, 503)
+        self.send_json({"ok": True, "applied_at": at, "changed": changed})
 
 
 class LogoutHandler(ApiHandler):
@@ -230,4 +292,5 @@ ROUTES = [
     (r"/v2/api/logout", LogoutHandler),
     (r"/v2/api/params/save", SaveHandler),
     (r"/v2/api/params/current", CurrentHandler),
+    (r"/v2/api/params/applied", AppliedHandler),
 ]

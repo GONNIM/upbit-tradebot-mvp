@@ -824,14 +824,16 @@ class TestEngineManager(InTmpCwd):
 class TestNoActivePullbackWriter(unittest.TestCase):
     def test_no_path_writes_pullback_active_or_applied(self):
         """T1 「T5 완료 전까지 활성 파일에 PULLBACK 을 쓰는 경로를 만들지 않는다(쓰는 곳은 T12)」.
-        2차 T12(10/29): 쓰는 곳은 engine/strategy_switch.py 한 곳만(전환·복귀) — 그 밖에는 여전히 없음."""
+        2차 T12(10/29): 쓰는 곳은 engine/strategy_switch.py 한 곳만(전환·복귀) — 그 밖에는 여전히 없음.
+        2차 T13(10/29): 적용본 쓰기(apply_saved)에 engine/pullback_apply.py(「이 설정으로 동작」)를 더함. 활성 파일은 그대로 T12 만."""
         offenders = []
         for p in ROOT.rglob("*.py"):
             rel = p.relative_to(ROOT).as_posix()
             if rel.startswith(("tests/", ".venv", "venv/", ".superpowers")) or "/site-packages/" in rel:
                 continue
             text = p.read_text(encoding="utf-8", errors="ignore")
-            if "apply_saved(" in text and rel not in ("engine/pullback_params.py", "engine/strategy_switch.py"):
+            if "apply_saved(" in text and rel not in ("engine/pullback_params.py", "engine/strategy_switch.py",
+                                                      "engine/pullback_apply.py"):
                 offenders.append(rel)
             if "save_active_strategy(" in text and rel not in ("engine/params.py", "pages/set_config.py",
                                                                 "engine/strategy_switch.py"):
