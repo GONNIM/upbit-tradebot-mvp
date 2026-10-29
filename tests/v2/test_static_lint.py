@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 STATIC = ROOT / "v2" / "static"
 VENDOR = STATIC / "vendor"
 URL_RE = re.compile(r"https?://([A-Za-z0-9.\-]+)")
-OWN = ["index.html", "app.js", "chart.js", "style.css", "basic.js", "basic.css", "labels.js", "bt_ui.js"]
+OWN = ["index.html", "app.js", "chart.js", "style.css", "basic.js", "basic.css", "labels.js", "bt_ui.js", "ops.js"]
 
 
 def _read(name):
@@ -26,7 +26,7 @@ class StaticLintTest(unittest.TestCase):
         for name in OWN:
             self.assertTrue((STATIC / name).exists(), name)
             # bt_ui.js 는 서버 경로(/v2/api/candles)만 부른다 — 외부 주소 허용 없음
-            allowed = set() if name == "bt_ui.js" else {"api.upbit.com"}
+            allowed = set() if name in ("bt_ui.js", "ops.js") else {"api.upbit.com"}
             self.assertLessEqual(_hosts(name), allowed, name)
         bt = [n for n in ("backtester.html", "backtester.js") if (STATIC / n).exists()]
         if not bt:
@@ -54,21 +54,27 @@ class StaticLintTest(unittest.TestCase):
         for p in VENDOR.glob("*.js"):
             self.assertIn(p.name, listed)
 
-    def test_operation_buttons_disabled(self):
+    def test_operation_buttons_wired(self):
+        """2차 T14 (요청서 2-마): 1차 「2차 공개 때 열립니다」 안내는 지우고 「매매 중지/재개는 홈 화면 위 단추로 합니다.」는 남긴다.
+        운용 단추는 고정 disabled 가 아니라 판정(opsView.<이름>.enabled)에 묶이고, 누르면 opsAct('<이름>') 를 부른다."""
         html = _read("index.html")
-        self.assertEqual(html.count("2차 공개 때 열립니다"), 1)
+        self.assertNotIn("2차 공개 때 열립니다", html)
+        self.assertEqual(html.count("매매 중지/재개는 홈 화면 위 단추로 합니다."), 1)
         marker = "data-ops"
         self.assertIn(marker, html)
         start = html.index(marker)
         end = html.index("</main>", start)
         block = html[start:end]
-        buttons = re.findall(r"<button\b[^>]*>", block)
-        for b in buttons:
-            self.assertRegex(b, r"\bdisabled\b")
-        for name in ("백테스터 규칙으로 전환", "기존 전략으로 복귀 (지금은 해당 없음)",
-                     "일시정지", "엔진 정지", "강제 매수", "강제 매도"):
-            self.assertRegex(block, r"<button\b[^>]*disabled[^>]*>\s*" + re.escape(name))
-        self.assertEqual(len(buttons), 6)
+        ops = re.findall(r'<button\b[^>]*\bdata-op="([A-Za-z]+)"[^>]*>', block)
+        self.assertEqual(ops, ["switch", "revert", "cancel", "pause", "stop", "start", "forceBuy", "forceSell",
+                               "opsSave"])
+        for tag in re.findall(r'<button\b[^>]*\bdata-op="[A-Za-z]+"[^>]*>', block):
+            name = re.search(r'data-op="([A-Za-z]+)"', tag).group(1)
+            self.assertNotRegex(tag, r"\sdisabled(\s|>)", name)                  # 고정 비활성 없음
+            self.assertIn(f':disabled="!opsView.{name}.enabled"', tag, name)
+            self.assertIn(f"@click=\"opsAct('{name}')\"", tag, name)
+        self.assertIn('<script src="/v2/static/ops.js"></script>', html)
+        self.assertLess(html.index("/v2/static/ops.js"), html.index("/v2/static/app.js"))
 
     def test_index_loads_both_vendor_scripts(self):
         html = _read("index.html")

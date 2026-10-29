@@ -181,6 +181,9 @@ document.addEventListener("alpine:init", () => {
     logsKind: "audit", logRows: [], logsPage: 1, logsPages: 1, logsMore: false, logsLoaded: false, _logsSeq: 0,
     authError: false, netError: "", chartFail: "", chartNote: "",
     _cardTimer: null, _cardsBusy: false,
+    // 운용 탭(2차 T14): GET /v2/api/ops 값·요청 처리 중·결과 문구·복귀 전략 고르기·운용 설정 입력
+    ops: null, opsBusy: false, opsMsg: "", opsChoose: false, opsDirty: false,
+    opsForm: { enable: false, start: "09:00", end: "02:00", sellOff: true },
 
     // ---- 시작·갱신 ---- (Alpine 이 x-data 의 init 을 자동 호출한다)
     init() {
@@ -235,6 +238,7 @@ document.addEventListener("alpine:init", () => {
         ["/v2/api/trades?limit=10", (d) => { this.trades = d.trades || []; }],
         ["/v2/api/signals?limit=1", (d) => { this.signals = d.signals || []; }],
       ];
+      if (this.tab === "ops") jobs.push(["/v2/api/ops", (d) => { this.setOps(d); }]);
       let failed = 0;
       await Promise.all(jobs.map(async ([path, apply]) => {
         try { apply(await this.getJson(path)); } catch (e) { failed += 1; }
@@ -247,6 +251,7 @@ document.addEventListener("alpine:init", () => {
       this.tab = name;
       if (name === "chart") this.startChart(); else this.stopChart();
       if (name === "logs") this.loadLogs(1);
+      if (name === "ops") this.loadOps();
       // 주소에 탭을 남긴다(백테스터 페이지에서 메뉴로 돌아오거나 새로고침해도 같은 탭)
       try { history.replaceState(null, "", "#" + name); } catch (e) { /* 주소 갱신 실패는 화면에 영향 없음 */ }
     },
@@ -282,6 +287,134 @@ document.addEventListener("alpine:init", () => {
     },
     get logsRange() { return this.logsPage + " / " + this.logsPages + (this.logsMore ? "+" : ""); },
     get logsEmpty() { return this.logsLoaded && this.logRows.length === 0; },
+
+    // ---- 운용 탭 (2차 T14) — 판정·문구는 ops.js(window.__v2ops) 순수 함수 ----
+    setOps(d) {
+      this.ops = d;
+      // 입력 중이 아니면 지금 적용본 값으로 칸을 맞춘다
+      if (!this.opsDirty && window.__v2ops) this.opsForm = window.__v2ops.opsForm(d && d.hours);
+    },
+    async loadOps() {
+      try { this.setOps(await this.getJson("/v2/api/ops")); } catch (e) { /* 머리말에 표시됨 */ }
+    },
+    get opsCtx() {
+      const st = this.status || {}, a = this.assets || {}, o = this.ops || {};
+      const coin = Number(a.coin) || 0, cl = Number(a.coin_locked) || 0;
+      return {
+        strategy: String(st.strategy && st.strategy.value || o.strategy || "").toUpperCase(),
+        opsLoaded: !!this.ops, reservation: o.reservation || null, reservationError: o.reservation_error === true,
+        savedOk: !!(o.saved && o.saved.ok), engineRunning: this.basic ? this.basic.engine_running : undefined,
+        holding: coin > 0 || cl > 0, round: o.round || null, perBuy: o.per_buy, orderRatio: o.order_ratio,
+        krw: a.krw, busy: this.opsBusy || !!o.pending,
+        // fix 1: 입장 모드(LIVE 이면 전환·복귀·운용 설정 저장을 닫음)
+        mode: String(o.mode || st.mode_entry || "").toUpperCase(),
+      };
+    },
+    get opsLiveNote() {
+      const O = window.__v2ops;
+      return O ? O.liveNote(this.opsCtx.mode) : "";
+    },
+    get opsView() {
+      const O = window.__v2ops;
+      if (!O) {
+        const off = { enabled: false, label: "" };
+        return { switch: off, revert: off, cancel: off, pause: off, stop: off, start: off, forceBuy: off,
+          forceSell: off, opsSave: off };
+      }
+      return O.buttonStates(this.opsCtx);
+    },
+    get opsReservationText() {
+      const O = window.__v2ops, o = this.ops || {};
+      return O ? O.reservationText(o.reservation, o.reservation_error === true) : "";
+    },
+    async postJson(path, body) {
+      const r = await fetch(path, { method: "POST", credentials: "same-origin", cache: "no-store",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      let data = {};
+      try { data = await r.json(); } catch (e) { data = {}; }
+      return { status: r.status, ok: r.ok, body: data };
+    },
+    // 엔진 제어 요청 1건: 보내기 → 2초마다 60초까지 결과 → 문구 → 상태 다시 읽기
+    async opsSend(kind, payload) {
+      const O = window.__v2ops;
+      this.opsBusy = true;
+      try {
+        const r = await this.postJson("/v2/api/control", { kind, payload: payload || {} });
+        if (!r.ok) { this.opsMsg = O.postErrorText(r.status, r.body); return null; }
+        this.opsMsg = "요청을 보냈습니다. 엔진 결과를 기다립니다…";
+        const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+        const res = await O.pollResult((p) => this.getJson(p), wait, r.body.id);
+        this.opsMsg = O.resultText(res);
+        if (res && res.code === "choose_strategy") this.opsChoose = true;
+        if (kind === "ops_settings" && res && res.status === "done") this.opsDirty = false;
+        return res;
+      } catch (e) {
+        this.opsMsg = O.postErrorText(0, {});
+        return null;
+      } finally {
+        this.opsBusy = false;
+        await this.loadOps();
+        this.refreshCards();
+      }
+    },
+    async opsAct(name) {
+      const O = window.__v2ops;
+      if (!O || this.opsBusy) return;
+      const view = this.opsView[name];
+      if (!view || !view.enabled) return;
+      const o = this.ops || {};
+      const ask = (text) => window.confirm(text);
+      if (name === "switch") {
+        if (!ask(O.CONFIRM.switch)) return;
+        return this.opsSend("switch", { saved_sha256: o.saved && o.saved.sha256 });
+      }
+      if (name === "revert") {
+        const text = O.revertConfirmText(o.revert_target);
+        if (text === null) { this.opsChoose = true; this.opsMsg = O.CONFIRM.chooseStrategy; return; }
+        if (!ask(text)) return;
+        return this.opsSend("revert", {});
+      }
+      if (name === "cancel") { if (ask(O.CONFIRM.cancel)) return this.opsSend("cancel_reservation", {}); return; }
+      if (name === "stop") { if (ask(O.CONFIRM.stop)) return this.opsSend("engine_stop", {}); return; }
+      if (name === "start") {
+        if (ask("엔진을 시작할까요? (모드: " + (this.modeLabel || "확인 불가") + ")")) return this.opsSend("engine_start", {});
+        return;
+      }
+      if (name === "forceBuy") {
+        if (ask(O.forceBuyConfirmText(this.opsCtx))) return this.opsSend("force_buy", {});
+        return;
+      }
+      if (name === "forceSell") { if (ask(O.CONFIRM.forceSell)) return this.opsSend("force_sell", {}); return; }
+      if (name === "opsSave") {
+        // 「시간 밖에도 매도」는 지금 적용본 값 그대로(바꿀 수 없음)
+        const payload = O.opsPayload(this.opsForm, o.hours);
+        if (payload === null) { this.opsMsg = "시작·끝 시각을 HH:MM 으로 넣어 주세요."; return; }
+        if (ask(O.CONFIRM.opsSave)) return this.opsSend("ops_settings", payload);
+        return;
+      }
+      if (name === "pause") {
+        // 홈 단추와 같은 동작(POST /v2/api/pause). 이미 일시정지면 보내지 않는다(재개는 홈 화면 위 단추).
+        if (this.status && this.status.paused) { this.opsMsg = "이미 일시정지 중입니다. 재개는 홈 화면 위 단추로 합니다."; return; }
+        if (!ask(O.CONFIRM.pause)) return;
+        this.opsBusy = true;
+        try {
+          const r = await this.postJson("/v2/api/pause", { paused: true });
+          this.opsMsg = r.ok ? "매매를 일시정지했습니다." : O.postErrorText(r.status, r.body);
+        } catch (e) {
+          this.opsMsg = O.postErrorText(0, {});
+        } finally {
+          this.opsBusy = false;
+          this.refreshCards();
+        }
+      }
+    },
+    async opsRevertTo(strategy) {
+      const O = window.__v2ops;
+      if (!O || this.opsBusy || !["EMA", "MACD"].includes(strategy)) return;
+      if (!window.confirm(strategy + " 로 돌아갑니다. 지금 보유분이 있으면 새 전략 매도 규칙으로 판 뒤 바뀝니다. 진행할까요?")) return;
+      this.opsChoose = false;
+      return this.opsSend("revert", { strategy });
+    },
 
     // ---- 차트 ----
     startChart() {

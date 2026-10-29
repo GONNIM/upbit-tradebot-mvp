@@ -260,11 +260,12 @@ def cleanup_stale_row(user: str, mode: str, ticker, interval) -> str:
 
 # ================================================================ PARAMS 기록
 def record_params(user: str, mode: str, prev: Optional[dict], new: dict, sha: str, changed: dict, apply: str,
-                  request_id=None) -> bool:
+                  request_id=None, from_strategy: str = "PULLBACK") -> bool:
+    """from_strategy: 2차 T14 — 전환(EMA·MACD → PULLBACK) 때의 행은 지금 전략(전환 전)을 적는다(R1 「from_* = 지금 전략」)."""
     now = ss.kst_iso()
     note = json.dumps({"changed": changed, "apply": apply}, ensure_ascii=False, separators=(",", ":"))
     try:
-        ss.insert_row(user, mode=mode, kind="PARAMS", from_strategy="PULLBACK", to_strategy="PULLBACK",
+        ss.insert_row(user, mode=mode, kind="PARAMS", from_strategy=from_strategy, to_strategy="PULLBACK",
                       from_ticker=(prev or {}).get("ticker"), from_interval=(prev or {}).get("interval"),
                       to_ticker=new.get("ticker"), to_interval=new.get("interval"), params_sha256=sha,
                       state="DONE", request_id=request_id, note=note, requested_at=now, done_at=now)
@@ -497,6 +498,124 @@ def _rollback(ctl, user, mode, snap, prev_row, r) -> Dict[str, Any]:
     return _r("error", "apply_failed", {"why": str(why)[:64], "restarted": again})
 
 
+# ================================================================ 2차 T14: 운용 설정(거래 시간 4키) — ops_settings
+OPS_KEYS = tuple(pbp.OPTIONAL_KEYS)
+_HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def ops_keys_or_none(keys) -> Optional[dict]:
+    """payload keys = 4키 정확히(켜기·시간 밖 매도 = 참/거짓, 시작·끝 = HH:MM). 아니면 None(bad_request)."""
+    if not isinstance(keys, dict) or set(keys) != set(OPS_KEYS):
+        return None
+    for k, default in pbp.OPTIONAL_KEYS.items():
+        v = keys[k]
+        if isinstance(default, bool):
+            if not isinstance(v, bool):
+                return None
+        elif not isinstance(v, str) or not _HHMM_RE.fullmatch(v):
+            return None
+    return {k: keys[k] for k in OPS_KEYS}
+
+
+SELL_OFF_KEY = "allow_sell_during_off_hours"
+
+
+def sell_off_changed(prev: dict, keys: dict) -> bool:
+    """T14 fix 2 (PO 결정 1 다): 「시간 밖에도 매도」는 아직 바꿀 수 없다 — 지금 적용본 값(키가 없으면 true)과 다르면 True."""
+    return keys[SELL_OFF_KEY] is not prev.get(SELL_OFF_KEY, True)
+
+
+def _ops_result(res: dict, user: str, mode: str, request_id, *, engine_state: Optional[str] = None):
+    prev, new = res["prev"], res["params"]
+    changed = {k: [prev.get(k), new.get(k)] for k in OPS_KEYS if prev.get(k) != new.get(k)}
+    recorded = record_params(user, mode, prev, new, res["sha"], changed, "next_bar", request_id)
+    extra = {"keys": {k: new[k] for k in OPS_KEYS}}
+    if engine_state:
+        extra["engine"] = engine_state
+    return _done(res["sha"], changed, "next_bar", recorded, **extra)
+
+
+def engine_ops(engine, payload: dict) -> Dict[str, Any]:
+    """엔진 스레드(봉 처리 사이): 지금 적용본 + 4키 → 새 cfg 를 먼저 만들어 보고(거래 시간 형식) → apply_ops_keys →
+    cfg 교체 → _pullback_params_sha 갱신 → PARAMS 행. 반영은 다음 확정 봉부터. 분할 한도·MA·종목은 그대로(4키만)."""
+    user = engine.user_id
+    mode = str(payload.get("mode") or "TEST")
+    st = getattr(engine, "strategy", None)
+    if getattr(engine, "strategy_type", "") != "PULLBACK" or not isinstance(getattr(st, "cfg", None), dict):
+        return _r("rejected", "apply_not_pullback")
+    keys = ops_keys_or_none(payload.get("keys"))
+    if keys is None:
+        return _r("rejected", "bad_request")
+    prev = _valid_or_none(_read_or_none(pbp.applied_path(user)))
+    if prev is None:
+        return _r("rejected", "params_missing")
+    if sell_off_changed(prev, keys):
+        return _r("rejected", "sell_off_locked")
+    merged = dict(prev)
+    merged.update(keys)
+    try:
+        new_cfg = build_cfg(user, merged, getattr(st, "interval_min", None))
+    except Exception:
+        return _r("rejected", "bad_request")
+    try:
+        res = pbp.apply_ops_keys(user, keys)
+    except pbp.PullbackParamsError as e:
+        return _r("rejected", "params_missing" if e.field == "applied_invalid" else "bad_request")
+    except OSError as e:
+        logger.error(f"{TAG} 운용 설정 적용본 쓰기 실패 | user={user} | {type(e).__name__}")
+        return _r("error", "apply_failed", {"why": "write"})
+    st.cfg = new_cfg
+    engine._pullback_params_sha = res["sha"]
+    logger.info(f"{TAG} 운용 설정 적용(엔진 안) | user={user} keys={keys} sha={res['sha'][:12]}")
+    return _ops_result(res, user, mode, payload.get("request_id"))
+
+
+def handle_ops(ctl, req) -> Dict[str, Any]:
+    """신버전 운용 탭 「운용 설정 저장」(거래 시간 제한) — payload {"keys": {4키}}. 지금 적용본에 4키만 합친다.
+    T13 apply_params 와 같은 거절 순서: 실계좌 → 다른 모드 엔진 → 형식 → 예약 중(already_reserved, PO 결정 1029-05 D 와 같게)
+    → 활성 전략 PULLBACK 아님. 엔진이 돌면 엔진 제어 큐(OPS_KIND), 멈췄으면 적용본만(다음 기동이 읽음)."""
+    g = ss._guard(ctl, req)
+    if g is not None:
+        if g.get("code") == "live_not_supported":
+            return _r("rejected", "apply_live_not_supported")
+        return g
+    user, mode, rid = req["user_id"], req["mode"], req.get("id")
+    keys = ops_keys_or_none((req.get("payload") or {}).get("keys"))
+    if keys is None:
+        return _r("rejected", "bad_request")
+    row, rej = ss._reservation_or_result(user, mode)
+    if rej is not None:
+        return rej
+    if row is not None:
+        return _r("rejected", "already_reserved", {"reservation_id": row["id"], "kind": row["kind"]})
+    if ss._active(user) != "PULLBACK" or ss._active_file(user) != "PULLBACK":
+        return _r("rejected", "apply_not_pullback")
+    prev = _valid_or_none(_read_or_none(pbp.applied_path(user)))
+    if prev is None:
+        return _r("rejected", "params_missing")
+    if sell_off_changed(prev, keys):
+        return _r("rejected", "sell_off_locked")
+    if all(prev.get(k) == keys[k] for k in OPS_KEYS):
+        sha = hashlib.sha256(_read_or_none(pbp.applied_path(user)) or b"").hexdigest()
+        return _done(sha, {}, "unchanged", False, unchanged=True, keys=keys)
+    from core import engine_control as ec
+    running = ctl.manager.get_running_mode(user)      # _guard 뒤라 None 또는 요청 mode
+    if running is not None:
+        engine = ec.running_engine(user)
+        if engine is None:
+            return _r("error", "engine_busy")
+        return ctl._through_engine(engine, ec.OPS_KIND,
+                                   {"id": rid, "payload": {"keys": keys, "mode": mode, "request_id": rid}})
+    try:
+        res = pbp.apply_ops_keys(user, keys)
+    except pbp.PullbackParamsError as e:
+        return _r("rejected", "params_missing" if e.field == "applied_invalid" else "bad_request")
+    except OSError as e:
+        logger.error(f"{TAG} 운용 설정 적용본 쓰기 실패 | user={user} | {type(e).__name__}")
+        return _r("error", "apply_failed", {"why": "write"})
+    return _ops_result(res, user, mode, rid, engine_state="stopped")
+
+
 # ================================================================ 설치 (scripts/tradebot_boot._control_thread 가 1회)
 _INSTALLED = {"done": False}
 
@@ -506,5 +625,6 @@ def install() -> None:
     if _INSTALLED["done"]:
         return
     cr.register_handler("apply_params", handle_apply)
+    cr.register_handler("ops_settings", handle_ops)        # 2차 T14
     _INSTALLED["done"] = True
-    logger.info(f"{TAG} 설정 적용 처리 설치")
+    logger.info(f"{TAG} 설정 적용·운용 설정 처리 설치")

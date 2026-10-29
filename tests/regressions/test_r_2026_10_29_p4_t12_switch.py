@@ -437,7 +437,8 @@ class TestSwitchRequest(SwitchCase):
         self.assertEqual(pbp.sha256_of(pbp.applied_path(USER)), self.sha)
         self.assertEqual(len(self.starts("PULLBACK")), 1)
         rows = self.rows()
-        self.assertEqual([(x["kind"], x["state"]) for x in rows], [("SWITCH", "DONE")])
+        # 2차 T14 (R1 전환 부분, T13 fix 1 넘김): 전환 DONE 뒤 PARAMS·DONE 변경 기록 1행이 따른다
+        self.assertEqual([(x["kind"], x["state"]) for x in rows], [("SWITCH", "DONE"), ("PARAMS", "DONE")])
         self.assertEqual((rows[0]["from_strategy"], rows[0]["from_ticker"], rows[0]["from_interval"]),
                          ("EMA", EMA_TICKER, EMA_IV))
         self.assertTrue(rows[0]["requested_at"].endswith("+09:00"))
@@ -631,7 +632,8 @@ class TestReservedCompletion(SwitchCase):
         self.eng.last_bar_ts = "bar-B"
         self.assertEqual(tick(self), [["ok"]])
         self.assertEqual(self.active(), "PULLBACK")
-        self.assertEqual([x["state"] for x in self.rows()], ["DONE"])
+        # 2차 T14 (R1 전환 부분): 예약 완료 전환도 PARAMS·DONE 1행
+        self.assertEqual([(x["kind"], x["state"]) for x in self.rows()], [("SWITCH", "DONE"), ("PARAMS", "DONE")])
         self.assertTrue(any("전환 예약 완료" in b for b in self.bodies()))
 
     def test_flat_by_engine_sell(self):
@@ -1081,7 +1083,8 @@ class TestFixRound1MonitorGuards(SwitchCase):
             r = self.switch()
         self.assertEqual(r["code"], "ok")
         self.assertNotIn("done_record_pending", r["detail"])
-        self.assertEqual([x["state"] for x in self.rows()], ["DONE"])
+        self.assertEqual([x["state"] for x in self.rows("SWITCH")], ["DONE"])
+        self.assertEqual([x["state"] for x in self.rows("PARAMS")], ["DONE"])     # 2차 T14 R1
         self.assertEqual(len(_crit_ops(self)), 1)
         self.assertEqual(self.active(), "PULLBACK")
 
@@ -1092,13 +1095,15 @@ class TestFixRound1MonitorGuards(SwitchCase):
             r = self.switch()
         self.assertEqual(r["code"], "ok")
         self.assertTrue(r["detail"]["done_record_pending"])
-        self.assertEqual([(x["state"], x["note"]) for x in self.rows()], [("RESERVED", ss.NOTE_SWITCHING)])
+        self.assertEqual([(x["state"], x["note"]) for x in self.rows("SWITCH")], [("RESERVED", ss.NOTE_SWITCHING)])
+        # 2차 T14 R1: 적용본은 이미 바뀌고 엔진도 새 전략이라 변경 기록(PARAMS·DONE)은 남는다
+        self.assertEqual([x["state"] for x in self.rows("PARAMS")], ["DONE"])
         self.assertEqual(len(_crit_ops(self)), 1)                 # 시도마다가 아니라 1회
         self.eng.strategy_type = "PULLBACK"                    # 재시작된 엔진 = 대상 전략
         mon = ss.Monitor()
         mon.boot_done = True
         mon(self.ctl)
-        self.assertEqual([(x["state"], x["note"]) for x in self.rows()], [("DONE", "settled")])
+        self.assertEqual([(x["state"], x["note"]) for x in self.rows("SWITCH")], [("DONE", "settled")])
 
     def test_settle_needs_active_target_and_ready(self):
         self.run_engine("PULLBACK")

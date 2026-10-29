@@ -266,7 +266,9 @@ test("index.html: 홈 탭 배지 줄 아래 #pause-row, 머리 막대 #logout-bt
   assert.match(bar, /id="logout-btn"/);
   assert.match(INDEX, /<link rel="stylesheet" href="\/v2\/static\/basic\.css">/);
   assert.match(INDEX, /<script defer src="\/v2\/static\/basic\.js"><\/script>/);
-  assert.match(INDEX, /운용 단추는 2차 공개 때 열립니다\. 매매 중지\/재개는 홈 화면 위 단추로 합니다\./);
+  // 2차 T14: 1차 안내 「운용 단추는 2차 공개 때 열립니다.」는 지우고 뒤 문장은 남긴다
+  assert.doesNotMatch(INDEX, /2차 공개 때 열립니다/);
+  assert.match(INDEX, /data-ops>매매 중지\/재개는 홈 화면 위 단추로 합니다\./);
   assert.doesNotMatch(INDEX, /이 화면은 읽기 전용입니다/);
   // 접힘(<details>) 밖 — 자주 쓰는 단추는 top-level (project-rules 1-B)
   const before = INDEX.slice(home, pause);

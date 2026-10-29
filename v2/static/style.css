@@ -87,7 +87,8 @@ dt { color: var(--gray); } dd { margin: 0; text-align: right; word-break: break-
 .pager .pg { flex: 0 0 auto; font-size: 13px; color: var(--gray); }
 .pager button, .ops-grid button { flex: 1; padding: 8px; font-size: 14px; }
 .ops-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.ops-grid button { display: flex; flex-direction: column; align-items: center; color: var(--gray); }
+.ops-grid button { display: flex; flex-direction: column; align-items: center; }
+.ops-grid button:disabled, .ops-sub:disabled { color: var(--gray); }
 .ops-grid small { font-size: 11px; }
 .ops-primary, .ops-sub { display: block; width: 100%; padding: 10px; margin-top: 8px; font-size: 14px; }
 .ops-primary { background: #2563eb; color: #fff; border: 0; border-radius: 6px; }

@@ -547,6 +547,37 @@ def _apply_saved(user_id: str, sha: str) -> dict:
     return pbp.apply_saved(user_id, sha)
 
 
+def _applied_bytes(user_id: str) -> Optional[bytes]:
+    """2차 T14 (R1 전환 부분): apply_saved 전 적용본 바이트(없거나 못 읽으면 None) — 전환 완료 뒤 변경 기록의 이전 값."""
+    from engine import pullback_params as pbp
+    try:
+        with open(pbp.applied_path(user_id), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _record_switch_params(user: str, mode: str, row: dict, prev_bytes: Optional[bytes]) -> bool:
+    """2차 T14 (T13 fix 1 넘김, PO 결정): 전환(EMA·MACD → PULLBACK) DONE 뒤 strategy_switch PARAMS·DONE 1행.
+    note = {"changed": {키: [구, 신]}, "apply": "switch"}, from_strategy = 전환 전 전략, params_sha256 = 새 적용본 해시.
+    실패해도 전환 결과는 바꾸지 않는다(기록만 — 로그 ERROR)."""
+    try:
+        from engine import pullback_apply as pa
+        data = _applied_bytes(user)
+        new = pa._valid_or_none(data)
+        if new is None:
+            logger.error(f"{TAG} 전환 변경 기록: 새 적용본을 읽지 못함 → 기록 안 함 | user={user} row={row.get('id')}")
+            return False
+        import hashlib
+        prev = pa._valid_or_none(prev_bytes)
+        changed = pa.diff(prev, new)
+        return pa.record_params(user, mode, prev, new, hashlib.sha256(data).hexdigest(), changed, "switch",
+                                row.get("request_id"), from_strategy=row.get("from_strategy"))
+    except Exception as e:
+        logger.error(f"{TAG} 전환 변경 기록 예외(전환은 끝남) | user={user} | {type(e).__name__}: {e}")
+        return False
+
+
 # ================================================================ 2. 요청 처리 (감시 스레드, 전역 잠금 안)
 def _r(status: str, code: str, detail: Optional[dict] = None) -> Dict[str, Any]:
     return {"status": status, "code": code, "detail": dict(detail or {})}
@@ -616,6 +647,7 @@ def handle_switch(ctl, req) -> Dict[str, Any]:
                sensitive_request=True)
         logger.info(f"{TAG} 보유·미체결 매수 → 예약 | user={user} row={row_id} state={st}")
         return _r("done", "reserved", {"reservation_id": row_id, "event_notified": True})
+    prev_applied = _applied_bytes(user)              # 2차 T14 R1: 변경 기록의 이전 값(apply_saved 전)
     try:
         _apply_saved(user, sha)
     except PullbackParamsError as e:
@@ -623,7 +655,8 @@ def handle_switch(ctl, req) -> Dict[str, Any]:
     except OSError:
         return _r("rejected", "saved_invalid")
     row_id = insert_row(user, state="RESERVED", note=NOTE_SWITCHING, **common)
-    return execute_switch(ctl, user, mode, row_id, was_running=was_running, origin="request")
+    return execute_switch(ctl, user, mode, row_id, was_running=was_running, origin="request",
+                          prev_applied=prev_applied)
 
 
 def handle_revert(ctl, req) -> Dict[str, Any]:
@@ -705,8 +738,10 @@ def post_force_buy(ctl, req, result: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ================================================================ 3. 전환 실행 (즉시·예약 완료·공통)
-def execute_switch(ctl, user: str, mode: str, row_id: int, *, was_running: bool, origin: str) -> Dict[str, Any]:
-    """행(RESERVED·note switching)을 끝까지: 재확인 → 활성 파일 → restart_engine → 준비 뒤 DONE / 실패면 되돌림."""
+def execute_switch(ctl, user: str, mode: str, row_id: int, *, was_running: bool, origin: str,
+                   prev_applied: Optional[bytes] = None) -> Dict[str, Any]:
+    """행(RESERVED·note switching)을 끝까지: 재확인 → 활성 파일 → restart_engine → 준비 뒤 DONE / 실패면 되돌림.
+    2차 T14: prev_applied = apply_saved 전 적용본 바이트 — SWITCH 가 DONE 이면 PARAMS·DONE 변경 기록 1행(R1 전환 부분)."""
     row = fetch_row(user, row_id)
     kind, src, dst = row["kind"], row["from_strategy"], row["to_strategy"]
     sensitive = origin == "request"
@@ -748,6 +783,8 @@ def execute_switch(ctl, user: str, mode: str, row_id: int, *, was_running: bool,
         return _fail(ctl, user, mode, row, r.get("code") or "start_failed", was_running=was_running,
                      restarted=True, sensitive=sensitive)
     recorded = _record_done(ctl, user, row_id, dst, note=None)
+    if kind == "SWITCH" and dst == "PULLBACK":
+        _record_switch_params(user, mode, row, prev_applied)
     if kind == "SWITCH":
         key = "switch_done" if origin == "request" else "switch_reserved_done"
         text = TEXT[key].format(ticker=row["to_ticker"], interval=interval_label(row["to_interval"]))
@@ -934,8 +971,10 @@ class Monitor:
     def complete(self, ctl, user: str, mode: str, row: dict) -> str:
         """매도 완료 다음 봉: 예약 → 전환(또는 복귀)."""
         row_id = row["id"]
+        prev_applied = None
         if row["kind"] == "SWITCH":
             from engine.pullback_params import PullbackParamsError
+            prev_applied = _applied_bytes(user)      # 2차 T14 R1: 변경 기록의 이전 값(apply_saved 전)
             try:
                 _apply_saved(user, row["params_sha256"])
             except (PullbackParamsError, OSError) as e:
@@ -945,7 +984,7 @@ class Monitor:
                        key=f"{row_id}:saved_changed")
                 return "saved_changed"
         update_row(user, row_id, note=NOTE_SWITCHING)
-        r = execute_switch(ctl, user, mode, row_id, was_running=True, origin="reserved")
+        r = execute_switch(ctl, user, mode, row_id, was_running=True, origin="reserved", prev_applied=prev_applied)
         return r.get("code")
 
     def _check_sell_rejects(self, ctl, user: str, row: dict) -> None:

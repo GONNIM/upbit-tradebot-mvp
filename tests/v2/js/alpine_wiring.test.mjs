@@ -214,21 +214,198 @@ test("index.html: 옛 #basic 자리 없음, #pause-row 1개, 머리 막대 #logo
   assert.ok(right.lastIndexOf("bar-sep") > right.indexOf("구버전으로"));
 });
 
-test("index.html 운용 탭: 그림 2-마 카드 4개·단추 6개 모두 disabled·안내 한 줄·구버전 카드 없음", () => {
+test("index.html 운용 탭(2차 T14): 그림 2-마 카드 4개·단추 글자 순서·판정에 묶임·안내 한 줄·구버전 카드 없음", () => {
   const html = fs.readFileSync(path.join(STATIC, "index.html"), "utf8");
   const s = html.indexOf("tab === 'ops'");
   const e = html.indexOf("</main>", s);
   const block = html.slice(s, e);
-  const btns = [...block.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)];
-  assert.deepEqual(btns.map((m) => m[2].replace(/<[^>]+>/g, "").trim()),
-    ["백테스터 규칙으로 전환", "기존 전략으로 복귀 (지금은 해당 없음)", "일시정지", "엔진 정지", "강제 매수", "강제 매도"]);
-  for (const m of btns) assert.match(m[1], /\bdisabled\b/);
-  assert.equal((block.match(/2차 공개 때 열립니다/g) || []).length, 1);
+  const btns = [...block.matchAll(/<button\b([^>]*\bdata-op="[A-Za-z]+"[^>]*)>([\s\S]*?)<\/button>/g)];
+  const labels = btns.map((m) => m[2].replace(/<[^>]+>/g, "").trim());
+  assert.deepEqual(labels.slice(0, 8),
+    ["백테스터 규칙으로 전환", "기존 전략으로 복귀", "예약 취소", "일시정지", "엔진 정지", "엔진 시작", "강제 매수", "강제 매도"]);
+  assert.deepEqual(labels.slice(8), ["운용 설정 저장"]);
+  for (const m of btns) {
+    assert.doesNotMatch(m[1], /\sdisabled(\s|$)/);            // 고정 비활성 없음
+    assert.match(m[1], /:disabled="!opsView\.[A-Za-z]+\.enabled"/);
+  }
+  // 복귀 단추 글자는 판정이 정한다(EMA 운용 중 「(지금은 해당 없음)」 — ops.test.mjs)
+  assert.match(block, /data-op="revert"[^>]*x-text="opsView\.revert\.label"/);
+  assert.equal((block.match(/2차 공개 때 열립니다/g) || []).length, 0);
   assert.equal((block.match(/매매 중지\/재개는 홈 화면 위 단추로 합니다/g) || []).length, 1);
   for (const h of ["매매 전략", "엔진", "긴급 개입", "운용 설정"]) assert.match(block, new RegExp("<h2>" + h + "</h2>"));
   assert.match(block, /거래 시간 제한 등 \(새 전략 운용 중일 때 여기서 바꿉니다\)/);
   assert.match(block, /지금 전략/);
   assert.doesNotMatch(block, /<h2>구버전<\/h2>/);
   assert.doesNotMatch(block, /다시 로그인해야 합니다/);
+  // fix 1: 「시간 밖에도 매도」는 보기만(고정 비활성 · 입력 묶음 없음) + 안내 한 줄, 실계좌 안내 자리
+  const sell = block.match(/<input\b[^>]*data-sell-off\b[^>]*>/);
+  assert.ok(sell, "시간 밖 매도 칸");
+  assert.match(sell[0], /\sdisabled(\s|>|$)/);
+  assert.doesNotMatch(sell[0], /x-model|@change|:disabled/);
+  assert.match(sell[0], /:checked="opsForm\.sellOff"/);
+  assert.match(block, /이 항목은 아직 바꿀 수 없습니다\(시간 밖 손절 처리 결정 뒤 열립니다\)/);
+  assert.match(block, /data-live-note[^>]*x-text="opsLiveNote"/);
+});
+
+test("운용 탭 연결(2차 T14, Alpine.reactive): 판정·확인 창·요청 POST·결과 읽기·전략 고르기", async () => {
+  vm.runInThisContext(fs.readFileSync(path.join(STATIC, "ops.js"), "utf8"));
+  const realST = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => { fn(); return 0; };          // 결과 읽기 2초 대기를 바로
+  const posts = [];
+  const confirms = [];
+  globalThis.confirm = (t) => { confirms.push(t); return true; };
+  let result = { status: "done", code: "ok", message: "강제 매도 완료" };
+  let ops = { pending: null, strategy: "PULLBACK", reservation: null, reservation_error: false, revert_target: null,
+    saved: { ok: true, sha256: "a".repeat(64) }, round: { entry: 1, max: 5 }, per_buy: 600000, order_ratio: null,
+    hours: { enable_trading_hours: true, trading_start_time: "10:00", trading_end_time: "23:00",
+      allow_sell_during_off_hours: false } };
+  globalThis.fetch = async (url, opt) => {
+    const u = String(url);
+    if (opt && opt.method === "POST") {
+      posts.push([u, JSON.parse(opt.body)]);
+      return { ok: true, status: 202, json: async () => ({ id: "20261029000000-0000abcd" }) };
+    }
+    let body = {};
+    if (u.includes("/v2/api/status")) body = { strategy: { value: "PULLBACK" }, paused: false, mode_engine: "TEST" };
+    else if (u.includes("/v2/api/basic")) body = { engine_running: true };
+    else if (u.includes("/v2/api/assets")) body = { krw: 100000, coin: 2, price: 10, entry_price: 9 };
+    else if (u.includes("/v2/api/ops")) body = ops;
+    else if (u.includes("/v2/api/control/result")) body = result;
+    return { ok: true, status: 200, json: async () => body };
+  };
+  try {
+    const d = RealAlpine.reactive(dashFactory());
+    d.$watch = () => {};
+    d.$nextTick = (fn) => fn();
+    d.go("ops");
+    await d.refreshCards();
+    await flush();
+    // PULLBACK 보유 · 회차 남음: 강제 매수·강제 매도·복귀·운용 설정 저장 열림, 전환 닫힘. 입력 칸 = 적용본 4키
+    assert.equal(d.opsView.switch.enabled, false);
+    for (const k of ["revert", "forceBuy", "forceSell", "opsSave", "stop", "pause"]) assert.equal(d.opsView[k].enabled, true, k);
+    assert.equal(d.opsView.start.enabled, false);
+    assert.equal(JSON.stringify(d.opsForm), JSON.stringify({ enable: true, start: "10:00", end: "23:00", sellOff: false }));
+    // 강제 매도 → 확인 → POST force_sell → 결과 문구
+    await d.opsAct("forceSell");
+    assert.deepEqual(posts.pop(), ["/v2/api/control", { kind: "force_sell", payload: {} }]);
+    assert.equal(d.opsMsg, "강제 매도 완료");
+    // 강제 매수 확인 창에 회당 금액
+    await d.opsAct("forceBuy");
+    assert.ok(confirms.pop().includes("회당 금액 약 600,000원"));
+    assert.deepEqual(posts.pop()[1], { kind: "force_buy", payload: {} });
+    // 운용 설정 저장 → ops_settings {"keys": 4키}
+    d.opsForm.start = "11:00";
+    d.opsForm.sellOff = true;            // fix 1: 바꿔 보려 해도 적용본 값(false) 그대로 나간다
+    d.opsDirty = true;
+    await d.opsAct("opsSave");
+    assert.deepEqual(posts.pop()[1], { kind: "ops_settings", payload: { keys: { enable_trading_hours: true,
+      trading_start_time: "11:00", trading_end_time: "23:00", allow_sell_during_off_hours: false } } });
+    // 복귀: 기록 없음 → 요청 없이 전략 고르기, EMA 고르면 revert {"strategy":"EMA"}
+    const n = posts.length;
+    await d.opsAct("revert");
+    assert.equal(posts.length, n);
+    assert.equal(d.opsChoose, true);
+    await d.opsRevertTo("EMA");
+    assert.deepEqual(posts.pop()[1], { kind: "revert", payload: { strategy: "EMA" } });
+    // 60초 안에 결과 없음 → 「엔진이 응답하지 않습니다」
+    result = { status: "pending" };
+    await d.opsAct("forceSell");
+    assert.ok(d.opsMsg.startsWith("엔진이 응답하지 않습니다"), d.opsMsg);
+    // 진행 중 요청이 있으면 모든 단추 닫힘
+    ops = { ...ops, pending: "20261029000000-0000ffff" };
+    await d.loadOps();
+    assert.equal(Object.values(d.opsView).some((v) => v.enabled), false);
+  } finally {
+    globalThis.setTimeout = realST;
+  }
+});
+
+test("운용 탭 연결(T14 fix 1): 일시정지는 pause API · 전환/예약 취소 확인 창 · 묶인 수량도 보유 · 실계좌 닫힘", async () => {
+  vm.runInThisContext(fs.readFileSync(path.join(STATIC, "ops.js"), "utf8"));
+  const O = globalThis.__v2ops;
+  const realST = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => { fn(); return 0; };
+  const posts = [];
+  const confirms = [];
+  let answer = true;
+  globalThis.confirm = (t) => { confirms.push(t); return answer; };
+  let status = { strategy: { value: "EMA" }, paused: false, mode_engine: "TEST", mode_entry: "TEST" };
+  let assets = { krw: 100000, coin: 0, coin_locked: 0 };
+  let ops = { pending: null, mode: "TEST", strategy: "EMA", reservation: null, reservation_error: false,
+    revert_target: null, saved: { ok: true, sha256: "b".repeat(64) }, round: null, per_buy: null,
+    order_ratio: 0.3, hours: null };
+  globalThis.fetch = async (url, opt) => {
+    const u = String(url);
+    if (opt && opt.method === "POST") {
+      posts.push([u, JSON.parse(opt.body)]);
+      return { ok: true, status: 202, json: async () => ({ id: "20261029000000-0000abcd", ok: true }) };
+    }
+    let body = {};
+    if (u.includes("/v2/api/status")) body = status;
+    else if (u.includes("/v2/api/basic")) body = { engine_running: true };
+    else if (u.includes("/v2/api/assets")) body = assets;
+    else if (u.includes("/v2/api/ops")) body = ops;
+    else if (u.includes("/v2/api/control/result")) body = { status: "done", code: "ok" };
+    return { ok: true, status: 200, json: async () => body };
+  };
+  try {
+    const d = RealAlpine.reactive(dashFactory());
+    d.$watch = () => {};
+    d.$nextTick = (fn) => fn();
+    d.go("ops");
+    await d.refreshCards();
+    await flush();
+    // 일시정지 → POST /v2/api/pause {paused:true} (엔진 제어 요청 아님)
+    await d.opsAct("pause");
+    assert.deepEqual(posts.pop(), ["/v2/api/pause", { paused: true }]);
+    assert.equal(posts.length, 0);
+    // 이미 일시정지면 0건
+    status = { ...status, paused: true };
+    d.status = status;                   // 앞 단추의 카드 새로 읽기와 겹치지 않게 바로 넣는다
+    await d.opsAct("pause");
+    assert.equal(posts.length, 0);
+    assert.ok(d.opsMsg.includes("이미 일시정지 중"), d.opsMsg);
+    // 전환: 확인 창 문구 = CONFIRM.switch, 거절하면 POST 0건, 수락하면 saved_sha256 와 함께
+    answer = false;
+    await d.opsAct("switch");
+    assert.equal(confirms.pop(), O.CONFIRM.switch);
+    assert.equal(posts.length, 0);
+    answer = true;
+    await d.opsAct("switch");
+    assert.deepEqual(posts.pop(), ["/v2/api/control", { kind: "switch", payload: { saved_sha256: "b".repeat(64) } }]);
+    // 예약 취소: 확인 창 문구 = CONFIRM.cancel, 거절하면 0건
+    ops = { ...ops, reservation: { id: 1, kind: "SWITCH", from_strategy: "EMA", to_strategy: "PULLBACK", switching: false } };
+    await d.loadOps();
+    answer = false;
+    await d.opsAct("cancel");
+    assert.equal(confirms.pop(), O.CONFIRM.cancel);
+    assert.equal(posts.length, 0);
+    answer = true;
+    await d.opsAct("cancel");
+    assert.deepEqual(posts.pop(), ["/v2/api/control", { kind: "cancel_reservation", payload: {} }]);
+    // 묶인 수량만 있어도 보유(강제 매도 열림, EMA 강제 매수 닫힘)
+    ops = { ...ops, reservation: null };
+    assets = { krw: 100000, coin: 0, coin_locked: 3 };
+    await flush();                       // 앞 단추의 카드 새로 읽기가 끝난 뒤
+    await flush();
+    d.assets = assets;
+    await d.loadOps();
+    assert.equal(d.opsView.forceSell.enabled, true);
+    assert.equal(d.opsView.forceBuy.enabled, false);
+    // 실계좌(LIVE) 입장: 전환·복귀·운용 설정 저장 닫힘 + 안내 한 줄, 강제 매도·엔진 정지는 그대로
+    assert.equal(d.opsLiveNote, "");
+    ops = { ...ops, mode: "LIVE" };
+    await d.loadOps();
+    assert.equal(d.opsView.switch.enabled, false);
+    assert.equal(d.opsView.revert.enabled, false);
+    assert.equal(d.opsView.opsSave.enabled, false);
+    assert.equal(d.opsView.forceSell.enabled, true);
+    assert.equal(d.opsView.stop.enabled, true);
+    assert.equal(d.opsLiveNote, "실계좌(LIVE)에서는 아직 할 수 없습니다");
+    await d.opsAct("switch");
+    assert.equal(posts.length, 0);
+  } finally {
+    globalThis.setTimeout = realST;
+  }
 });
 

@@ -758,13 +758,26 @@ class ControlStateHandler(ApiHandler):
     """GET /v2/api/control/state (2차 T11) — {"pending": id|null, "reservation": {…}|null}."""
 
     def get(self):
+        u = self.current_user
         try:
-            self.send_json(control.state(self.current_user["user_id"]))
+            self.send_json(control.state(u["user_id"], u.get("mode")))   # 2차 T14: 예약은 입장 모드로 거름
+        except (OSError, ValueError):
+            self.send_json({"error": "unavailable"}, 503)
+
+
+class OpsHandler(ApiHandler):
+    """GET /v2/api/ops (2차 T14) — 운용 탭 단추 판정 값(예약·복귀 대상·저장본·회차·회당 금액·주문 비율·거래 시간). 읽기만."""
+
+    def get(self):
+        u = self.current_user
+        try:
+            self.send_json(control.ops_info(u["user_id"], u.get("mode")))
         except (OSError, ValueError):
             self.send_json({"error": "unavailable"}, 503)
 
 
 ROUTES = [
+    (r"/v2/api/ops", OpsHandler),
     (r"/v2/api/control/result", ControlResultHandler),
     (r"/v2/api/control/state", ControlStateHandler),
     (r"/v2/api/candles", CandlesHandler),

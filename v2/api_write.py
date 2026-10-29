@@ -220,6 +220,30 @@ class ControlHandler(ApiHandler):
                 return self.send_json({"error": "db_unavailable"}, 503)
             if source != "upbit":
                 return self.send_json({"error": "source_not_upbit"}, 400)
+        keys = None
+        if req.get("kind") == "ops_settings":
+            # 2차 T14: 운용 설정 = 거래 시간 4키만(형식이 맞을 때만 요청). 엔진이 지금 적용본에 이 4키만 합친다.
+            payload = req.get("payload")
+            keys = control.ops_keys_or_none(payload.get("keys") if isinstance(payload, dict) else None)
+            if keys is None or set(payload) != {"keys"}:
+                return self.send_json({"error": "bad_request"}, 400)
+            # fix 1 (PO 결정 2·3): 저장본 4키 맞춤은 새 전략 운용 중 + 그 모드 예약 없음일 때만. 아니면 요청도 쓰지 않는다.
+            # 실계좌(LIVE)는 엔진이 거절하므로 저장본만 바뀌지 않게 여기서 먼저 막는다.
+            if u["mode"] == "LIVE":
+                return self.send_json({"error": "live_not_supported"}, 409)
+            active, _mt = db.active_strategy(u["user_id"])
+            if active != "PULLBACK":
+                return self.send_json({"error": "not_pullback"}, 409)
+            try:
+                if control.reservation(u["user_id"], u["mode"]) is not None:
+                    return self.send_json({"error": "reserved"}, 409)
+            except sqlite3.Error:
+                return self.send_json({"error": "reservation_unknown"}, 503)
+            # fix 2 (PO 결정 1 다): 「시간 밖에도 매도」는 지금 적용본 값(키가 없으면 true)과 같을 때만. 다르면 아무것도 쓰지 않는다.
+            cur = db.active_params(u["user_id"], "PULLBACK").get("allow_sell_during_off_hours", True)
+            if keys["allow_sell_during_off_hours"] is not cur:
+                return self.send_json({"error": "sell_off_locked",
+                                       "message": "이 항목(시간 밖에도 매도)은 아직 바꿀 수 없습니다."}, 400)
         try:
             rid = control.write_request(u["user_id"], u["mode"], req.get("kind"), req.get("payload", {}))
         except control.Busy as e:
@@ -228,7 +252,32 @@ class ControlHandler(ApiHandler):
             return self.send_json({"error": "bad_request"}, 400)
         except OSError:
             return self.send_json({"error": "file_write_failed"}, 500)
+        if keys is not None:
+            # 저장본의 같은 4키도 맞춰 쓴다 — 다음 「이 설정으로 동작」(저장본 → 적용본)이 거래 시간을 지우지 않게.
+            # 요청을 쓴 뒤에만(진행 중 요청으로 거절되면 저장본도 그대로). 실패해도 요청은 나갔다(응답에 표시).
+            return self.send_json({"id": rid, "saved_synced": _sync_saved_ops_keys(u["user_id"], keys)}, 202)
         self.send_json({"id": rid}, 202)
+
+
+def _sync_saved_ops_keys(user, keys) -> bool:
+    """저장본(신버전이 쓰는 파일 하나, 제자리 덮어쓰기)의 운용 설정 4키만 바꾼다. 다른 키·이력(v2hist)은 그대로.
+    파일이 없거나 깨졌으면 쓰지 않고 False."""
+    path = db.pullback_params_path(user)
+    try:
+        with open(path, "r", encoding="utf-8", newline="") as f:
+            old = f.read()
+        d = json.loads(old)
+    except (OSError, ValueError, UnicodeDecodeError):
+        return False
+    if not isinstance(d, dict):
+        return False
+    d.update(keys)
+    try:
+        _write_in_place(path, json.dumps(d, ensure_ascii=False, indent=2) + "\n")
+    except Exception:
+        SaveHandler._restore(user, path, old)
+        return False
+    return True
 
 
 class AppliedHandler(ApiHandler):

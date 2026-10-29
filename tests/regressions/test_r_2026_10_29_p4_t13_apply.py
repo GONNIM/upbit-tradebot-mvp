@@ -636,7 +636,8 @@ class TestInstallAndFixed(unittest.TestCase):
         with mock.patch.dict(cr._EXTRA_HANDLERS, {}, clear=True), mock.patch.dict(pa._INSTALLED, {"done": False}):
             pa.install()
             pa.install()
-            self.assertEqual(cr._EXTRA_HANDLERS, {"apply_params": pa.handle_apply})
+            # 2차 T14: 같은 install 이 운용 설정(ops_settings)도 붙인다
+            self.assertEqual(cr._EXTRA_HANDLERS, {"apply_params": pa.handle_apply, "ops_settings": pa.handle_ops})
 
     def test_boot_installs_apply_before_control_loop(self):
         src = (ROOT / "scripts" / "tradebot_boot.py").read_text(encoding="utf-8")

@@ -362,6 +362,48 @@ def apply_saved(user_id: str, expected_sha: str) -> dict:
     return {"sha": sha, "params": params, "last_good": last_good_ok}
 
 
+def apply_ops_keys(user_id: str, keys: dict) -> dict:
+    """2차 T14 (운용 설정, 결정 13-6 권고 가): 지금 적용본에 선택 4키(거래 시간)만 합쳐 새 적용본(600) -> 다시 읽어 검증 ->
+    같은 바이트를 사본(600)에도. 저장본의 다른 키는 적용하지 않는다(저장본은 읽지 않음).
+
+    keys: OPTIONAL_KEYS 의 4키 정확히. 돌려주는 값: {"sha", "params", "prev": 이전 적용본 dict, "last_good": bool}.
+    적용본이 없거나 깨졌으면 PullbackParamsError("applied_invalid"), 키가 맞지 않으면 그 키 이름.
+    재검증이 실패하면 이전 적용본 바이트로 되돌리고 PullbackParamsError("verify").
+    """
+    if not isinstance(keys, dict) or set(keys) != set(OPTIONAL_KEYS):
+        raise PullbackParamsError("keys")
+    a_path, lg_path = applied_path(user_id), last_good_path(user_id)
+    try:
+        previous = _read_bytes(a_path)
+        prev = validate(_parse_bytes(previous))
+    except PullbackParamsError:
+        raise PullbackParamsError("applied_invalid")
+    merged = dict(prev)
+    merged.update({k: keys[k] for k in OPTIONAL_KEYS})
+    validated = validate(merged)             # 4키 형식(참·거짓, HH:MM) 검사
+    to_live_params(validated, MIN_CASH)
+    data = (json.dumps(validated, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+    _atomic_write(a_path, data)
+    try:
+        params = _verify_applied(user_id, data)
+    except PullbackParamsError:
+        _rollback(a_path, previous)
+        raise PullbackParamsError("verify")
+
+    last_good_ok = True
+    try:
+        _atomic_write(lg_path, data)
+        if _read_bytes(lg_path) != data:
+            raise OSError("last_good readback mismatch")
+    except (OSError, PullbackParamsError) as e:
+        last_good_ok = False
+        logger.warning(f"{_TAG} last_good write failed user={user_id} err={type(e).__name__}")
+    sha = hashlib.sha256(data).hexdigest()
+    logger.info(f"{_TAG} ops keys applied user={user_id} sha={sha[:12]}")
+    return {"sha": sha, "params": params, "prev": prev, "last_good": last_good_ok}
+
+
 def _rollback(path: str, previous: bytes | None) -> None:
     try:
         if previous is None:
