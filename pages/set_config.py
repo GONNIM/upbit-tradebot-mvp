@@ -239,6 +239,14 @@ st.markdown(
 # --- 제목 ---
 st.title(f"🤖 Upbit Trade Bot v1 ({mode}) - {user_id}")
 
+# ✅ 2차 T15 (D7, v2 spec 4.6 D3): 새 전략 운용·예약 중이면 배지 + 저장·전략 변경 잠김.
+#   「Go Dashboard」는 화면 이동이라 열어 둔다(PO 결정 C1-b). 잠기지 않으면 아래는 지금과 같다.
+from ui.pullback_lock import lock_state as _pb_lock_state, badge_text as _pb_badge_text
+_pb_lock = _pb_lock_state(user_id)
+_pb_locked = bool(_pb_lock["locked"])
+if _pb_locked:
+    st.info(_pb_badge_text(_pb_lock))
+
 # ============================================================
 # 🧠 전략 타입 선택 (MACD / EMA)
 #   - strategy_type 를 공통 파라미터로 승격
@@ -276,6 +284,7 @@ selected_strategy_type = st.sidebar.selectbox(
     index=default_idx,
     key="strategy_type_selector",  # key 변경 (세션 충돌 방지)
     help="MACD: 모멘텀 기반 / EMA: 추세 추종 실험 전략",
+    disabled=_pb_locked,  # ✅ 2차 T15 (D7)
 )
 st.sidebar.caption(f"현재 선택된 전략: **{selected_strategy_type}**")
 
@@ -290,8 +299,13 @@ selected_params = load_params(json_path, strategy_type=selected_strategy_type)
 # --- 전략 파라미터 입력 폼 ---
 #  make_sidebar() 는 기존대로 ticker, 기간, MACD 파라미터 등만 그리고,
 #  여기서 선택한 전략 타입은 아래에서 params.strategy_type 에 주입한다.
-params = make_sidebar(user_id, selected_strategy_type)
+params = make_sidebar(user_id, selected_strategy_type, locked=_pb_locked)
 start_trading = None
+
+if params and _pb_locked:
+    # ✅ 2차 T15: 저장 경로(save_params·record_snapshot·TEST 잔고 초기화·save_active_strategy·
+    #   set_engine_status(False)) 진입에서도 막는다(단추는 make_sidebar 가 이미 잠금)
+    params = None
 
 if params:
     try:
@@ -389,6 +403,11 @@ else:
         # ✅ FIX: LIVE 모드 진입 조건 미충족 시에도 Dashboard로 이동 허용
         #    - 경고는 이미 표시되었으므로 (라인 118-129)
         #    - 사용자가 Dashboard에서 확인할 수 있도록 허용
+        start_trading = st.button(
+            f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
+        )
+    elif _pb_locked:
+        # ✅ 2차 T15 (C1-b): 잠김이면 저장할 수 없으므로, 그 전략 파일이 없어도 대시보드로 돌아갈 길을 둔다
         start_trading = st.button(
             f"Upbit Trade Bot v1 ({mode}) - Go Dashboard", use_container_width=True
         )

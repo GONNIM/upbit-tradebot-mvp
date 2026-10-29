@@ -79,11 +79,16 @@ def run_live_auto_verify(user_id: str, name: str) -> dict[str, Any]:
 
     krw_balance = _extract_krw_balance(data)
 
+    # ✅ 2차 T15 (D10, R6): 새 전략 보유 중(TEST 행)·예약 중이면 운용자산(users.virtual_krw)을 덮어쓰지 않고
+    #   display_name 만 갱신한다. 아니면 지금처럼 원화 잔고로 갱신.
+    capital_kept, capital_krw, capital_reason = keep_capital_on_verify(user_id, name)
+
     # DB 저장 + 동기화 (개별 실패는 로그만, 전체 결과는 ok 유지)
-    try:
-        save_user(user_id, name, krw_balance)
-    except Exception as e:
-        logger.warning(f"[AUTO-VERIFY] save_user 실패: {e}")
+    if not capital_kept:
+        try:
+            save_user(user_id, name, krw_balance)
+        except Exception as e:
+            logger.warning(f"[AUTO-VERIFY] save_user 실패: {e}")
 
     try:
         update_account_from_balances(user_id, data)
@@ -101,7 +106,56 @@ def run_live_auto_verify(user_id: str, name: str) -> dict[str, Any]:
         "krw_balance": krw_balance,
         "accounts": data or [],
         "error": None,
+        "capital_kept": capital_kept,                                   # ✅ 2차 T15 (D10)
+        "capital_krw": capital_krw if capital_kept else krw_balance,
+        "capital_reason": capital_reason,
     }
+
+
+KEEP_TRADING = "trading"   # 새 전략 보유 중(TEST 행) 또는 예약 중
+KEEP_UNKNOWN = "unknown"   # 예약·보유 상태를 읽지 못함(fail closed)
+
+
+def keep_capital_on_verify(user_id: str, name: str) -> tuple[bool, float | None, str | None]:
+    """D10: 새 전략 보유·예약 중이면 display_name 만 갱신하고 (True, 지금 운용자산, 이유). 아니면 (False, None, None).
+    이유 = KEEP_TRADING | KEEP_UNKNOWN(판정 실패 — 예약·보유 읽기 실패 포함, 덮어쓰지 않는 쪽).
+    운용자산은 DB(users.virtual_krw)에서 다시 읽은 값이고, 못 읽으면 None(화면은 금액 없이 보인다).
+    users 행이 없으면 (False, None, None) — 기존 save_user 로."""
+    from ui.pullback_lock import kept_capital
+    reason = KEEP_TRADING
+    try:
+        from ui.pullback_lock import lock_state, keeps_capital
+        state = lock_state(user_id)
+        if not keeps_capital(state):
+            return False, None, None
+        if state.get("reservation_error") or state.get("holding_error"):
+            reason = KEEP_UNKNOWN
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[AUTO-VERIFY] 새 전략 상태 판정 실패 → 운용자산 그대로: {type(e).__name__}")
+        return True, kept_capital(user_id), KEEP_UNKNOWN
+    try:
+        from ui.pullback_lock import keep_capital_update_display_name
+        if not keep_capital_update_display_name(user_id, name):
+            return False, None, None
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[AUTO-VERIFY] display_name 갱신 실패 → 운용자산 그대로: {type(e).__name__}")
+    logger.info(f"[AUTO-VERIFY] 운용자산 그대로 (user={user_id}, reason={reason})")
+    return True, kept_capital(user_id), reason
+
+
+def capital_kept_text(capital_krw, reason) -> str:
+    """로그인 화면 문구(합니다체·내부 코드 없음). 금액을 모르면 금액을 빼고 보인다."""
+    if reason == KEEP_UNKNOWN:
+        tail = "상태를 확인하지 못해 운용자산을 바꾸지 않았습니다"
+    else:
+        tail = "새 전략 거래 중이라 그대로 둡니다"
+    try:
+        amount = float(capital_krw) if capital_krw is not None else None
+    except (TypeError, ValueError):
+        amount = None
+    if amount is None:
+        return f"운용자산: {tail}"
+    return f"운용자산: {amount:,.0f} KRW ({tail})"
 
 
 def apply_verify_to_session(st, result: dict[str, Any]) -> None:
@@ -116,7 +170,14 @@ def apply_verify_to_session(st, result: dict[str, Any]) -> None:
         st.session_state.upbit_verified = True
         st.session_state.upbit_accounts = result.get("accounts") or []
         st.session_state.live_krw_balance = float(result.get("krw_balance") or 0.0)
-        st.session_state.virtual_krw = float(result.get("krw_balance") or 0.0)
+        if result.get("capital_kept"):
+            # ✅ 2차 T15 (D10): 새 전략 거래 중 — 세션 운용자산도 DB 값 그대로
+            st.session_state.virtual_krw = float(
+                result.get("capital_krw") or st.session_state.get("virtual_krw") or 0.0)
+            # 금액을 못 읽어 0 이어도 자동 검증을 다시 돌리지 않게(app.py need_auto_verify)
+            st.session_state["_capital_kept_in_live"] = True
+        else:
+            st.session_state.virtual_krw = float(result.get("krw_balance") or 0.0)
         st.session_state.live_capital_set = True
         st.session_state.virtual_over = True
         st.session_state["_auto_checked_in_live"] = True

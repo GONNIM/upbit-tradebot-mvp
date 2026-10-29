@@ -473,14 +473,21 @@ with st.expander("🔎 스냅샷 상세 보기 (펼치기 / 숨기기)", expande
         )
 
     st.markdown("")
+    # ✅ 2차 T15 (D7): 새 전략 운용·예약 중 복원 잠김(보기는 열림). 잠기지 않으면 지금과 같다.
+    from ui.pullback_lock import lock_state as _pb_lock_state, badge_text as _pb_badge_text
+    _pb_lock = _pb_lock_state(user_id)
+    _pb_locked = bool(_pb_lock["locked"])
+    if _pb_locked:
+        st.info(_pb_badge_text(_pb_lock))
     do_restore = st.button(
         f"🔄 id={selected_id} 스냅샷으로 복원 실행",
         type="primary",
         use_container_width=True,
         key="sh_do_restore",
+        disabled=_pb_locked,
     )
 
-    if do_restore:
+    if do_restore and not _pb_locked:
         try:
             result = restore_snapshot(
                 int(selected_id),

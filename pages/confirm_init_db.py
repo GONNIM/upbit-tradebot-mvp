@@ -141,6 +141,12 @@ with btn_col1:
         initialize_cancel()
 
 with btn_col2:
-    if st.button("💥 초기화 진행", use_container_width=True):
+    # ✅ 2차 T15 (D7): 새 전략 운용·예약 중 잠김. 잠기지 않으면 지금과 같다.
+    from ui.pullback_lock import lock_state as _pb_lock_state, badge_text as _pb_badge_text
+    _pb_lock = _pb_lock_state(user_id)
+    _pb_locked = bool(_pb_lock["locked"])
+    if _pb_locked:
+        st.info(_pb_badge_text(_pb_lock))
+    if st.button("💥 초기화 진행", use_container_width=True, disabled=_pb_locked) and not _pb_locked:
         st.session_state.init_busy = True
         initialize_confirm()

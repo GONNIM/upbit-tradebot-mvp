@@ -28,7 +28,7 @@ CASH_OPTIONS = {
 }
 
 
-def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
+def make_sidebar(user_id: str, strategy_type: str, locked: bool = False) -> Optional[LiveParams]:
     json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
     # ✅ 전략별 파라미터를 로드하도록 strategy_type 전달
     #    -> MACD / EMA 각각 다른 fast/slow 값을 유지할 수 있음
@@ -386,7 +386,13 @@ def make_sidebar(user_id: str, strategy_type: str) -> Optional[LiveParams]:
 
             st.subheader("파라미터 저장")
             str_submitted = "🧪 파라미터 저장하기 !!!"
-            submitted = st.form_submit_button(str_submitted, use_container_width=True)
+            if locked:
+                # ✅ 2차 T15 (D7): 새 전략 운용·예약 중 저장 잠김. 잠기지 않으면 아래 줄 그대로
+                str_submitted = "🧪 파라미터 저장하기 (잠김)"
+                submitted = st.form_submit_button(str_submitted, use_container_width=True, disabled=True)
+                submitted = False
+            else:
+                submitted = st.form_submit_button(str_submitted, use_container_width=True)
 
         st.write("")
 

@@ -105,6 +105,13 @@ if user_id == "":
 # ============================================================
 strategy_tag = _strategy_tag_from_qs()  # "MACD" or "EMA"
 
+# ✅ 2차 T15 (D7, v2 spec 4.6 D3): 새 전략 운용·예약 중이면 배지 + 저장 3곳 잠김. 잠기지 않으면 지금과 같다.
+from ui.pullback_lock import lock_state as _pb_lock_state, badge_text as _pb_badge_text
+_pb_lock = _pb_lock_state(user_id)
+_pb_locked = bool(_pb_lock["locked"])
+if _pb_locked:
+    st.info(_pb_badge_text(_pb_lock))
+
 # --- 사용자 설정 저장 경로 ---
 # ✅ 엔진의 load_trade_conditions 와 동일 규칙:
 #     {user_id}_{STRATEGY}_{CONDITIONS_JSON_FILENAME}
@@ -280,6 +287,10 @@ def load_conditions():
 
 # --- 상태 저장하기 ---
 def save_conditions():
+    if _pb_locked:
+        # ✅ 2차 T15: 함수 진입에서도 막는다(조건 파일·params 파일 저장 없음)
+        st.warning("새 전략 운용·전환 예약 중에는 이 화면에서 설정을 저장할 수 없습니다.")
+        return
     conditions = {
         "buy": {key: st.session_state[key] for key in BUY_CONDITIONS},
         "sell": {key: st.session_state[key] for key in SELL_CONDITIONS},
@@ -568,7 +579,8 @@ with st.expander("🎯 자주 변경하는 설정", expanded=True):
             key=f"quick_ratio_{strategy_tag}_{label}",
             type="primary" if is_selected else "secondary",
             use_container_width=True,
-        ):
+            disabled=_pb_locked,  # ✅ 2차 T15 (D7): 즉시 저장 단추 잠김
+        ) and not _pb_locked:
             # ✅ 클릭 즉시 params.json 저장 → hot-reload 로 다음 매수에 자동 반영
             try:
                 _p_now = load_params(params_file, strategy_type=strategy_tag)
@@ -943,7 +955,9 @@ with cancel_col:
     if st.button("↩️ 설정 취소", key="btn_cancel_settings", use_container_width=True, type="secondary"):
         go_dashboard()
 with save_col:
-    if st.button("💾 설정 저장", key="btn_save_settings", use_container_width=True, type="primary"):
+    if st.button("💾 설정 저장 (잠김)" if _pb_locked else "💾 설정 저장", key="btn_save_settings",
+                 use_container_width=True, type="primary",
+                 disabled=_pb_locked) and not _pb_locked:  # ✅ 2차 T15 (D7)
         save_conditions()
         # ✅ P1 — 설정 정보 History 스냅샷 (파일 저장 성공 시 적재).
         # 적재 실패해도 사용자 저장 자체는 영향 없음 (DM2 결정).

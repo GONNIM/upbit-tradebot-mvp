@@ -37,7 +37,8 @@ from config import (
     PARAMS_JSON_FILENAME,
     REFRESH_INTERVAL,
     CONDITIONS_JSON_FILENAME,
-    DEFAULT_STRATEGY_TYPE
+    DEFAULT_STRATEGY_TYPE,
+    STRATEGY_TYPES,  # ✅ 2차 T15: URL·세션 strategy_type 거르기
 )
 from ui.style import style_main
 
@@ -142,6 +143,30 @@ mode = str(raw_mode).upper()
 st.session_state["mode"] = mode
 is_live = (mode == "LIVE")
 
+# ✅ 2차 T15 (D7·D10, 결정 1029-10): 새 전략 운용·예약 중 구버전 잠금·배지 판정 (읽기 전용).
+#   잠기지 않으면(예약 없는 EMA·MACD 사용자) 아래 모든 분기는 지금과 같다.
+from ui.pullback_lock import (
+    lock_state as _pb_lock_state, badge_text as _pb_badge_text, round_text as _pb_round_text,
+    keeps_capital as _pb_keeps_capital, LOCKED_SUFFIX as _PB_LOCKED,
+    NEW_STRATEGY_TABLE_TEXT as _PB_TABLE_TEXT,
+    FORCE_BUY_PULLBACK_TEXT as _PB_FORCE_BUY_PB, FORCE_BUY_RESERVED_TEXT as _PB_FORCE_BUY_RES,
+)
+_pb_lock = _pb_lock_state(user_id)
+_pb_locked = bool(_pb_lock["locked"])
+_pb_active = bool(_pb_lock["pullback"])
+# C1-a: 잠김 + (새 전략 보유 중 또는 예약 중)이면 TEST 현금 덮어쓰기를 건너뛴다(계정 생성은 그대로).
+_pb_keep_cash = _pb_locked and _pb_keeps_capital(_pb_lock)
+# ✅ 2차 T15 (사용자 결정 1029-11 A 나): 실계좌 화면 + 활성 파일 PULLBACK → 새 전략 표시 경로에 들어가지 않고 멈춘다.
+#   새 전략은 모의 전용 — 이 화면에서 실계좌 자동 재개·엔진 시작·강제 매수·매도 단추가 모두 없다(HTS 매도는 가능).
+if is_live and _pb_active:
+    from ui.pullback_lock import LIVE_PULLBACK_STOP_TEXT as _PB_LIVE_STOP
+    st.warning(_PB_LIVE_STOP)
+    st.stop()
+# ✅ 2차 T15 (사용자 결정 1029-11 B 나 — 1029-10 C2 의 실계좌 화면 예외): 실계좌 화면에서 예약 중·예약 확인 실패면
+#   수동 「엔진 실행하기」·「파라미터 설정」 이동은 연다. 시스템 초기화·설정 저장·전략 선택·복원은 그대로 잠근다.
+#   모의 화면은 지금처럼 수동 시작도 잠근다.
+_pb_start_locked = _pb_locked and not (is_live and _pb_lock["why"] in ("reserved", "unknown"))
+
 # ✅ FIX: TEST 모드일 때 virtual_krw를 DB에 동기화 (단, 0이면 DB 값 유지)
 if not is_live:
     current_acc = get_account(user_id)
@@ -152,6 +177,9 @@ if not is_live:
         if current_acc is None:
             print(f"[DEBUG dashboard.py] Creating account with {virtual_krw}")  # 디버그 로그
             create_or_init_account(user_id, virtual_krw)
+        elif current_acc != virtual_krw and _pb_keep_cash:
+            # ✅ 2차 T15 (C1-a): 새 전략 보유·예약 중 — 엔진이 쓴 현금을 덮어쓰지 않는다
+            print(f"[DEBUG dashboard.py] Account kept (new strategy holding/reserved): {current_acc}")
         elif current_acc != virtual_krw:
             print(f"[DEBUG dashboard.py] Updating account from {current_acc} to {virtual_krw}")  # 디버그 로그
             update_account(user_id, virtual_krw)
@@ -492,7 +520,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.29.1638")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.10.30.0106")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -522,6 +550,15 @@ if str(mode).upper() == "TEST":
     )
 elif str(mode).upper() == "LIVE":
     st.info("🔴 **LIVE 모드** — 실제 Upbit 거래소에 주문이 전송됩니다.")
+
+# ✅ 2차 T15 (그림 6-나): 새 전략 운용·예약 중 배지 + 상태(보기만). 잠기지 않으면 아무것도 그리지 않는다.
+if _pb_locked:
+    st.info(_pb_badge_text(_pb_lock))
+    if _pb_active:
+        st.caption(
+            f"상태 (보기만) — 전략: {_pb_lock['strategy_label']} · "
+            f"종목: {_pb_lock.get('ticker') or '-'} · 보유: {_pb_round_text(_pb_lock)}"
+        )
 
 # PAUSE-1: 매매 일시중지 상태 배너
 from services.db import get_trading_paused, set_trading_paused
@@ -582,11 +619,28 @@ json_path = f"{user_id}_{PARAMS_JSON_FILENAME}"
 strategy_from_url = _get_param(qp, "strategy_type", None)
 strategy_from_session = st.session_state.get("strategy_type", None)
 
-# ✅ buy_sell_conditions.json까지 고려한 실제 전략 판정
-strategy_from_file = load_active_strategy_with_conditions(user_id)
-strategy_tag = (strategy_from_file or strategy_from_url or strategy_from_session or DEFAULT_STRATEGY_TYPE)
-strategy_tag = str(strategy_tag).upper().strip()
+
+# ✅ 2차 T15 (T5·T11 넘김): URL·세션 strategy_type 은 구버전 전략(MACD/EMA/BASE_EMA_GAP)만 받는다.
+def _old_strategy_or_none(v):
+    s = str(v).upper().strip() if v else ""
+    return s if s in [x.upper() for x in STRATEGY_TYPES] + ["BASE_EMA_GAP"] else None
+
+
+strategy_from_url = _old_strategy_or_none(strategy_from_url)
+strategy_from_session = _old_strategy_or_none(strategy_from_session)
+
+if _pb_active:
+    # ✅ 2차 T15: 활성 파일이 PULLBACK 일 때만 새 전략 표시 경로(결정 1029-03-3)
+    strategy_tag = "PULLBACK"
+else:
+    # ✅ buy_sell_conditions.json까지 고려한 실제 전략 판정
+    strategy_from_file = load_active_strategy_with_conditions(user_id)
+    strategy_tag = (strategy_from_file or strategy_from_url or strategy_from_session or DEFAULT_STRATEGY_TYPE)
+    strategy_tag = str(strategy_tag).upper().strip()
 st.session_state["strategy_type"] = strategy_tag
+# ✅ 2차 T15 (verifier 지적 5): 화면 글자용 전략 이름. 새 전략은 신버전 화면과 같은 이름
+#   (v2/static/app.js:54 _STRATEGY_NAMES.PULLBACK = "눌림목 분할매수"), 그 밖은 지금처럼 strategy_tag.
+strategy_disp = _pb_lock["strategy_label"] if _pb_active else strategy_tag
 
 # ✅ params 파일 로딩용 base strategy (BASE_EMA_GAP → EMA 변환)
 params_strategy = "EMA" if strategy_tag == "BASE_EMA_GAP" else strategy_tag
@@ -597,11 +651,14 @@ with col10:
     # ✅ 실행되지 않았을 경우: 실행 버튼 표시
     if not engine_status:
         start_trading = st.button(
-            "🚀 엔진 실행하기",
+            # ✅ 2차 T15 (D7): 새 전략 운용·예약 중 수동 시작 잠김(자동 재개는 열림 — D7 예외, 사용자 결정 1029-10)
+            #   실계좌 화면 예약 중·확인 실패는 열림(사용자 결정 1029-11 B 나)
+            "🚀 엔진 시작 (잠김)" if _pb_start_locked else "🚀 엔진 실행하기",
             key="btn_start_engine",
-            use_container_width=True
+            use_container_width=True,
+            disabled=_pb_start_locked,
         )
-        if start_trading:
+        if start_trading and not _pb_start_locked:
             if not engine_manager.is_running(user_id):
                 success = engine_manager.start_engine(user_id, test_mode=(not is_live))
                 if success:
@@ -644,11 +701,14 @@ with col10:
                 st.info("📡 트레이딩 엔진이 이미 실행 중입니다.")
 with col20:
     start_setting = st.button(
-        "⚙️ 파라미터 설정",
+        # ✅ 2차 T15 (D7): 엔진 자동 정지 + 설정 화면 — 잠김이어도 top-level 유지(1-B)
+        #   실계좌 화면 예약 중·확인 실패는 열림(1029-11 B 나 — 설정 화면의 저장·전략 선택은 그쪽에서 잠김)
+        "⚙️ 파라미터 설정" + (_PB_LOCKED if _pb_start_locked else ""),
         key="btn_config",
-        use_container_width=True
+        use_container_width=True,
+        disabled=_pb_start_locked,
     )
-    if start_setting:
+    if start_setting and not _pb_start_locked:
         # ✅ 엔진 실행 중이면 자동 정지
         if engine_status:
             engine_manager.stop_engine(user_id)
@@ -727,7 +787,29 @@ st.caption(f"DB file: `{get_db_path(user_id)}`")
 
 # ✅ 전략 타입을 전달해서 전략별 params를 로드
 # ✅ BASE_EMA_GAP는 EMA 파일에서 로드 (params_strategy 사용)
-params_obj = load_params(json_path, strategy_type=params_strategy)
+if _pb_active:
+    # ✅ 2차 T15: 새 전략 표시 경로 — load_params(PULLBACK)·st.stop 대신 적용본 → LiveParams.
+    #   cash = 엔진 기동과 같은 운용자산(engine/engine_manager.py _pullback_boot_params: get_initial_krw → to_live_params).
+    from ui.pullback_lock import read_applied as _pb_read_applied
+    from engine.pullback_params import to_live_params as _pb_to_live_params, PullbackParamsError as _PbErr
+    from config import MIN_CASH as _PB_MIN_CASH
+    _pb_cfg = _pb_read_applied(user_id)
+    params_obj = None
+    if _pb_cfg is not None:
+        try:
+            _pb_capital = get_initial_krw(user_id)
+        except Exception:
+            _pb_capital = None
+        try:
+            params_obj = _pb_to_live_params(_pb_cfg, _pb_capital)
+        except _PbErr:
+            st.caption("운용자산을 읽지 못해 주문 총액은 최소 금액으로 표시합니다.")
+            params_obj = _pb_to_live_params(_pb_cfg, _PB_MIN_CASH)
+    if params_obj is None:
+        st.error("❌ 새 전략 적용 설정을 읽지 못했습니다. 신버전 화면에서 설정을 확인해 주세요.")
+        st.stop()
+else:
+    params_obj = load_params(json_path, strategy_type=params_strategy)
 
 # ✅ 해당 전략 파일이 아직 없을 수 있으므로(최초 진입 등) 공용/디폴트로 한 번 더 폴백
 if params_obj is None:
@@ -2281,14 +2363,17 @@ try:
         with st.expander("📊 기본", expanded=True):
             _p_col1, _p_col2, _p_col3 = st.columns(3)
             with _p_col1:
-                st.metric("전략 타입", str(getattr(params_obj, "strategy_type", "-")))
+                st.metric("전략 타입", strategy_disp if _pb_active else str(getattr(params_obj, "strategy_type", "-")))
             with _p_col2:
                 st.metric("실행 모드", str(getattr(params_obj, "engine_exec_mode", "-")))
             with _p_col3:
                 st.metric("봉 단위", str(getattr(params_obj, "interval", "-")))
 
         with st.expander("📈 이동평균 (EMA / MACD 기간)", expanded=True):
-            if _is_ema and _use_separate_ema:
+            if _pb_active:
+                # ✅ 2차 T15 (C4): 새 전략은 EMA·MACD 표 대신 한 줄
+                st.caption(_PB_TABLE_TEXT)
+            elif _is_ema and _use_separate_ema:
                 st.caption("🔀 매수/매도 EMA 별도 설정 활성화")
                 _e_col1, _e_col2, _e_col3, _e_col4 = st.columns(4)
                 with _e_col1:
@@ -2308,11 +2393,12 @@ try:
                 with _e_col3:
                     st.metric("Signal Period", int(getattr(params_obj, "signal_period", 0)))
 
-            _ma_col1, _ma_col2 = st.columns(2)
-            with _ma_col1:
-                st.metric("MA Type", str(getattr(params_obj, "ma_type", "-")))
-            with _ma_col2:
-                st.metric("최소 보유 기간 (봉)", int(getattr(params_obj, "min_holding_period", 0)))
+            if not _pb_active:
+                _ma_col1, _ma_col2 = st.columns(2)
+                with _ma_col1:
+                    st.metric("MA Type", str(getattr(params_obj, "ma_type", "-")))
+                with _ma_col2:
+                    st.metric("최소 보유 기간 (봉)", int(getattr(params_obj, "min_holding_period", 0)))
 
         if _is_ema:
             with st.expander("🎯 Base EMA (EMA 전략 전용)", expanded=True):
@@ -2327,15 +2413,19 @@ try:
                     st.metric("GAP 임계값", f"{_gap_diff:+.2f}%")
         else:
             with st.expander("🔧 MACD 옵션 (MACD 전략 전용)", expanded=True):
-                _m_col1, _m_col2, _m_col3 = st.columns(3)
-                with _m_col1:
-                    st.metric("MACD Threshold", f"{float(getattr(params_obj, 'macd_threshold', 0) or 0):.4f}")
-                with _m_col2:
-                    _me = bool(getattr(params_obj, "macd_exit_enabled", False))
-                    st.metric("MACD Exit", "✅ ON" if _me else "❌ OFF")
-                with _m_col3:
-                    _sc = bool(getattr(params_obj, "signal_confirm_enabled", False))
-                    st.metric("Signal Confirm", "✅ ON" if _sc else "❌ OFF")
+                if _pb_active:
+                    # ✅ 2차 T15 (C4)
+                    st.caption(_PB_TABLE_TEXT)
+                else:
+                    _m_col1, _m_col2, _m_col3 = st.columns(3)
+                    with _m_col1:
+                        st.metric("MACD Threshold", f"{float(getattr(params_obj, 'macd_threshold', 0) or 0):.4f}")
+                    with _m_col2:
+                        _me = bool(getattr(params_obj, "macd_exit_enabled", False))
+                        st.metric("MACD Exit", "✅ ON" if _me else "❌ OFF")
+                    with _m_col3:
+                        _sc = bool(getattr(params_obj, "signal_confirm_enabled", False))
+                        st.metric("Signal Confirm", "✅ ON" if _sc else "❌ OFF")
 
         with st.expander("⏰ 거래 시간 제한", expanded=False):
             _t_col1, _t_col2, _t_col3, _t_col4 = st.columns(4)
@@ -2385,7 +2475,9 @@ with btn_col1:
     # ✅ WO-8 (2026-09-12): 지정가 매수 활성 시 안내 문구
     try:
         from services.trading_control import is_force_buy_fixed_price_active
-        _fixed_active, _wait_bars = is_force_buy_fixed_price_active(user_id, params_obj.strategy_type)
+        # ✅ 2차 T15 (Fable 권고 5): 새 전략은 조건 파일이 없다 — None(시장가)
+        _fixed_active, _wait_bars = is_force_buy_fixed_price_active(
+            user_id, None if _pb_active else params_obj.strategy_type)
         if is_live and _fixed_active:
             st.caption(
                 f"ℹ️ 현재가 매수 활성 상태. 강제 매수도 현재가로 발주되며 최대 {_wait_bars}봉 내 미체결 시 자동 취소됩니다. "
@@ -2393,6 +2485,11 @@ with btn_col1:
             )
     except Exception:
         pass
+    # ✅ 2차 T15 (D7·결정 1029-03-3): 강제 매수는 열림 — 새 전략·예약 중 안내 한 줄
+    if _pb_active:
+        st.caption(_PB_FORCE_BUY_PB)
+    elif _pb_lock.get("reservation") is not None:
+        st.caption(_PB_FORCE_BUY_RES)
 
     if force_buy_clicked:
         # ✅ 코인이 거의 없을 때 (5000원 이하는 무시)
@@ -2406,7 +2503,8 @@ with btn_col1:
             msg = force_buy_in(
                 user_id, trader, params_obj.upbit_ticker,
                 interval_sec=params_obj.interval_sec,
-                strategy_type=params_obj.strategy_type,  # ✅ WO-8: fixed_price_buy 조회용
+                # ✅ WO-8: fixed_price_buy 조회용. 2차 T15: 새 전략은 None — 옛 공용 조건 파일을 읽지 않고 시장가
+                strategy_type=(None if _pb_active else params_obj.strategy_type),
             )
             if msg.startswith("❌"):
                 st.error(msg, icon="⚠️")
@@ -2469,8 +2567,10 @@ with btn_col3:
         time.sleep(0.2)
         st.rerun()
 with btn_col4:
-    reset_system_clicked = st.button("💥 시스템 초기화", key="btn_reset_system", use_container_width=True)
-    if reset_system_clicked:
+    # ✅ 2차 T15 (D7): 새 전략 운용·예약 중 잠김
+    reset_system_clicked = st.button("💥 시스템 초기화", key="btn_reset_system", use_container_width=True,
+                                     disabled=_pb_locked)
+    if reset_system_clicked and not _pb_locked:
         # ✅ SP-NAV-2: navigate_to 표준화
         navigate_to(
             "pages/confirm_init_db.py",
@@ -2538,6 +2638,12 @@ if is_ema:
     BUY_FILTERS = EMA_BUY_FILTERS
     SELL_STRATEGY = EMA_SELL_STRATEGY
     SELL_FILTERS = EMA_SELL_FILTERS
+elif _pb_active:
+    # ✅ 2차 T15 (C4): 새 전략은 구버전 조건 표 없음 — 칸 안에 한 줄만
+    BUY_STRATEGY = {}
+    BUY_FILTERS = {}
+    SELL_STRATEGY = {}
+    SELL_FILTERS = {}
 else:
     # MACD는 필터 없음
     BUY_STRATEGY = MACD_BUY_CONDITIONS
@@ -2563,6 +2669,8 @@ def load_conditions():
 
 
 buy_state, sell_state = load_conditions()
+if _pb_active:
+    buy_state, sell_state = {}, {}  # ✅ 2차 T15 (C4): 조건 파일이 없는 새 전략
 
 st.markdown(
     """
@@ -2614,10 +2722,12 @@ with _settings_col2:
             strategy=strategy_tag,
         )
 with _settings_col1:
-    st.markdown(f"### ⚙️ 매매 설정 (Strategy: {strategy_tag})")
+    st.markdown(f"### ⚙️ 매매 설정 (Strategy: {strategy_disp})")
 
 # 매수 설정 — 디폴트 접기 (사용자 요청)
-with st.expander(f"📈 매수 설정 (Strategy: {strategy_tag})", expanded=False):
+with st.expander(f"📈 매수 설정 (Strategy: {strategy_disp})", expanded=False):
+    if _pb_active:
+        st.caption(_PB_TABLE_TEXT)  # ✅ 2차 T15 (C4)
     # 전략 표시
     if len(BUY_STRATEGY) > 0:
         st.markdown("**⭐ 핵심 전략**")
@@ -2669,7 +2779,9 @@ with st.expander(f"📈 매수 설정 (Strategy: {strategy_tag})", expanded=Fals
         )
 
 # 매도 설정 — 디폴트 접기 (사용자 요청)
-with st.expander(f"📉 매도 설정 (Strategy: {strategy_tag})", expanded=False):
+with st.expander(f"📉 매도 설정 (Strategy: {strategy_disp})", expanded=False):
+    if _pb_active:
+        st.caption(_PB_TABLE_TEXT)  # ✅ 2차 T15 (C4)
     # 전략 표시
     if len(SELL_STRATEGY) > 0:
         st.markdown("**⭐ 핵심 전략**")
@@ -2847,9 +2959,9 @@ if params_strategy == "EMA" and getattr(params_obj, "base_ema_gap_enabled", Fals
 # ✅ BASE_EMA_GAP는 EMA 기반이므로 params_strategy 사용
 if params_strategy == "EMA":
     ma_type_display = getattr(params_obj, "ma_type", "EMA")
-    st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag} · MA={ma_type_display}")
+    st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_disp} · MA={ma_type_display}")
 else:
-    st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_tag}")
+    st.markdown(f"### 📈 Price & Indicators ({mode}) : `{ticker}` · Strategy={strategy_disp}")
 
 # 전략별 차트 렌더링
 # ✅ BASE_EMA_GAP는 EMA 기반이므로 params_strategy 사용

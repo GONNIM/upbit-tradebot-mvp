@@ -319,8 +319,14 @@ elif authentication_status:
     virtual_krw_check = st.session_state.virtual_krw
     need_auto_verify = (
         not st.session_state.get("_auto_checked_in_live")
-        or not virtual_krw_check
-        or (isinstance(virtual_krw_check, (int, float)) and virtual_krw_check <= 0)
+        or (
+            # ✅ 2차 T15 (verifier 지적 4): 운용자산을 그대로 둔 검증(금액 미상 → 세션 0)은 0 때문에 다시 돌리지 않는다
+            not st.session_state.get("_capital_kept_in_live")
+            and (
+                not virtual_krw_check
+                or (isinstance(virtual_krw_check, (int, float)) and virtual_krw_check <= 0)
+            )
+        )
     )
     if _mode == "LIVE" and need_auto_verify:
         # ✅ 공통 헬퍼로 통합 (services/auto_verify.py)
@@ -333,10 +339,17 @@ elif authentication_status:
 
         if _verify_result.get("ok"):
             krw_balance = float(_verify_result.get("krw_balance") or 0.0)
+            # ✅ 2차 T15 (D10): 새 전략 보유·예약 중이면 운용자산은 그대로 둔다
+            from services.auto_verify import capital_kept_text
+            _capital_line = (
+                "- " + capital_kept_text(_verify_result.get("capital_krw"), _verify_result.get("capital_reason")) + "\n"
+                if _verify_result.get("capital_kept")
+                else f"- 운용자산: {krw_balance:,.0f} KRW (자동 설정)\n"
+            )
             st.success(
                 f"✅ 자동 계좌검증 완료\n\n"
                 f"- KRW 잔고: {krw_balance:,.0f} KRW\n"
-                f"- 운용자산: {krw_balance:,.0f} KRW (자동 설정)\n"
+                f"{_capital_line}"
                 f"- DB 동기화: 완료",
                 icon="✅",
             )
@@ -389,9 +402,19 @@ elif authentication_status:
                         st.session_state.live_capital_set = True
 
                         # ✅ WO-2026-002: 수동 검증 시에도 운용자산 자동 설정
-                        st.session_state.virtual_krw = krw_balance
-                        st.session_state.virtual_over = True
-                        save_user(username, name, krw_balance)
+                        # ✅ 2차 T15 (D10, R6): 새 전략 보유·예약 중이면 운용자산은 그대로, display_name 만 갱신
+                        from services.auto_verify import keep_capital_on_verify, capital_kept_text
+                        _cap_kept, _cap_krw, _cap_reason = keep_capital_on_verify(username, name)
+                        if _cap_kept:
+                            st.session_state.virtual_krw = float(
+                                _cap_krw or st.session_state.get("virtual_krw") or 0.0)
+                            st.session_state.virtual_over = True
+                            st.session_state["_capital_kept_in_live"] = True
+                            st.info(capital_kept_text(_cap_krw, _cap_reason))
+                        else:
+                            st.session_state.virtual_krw = krw_balance
+                            st.session_state.virtual_over = True
+                            save_user(username, name, krw_balance)
 
                         # ✅ 계정 검증 성공 시 즉시 DB 잔고 동기화
                         from services.db import update_account_from_balances, update_position_from_balances
@@ -537,7 +560,8 @@ elif authentication_status:
     if start_trading:
         next_page = "dashboard"
         # ✅ 활성 전략 파일에서 strategy_type 로드
-        strategy_type = load_active_strategy(username) or DEFAULT_STRATEGY_TYPE
+        # ✅ 2차 T15: 엔진 전용 PULLBACK 도 읽는다(대시보드는 활성 파일로 새 전략 표시 경로를 고른다)
+        strategy_type = load_active_strategy(username, include_engine_only=True) or DEFAULT_STRATEGY_TYPE
         params = urlencode({
             "user_id": username,  # ✅ FIX: username 직접 사용 (빈 문자열 방지)
             "virtual_krw": st.session_state.virtual_krw,
