@@ -1401,6 +1401,21 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 - [ ] **Step 2~4:** 실패 확인 → 구현 → 통과·게이트.
 - [ ] **Step 5: 커밋 승인 요청**
 
+**T17 구현 메모 (10/30, HEAD 70cc4c4 기준, 사용자 결정 1030-04 U1·U2 「가」·PO 결정 1~5 — 기록 `docs/fable/2026-10-30-phase2-t17-decision-1.md`):**
+- **Files 정정 — 고칠 코드 0곳.** 위 Files 의 네 파일은 이미 모드로 거른다. 분할 상태는 `services/init_db.py:1017,1040`(CHECK·PK(user_id, mode))와 `services/pullback_state.py` load·save·reset, 엔진 모드는 `core/strategy_engine.py:1234-1235` `_pullback_mode()`(trader.test_mode)에서 정한다. 예약은 `engine/strategy_switch.py` reservation·last_done_switch·insert_row·gate_decision, 요청은 `v2/api_write.py` 가 세션 입장 모드를 `v2/control.write_request` 에 넘기고 엔진 `Controller._validate` 가 mode ∈ TEST/LIVE 를 검사한다. 고정 파일 9개·엔진·스키마·v2·pages 무변경. 바뀐 것은 시험 파일 1개와 이 메모뿐이다.
+- **시험 파일:** `tests/regressions/test_r_2026_10_30_p4_t17_mode.py`(작성일 관례 — 위 Files 의 `…10_28…` 대신). 9건:
+  - `test_state_separated_by_mode`: TEST 엔진으로 회차 2·qty>0 행을 만든 뒤 LIVE trader 엔진 복원 → `no_state`·회차 0·TEST 행 불변. 반대로 그 행을 LIVE 로 옮기면 TEST 엔진 복원도 `no_state`·LIVE 행 불변. 대조 `test_same_mode_still_restores`.
+  - `test_reservation_separated_by_mode`: TEST 예약은 `strategy_switch.reservation(LIVE)`·`v2.control.reservation(LIVE)`·LIVE `gate_decision` 에 안 보임(TEST 조회 대조 포함).
+  - `test_intended_cross_mode_readers`: 의도한 예외 2곳 — 구버전 잠금 `ui/pullback_lock.reservation_any_mode`(결정 1029-10 C3 ①)와 D10 `services/auto_verify.keep_capital_on_verify` 는 모든 모드의 예약을 본다(LIVE 행으로 확인).
+  - `test_switching_rows_unfiltered_callers_pick_test_only`(Fable 권고 2): `switching_rows(user_id)` 는 mode 로 거르지 않는다(두 모드 행 모두 돌려줌). 호출처가 TEST 만 고른다 — `recover_all` 은 LIVE 처리 중 행을 `skipped`(행 그대로), `settle_switching` 은 같은 조건에서 TEST 행만 DONE 으로 정리하고 LIVE 행은 그대로.
+  - `test_request_mode_must_match_running`: 엔진을 건드리는 8종(engine_start·engine_stop·force_buy·force_sell·switch·revert·apply_params·ops_settings) × 두 방향. 엔진 호출 0건(관리자 start·stop, 엔진 없는 강제 매매, 엔진 제어 큐), 적용본·활성 파일·저장본·전환 기록·분할 상태 불변. 대조 `test_same_mode_reaches_engine`.
+  - `test_cancel_reservation_allowed_with_other_mode_engine`(Fable 권고 3)·`test_cancel_reservation_live_request_does_not_touch_test_row`.
+- **규칙 정정(사용자 결정 1030-04 U1 가):** 위 규칙의 「요청 모드와 실행 중 모드가 다르면 `mode_conflict`」는 **엔진을 건드리는 8종에만** 적용한다. 예약 취소(`cancel_reservation`, `engine/strategy_switch.py` `handle_cancel`)는 DB 행만 바꾸고 엔진을 건드리지 않으므로 다른 모드 엔진이 돌아도 처리한다(done·ok, 엔진 호출 0건 — 시험으로 고정). 그 요청 모드의 예약만 취소한다(LIVE 요청은 TEST 예약을 건드리지 않음 → `no_reservation`).
+- **알려진 순서(그대로 둠):** TEST 엔진 실행 중 LIVE 요청은 switch·revert 가 `live_not_supported`, apply_params·ops_settings 가 `apply_live_not_supported` 로 먼저 거절된다(`_guard` 의 실계좌 거절이 모드 검사보다 앞). engine_start·engine_stop·force_buy·force_sell 은 `mode_conflict`. 어느 쪽이든 거절·엔진 무접촉이다.
+- **U2 (가) — 1029-12 로 넘김:** 실계좌 쪽이 모의 지갑(`accounts`·`account_positions`, 모드 칸 없음)을 덮어쓰는 문제(로그인 검증 `services/auto_verify.py:93-100`·`app.py:419-431`, 실계좌 엔진 1분 동기화 `engine/order_reconciler.py:769-915`)는 T17 범위 밖이다.
+- **변이(T17 시험):** 15건 중 14건을 잡음 — pullback_state.load·엔진 `_pullback_mode`·엔진 예약 조회·신버전 예약 조회 모드 거름 제거, reservation_any_mode 에 TEST 거름 추가, settle_switching 행 모드 거름 제거, `_guard` 모드 검사·실계좌 거절 제거, engine_stop·force 모드 검사 제거, engine_start 다른 모드 `already_running`, cancel 에 `_guard` 추가(U1 나), cancel 이 TEST 로 고정 조회, recover_all+recover_row 가드 둘 다 제거. `recover_all` 가드만 지우는 변이는 남는다(`recover_row` 가 같은 `skipped` — T12 남은 한계와 같음).
+- **§9 줄 번호(그때 고침):** 정지선 보고의 「§9 v2 spec 4.5 줄 = 1451」은 1449 가 맞다(이 메모를 넣기 전 줄 번호). §9 작업 때 고친다.
+
 ### T18: 서버 점검 스크립트 항목 추가
 
 **Files:** Modify `scripts/v2/check_v2_unit.sh`, `scripts/v2/check_v2_unit_probe.py`; Test `tests/v2/test_deploy_files.py`

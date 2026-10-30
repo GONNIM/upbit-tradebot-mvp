@@ -41,6 +41,14 @@ def _drawn(markers):
     return [m for m in markers if m.get("bar_time")]
 
 
+def _no_clock(body):
+    """두 요청 사이 초 경계를 넘으면 1 달라지는 경과 초(engine.ago_sec)를 비교에서 뺀다."""
+    if isinstance(body, dict) and isinstance(body.get("engine"), dict) and "ago_sec" in body["engine"]:
+        body = dict(body)
+        body["engine"] = {k: v for k, v in body["engine"].items() if k != "ago_sec"}
+    return body
+
+
 class PbBase(ApiBase):
     def set_pb(self, **over):
         p = dict(PB_APPLIED)
@@ -154,7 +162,7 @@ class TestEmaUnchangedVsBase(PbBase):
                 self.assertEqual(old[0], 200, p)
                 self.assertEqual(_drawn(new[1]["markers"]), _drawn(old[1]["markers"]), (mode, p))
                 continue
-            self.assertEqual(new, old, (mode, p))
+            self.assertEqual((new[0], _no_clock(new[1])), (old[0], _no_clock(old[1])), (mode, p))
 
     def test_no_new_tables_same_as_base(self):
         c = self.make_live_db()
