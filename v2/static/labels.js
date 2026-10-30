@@ -31,7 +31,23 @@ export const FAILED_KEY_LABELS = {
   "SURGE_FILTER": "급등 필터",
   "WARMUP_IN_PROGRESS": "준비 중",
   "WEAK_ENTRY_FILTER": "약한 진입 필터",
-  "COOLDOWN": "대기 시간"
+  "COOLDOWN": "대기 시간",
+  "NOT_ACTIVE": "감시 구간 밖",
+  "WAIT_PULLBACK": "눌림 대기",
+  "WAIT_GOLDEN": "골든크로스 대기",
+  "SPLITS_FULL": "분할 회차 다 참",
+  "PULLBACK_CAP": "눌림목 매수 한도 다 참",
+  "DESYNC": "보유 수량 어긋남 — 추가 매수 멈춤",
+  "SWITCH_RESERVED": "전환 예약",
+  "WARMUP": "준비 중(지표 계산)",
+  "REPLAY": "재생(주문 없음)",
+  "BACKFILL": "재평가(주문 없음)",
+  "PENDING_FILL": "체결 대기",
+  "STATE_POLLUTED": "지표 확인 필요 — 매수 멈춤",
+  "TENTATIVE": "잠정 봉(판정 안 함)",
+  "UNCONFIRMED": "확정 전 봉(판정 안 함)",
+  "DUPLICATE": "이미 본 봉(판정 안 함)",
+  "OFF_HOURS": "거래 시간 밖 — 주문 막음"
 };
 
 // 사유 코드 -> 한글. 대소문자 무시, TRAILING_STOP* 접두 일치, 모르는 값은 원래 값.

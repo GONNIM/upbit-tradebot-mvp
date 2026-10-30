@@ -183,6 +183,70 @@ ALTER_STATEMENTS = [
 ]
 
 
+# 2차 T16: 새 전략 표(services/init_db.ensure_pullback_tables). 위 기본 픽스처에는 넣지 않는다 —
+# 기본 픽스처 = 「새 표가 없는 DB」(배포 전 서버와 같음)이고, 새 표가 필요한 시험만 create_pb_schema 를 더 부른다.
+PB_CREATE_STATEMENTS = [
+    """
+        CREATE TABLE IF NOT EXISTS pullback_state (
+            user_id            TEXT NOT NULL,
+            mode               TEXT NOT NULL CHECK (mode IN ('TEST','LIVE')),
+            ticker             TEXT NOT NULL,
+            interval           TEXT NOT NULL,
+            entry_count        INTEGER NOT NULL DEFAULT 0,
+            pullback_count     INTEGER NOT NULL DEFAULT 0,
+            first_entry_ts     TEXT,
+            first_entry_reason TEXT,
+            armed              INTEGER NOT NULL DEFAULT 0,
+            prev_golden        INTEGER,
+            trade_origin       TEXT,
+            pending_fill       INTEGER NOT NULL DEFAULT 0,
+            fill_n             INTEGER NOT NULL DEFAULT 0,
+            inv_sum            REAL NOT NULL DEFAULT 0,
+            sizing_base_krw    REAL,
+            realized_pnl_krw   REAL NOT NULL DEFAULT 0,
+            qty                REAL NOT NULL DEFAULT 0,
+            cost_krw           REAL NOT NULL DEFAULT 0,
+            avg_price          REAL,
+            desync             INTEGER NOT NULL DEFAULT 0,
+            buy_fail_bar_ts    TEXT,
+            params_sha256      TEXT,
+            last_bar_ts        TEXT,
+            updated_at         TEXT NOT NULL,
+            PRIMARY KEY (user_id, mode)
+        )
+    """,
+    """
+        CREATE TABLE IF NOT EXISTS strategy_switch (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT NOT NULL,
+            mode          TEXT NOT NULL CHECK (mode IN ('TEST','LIVE')),
+            kind          TEXT NOT NULL CHECK (kind IN ('SWITCH','REVERT','PARAMS')),
+            from_strategy TEXT NOT NULL,
+            from_ticker   TEXT,
+            from_interval TEXT,
+            to_strategy   TEXT NOT NULL,
+            to_ticker     TEXT,
+            to_interval   TEXT,
+            params_sha256 TEXT,
+            state         TEXT NOT NULL CHECK (state IN ('RESERVED','DONE','CANCELED','FAILED')),
+            requested_at  TEXT NOT NULL,
+            done_at       TEXT,
+            request_id    TEXT,
+            note          TEXT
+        )
+    """,
+]
+PB_INDEX_STATEMENTS = [
+    "CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(user_id, mode, state)",
+]
+
+
+def create_pb_schema(conn: sqlite3.Connection) -> None:
+    for s in PB_CREATE_STATEMENTS + PB_INDEX_STATEMENTS:
+        conn.execute(s)
+    conn.commit()
+
+
 def _squash(text: str) -> str:
     return re.sub(r"\s+", "", text)
 
@@ -939,6 +1003,7 @@ class TestQueries(unittest.TestCase):
     def setUp(self):
         self.conn = sqlite3.connect(":memory:")
         create_schema(self.conn)
+        create_pb_schema(self.conn)   # 2차 T16: 새 표 조회(SQL_PB_STATE·SQL_LOGS_SWITCH)의 계획도 검사
 
     def tearDown(self):
         self.conn.close()
@@ -1010,6 +1075,15 @@ class TestLint(unittest.TestCase):
         # 문장 끝이 잘린 사본은 통과하지 못해야 한다
         cut = _squash(ALTER_STATEMENTS[0])[:-3]
         self.assertNotIn('"' + cut + '"', text)
+
+    def test_pb_fixture_ddl_matches_init_db(self):
+        """2차 T16: 새 전략 표 픽스처 = services/init_db.ensure_pullback_tables 원문(스키마 변경 없음 — 같은 문장)."""
+        text = _squash(_strip_comments(INIT_DB.read_text(encoding="utf-8")))
+        self.assertEqual(len(PB_CREATE_STATEMENTS), 2)
+        for s in PB_CREATE_STATEMENTS:
+            self.assertIn('"""' + _squash(s) + '"""', text, s[:60])
+        for s in PB_INDEX_STATEMENTS:
+            self.assertIn('"' + _squash(s) + '"', text, s)
 
     def test_lint_detects_drift(self):
         text = _squash(_strip_comments(INIT_DB.read_text(encoding="utf-8")))

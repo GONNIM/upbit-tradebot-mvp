@@ -44,6 +44,10 @@ FIXED_FILES_COMMIT = "6b6f0b5"
 #    쓰는 시험: T15 test_r_2026_10_29_p4_t15_old_ui (dashboard·set_config·조건 화면 AppTest 비교, 고정 파일 9개).
 #    올리는 규칙은 1) 과 같다(구버전 EMA 화면을 일부러 바꾸는 작업만).
 OLD_UI_BASE_COMMIT = "8464b58"
+# 5) V2_READ_BASE_COMMIT — 「신버전 읽기 API(EMA 사용자) 무변경」 대조 기준 = 2차 T15 커밋(push 됨, T16 직전).
+#    쓰는 시험: T16 tests/v2/test_api_read_pullback.TestEmaUnchangedVsBase(새 표 없는 DB 에서 홈·로그·자산·차트 응답이 같음).
+#    올리는 규칙은 1) 과 같다(EMA 사용자 신버전 응답을 일부러 바꾸는 작업만 — T16 의 U2 표식 정정은 이 시험에서 따로 다룬다).
+V2_READ_BASE_COMMIT = "4e86afb"
 REVERT_OLD_CODE_COMMIT = "1747fcc"  # 서버 실행본(2차 배포 전) — 되돌리기 무해성 시험의 옛 코드
 
 

@@ -101,11 +101,16 @@
       <p class="warn" x-show="chartNote" x-text="chartNote"></p>
       <p class="note" x-show="!(status && status.ticker)">종목 정보가 없어 차트를 그릴 수 없습니다.</p>
       <div id="chart" class="chart"></div>
-      <p class="chart-legend"><span class="ma60">━</span> 60선 · <span class="ma200">━</span> 200선 · <span class="up">▲</span> 매수 · <span class="down">▼</span> 매도</p>
+      <p class="chart-legend" x-show="!chartSpec.legend"><span class="ma60">━</span> 60선 · <span class="ma200">━</span> 200선 · <span class="up">▲</span> 매수 · <span class="down">▼</span> 매도</p>
+      <!-- 2차 T16: 새 전략 — 적용본 기간으로 범례, 기준선이 60선과 다를 때만 「N선(기준선)」(U3), EMA 방식 안내 1줄(U1) -->
+      <p class="chart-legend" id="chart-legend-pb" x-show="!!chartSpec.legend"><span class="ma60">━</span> <span x-text="chartSpec.legend ? chartSpec.legend.a : ''"></span> · <span class="ma200">━</span> <span x-text="chartSpec.legend ? chartSpec.legend.b : ''"></span><span x-show="chartSpec.legend &amp;&amp; chartSpec.legend.pull"> · <span class="mapull">┅</span> <span x-text="chartSpec.legend ? chartSpec.legend.pull : ''"></span></span> · <span class="up">▲</span> 매수 · <span class="down">▼</span> 매도</p>
+      <p class="note" id="chart-ema-note" x-show="!!chartSpec.note" x-text="chartSpec.note"></p>
     </section>
     <section class="card">
       <h2>이 화면에서 보는 것</h2>
-      <p class="sentence">캔들, 60선·200선(눌림목 기준선), 봇이 실제로 사고판 자리. 손가락으로 확대·이동합니다.</p>
+      <p class="sentence" x-show="!chartSpec.caption">캔들, 60선·200선(눌림목 기준선), 봇이 실제로 사고판 자리. 손가락으로 확대·이동합니다.</p>
+      <!-- 2차 T16: 새 전략 — 「60선」 글자를 적용본 기간으로(계획 §T16), 기준선이 다르면 그 기간을 적는다 -->
+      <p class="sentence" id="chart-caption-pb" x-show="!!chartSpec.caption" x-text="chartSpec.caption"></p>
     </section>
   </div>
 

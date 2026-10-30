@@ -32,7 +32,41 @@ REASON_LABELS = {
 FAILED_KEY_LABELS = {
     "NO_SIGNAL": "신호 없음", "SURGE_FILTER": "급등 필터", "WARMUP_IN_PROGRESS": "준비 중",
     "WEAK_ENTRY_FILTER": "약한 진입 필터", "COOLDOWN": "대기 시간",
+    # 2차 T16: 새 전략(PULLBACK) 판정 키 — services/terminology.PULLBACK_STATE_LABEL 과 같은 글자(시험이 대조)
+    "NOT_ACTIVE": "감시 구간 밖", "WAIT_PULLBACK": "눌림 대기", "WAIT_GOLDEN": "골든크로스 대기",
+    "SPLITS_FULL": "분할 회차 다 참", "PULLBACK_CAP": "눌림목 매수 한도 다 참",
+    "DESYNC": "보유 수량 어긋남 — 추가 매수 멈춤", "SWITCH_RESERVED": "전환 예약",
+    "WARMUP": "준비 중(지표 계산)", "REPLAY": "재생(주문 없음)", "BACKFILL": "재평가(주문 없음)",
+    "PENDING_FILL": "체결 대기", "STATE_POLLUTED": "지표 확인 필요 — 매수 멈춤",
+    "TENTATIVE": "잠정 봉(판정 안 함)", "UNCONFIRMED": "확정 전 봉(판정 안 함)",
+    "DUPLICATE": "이미 본 봉(판정 안 함)", "OFF_HOURS": "거래 시간 밖 — 주문 막음",
 }
+# 2차 T16: 새 전략 회차 건너뜀 원인(audit_trades BUY_REJECTED 의 meta.error_name) — services/terminology.PULLBACK_SKIP_CAUSE 와 같음
+SKIP_CAUSE_LABELS = {
+    "split_krw_short": "원화 잔고 부족", "split_below_min": "최소 주문금액 미만",
+    "split_krw_unknown": "원화 잔고 조회 실패", "split_no_capital": "운용 금액 없음",
+    "split_unconfirmed_bar": "봉 마감 확인 전",
+}
+# 2차 T16: 감시 구간 밖 사유(checks.inactive_reason) — terminology._INACTIVE_LABEL 과 같은 뜻, 「60선·200선」 은 설정 기간으로 바꿔 씀
+INACTIVE_TEMPLATES = {"not_golden": "{a}선 ≤ {b}선", "slope_low": "{b}선 기울기 낮음",
+                      "slope_drop": "{b}선 기울기 둔화"}
+# 2차 T16: 설정 적용(strategy_switch PARAMS) 기록의 키 이름 — 백테스터 입력 칸 이름과 같게
+PARAM_KEY_LABELS = {
+    "ticker": "종목", "interval": "봉 단위", "maType": "이동평균 방식", "ma60p": "60선 기간",
+    "ma200p": "200선 기간", "pullbackP": "눌림목 기준선 기간", "slopeLB": "200선 기울기 lookback",
+    "minSlope": "200선 최소 기울기", "slopeDrop": "기울기 둔화 허용치", "buyOnGoldenCross": "골든크로스 시 1차 매수",
+    "maxSplits": "분할 최대 횟수", "maxPullbackBuys": "눌림목 매수 최대 횟수", "tp": "익절 TP", "sl": "손절 SL",
+    "deadcross": "데드크로스 청산", "compounding": "복리 모드", "capital": "초기자본", "fee": "수수료",
+    "enable_trading_hours": "거래 시간 제한", "trading_start_time": "거래 시작 시각",
+    "trading_end_time": "거래 끝 시각", "allow_sell_during_off_hours": "시간 밖에도 매도",
+}
+PARAM_PCT_KEYS = ("tp", "sl", "minSlope", "slopeDrop", "fee")
+# 적용 시점(note.apply) — 엔진 engine/pullback_apply·strategy_switch 가 쓰는 값. 결정 1030-02 U4: reseed 글자
+APPLY_LABELS = {"next_bar": "다음 봉부터", "immediate": "즉시", "reseed": "지표 다시 계산(그동안 매수 없음)",
+                "switch": "전환과 함께 적용", "restart": "재시작 적용"}   # reserved 는 엔진이 쓰지 않음(결정 10)
+STRATEGY_TEXT = {"PULLBACK": "눌림목 분할매수", "EMA": "EMA", "MACD": "MACD"}
+# 예약 줄을 따로 그리는 하한(결정 9 — Fable 권고 2): done_at − requested_at > max(1봉, 300초)
+SWITCH_RESERVED_MIN_SEC = 300
 
 # 오류 로그가 한 번에 훑는 최근 logs 행 수(level 인덱스가 없어 상한을 둔다)
 ERROR_SCAN_ROWS = 20000
@@ -54,11 +88,12 @@ SQL_SELL_EVAL_LATEST = ("SELECT timestamp, price, tp_price, sl_price FROM audit_
 # 엔진의 매수 표기는 audit_trades.type='BUY' (services/db.py:795,2062)
 SQL_LAST_BUY = ("SELECT timestamp FROM audit_trades "
                 "WHERE ticker=? AND type='BUY' ORDER BY timestamp DESC, id DESC LIMIT 1")
+# 2차 T16: meta 는 읽기만 하고 응답에는 내보내지 않는다(새 전략 행만 파생 칸 round·skip_reason — 결정 6)
 SQL_TRADES_TICKER = ("SELECT id, timestamp, bar_time, ticker, type, reason, price, qty, "
-                     "entry_price, note FROM audit_trades "
+                     "entry_price, note, meta FROM audit_trades "
                      "WHERE ticker=? ORDER BY timestamp DESC, id DESC LIMIT ?")
 SQL_TRADES_ALL = ("SELECT id, timestamp, bar_time, ticker, type, reason, price, qty, "
-                  "entry_price, note FROM audit_trades ORDER BY id DESC LIMIT ?")
+                  "entry_price, note, meta FROM audit_trades ORDER BY id DESC LIMIT ?")
 SQL_SIGNALS_TICKER = ("SELECT id, timestamp, bar_time, ticker, price, macd, signal, "
                       "have_position, overall_ok, failed_keys FROM audit_buy_eval "
                       "WHERE ticker=? ORDER BY timestamp DESC, id DESC LIMIT ?")
@@ -76,7 +111,7 @@ SQL_SIGNALS_SELL_ALL = (
 # 감사 로그 = 아래 네 표를 각각 최근 1200행씩 읽어 Python 에서 합치고 묶는다.
 # 인덱스: idx_audit_*_ts(timestamp), idx_logs_user_ts(user_id, timestamp) — 정렬은 인덱스 순서.
 SQL_LOGS_AUDIT_TRADES = (
-    "SELECT id, timestamp, type, reason, entry_price, note FROM audit_trades "
+    "SELECT id, timestamp, type, reason, entry_price, note, meta FROM audit_trades "
     "ORDER BY timestamp DESC, id DESC LIMIT 1200")
 SQL_LOGS_AUDIT_BUY_EVAL = (
     "SELECT id, timestamp, overall_ok, failed_keys FROM audit_buy_eval "
@@ -106,8 +141,34 @@ SQL_LOGS_ERROR_COUNT = (
     "SELECT COUNT(*) AS n FROM (SELECT 1 FROM ("
     "SELECT level FROM logs WHERE user_id=? ORDER BY timestamp DESC, id DESC LIMIT %d) "
     "WHERE %s LIMIT 1201) LIMIT 1" % (ERROR_SCAN_ROWS, _ERROR_LEVELS))
+# 2차 T16 (결정 1030-02 U2): 실제 체결(BUY·SELL)만 표식 — 거절·취소 행은 그리지 않는다.
+# 외부 매수·매도 행은 bar_time 이 없어 표식이 없다(4e86afb 와 같음 — 화면이 bar_time 없는 표식을 버린다).
 SQL_MARKERS = ("SELECT type, price, bar_time FROM audit_trades "
-               "WHERE ticker=? ORDER BY timestamp DESC, id DESC LIMIT 200")
+               "WHERE ticker=? AND type IN ('BUY','SELL') ORDER BY timestamp DESC, id DESC LIMIT 200")
+
+# ---- 2차 T16: 새 전략(PULLBACK) — 활성 전략이 PULLBACK 일 때만 쓰는 조회(EMA·MACD 조회는 위 그대로) ----
+# 표가 없는 DB(배포 전·엔진 재시작 전)에서는 sqlite3.Error → 그 부분만 「모름」(_try_query).
+SQL_PB_STATE = ("SELECT entry_count, qty, avg_price, desync FROM pullback_state "
+                "WHERE user_id=? AND mode=? LIMIT 1")
+SQL_SIGNALS_PB_TICKER = ("SELECT id, timestamp, bar_time, ticker, price, macd, signal, "
+                         "have_position, overall_ok, failed_keys, checks FROM audit_buy_eval "
+                         "WHERE ticker=? ORDER BY timestamp DESC, id DESC LIMIT ?")
+SQL_SIGNALS_PB_SELL_TICKER = (
+    "SELECT id, timestamp, bar_time, ticker, price, macd, signal, triggered, "
+    "trigger_key, checks FROM audit_sell_eval WHERE ticker=? "
+    "ORDER BY timestamp DESC, id DESC LIMIT ?")
+SQL_LOGS_AUDIT_BUY_EVAL_PB = (
+    "SELECT id, timestamp, overall_ok, failed_keys, checks FROM audit_buy_eval "
+    "ORDER BY timestamp DESC, id DESC LIMIT 1200")
+# 보유 중 눌림 대기(armed)는 매도 판단 행의 checks 에 있다 — 미발동 행도 읽는다(PULLBACK 일 때만)
+SQL_LOGS_AUDIT_SELL_EVAL_PB = (
+    "SELECT id, timestamp, triggered, trigger_key, checks FROM audit_sell_eval "
+    "ORDER BY timestamp DESC, id DESC LIMIT 1200")
+# 전환·복귀·설정 적용 기록. 인덱스(user_id, mode, state)로 거르면 정렬에 임시 B-트리가 생겨
+# rowid 역순으로 최근 1200행(감사 표와 같은 깊이)을 읽고 사용자·모드는 파이썬에서 거른다(스키마 변경 없음 — 결정 3).
+SQL_LOGS_SWITCH = (
+    "SELECT id, user_id, mode, kind, from_strategy, from_interval, to_strategy, to_interval, "
+    "state, requested_at, done_at, note FROM strategy_switch ORDER BY id DESC LIMIT 1200")
 
 # ---- 기본 기능 블록(GET /v2/api/basic) ----
 # 최종 상태 로그: services/db.py get_last_status_log_from_db 와 같은 조건(이모지 접두 9종).
@@ -182,6 +243,129 @@ def _num(v, default=0):
     return default if v is None else v
 
 
+# ---- 2차 T16: 새 전략(PULLBACK) 표시 도우미 ----
+def _try_query(user_id: str, sql: str, args: tuple = ()) -> "Optional[list]":
+    """새 표(pullback_state·strategy_switch) 읽기. 표가 없거나 읽기 오류면 None — 그 부분만 「모름」으로 두고
+    응답 전체를 503 으로 만들지 않는다(EMA 사용자 화면이 새 표 때문에 막히지 않게)."""
+    try:
+        return db.query(user_id, sql, args)
+    except sqlite3.Error:
+        return None
+
+
+def _json_obj(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not isinstance(raw, str) or not raw:
+        return {}
+    try:
+        v = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return v if isinstance(v, dict) else {}
+
+
+def _json_list(raw) -> list:
+    if isinstance(raw, list):
+        return raw
+    if not isinstance(raw, str) or not raw:
+        return []
+    try:
+        v = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    return v if isinstance(v, list) else []
+
+
+def _int_or_none(v) -> Optional[int]:
+    if isinstance(v, bool):
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or_none(v) -> Optional[float]:
+    if isinstance(v, bool):
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None
+
+
+def pb_config(applied) -> Optional[dict]:
+    """새 전략 적용본 → 화면용 값(이동평균 기간·방식, TP/SL %, 분할 한도). 적용본이 없으면 None."""
+    if not isinstance(applied, dict) or not applied:
+        return None
+    mt = applied.get("maType")
+    mt = mt.lower() if isinstance(mt, str) and mt.lower() in ("ema", "sma") else None
+    return {"ma60p": _int_or_none(applied.get("ma60p")), "ma200p": _int_or_none(applied.get("ma200p")),
+            "pullbackP": _int_or_none(applied.get("pullbackP")), "maType": mt,
+            "tp": _float_or_none(applied.get("tp")), "sl": _float_or_none(applied.get("sl")),
+            "max_splits": control._eff_max_splits(applied)}
+
+
+def _line(n, default: int) -> str:
+    """「60선」 — 기간 값이 없으면 기본값."""
+    return "%d선" % (n if isinstance(n, int) and n > 0 else default)
+
+
+def _is_pb_checks(ck: dict) -> bool:
+    return ck.get("strategy") == "PULLBACK" or ck.get("strategy_mode") == "PULLBACK"
+
+
+def _pb_wait_text(keys: list, ck: dict, cfg: Optional[dict]) -> str:
+    """새 전략 판정 행(미통과) → 로그 「매수 대기 — …」."""
+    cfg = cfg or {}
+    if not keys:
+        return "매수 대기"
+    k = str(keys[0]).upper()
+    rnd = _int_or_none(ck.get("round"))
+    nxt = (rnd + 1) if rnd is not None and rnd >= 0 else None
+    if k == "WAIT_PULLBACK" and nxt is not None:
+        if ck.get("armed") in (1, True):
+            return "매수 대기 — 눌림 상태, %d회차 준비" % nxt
+        return "매수 대기 — 눌림 대기, %d회차 준비" % nxt
+    if k == "NOT_ACTIVE" and ck.get("inactive_reason") in INACTIVE_TEMPLATES:
+        why = INACTIVE_TEMPLATES[ck["inactive_reason"]].format(
+            a=_line(cfg.get("ma60p"), 60)[:-1], b=_line(cfg.get("ma200p"), 200)[:-1])
+        return "매수 대기 — 감시 구간 밖(%s)" % why
+    return "매수 대기 — " + FAILED_KEY_LABELS.get(k, str(keys[0]))
+
+
+def _golden_text(cfg: Optional[dict]) -> str:
+    cfg = cfg or {}
+    return "골든크로스 발생 (%s > %s)" % (_line(cfg.get("ma60p"), 60), _line(cfg.get("ma200p"), 200))
+
+
+def pb_trade_extra(typ, meta) -> dict:
+    """새 전략 체결·건너뜀 행의 파생 칸(결정 6 — meta 자체는 내보내지 않는다). EMA·MACD 행은 빈 dict."""
+    t = str(typ or "").upper()
+    m = _json_obj(meta)
+    if t == "BUY" and m.get("split_round") is not None:
+        n = _int_or_none(m.get("split_round"))
+        return {"round": n} if n is not None else {}
+    if t.endswith("_REJECTED") and str(m.get("error_name") or "") in SKIP_CAUSE_LABELS:
+        return {"skip_reason": SKIP_CAUSE_LABELS[m["error_name"]]}
+    return {}
+
+
+def pb_signal(checks, failed_keys) -> Optional[dict]:
+    """새 전략 판정 행(audit_buy_eval·audit_sell_eval 의 checks) → 홈 최신 신호 문장 재료. 새 전략 행이 아니면 None.
+    state = 첫 판정 키(없으면 None), round = 그 봉의 회차, armed·active = 0/1, inactive_reason."""
+    ck = _json_obj(checks)
+    if not _is_pb_checks(ck):
+        return None
+    keys = _json_list(failed_keys) or _json_list(ck.get("failed_keys"))
+    b = lambda k: 1 if ck.get(k) in (1, True) else 0   # noqa: E731
+    return {"state": str(keys[0]).upper() if keys else None, "round": _int_or_none(ck.get("round")),
+            "armed": b("armed"), "active": b("active"), "holding": b("holding"),
+            "inactive_reason": ck.get("inactive_reason") if ck.get("inactive_reason") in INACTIVE_TEMPLATES else None}
+
+
 class ReadHandler(ApiHandler):
     """읽기 API 공통: 세션 user_id·현재 전략/종목 해석, DB 오류 응답."""
 
@@ -206,6 +390,8 @@ class ReadHandler(ApiHandler):
                 params = {}
         ticker = db.normalize_ticker(params.get("ticker"))   # 'JTO' → 'KRW-JTO' (엔진과 같은 규칙)
         interval = params.get("interval") if isinstance(params.get("interval"), str) else None
+        # 2차 T16: 새 전략이면 적용본 값(화면 문구·선 기간·TP/SL %). 그 밖은 None — EMA·MACD 경로는 이 값을 보지 않는다
+        self._pb_cfg = pb_config(params) if value == "PULLBACK" else None
         return user_id, value, mtime, ticker, interval
 
     def _guard(self, fn):
@@ -255,6 +441,9 @@ class StatusHandler(ReadHandler):
         body.update(mode)
         body.update({"strategy": {"value": value, "mtime": mtime},
                      "ticker": ticker, "interval": interval, "paused": paused})
+        if value == "PULLBACK":
+            # 2차 T16: 새 전략 화면 값(선 기간·방식·TP/SL %·분할 한도). EMA·MACD 응답에는 이 키가 없다
+            body["pullback"] = self._pb_cfg
         self.send_json(body)
 
 
@@ -263,7 +452,7 @@ class AssetsHandler(ReadHandler):
         self._guard(self._get)
 
     def _get(self):
-        user_id, _value, _mtime, ticker, _interval = self._context()
+        user_id, value, _mtime, ticker, _interval = self._context()
         acc = db.query(user_id, SQL_ACCOUNT, (user_id,))
         acc = acc[0] if acc else {}
         pos, buy, sell = {}, None, None
@@ -304,6 +493,12 @@ class AssetsHandler(ReadHandler):
             if not (last_buy is not None and sell_t is not None and sell_t < last_buy):
                 tp, sl = _nonzero(sell["tp_price"]), _nonzero(sell["sl_price"])
 
+        rnd = None
+        if value == "PULLBACK":
+            rnd, pb_tp, pb_sl = self._pullback_round(user_id, holding)
+            if pb_tp is not None:
+                tp, sl = pb_tp, pb_sl
+
         upd = acc.get("updated_at") or pos.get("updated_at")
         self.send_json({
             "krw": _num(acc.get("virtual_krw"), 0),
@@ -316,9 +511,31 @@ class AssetsHandler(ReadHandler):
             "pnl": pnl,
             "tp_price": tp,
             "sl_price": sl,
-            "round": None,  # 회차는 PULLBACK(P3) 개념 — 1차는 항상 null
+            "round": rnd,   # 2차 T16: 새 전략이면 {"entry","max","desync"}, EMA·MACD 는 null(1차와 같음)
             "updated_at": _iso(upd),
         })
+
+    def _pullback_round(self, user_id: str, holding: bool):
+        """2차 T16 (결정 5): 분할 회차·어긋남·평단 기준 익절/손절 가격. ops_info 를 부르지 않는다
+        (저장본 해시·요청 파일 읽기 없음) — 분할 한도는 control._eff_max_splits, 상태는 SQL_PB_STATE 만.
+        모드 = 세션 입장 모드(운용 탭 ops_info·예약과 같은 범위). 상태 표를 못 읽으면 회차 None(모름), 가격은 기존 값."""
+        cfg = self._pb_cfg or {}
+        mode = self.current_user.get("mode")
+        rows = _try_query(user_id, SQL_PB_STATE, (user_id, mode)) if mode in ("TEST", "LIVE") else None
+        if rows is None:
+            return None, None, None
+        st = rows[0] if rows else {}
+        entry = _int_or_none(st.get("entry_count")) or 0
+        desync = bool(st.get("desync"))
+        eff = cfg.get("max_splits")
+        rnd = {"entry": entry, "max": eff, "desync": desync} if eff else None
+        avg = _float_or_none(st.get("avg_price"))
+        tp_pct, sl_pct = cfg.get("tp"), cfg.get("sl")
+        if (holding and not desync and avg is not None and avg > 0
+                and tp_pct is not None and sl_pct is not None):
+            # 엔진 식(core/strategy_pullback.py: avg × (1 ± %/100))과 같다
+            return rnd, avg * (1 + tp_pct / 100.0), avg * (1 - sl_pct / 100.0)
+        return rnd, None, None
 
 
 class _ListHandler(ReadHandler):
@@ -343,6 +560,9 @@ class _ListHandler(ReadHandler):
         for r in rows:
             r["timestamp"] = _iso(r["timestamp"])
             r["bar_time"] = _iso(r["bar_time"])
+            if "meta" in r:
+                # 2차 T16 (결정 6): meta 는 내보내지 않고 새 전략 행만 파생 칸(round·skip_reason)을 단다
+                r.update(pb_trade_extra(r.get("type"), r.pop("meta")))
         self.send_json({self.KEY: rows})
 
 
@@ -359,8 +579,13 @@ class SignalsHandler(_ListHandler):
     DEFAULT_LIMIT = 20
 
     def _get(self, limit):
-        user_id, _v, _m, ticker, _i = self._context()
-        if ticker:
+        user_id, value, _m, ticker, _i = self._context()
+        pb = value == "PULLBACK" and bool(ticker)
+        if pb:
+            # 2차 T16: 새 전략은 판정 칸(checks)을 함께 읽어 행마다 "pb" 를 단다(EMA·MACD 는 아래 조회 그대로)
+            buys = db.query(user_id, SQL_SIGNALS_PB_TICKER, (ticker, limit))
+            sells = db.query(user_id, SQL_SIGNALS_PB_SELL_TICKER, (ticker, limit))
+        elif ticker:
             buys = db.query(user_id, SQL_SIGNALS_TICKER, (ticker, limit))
             sells = db.query(user_id, SQL_SIGNALS_SELL_TICKER, (ticker, limit))
         else:
@@ -394,6 +619,14 @@ class SignalsHandler(_ListHandler):
             ts, kind_rank, rid, _row = it
             return (ts is None, -(ts.timestamp() if ts is not None else 0.0),
                     kind_rank, -(rid or 0))
+
+        if pb:
+            src = {("buy", r["id"]): r for r in buys}
+            src.update({("sell", r["id"]): r for r in sells})
+            for it in items:
+                row = it[3]
+                raw = src.get((row["kind"], row["id"]), {})
+                row["pb"] = pb_signal(raw.get("checks"), raw.get("failed_keys"))
 
         items.sort(key=key)
         self.send_json({self.KEY: [it[3] for it in items[:limit]]})
@@ -451,6 +684,17 @@ def _trade_item(r):
     """audit_trades 한 행 -> (text, cls). 대상 아닌 type 은 None."""
     typ = str(r["type"] or "").upper()
     reason = _reason_text(r["reason"])
+    extra = pb_trade_extra(typ, r.get("meta"))   # 2차 T16: 새 전략 행만 값이 있다
+    if typ == "BUY" and extra.get("round") is not None:
+        # 「매수 체결 2회차 · 눌림목 · 평단 1,000」, 1회차는 평단 = 체결가라 생략(「매수 체결 1회차 · 골든크로스」)
+        n = extra["round"]
+        text = "매수 체결 %d회차" % n + (" · " + reason if reason else "")
+        avg = r["entry_price"] or _json_obj(r.get("meta")).get("avg_after")
+        if n >= 2 and avg:
+            text += " · 평단 " + _price_text(avg)
+        return text, "buy"
+    if typ.endswith("_REJECTED") and extra.get("skip_reason"):
+        return "매수 건너뜀 — " + extra["skip_reason"], "muted"
     if typ == "BUY":
         text = "매수 체결" + (" · " + reason if reason else "")
         if r["entry_price"]:
@@ -469,8 +713,30 @@ def _trade_item(r):
     return None
 
 
-def _group_buy_wait(buys):
-    """audit_buy_eval(최신순) -> 미통과 연속 구간을 1행으로 묶은 항목 목록."""
+def _wait_key(r, cfg):
+    """묶음 기준. EMA·MACD 행 = failed_keys 원문(1차 그대로), 새 전략 행 = ("pb", 문구)."""
+    ck = _json_obj(r.get("checks")) if cfg is not None else {}
+    if _is_pb_checks(ck):
+        keys = _json_list(r["failed_keys"]) or _json_list(ck.get("failed_keys"))
+        return ("pb", _pb_wait_text(keys, ck, cfg))
+    return str(r["failed_keys"] or "").strip()
+
+
+def _golden_items(rows, prefix, cfg):
+    """2차 T16: 새 전략 판정 행의 golden_event=1 → 「골든크로스 발생 (60선 > 200선)」 항목."""
+    out = []
+    for r in rows:
+        ck = _json_obj(r.get("checks"))
+        if _is_pb_checks(ck) and ck.get("golden_event") in (1, True):
+            out.append((_dt(r["timestamp"]), 1, r["id"],
+                        {"id": "g%s%s" % (prefix, r["id"]), "timestamp": _iso(r["timestamp"]),
+                         "text": _golden_text(cfg), "cls": ""}))
+    return out
+
+
+def _group_buy_wait(buys, cfg=None):
+    """audit_buy_eval(최신순) -> 미통과 연속 구간을 1행으로 묶은 항목 목록.
+    cfg(2차 T16)가 있으면 새 전략 행은 checks 로 문구를 만든다(EMA·MACD 행은 1차 그대로)."""
     out = []
     i = 0
     while i < len(buys):
@@ -481,13 +747,13 @@ def _group_buy_wait(buys):
                          "text": "매수 조건 충족", "cls": ""}))
             i += 1
             continue
-        key = str(r["failed_keys"] or "").strip()
+        key = _wait_key(r, cfg)
         j = i
         while (j + 1 < len(buys) and not buys[j + 1]["overall_ok"]
-               and str(buys[j + 1]["failed_keys"] or "").strip() == key):
+               and _wait_key(buys[j + 1], cfg) == key):
             j += 1
         n = j - i + 1
-        text = _with_note("매수 대기", _failed_keys_text(r["failed_keys"]))
+        text = key[1] if isinstance(key, tuple) else _with_note("매수 대기", _failed_keys_text(r["failed_keys"]))
         if n > 1:
             text += " (%d회, %s~%s)" % (n, _hhmm(_dt(buys[j]["timestamp"])),
                                        _hhmm(_dt(r["timestamp"])))
@@ -498,8 +764,146 @@ def _group_buy_wait(buys):
     return out
 
 
-def _audit_items(user_id):
-    """감사 로그 네 표를 시각 내림차순으로 합친 항목 [(dt, rank, id, row)]."""
+def _sell_trigger_item(r):
+    why = _reason_text(r["trigger_key"])
+    return (_dt(r["timestamp"]), 1, r["id"],
+            {"id": "s%s" % r["id"], "timestamp": _iso(r["timestamp"]),
+             "text": "매도 조건 발동" + (" · " + why if why else ""), "cls": "sell"})
+
+
+def _pb_sell_items(sells, cfg):
+    """2차 T16: 새 전략 매도 판단 행(최신순, 미발동 포함). 발동 = 1차와 같은 줄,
+    보유 중 눌림 대기(armed) 연속 구간 = 「매수 대기 — 눌림 상태, n회차 준비」 1줄, 그 밖 미발동 행은 넣지 않는다."""
+    out = []
+    i = 0
+    while i < len(sells):
+        r = sells[i]
+        if r["triggered"]:
+            out.append(_sell_trigger_item(r))
+            i += 1
+            continue
+        ck = _json_obj(r.get("checks"))
+        keys = _json_list(ck.get("failed_keys"))
+        if not (_is_pb_checks(ck) and ck.get("armed") in (1, True) and keys
+                and str(keys[0]).upper() == "WAIT_PULLBACK"):
+            i += 1
+            continue
+        text = _pb_wait_text(keys, ck, cfg)
+        j = i
+        while j + 1 < len(sells) and not sells[j + 1]["triggered"]:
+            ck2 = _json_obj(sells[j + 1].get("checks"))
+            k2 = _json_list(ck2.get("failed_keys"))
+            if not (_is_pb_checks(ck2) and k2 and _pb_wait_text(k2, ck2, cfg) == text
+                    and ck2.get("armed") in (1, True)):
+                break
+            j += 1
+        n = j - i + 1
+        if n > 1:
+            text += " (%d회, %s~%s)" % (n, _hhmm(_dt(sells[j]["timestamp"])), _hhmm(_dt(r["timestamp"])))
+        out.append((_dt(r["timestamp"]), 2, r["id"],
+                    {"id": "w%s" % r["id"], "timestamp": _iso(r["timestamp"]), "text": text, "cls": "muted"}))
+        i = j + 1
+    return out
+
+
+def _bar_sec(interval) -> int:
+    try:
+        return interval_sec(interval)
+    except (ValueError, TypeError):
+        return 60
+
+
+def _fmt_param(key, v) -> str:
+    if v is None:
+        return "없음"
+    if isinstance(v, bool):
+        return "켜짐" if v else "꺼짐"
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    return "%s%s" % (v, "%" if key in PARAM_PCT_KEYS else "")
+
+
+def params_change_text(note) -> str:
+    """strategy_switch PARAMS 행 note → 「설정 적용 · 익절 TP 5→4% · 즉시」. 「전략 전환 완료」로 보이지 않는다."""
+    m = _json_obj(note)
+    changed = m.get("changed") if isinstance(m.get("changed"), dict) else {}
+    parts = []
+    pairs = [(k, v) for k, v in changed.items() if isinstance(v, (list, tuple)) and len(v) == 2]
+    if pairs and all(v[0] is None for _k, v in pairs) and len(pairs) > 3:
+        parts.append("새 설정 %d개" % len(pairs))
+    else:
+        for k, (old, new) in pairs[:3]:
+            label = PARAM_KEY_LABELS.get(k, k)
+            if old is None:
+                parts.append("%s %s" % (label, _fmt_param(k, new)))
+            else:
+                o = _fmt_param(k, old)
+                if k in PARAM_PCT_KEYS and o.endswith("%"):
+                    o = o[:-1]   # 「5→4%」
+                parts.append("%s %s→%s" % (label, o, _fmt_param(k, new)))
+        if len(pairs) > 3:
+            parts.append("외 %d개" % (len(pairs) - 3))
+    apply = APPLY_LABELS.get(str(m.get("apply") or ""))
+    return " · ".join(["설정 적용"] + parts + ([apply] if apply else []))
+
+
+def _switch_texts(r) -> "list[tuple]":
+    """strategy_switch SWITCH·REVERT 행 1개 → [(시각 문자열, 문구, cls)].
+    한 행이 예약 → 완료로 갱신되므로, 완료까지 max(1봉, 300초)보다 오래 걸린 행은 요청 시각에 예약 줄을 하나 더 그린다."""
+    kind, state, note = r["kind"], r["state"], r["note"]
+    rev = kind == "REVERT"
+    target = STRATEGY_TEXT.get(str(r["to_strategy"] or "").upper(), str(r["to_strategy"] or ""))
+    reserve = "복귀 예약" if rev else "전환 예약"
+    when = r["done_at"] or r["requested_at"]
+    out = []
+    if state == "RESERVED":
+        if note == "switching":
+            out.append((r["requested_at"], "기존 전략으로 복귀 처리 중" if rev else "전략 전환 처리 중", "muted"))
+        else:
+            out.append((r["requested_at"], reserve, "muted"))
+        return out
+    if state == "DONE":
+        out.append((when, ("기존 전략으로 복귀 → " + target) if rev else ("전략 전환 완료 → " + target), ""))
+    elif state == "CANCELED":
+        if note == "mode_conflict":
+            out.append((when, ("복귀" if rev else "전환") + " 요청 취소 — 다른 모드 엔진 실행 중", "muted"))
+            return out
+        out.append((when, reserve + " 취소", "muted"))
+    elif state == "FAILED":
+        out.append((when, "기존 전략으로 복귀 실패 — 새 전략으로 계속" if rev
+                    else "전략 전환 실패 — 기존 전략으로 계속", "muted"))
+    else:
+        return out
+    t0, t1 = _dt(r["requested_at"]), _dt(r["done_at"])
+    gap_min = max(_bar_sec(r["from_interval"] or r["to_interval"]), SWITCH_RESERVED_MIN_SEC)
+    if t0 is not None and t1 is not None and (t1 - t0).total_seconds() > gap_min:
+        out.append((r["requested_at"], reserve, "muted"))
+    return out
+
+
+def _switch_items(user_id, mode):
+    """2차 T16: 전환·복귀·설정 적용 기록(strategy_switch). 세션 입장 모드 행만(운용 탭 예약과 같은 범위).
+    표가 없거나 못 읽으면 빈 목록 — 감사 로그 나머지는 그대로 나온다."""
+    rows = _try_query(user_id, SQL_LOGS_SWITCH)
+    out = []
+    for r in rows or []:
+        if r["user_id"] != user_id or r["mode"] != mode:
+            continue
+        if r["kind"] == "PARAMS":
+            lines = [(r["done_at"] or r["requested_at"], params_change_text(r["note"]), "")]
+        elif r["kind"] in ("SWITCH", "REVERT"):
+            lines = _switch_texts(r)
+        else:
+            continue
+        for n, (ts, text, cls) in enumerate(lines):
+            out.append((_dt(ts), 0, r["id"],
+                        {"id": "x%s-%d" % (r["id"], n), "timestamp": _iso(ts), "text": text, "cls": cls}))
+    return out
+
+
+def _audit_items(user_id, cfg=None, mode=None):
+    """감사 로그 네 표(+ 2차 T16 전환 기록)를 시각 내림차순으로 합친 항목 [(dt, rank, id, row)].
+    cfg = 새 전략 화면 값(활성 전략 PULLBACK 일 때만, 아니면 None → 판단 표 조회·문구는 1차 그대로)."""
     items = []
     for r in db.query(user_id, SQL_LOGS_AUDIT_TRADES):
         got = _trade_item(r)
@@ -507,12 +911,23 @@ def _audit_items(user_id):
             items.append((_dt(r["timestamp"]), 0, r["id"],
                           {"id": "t%s" % r["id"], "timestamp": _iso(r["timestamp"]),
                            "text": got[0], "cls": got[1]}))
-    items += _group_buy_wait(db.query(user_id, SQL_LOGS_AUDIT_BUY_EVAL))
-    for r in db.query(user_id, SQL_LOGS_AUDIT_SELL_EVAL):
-        why = _reason_text(r["trigger_key"])
-        items.append((_dt(r["timestamp"]), 1, r["id"],
-                      {"id": "s%s" % r["id"], "timestamp": _iso(r["timestamp"]),
-                       "text": "매도 조건 발동" + (" · " + why if why else ""), "cls": "sell"}))
+    if cfg is None:
+        items += _group_buy_wait(db.query(user_id, SQL_LOGS_AUDIT_BUY_EVAL))
+        for r in db.query(user_id, SQL_LOGS_AUDIT_SELL_EVAL):
+            items.append(_sell_trigger_item(r))
+    else:
+        buys = db.query(user_id, SQL_LOGS_AUDIT_BUY_EVAL_PB)
+        sells = db.query(user_id, SQL_LOGS_AUDIT_SELL_EVAL_PB)
+        items += _group_buy_wait(buys, cfg)
+        items += _pb_sell_items(sells, cfg)
+        # 보유 중 매수 신호 봉은 두 판단 표에 같은 checks 가 남는다 — 같은 시각 골든크로스 줄은 1개만
+        seen = set()
+        for it in _golden_items(buys, "b", cfg) + _golden_items(sells, "s", cfg):
+            if it[3]["timestamp"] not in seen:
+                seen.add(it[3]["timestamp"])
+                items.append(it)
+    if mode in ("TEST", "LIVE"):
+        items += _switch_items(user_id, mode)
 
     # 최신순; 시각 같으면 체결(0) → 매도 발동(1) → 매수 판단(2), 같은 종류는 id 큰 것 먼저. 파싱 실패는 맨 뒤.
     def key(it):
@@ -538,7 +953,8 @@ class LogsHandler(ReadHandler):
     def _get(self, kind, page):
         user_id = self.current_user["user_id"]
         if kind == "audit":
-            items = _audit_items(user_id)
+            self._context()   # 2차 T16: 새 전략이면 self._pb_cfg(문구용 기간), 아니면 None
+            items = _audit_items(user_id, self._pb_cfg, self.current_user.get("mode"))
             more = len(items) > LOGS_MAX_PAGES * LOGS_PAGE_SIZE
             pages = _page_count(len(items))
             page = min(page, pages)

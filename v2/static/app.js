@@ -1,7 +1,41 @@
 // v2 화면 (Alpine). 일반 script 로 읽고 alpine:init 에서 등록한다.
 // 차트 이동평균선(그림 2-나): 60선·200선. 200선은 봉 400개가 모인 뒤 그린다(chart.js visiblePeriods).
 const CHART_PERIODS = [60, 200];
-const CHART_TARGET_CANDLES = 400;   // 처음 그릴 때 200봉 2회로 모으는 목표
+const CHART_TARGET_CANDLES = 400;   // 처음 그릴 때 200봉 2회로 모으는 목표(기본 60·200 선)
+const CHART_TARGET_MAX = 2000;      // 2차 T16 (결정 1030-02 U1): 2 × 가장 긴 기간, 최대 2000봉(요청 최대 10회)
+const EMA_LINE_NOTE = "지수이동평균(EMA) 선은 화면에 받은 봉으로 계산해 엔진 값과 조금 다를 수 있습니다.";
+
+function _posInt(v, d) { return Number.isInteger(v) && v > 0 ? v : d; }
+
+// 2차 T16: 차트 선 설정(순수 함수). 새 전략(status.pullback)이면 적용본 기간·방식, 그 밖은 1차 그대로(60·200 단순).
+// pullbackP 가 60선 기간과 다를 때만 기준선(pull)을 하나 더(U3). target = 받을 봉 수(U1).
+function chartLines(status) {
+  const pb = status && status.pullback;
+  if (!pb) {
+    return { lines: CHART_PERIODS.slice(), maType: "sma", target: CHART_TARGET_CANDLES, legend: null, note: "",
+      caption: "", sig: "base" };
+  }
+  const a = _posInt(pb.ma60p, 60), b = _posInt(pb.ma200p, 200), p = _posInt(pb.pullbackP, a);
+  const lines = [{ period: a, slot: "trend" }, { period: b, slot: "long" }];
+  if (p !== a) lines.push({ period: p, slot: "pull" });
+  const maType = pb.maType === "ema" ? "ema" : "sma";
+  const longest = Math.max(...lines.map((l) => l.period));
+  const target = Math.min(CHART_TARGET_MAX, Math.max(CHART_TARGET_CANDLES, 2 * longest));
+  return { lines, maType, target, legend: { a: a + "선", b: b + "선", pull: p !== a ? p + "선(기준선)" : "" },
+    note: maType === "ema" ? EMA_LINE_NOTE : "",
+    caption: "캔들, " + a + "선·" + b + "선" + (p !== a ? ", " + p + "선(눌림목 기준선)" : "(눌림목 기준선)") +
+      ", 봇이 실제로 사고판 자리. 손가락으로 확대·이동합니다.",
+    sig: [a, b, p, maType].join(",") };
+}
+
+// 2차 T16: 퍼센트 표기(5 → 「5」, 1.5 → 「1.5」)
+function _pct(v) { return Number(v).toLocaleString("ko-KR", { maximumFractionDigits: 2 }); }
+
+// 2차 T16: 예약 배지 문구(운용 탭 ops.js reservationText 와 같은 구분 — 복귀 예약은 「복귀 예약 중」)
+function reservationBadgeText(res) {
+  if (!res) return "";
+  return res.kind === "REVERT" ? "복귀 예약 중" : "전환 예약 중";
+}
 const GATE_KEY = "v2.upbitGateAt";
 
 // localStorage 접근이 막힌 환경(시크릿 창 등)에서도 오류 없이 — 없으면 null(문은 메모리로 대신)
@@ -64,7 +98,7 @@ function engineBadge(status, basic) {
   return { id: "engine-badge", text: "엔진 동작 중 · 판단 보류", cls: "p-off" };
 }
 
-function homeView(status, assets, basic, nowMs) {
+function homeView(status, assets, basic, nowMs, ctl) {
   nowMs = nowMs == null ? Date.now() : nowMs;
   const st = status || {};
   const a = assets || {};
@@ -78,6 +112,10 @@ function homeView(status, assets, basic, nowMs) {
     st.paused ? { id: "pause-badge", text: "일시정지 중", cls: "p-warn" }
       : { id: "pause-badge", text: "일시정지 아님", cls: "p-off" },
   ];
+  // 2차 T16: 예약이 있을 때만 「전환 예약 중」(노랑) — 전략 배지 바로 뒤. 예약 없으면 배지 4개 그대로
+  const res = ctl && ctl.reservation;
+  if (res) badges.splice(3, 0, { id: "reserve-badge", text: reservationBadgeText(res), cls: "p-warn" });
+  const pb = st.pullback || null;
 
   const krw = Number(a.krw), coin = Number(a.coin), price = Number(a.price), entry = Number(a.entry_price);
   const hasKrw = assets && a.krw != null && Number.isFinite(krw);
@@ -110,24 +148,73 @@ function homeView(status, assets, basic, nowMs) {
       return " (" + (v > 0 ? "+" : (v < 0 ? "-" : "")) + Math.abs(v).toFixed(1) + "%)";
     };
     const won = (p) => (p > 0 ? priceText(p) + "원" : "—");
+    // 2차 T16: 분할 회차 「2 / 5회」(새 전략), EMA·MACD 는 「—」. 익절·손절 % 는 새 전략 적용본 값(그림 2-가)
+    const r = a.round;
+    const roundText = r && typeof r === "object" && Number.isInteger(r.entry) && Number.isInteger(r.max)
+      ? r.entry + " / " + r.max + "회" : "—";
+    const pbPct = (v, sign) => (pb && Number.isFinite(Number(v)) && v !== null ? " (" + sign + _pct(v) + "%)" : null);
+    const tpL = pbPct(pb && pb.tp, "+"), slL = pbPct(pb && pb.sl, "-");
     holding = {
       ticker: st.ticker || "—",
-      round: a.round == null ? "—" : String(a.round),
+      round: roundText,
       avg: won(entry),
-      tp: { label: "익절 가격" + pctText(Number(a.tp_price)), price: won(Number(a.tp_price)) },
-      sl: { label: "손절 가격" + pctText(Number(a.sl_price)), price: won(Number(a.sl_price)) },
+      tp: { label: "익절 가격" + (tpL !== null ? tpL : pctText(Number(a.tp_price))), price: won(Number(a.tp_price)) },
+      sl: { label: "손절 가격" + (slL !== null ? slL : pctText(Number(a.sl_price))), price: won(Number(a.sl_price)) },
     };
   }
   return { badges, total, krwCoin, pnl, locked, recorded, holding };
 }
 
-function signalSentence(row) {
+// 2차 T16: 새 전략 최신 신호 문장(그림 2-가). 우선순위: 매도 발동 > 예약 > 어긋남 > 회차 다 참 > 눌림(armed)
+// > 감시 구간 안 > 감시 구간 밖 > 그 밖 판정 키. 「N선」 = 눌림은 pullbackP, 감시 구간은 ma60p·ma200p.
+const _INACTIVE_TEXT = { not_golden: (a, b) => a + "선 ≤ " + b + "선", slope_low: (a, b) => b + "선 기울기 낮음",
+  slope_drop: (a, b) => b + "선 기울기 둔화" };
+function pullbackSentence(row, ctx) {
+  const c = ctx || {};
+  const cfg = c.pb || {};
+  const s = row.pb || {};
+  const L = _labels();
+  const a = _posInt(cfg.ma60p, 60), b = _posInt(cfg.ma200p, 200), p = _posInt(cfg.pullbackP, a);
+  const holding = c.holding === true || row.kind === "sell" || s.holding === 1;
+  const rnd = c.round && typeof c.round === "object" ? c.round : null;
+  const next = Number.isInteger(s.round) && s.round >= 0 ? s.round + 1 : (rnd && Number.isInteger(rnd.entry) ? rnd.entry + 1 : null);
+  if (c.reservation) return (c.reservation.kind === "REVERT" ? "복귀 예약 중" : "전환 예약 중") + " — 봇 추가 매수 안 함";
+  if (holding && rnd && rnd.desync) return "보유 유지 — 앱 주문이 섞여 추가 매수를 멈췄습니다. 익절·손절은 그대로";
+  if (row.kind === "buy" && row.overall_ok) return "매수 조건 충족";
+  const key = s.state;
+  if (key === "SPLITS_FULL") {
+    const n = rnd && Number.isInteger(rnd.max) ? rnd.max : (Number.isInteger(s.round) ? s.round : null);
+    return "보유 유지 — 분할 " + (n === null ? "" : n + " / " + n + "회 ") + "모두 매수함. 익절·손절 가격 안";
+  }
+  if (key === "WAIT_PULLBACK" && next !== null) {
+    if (s.armed === 1) return "눌림 대기 중 — 가격이 " + p + "선 아래로 내려옴. 다시 위에서 마감하면 " + next + "회차 매수";
+    return "매수 대기 — 가격이 " + p + "선 위. " + p + "선 아래로 내려왔다가 다시 위에서 마감하면 " + next + "회차 매수";
+  }
+  if (key === "NOT_ACTIVE") {
+    if (holding) return "보유 유지 — 감시 구간 밖. 익절·손절 가격 안";
+    const why = _INACTIVE_TEXT[s.inactive_reason];
+    return "매수 대기 — 감시 구간 아님" + (why ? " (" + why(a, b) + ")" : "");
+  }
+  const label = key ? L.failedKeysText([key]) : "";
+  if (holding) return "보유 유지 — " + (label ? label + ". " : "") + "익절·손절 가격 안";
+  return "매수 대기" + (label ? " — " + label : "");
+}
+
+function signalSentence(row, ctx) {
   if (!row) return { title: "최신 신호", text: "신호 기록이 없습니다" };
   const p = _kstParts(row.bar_time || row.timestamp);
   const title = "최신 신호" + (p ? " · " + p.h + ":" + p.mi + " 봉" : "");
   const L = _labels();
   let text;
-  if (row.kind === "sell") {
+  if (row.kind === "sell" && row.triggered) {
+    const why = L.reasonLabel(row.trigger_key);
+    text = "매도" + (why ? " — " + why : "");
+  } else if (row.pb) {
+    text = pullbackSentence(row, ctx);
+  } else if (ctx && ctx.reservation) {
+    // 2차 T16: 예약 중(기존 전략 운용 중 전환 예약) — 봇 자동 매수 막힘(T12)
+    text = (ctx.reservation.kind === "REVERT" ? "복귀 예약 중" : "전환 예약 중") + " — 봇 추가 매수 안 함";
+  } else if (row.kind === "sell") {
     if (row.triggered) {
       const why = L.reasonLabel(row.trigger_key);
       text = "매도" + (why ? " — " + why : "");
@@ -162,10 +249,13 @@ function tradeRow(t, nowMs) {
   else if (type === "HTS_SELL") { kind = "외부 매도"; kindCls = "dn"; }
   else if (type === "BUY_CANCELED") { kind = "매수 취소"; kindCls = "muted"; }
   else { kind = String(t.type || "—"); kindCls = "muted"; }
+  // 2차 T16: 새 전략 회차 매수 「매수 2회」(그림 2-가), 회차 건너뜀은 사유에 원인(「원화 잔고 부족」)
+  if (type === "BUY" && Number.isInteger(t.round)) kind = "매수 " + t.round + "회";
   const time = logTime(t.timestamp, nowMs);
   const price = Number(t.price), qty = Number(t.qty);
   const amount = price > 0 && qty > 0 ? _won(price * qty) : "—";
-  return { time, kind, kindCls, reason: _labels().reasonLabel(t.reason), amount };
+  const reason = t.skip_reason ? String(t.skip_reason) : _labels().reasonLabel(t.reason);
+  return { time, kind, kindCls, reason, amount };
 }
 
 document.addEventListener("alpine:init", () => {
@@ -177,6 +267,8 @@ document.addEventListener("alpine:init", () => {
     return {
     tab: "home",
     status: null, assets: null, basic: null, trades: [], signals: [],
+    // 2차 T16: 예약 상태(GET /v2/api/control/state — 입장 모드로 거른 예약). 못 읽으면 null(배지 없음)
+    ctl: null,
     // 로그 탭(그림 2-라): 종류 토글 · 12행씩 쪽 이동
     logsKind: "audit", logRows: [], logsPage: 1, logsPages: 1, logsMore: false, logsLoaded: false, _logsSeq: 0,
     authError: false, netError: "", chartFail: "", chartNote: "",
@@ -224,7 +316,7 @@ document.addEventListener("alpine:init", () => {
       if (this.tab === "chart" && window.v2Chart) {
         const st = this.status;
         const unit = st && st.ticker ? window.v2Chart.intervalToMinutes(st.interval) : null;
-        const key = st && st.ticker ? st.ticker + "|" + unit : "";
+        const key = st && st.ticker ? st.ticker + "|" + unit + "|" + chartLines(st).sig : "";
         // poller 가 없거나 종목·봉 단위가 바뀌었으면 다시 시작
         if (!C.poller || (key && key !== C.key)) this.startChart();
       }
@@ -240,9 +332,13 @@ document.addEventListener("alpine:init", () => {
       ];
       if (this.tab === "ops") jobs.push(["/v2/api/ops", (d) => { this.setOps(d); }]);
       let failed = 0;
+      // 2차 T16: 예약 배지·문장용. 실패해도 안내 띠(netError)는 띄우지 않고 배지만 뺀다
+      const ctlJob = (async () => {
+        try { this.ctl = await this.getJson("/v2/api/control/state"); } catch (e) { this.ctl = null; }
+      })();
       await Promise.all(jobs.map(async ([path, apply]) => {
         try { apply(await this.getJson(path)); } catch (e) { failed += 1; }
-      }));
+      }).concat([ctlJob]));
       this.netError = (failed && !this.authError) ? "일부 정보를 불러오지 못했습니다. 잠시 뒤 다시 시도합니다." : "";
     },
 
@@ -428,7 +524,8 @@ document.addEventListener("alpine:init", () => {
         return;
       }
       this.chartNote = "";
-      const key = st.ticker + "|" + unitMin;
+      const spec = chartLines(st);   // 2차 T16: 새 전략이면 적용본 기간·방식·받을 봉 수
+      const key = st.ticker + "|" + unitMin + "|" + spec.sig;
       if (C.key !== key || !C.view) {
         if (C.view) { C.view.destroy(); C.view = null; }
         document.getElementById("chart").innerHTML = "";
@@ -444,7 +541,7 @@ document.addEventListener("alpine:init", () => {
       const gen = ++C.gen;
       const draw = (d) => {
         const asc = mod.markFormingCandle(d.candles, Date.now(), unitMin * 60);
-        C.view.update(asc, d.markers, CHART_PERIODS, unitMin * 60);
+        C.view.update(asc, d.markers, spec.lines, unitMin * 60, spec.maType);
       };
       // 보관한 같은 키의 데이터가 있으면 즉시 그린다
       if (C.cache && C.cache.key === key) draw(C.cache);
@@ -459,7 +556,7 @@ document.addEventListener("alpine:init", () => {
             return null;
           }
           // 최신 200봉 → 이어서 가장 오래된 봉 이전 200봉(to=)으로 400봉까지, 그 뒤엔 최신 200봉만
-          const wantOlder = store.candles.length > 0 && store.candles.length < CHART_TARGET_CANDLES && !store.olderDone;
+          const wantOlder = store.candles.length > 0 && store.candles.length < spec.target && !store.olderDone;
           const toIso = wantOlder ? store.candles[0].candle_date_time_utc + "Z" : undefined;
           const r = await fetch(mod.upbitCandlesUrl(st.ticker, unitMin, toIso));
           if (!r.ok) { const e = new Error("upbit " + r.status); e.status = r.status; throw e; }   // 429 도 이 회는 실패, 30초 뒤 다시
@@ -471,7 +568,7 @@ document.addEventListener("alpine:init", () => {
           try { markers = (await this.getJson(markersPath)).markers || []; } catch (e) { /* 표식 실패는 차트 실패가 아님 */ }
           return {
             candles: store.candles.slice(), markers,
-            more: store.candles.length < CHART_TARGET_CANDLES && !store.olderDone,
+            more: store.candles.length < spec.target && !store.olderDone,
           };
         },
         intervalMs: 30000,
@@ -542,8 +639,16 @@ document.addEventListener("alpine:init", () => {
       return "모드 " + (s.mode_engine || "확인 불가");
     },
     // 홈 화면 한 덩어리 (배지·자산·보유). 계산은 위 homeView
-    get home() { return homeView(this.status, this.assets, this.basic); },
-    get signalCard() { return signalSentence(this.signals[0]); },
+    get home() { return homeView(this.status, this.assets, this.basic, undefined, this.ctl); },
+    get signalCard() { return signalSentence(this.signals[0], this.signalCtx); },
+    // 2차 T16: 최신 신호 문장 재료(새 전략 값·회차·예약·보유)
+    get signalCtx() {
+      const a = this.assets || {};
+      return { pb: this.status && this.status.pullback, round: a.round || null,
+        reservation: this.ctl && this.ctl.reservation, holding: (Number(a.coin) || 0) > 0 || (Number(a.coin_locked) || 0) > 0 };
+    },
+    // 2차 T16: 차트 범례·안내(새 전략일 때만 값, 아니면 1차 범례 그대로)
+    get chartSpec() { return chartLines(this.status); },
     get tradeRows() { const now = Date.now(); return this.trades.map((t) => ({ id: t.id, ...tradeRow(t, now) })); },
     get mismatchText() {
       const s = this.status || {};

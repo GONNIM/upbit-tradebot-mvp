@@ -103,6 +103,15 @@ class StaticLintTest(unittest.TestCase):
             self.assertIn(s, html, s)
         self.assertIn("createSharedRateGate(10000", js)
         self.assertNotIn("createRateGate(", js)
+        # 2차 T16: 1차 고정 글자(60선·200선 범례·안내 문장)는 새 전략이 아닐 때만 보이고,
+        # 새 전략은 적용본 기간 범례·안내 문장·EMA 안내 한 줄로 바꿔 보인다(같은 자리).
+        self.assertIn('<p class="chart-legend" x-show="!chartSpec.legend">', html)
+        self.assertIn('id="chart-legend-pb" x-show="!!chartSpec.legend"', html)
+        self.assertIn('<p class="sentence" x-show="!chartSpec.caption">캔들, 60선·200선', html)
+        self.assertIn('id="chart-caption-pb" x-show="!!chartSpec.caption" x-text="chartSpec.caption"', html)
+        self.assertIn('id="chart-ema-note" x-show="!!chartSpec.note" x-text="chartSpec.note"', html)
+        self.assertIn("get chartSpec() { return chartLines(this.status); }", js)
+        self.assertIn(".chart-legend .mapull", css)
         self.assertRegex(css, r"\.chart\s*\{[^}]*height:\s*300px")
 
     def test_no_stop_word_in_engine_badge(self):

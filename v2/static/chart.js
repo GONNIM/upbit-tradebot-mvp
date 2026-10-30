@@ -45,6 +45,23 @@ export function sma(values, period) {
   return out;
 }
 
+// 2차 T16: 지수이동평균(새 전략 maType "ema"). 첫 값 = 앞 period 개 단순평균, 그 뒤 α = 2/(period+1).
+// 화면에 받은 봉으로만 계산하므로 더 오래 쌓은 엔진 값과 조금 다를 수 있다(화면 안내 1줄).
+export function ema(values, period) {
+  const out = new Array(values.length).fill(null);
+  if (!(period > 0) || values.length < period) return out;
+  const a = 2 / (period + 1);
+  let prev = 0;
+  for (let i = 0; i < period; i++) prev += values[i];
+  prev /= period;
+  out[period - 1] = prev;
+  for (let i = period; i < values.length; i++) {
+    prev = prev + a * (values[i] - prev);
+    out[i] = prev;
+  }
+  return out;
+}
+
 // 요청 간격 문(창끼리 공유): 마지막 허용 시각을 storage(localStorage)에 두어 같은 브라우저의 여러 창이
 // 업비트 10초당 1회 한도를 함께 지킨다. storage 가 없거나 오류면 이 창의 메모리로 대신한다.
 export function createSharedRateGate(minIntervalMs, storage, key = "v2.upbitGateAt", nowFn = Date.now) {
@@ -114,8 +131,12 @@ export function createPoller({ fetchFn, intervalMs = 30000, onData, onError, isH
 }
 
 // markers API 행 → Lightweight Charts 표식. 시간 오름차순, time 은 UTC epoch 초.
+// 2차 T16 (결정 1030-02 U2): 실제 체결(BUY·SELL)만 — 거절·취소 등 다른 유형은 그리지 않는다(서버도 같은 조건).
+// 외부 매수·매도 행은 bar_time 이 없어 표식이 없다(4e86afb 와 같음 — 아래 time NaN 거르기).
+export const MARKER_TYPES = ["BUY", "SELL"];
 export function toMarkers(markers) {
   return markers
+    .filter((m) => MARKER_TYPES.includes(String(m && m.type).toUpperCase()))
     .map((m) => {
       const buy = String(m.type).toUpperCase() === "BUY";
       return {
@@ -163,10 +184,22 @@ export function kstTick(sec, tickMarkType) {
 }
 
 // 이동평균 선 계산(순수 함수): {기간: 값 배열(앞쪽은 null)}
-export function maLines(closes, periods) {
+// maType(2차 T16): "ema" 면 지수이동평균, 그 밖은 단순이동평균(1차 그대로)
+export function maLines(closes, periods, maType) {
   const out = {};
-  for (const p of periods) out[p] = sma(closes, p);
+  const f = maType === "ema" ? ema : sma;
+  for (const p of periods) out[p] = f(closes, p);
   return out;
+}
+
+// 2차 T16: 선 목록 정리. 숫자 배열(1차 [60, 200])은 앞 = trend, 뒤 = long 칸으로 본다.
+// 칸(slot)마다 색이 정해져 있다: trend 주황, long 보라, pull(눌림 기준선) 청록 점선.
+export function normalizeLines(lines) {
+  const arr = Array.isArray(lines) ? lines : [60, 200];
+  return arr.map((l, i) => (typeof l === "number"
+    ? { period: l, slot: i === 0 ? "trend" : (i === 1 ? "long" : "extra" + i) }
+    : { period: Number(l.period), slot: String(l.slot) }))
+    .filter((l) => Number.isInteger(l.period) && l.period > 0);
 }
 
 // 그릴 선: 가장 긴 선(200)은 봉이 그 두 배(400) 모인 뒤에만 그린다. 그 전에는 짧은 선만.
@@ -232,33 +265,41 @@ export function createChartView(el) {
     upColor: "#cf222e", downColor: "#0969da", borderVisible: false,
     wickUpColor: "#cf222e", wickDownColor: "#0969da",
   });
-  // 선 색(그림 2-나): 60선 주황, 200선 보라. 시리즈는 기간별로 하나씩 만든다.
-  const LINE_COLORS = { 60: "#f59e0b", 200: "#7c3aed" };
+  // 선 색(그림 2-나): 60선(trend) 주황, 200선(long) 보라. 2차 T16: 칸(slot)별 시리즈 — 새 전략은 기간이
+  // 설정값이라 칸에 색을 묶는다. 눌림 기준선(pull, 60선과 기간이 다를 때만 — U3)은 청록 점선.
+  const SLOT_STYLE = { trend: { color: "#f59e0b" }, long: { color: "#7c3aed" }, pull: { color: "#0d9488", lineStyle: 2 } };
   const lineSeries = {};
-  function seriesFor(p) {
-    if (!lineSeries[p]) {
-      lineSeries[p] = chart.addLineSeries({
-        color: LINE_COLORS[p] || "#6b7280", lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
-      });
+  function seriesFor(slot) {
+    if (!lineSeries[slot]) {
+      const st = SLOT_STYLE[slot] || { color: "#6b7280" };
+      lineSeries[slot] = chart.addLineSeries(Object.assign({
+        lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
+      }, st));
     }
-    return lineSeries[p];
+    return lineSeries[slot];
   }
   return {
     ok: true,
     chart,
-    // periods: 이동평균 기간 목록, unitSec: 봉 길이(초)
-    update(candles, markers, periods = [60, 200], unitSec) {
+    // lines: 이동평균 선 목록([60, 200] 또는 [{period, slot}]), unitSec: 봉 길이(초), maType: "ema"|"sma"
+    update(candles, markers, lines = [60, 200], unitSec, maType) {
       const data = toChartCandles(candles);
       candleSeries.setData(data);
       const closes = data.map((d) => d.close);
       const line = (arr) => arr
         .map((v, i) => (v === null ? null : { time: data[i].time, value: v }))
         .filter(Boolean);
+      const specs = normalizeLines(lines);
+      const periods = specs.map((s) => s.period);
       const shown = visiblePeriods(data.length, periods);
-      const lines = maLines(closes, shown);
-      for (const p of periods) {
-        seriesFor(p).setData(shown.includes(p) ? line(lines[p]) : []);
+      const vals = maLines(closes, shown, maType);
+      const used = new Set();
+      for (const s of specs) {
+        used.add(s.slot);
+        seriesFor(s.slot).setData(shown.includes(s.period) ? line(vals[s.period]) : []);
       }
+      // 설정이 바뀌어 없어진 칸(예: 기준선이 60선과 같아짐)은 비운다
+      for (const slot of Object.keys(lineSeries)) if (!used.has(slot)) lineSeries[slot].setData([]);
       const all = toMarkers(markers || []);
       candleSeries.setMarkers(data.length
         ? clipMarkers(all, data[0].time, data[data.length - 1].time, unitSec || 60) : []);
