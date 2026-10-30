@@ -58,7 +58,7 @@ PARAM_KEY_LABELS = {
     "maxSplits": "분할 최대 횟수", "maxPullbackBuys": "눌림목 매수 최대 횟수", "tp": "익절 TP", "sl": "손절 SL",
     "deadcross": "데드크로스 청산", "compounding": "복리 모드", "capital": "초기자본", "fee": "수수료",
     "enable_trading_hours": "거래 시간 제한", "trading_start_time": "거래 시작 시각",
-    "trading_end_time": "거래 끝 시각", "allow_sell_during_off_hours": "시간 밖에도 매도",
+    "trading_end_time": "거래 끝 시각", "allow_sell_during_off_hours": "시간 밖에도 익절",
 }
 PARAM_PCT_KEYS = ("tp", "sl", "minSlope", "slopeDrop", "fee")
 # 적용 시점(note.apply) — 엔진 engine/pullback_apply·strategy_switch 가 쓰는 값. 결정 1030-02 U4: reseed 글자

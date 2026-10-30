@@ -48,6 +48,15 @@ OLD_UI_BASE_COMMIT = "8464b58"
 #    쓰는 시험: T16 tests/v2/test_api_read_pullback.TestEmaUnchangedVsBase(새 표 없는 DB 에서 홈·로그·자산·차트 응답이 같음).
 #    올리는 규칙은 1) 과 같다(EMA 사용자 신버전 응답을 일부러 바꾸는 작업만 — T16 의 U2 표식 정정은 이 시험에서 따로 다룬다).
 V2_READ_BASE_COMMIT = "4e86afb"
+# 6) PULLBACK_RULES_BASE_COMMIT — 「새 전략 판정 파일 core/strategy_pullback.py 고정」 대조 기준 = 2차 T14 커밋(push 됨).
+#    1029-09(결정 1029-08 「시간 밖에도 익절」 꺼짐 = 익절만 막고 손절·데드크로스는 늘 매도)로 이 파일을 일부러 바꿨다.
+#    그래서 바이트 비교(T14 FIXED_FILES_COMMIT·T15 OLD_UI_BASE_COMMIT 목록)에서 빼고 AST 비교로 옮겼다:
+#    모듈 전체 AST(docstring 제외, IncrementalPullbackStrategy._step 몸통만 가림) = 기준,
+#    _step 은 시간 밖 막음 If 문·[PULLBACK-HOURS] 로그 If 문 둘을 뺀 문장 목록 = 기준, git diff hunk 는 정해진 줄 범위 안.
+#    쓰는 시험: test_r_2026_10_30_1029_09_off_hours_tp.TestPullbackRulesFixed. 올리는 규칙은 1) 과 같다.
+#    막음 블록을 다시 고칠 때는 이 기준 커밋·ALLOWED_OLD_RANGES·NEW_LINES_CAP·EXPECTED_*_IF 네 곳을 함께 올린다
+#    (새 줄 수 상한은 여유가 없어 주석 한 줄만 바꿔도 시험이 깨진다).
+PULLBACK_RULES_BASE_COMMIT = "8464b58"
 REVERT_OLD_CODE_COMMIT = "1747fcc"  # 서버 실행본(2차 배포 전) — 되돌리기 무해성 시험의 옛 코드
 
 

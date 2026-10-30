@@ -115,8 +115,7 @@ test("60초 넘으면 「엔진이 응답하지 않습니다」 (2초 간격 31�
 });
 
 test("운용 설정 입력 → 4키 payload, 형식 틀리면 null, 적용본 값 → 입력 칸", () => {
-  const hoursOff = { allow_sell_during_off_hours: false };
-  assert.deepEqual(plain(O.opsPayload({ enable: true, start: "09:00", end: "02:00", sellOff: false }, hoursOff)),
+  assert.deepEqual(plain(O.opsPayload({ enable: true, start: "09:00", end: "02:00", sellOff: false })),
     { keys: { enable_trading_hours: true, trading_start_time: "09:00", trading_end_time: "02:00",
       allow_sell_during_off_hours: false } });
   assert.equal(O.opsPayload({ enable: true, start: "9:00", end: "02:00", sellOff: true }), null);
@@ -133,21 +132,21 @@ test("예약 한 줄 문구", () => {
   assert.ok(O.reservationText(null, true).includes("읽지 못했습니다"));
 });
 
-// ---- T14 fix 1 ----
+// ---- 1029-09: 「시간 밖에도 익절」 잠금 풂 ----
 
-test("「시간 밖에도 매도」는 화면에서 못 바꾼다: 입력 칸을 바꿔도 적용본 값 그대로 보낸다", () => {
+test("「시간 밖에도 익절」은 입력 칸 값을 보낸다(적용본 값과 달라도), 참/거짓 아니면 null", () => {
   for (const applied of [true, false]) {
     const hours = { enable_trading_hours: false, trading_start_time: "09:00", trading_end_time: "02:00",
       allow_sell_during_off_hours: applied };
     const p = O.opsPayload({ enable: true, start: "10:00", end: "23:00", sellOff: !applied }, hours);
-    assert.equal(p.keys.allow_sell_during_off_hours, applied);
+    assert.equal(p.keys.allow_sell_during_off_hours, !applied);
     assert.equal(p.keys.enable_trading_hours, true);
   }
-  // 입력 칸 sellOff 가 형식 밖이어도 보내는 값은 적용본 값
-  const q = O.opsPayload({ enable: true, start: "09:00", end: "02:00", sellOff: "x" },
-    { allow_sell_during_off_hours: false });
-  assert.equal(q.keys.allow_sell_during_off_hours, false);
-  assert.equal(O.SELL_OFF_NOTE, "이 항목은 아직 바꿀 수 없습니다(시간 밖 손절 처리 결정 뒤 열립니다)");
+  for (const bad of ["x", 1, null, undefined, "false"]) {
+    assert.equal(O.opsPayload({ enable: true, start: "09:00", end: "02:00", sellOff: bad }), null, String(bad));
+  }
+  assert.equal(O.SELL_OFF_NOTE, undefined);
+  assert.equal(O.postErrorText(400, { error: "sell_off_locked" }), "요청 형식이 맞지 않아 보내지 않았습니다.");
 });
 
 test("운용 설정 저장 단추: 새 전략 운용 중 + 예약 확인 가능 + 예약 없음일 때만", () => {

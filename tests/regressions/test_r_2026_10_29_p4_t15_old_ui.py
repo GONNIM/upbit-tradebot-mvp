@@ -1163,12 +1163,13 @@ class TestAutoResumeGateIntegration(_Base):
 
 class TestFixedFiles(unittest.TestCase):
     FIXED = ("core/strategy_engine.py", "core/strategy_incremental.py", "engine/params.py", "engine/live_loop.py",
-             "engine/boot_resume.py", "services/trading_control.py", "engine/engine_manager.py", "services/db.py",
-             "core/strategy_pullback.py")
+             "engine/boot_resume.py", "services/trading_control.py", "engine/engine_manager.py", "services/db.py")
+    # 1029-09: core/strategy_pullback.py 는 이 목록에서 빠지고 AST 비교로 옮김
+    # (test_r_2026_10_30_1029_09_off_hours_tp.TestPullbackRulesFixed, 기준 baseline_commits.PULLBACK_RULES_BASE_COMMIT)
 
     def test_fixed_files_unchanged_since_base(self):
         r = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", BASE_COMMIT, "--", *self.FIXED])
-        self.assertEqual(r.returncode, 0, "고정 파일 9개가 8464b58 와 다르다")
+        self.assertEqual(r.returncode, 0, "고정 파일 8개가 8464b58 와 다르다")
 
 
 if __name__ == "__main__":

@@ -91,9 +91,6 @@
   // 실계좌 입장일 때 전환·복귀·운용 설정 옆 한 줄(아니면 "")
   function liveNote(mode) { return _upper(mode) === "LIVE" ? LIVE_NOTE : ""; }
 
-  // fix 1 (PO 결정 1): 「시간 밖에도 매도」는 아직 바꿀 수 없다(시간 밖 손절 처리 결정 뒤 열림) — 보기만
-  var SELL_OFF_NOTE = "이 항목은 아직 바꿀 수 없습니다(시간 밖 손절 처리 결정 뒤 열립니다)";
-
   // 복귀 확인 문구: 기록이 있으면 「<EMA> · <종목> · <봉> 으로 돌아갑니다」, 없으면 null(전략을 고르게 함)
   function revertConfirmText(target) {
     if (!target || OLD.indexOf(_upper(target.strategy)) < 0) return null;
@@ -140,7 +137,6 @@
       return "전환(복귀) 예약 중이라 운용 설정을 바꾸지 않았습니다. 예약이 끝난 뒤 다시 눌러 주세요.";
     }
     if (status === 409 && body.error === "live_not_supported") return LIVE_NOTE + ".";
-    if (status === 400 && body.error === "sell_off_locked") return "이 항목(시간 밖에도 매도)은 아직 바꿀 수 없습니다.";
     if (status === 409 && body.error === "not_pullback") {
       return "운용 설정은 새 전략 운용 중에만 바꿀 수 있습니다.";
     }
@@ -175,12 +171,12 @@
   }
 
   // 운용 설정 입력 → 요청 payload {"keys": 4키}. 형식이 틀리면 null(보내지 않음).
-  // fix 1 (PO 결정 1): 「시간 밖에도 매도」는 입력 칸 값이 아니라 지금 적용본 값(hours)을 그대로 보낸다 — 바꾼 값은 보내지 않음.
+  // 1029-09: 「시간 밖에도 익절」(allow_sell_during_off_hours)도 입력 칸 값을 보낸다(참/거짓만 — 엔진·서버도 같은 검사).
   var HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-  function opsPayload(form, hours) {
+  function opsPayload(form) {
     form = form || {};
-    var sellOff = opsForm(hours).sellOff;
-    if (typeof form.enable !== "boolean") return null;
+    var sellOff = form.sellOff;
+    if (typeof form.enable !== "boolean" || typeof sellOff !== "boolean") return null;
     if (!HHMM.test(String(form.start || "")) || !HHMM.test(String(form.end || ""))) return null;
     return { keys: { enable_trading_hours: form.enable, trading_start_time: form.start,
       trading_end_time: form.end, allow_sell_during_off_hours: sellOff } };
@@ -208,6 +204,5 @@
     buttonStates: buttonStates, revertConfirmText: revertConfirmText, forceBuyConfirmText: forceBuyConfirmText,
     resultText: resultText, postErrorText: postErrorText, pollResult: pollResult, opsPayload: opsPayload,
     opsForm: opsForm, reservationText: reservationText, liveNote: liveNote, LIVE_NOTE: LIVE_NOTE,
-    SELL_OFF_NOTE: SELL_OFF_NOTE,
   };
 })();

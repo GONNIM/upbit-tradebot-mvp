@@ -3,7 +3,8 @@
 
 계획 `docs/specs/v2-dashboard/plan-phase2.md` 「### T9:」:
 - 시간 밖(KST, trading_start_time ~ trading_end_time, 자정 넘김 허용)에도 지표·armed·prev_golden 은 갱신하고
-  주문만 막는다. 매도는 allow_sell_during_off_hours=True 이면 허용. 막힌 매수는 감사 failed_keys=["OFF_HOURS"].
+  주문만 막는다. 매도: 손절·데드크로스는 늘 허용, 익절은 allow_sell_during_off_hours=False 일 때만 막음
+  (1029-09, 결정 1029-08 — 상세 시험 test_r_2026_10_30_1029_09_off_hours_tp). 막힌 신호는 감사 failed_keys=["OFF_HOURS"].
 - 결정 13-7 (가): 시간 밖에 매수 조건이 맞은 봉에서도 armed 유지 → 시간이 열린 첫 봉에서 조건이 맞으면 매수.
   시간 밖 골든크로스는 놓친 것으로 두고 다시 사지 않는다. 회차는 늘리지 않는다.
 - 판정 시각 = 봉 마감 시각(봉 시작 + 봉 단위, KST) — 원본 체결 시각(다음 봉 시가)과 같은 순간.
@@ -173,7 +174,8 @@ class TestBlocksOrdersOnly(EngineCase):
                     self.assertEqual(len(self.trader.sell_calls), 1)
 
     def test_sell_default_allowed_when_key_missing(self):
-        """거래 시간을 켜고 allow_sell_during_off_hours 키를 아예 뺀 설정 → 기본 허용: 시간 밖 손절·데드크로스 봉 SELL."""
+        """거래 시간을 켜고 allow_sell_during_off_hours 키를 아예 뺀 설정 → 기본 허용: 시간 밖 손절·데드크로스 봉 SELL.
+        (1029-09 뒤 손절·데드크로스는 키 값과 무관하게 늘 SELL — False 경우는 test_r_2026_10_30_1029_09_off_hours_tp)"""
         win = {"enable_trading_hours": True, "trading_start_time": "09:30", "trading_end_time": "02:00"}
         holding = {"entry_count": 1, "pullback_count": 1, "first_entry_ts": ts_at(0),
                    "first_entry_reason": "PULLBACK", "fill_n": 1, "inv_sum": 1 / 100.0,

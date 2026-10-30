@@ -38,10 +38,10 @@ from tests.regressions.test_r_2026_10_28_p3_t5_pullback_engine import CFG, USER 
 from tests.regressions.test_r_2026_10_29_p4_t13_apply import FIXED_FILES, T13Case  # noqa: E402
 from v2 import control as v2control  # noqa: E402
 
-# fix 2: 「시간 밖에도 매도」는 바꿀 수 없다 — 적용본 값(기본 true) 그대로 보낸다
+# 1029-09: 「시간 밖에도 익절」 잠금 풂 — 4키 모두 바꿀 수 있다(적용본 기본 true → false)
 KEYS_ON = {"enable_trading_hours": True, "trading_start_time": "10:00", "trading_end_time": "23:00",
-           "allow_sell_during_off_hours": True}
-MOVABLE = {k for k in KEYS_ON if k != "allow_sell_during_off_hours"}
+           "allow_sell_during_off_hours": False}
+MOVABLE = set(KEYS_ON)
 
 
 class OpsCase(T13Case):
@@ -96,23 +96,26 @@ class TestOpsSettings(OpsCase):
         self.assertEqual(eng.strategy.cfg["eff_max_splits"], CFG["maxSplits"])
         self.assertEqual(len(self.params_rows()), 1)
 
-    def test_ops_sell_off_change_rejected_no_touch(self):
-        """fix 2: 「시간 밖에도 매도」를 적용본 값(없으면 true)과 다르게 보내면 감시 스레드·엔진 스레드 모두 거절, 아무것도 안 씀."""
-        before = self.applied_bytes()
+    def test_ops_sell_off_change_applied_1029_09(self):
+        """1029-09: 「시간 밖에도 익절」을 적용본 값과 다르게 보내면 감시 스레드(엔진 멈춤)·엔진 스레드 모두 받아 적용본·cfg·PARAMS 행에 반영."""
         cur = self.applied().get("allow_sell_during_off_hours", True)
-        bad = dict(KEYS_ON, allow_sell_during_off_hours=not cur)
-        r = self.ops(keys=bad)
-        self.assertEqual((r["status"], r["code"]), ("rejected", "sell_off_locked"), r)
-        self.assertEqual(self.applied_bytes(), before)
-        self.assertEqual(self.params_rows(), [])
-        self.assertIn("아직 바꿀 수 없어", cr.CODE_TEXT["sell_off_locked"])
+        flip = dict(KEYS_ON, allow_sell_during_off_hours=not cur)
+        r = self.ops(keys=flip)
+        self.assertEqual((r["status"], r["code"]), ("done", "ok"), r)
+        self.assertIs(self.applied()["allow_sell_during_off_hours"], not cur)
+        rows = self.params_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertIn("allow_sell_during_off_hours", self.note(rows[0])["changed"])
+        # 엔진 스레드: 다시 뒤집어 보냄 → cfg 교체(재시작 없음), PARAMS 행 1개 더
         eng = self.pb_engine()
-        cfg_before = dict(eng.strategy.cfg)
-        e = pa.engine_ops(eng, {"keys": bad, "mode": "TEST", "request_id": None})
-        self.assertEqual((e["status"], e["code"]), ("rejected", "sell_off_locked"), e)
-        self.assertEqual(self.applied_bytes(), before)
-        self.assertEqual(eng.strategy.cfg, cfg_before)
-        self.assertEqual(self.params_rows(), [])
+        back = dict(KEYS_ON, allow_sell_during_off_hours=cur)
+        e = pa.engine_ops(eng, {"keys": back, "mode": "TEST", "request_id": None})
+        self.assertEqual((e["status"], e["code"]), ("done", "ok"), e)
+        self.assertIs(eng.strategy.cfg["allow_sell_during_off_hours"], cur)
+        self.assertIs(self.applied()["allow_sell_during_off_hours"], cur)
+        self.assertEqual(len(self.params_rows()), 2)
+        self.assertNotIn("sell_off_locked", cr.CODE_TEXT)
+        self.assertFalse(hasattr(pa, "sell_off_changed"))
 
     def test_ops_engine_cfg_equals_constructor_cfg(self):
         """엔진 안 교체 cfg = 새 적용본으로 생성자를 다시 부른 cfg(파생 키 포함)."""
@@ -289,8 +292,9 @@ class TestInstallFixedTexts(unittest.TestCase):
         self.assertEqual(m.call_count, 1)
 
     def test_fixed_files_unchanged_since_t12(self):
-        """바이트 고정 8개 + 이번 Task 의 core/strategy_pullback.py 는 T12 커밋과 같다."""
-        for rel in (*FIXED_FILES, "core/strategy_pullback.py"):
+        """바이트 고정 8개는 T12 커밋과 같다. core/strategy_pullback.py 는 1029-09 부터 AST 비교
+        (tests/regressions/test_r_2026_10_30_1029_09_off_hours_tp.TestPullbackRulesFixed, 기준 PULLBACK_RULES_BASE_COMMIT)."""
+        for rel in FIXED_FILES:
             base = bc.git_show(rel, bc.FIXED_FILES_COMMIT)
             self.assertEqual((ROOT / rel).read_text(encoding="utf-8"), base, rel)
 
@@ -318,7 +322,8 @@ class TestInstallFixedTexts(unittest.TestCase):
 
     def test_v2_and_engine_ops_key_rules_agree(self):
         cases = [KEYS_ON, dict(KEYS_ON, tp=1), dict(KEYS_ON, trading_start_time="9:00"),
-                 dict(KEYS_ON, allow_sell_during_off_hours=1), {}, None, dict(KEYS_ON, trading_end_time="23:59")]
+                 dict(KEYS_ON, allow_sell_during_off_hours=1), dict(KEYS_ON, allow_sell_during_off_hours=True),
+                 dict(KEYS_ON, allow_sell_during_off_hours="false"), {}, None, dict(KEYS_ON, trading_end_time="23:59")]
         for c in cases:
             self.assertEqual(v2control.ops_keys_or_none(c), pa.ops_keys_or_none(c), c)
 

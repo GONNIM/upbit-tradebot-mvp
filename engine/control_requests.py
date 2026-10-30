@@ -196,8 +196,6 @@ CODE_TEXT = {
     "invalid_ticker": "종목 이름이 맞지 않아 적용하지 않았습니다.",
     "apply_live_not_supported": "새 전략 설정 적용은 아직 실계좌(LIVE)에서 할 수 없습니다. 모의(TEST)에서만 할 수 있습니다.",
     "apply_failed": "설정을 적용하지 못해 이전 설정으로 계속합니다. 운영자가 확인합니다.",
-    # 2차 T14 fix 2: 「시간 밖에도 매도」는 시간 밖 손절 처리 결정 전까지 바꿀 수 없다
-    "sell_off_locked": "「시간 밖에도 매도」는 아직 바꿀 수 없어 처리하지 않았습니다.",
 }
 NO_ACTION_TEXT = "투자자님이 따로 하실 일은 없습니다."   # core.strategy_engine.NO_ACTION_TEXT 와 같은 글
 UNKNOWN_REQUEST_TEXT = "직접 요청하지 않으셨다면 운영자에게 바로 알려 주세요."

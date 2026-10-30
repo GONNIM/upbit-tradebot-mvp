@@ -237,13 +237,16 @@ test("index.html 운용 탭(2차 T14): 그림 2-마 카드 4개·단추 글자 �
   assert.match(block, /지금 전략/);
   assert.doesNotMatch(block, /<h2>구버전<\/h2>/);
   assert.doesNotMatch(block, /다시 로그인해야 합니다/);
-  // fix 1: 「시간 밖에도 매도」는 보기만(고정 비활성 · 입력 묶음 없음) + 안내 한 줄, 실계좌 안내 자리
+  // 1029-09: 「시간 밖에도 익절」은 다른 3칸과 같이 바꿀 수 있다(x-model·@change·:disabled) + 안내 한 줄, 실계좌 안내 자리
   const sell = block.match(/<input\b[^>]*data-sell-off\b[^>]*>/);
-  assert.ok(sell, "시간 밖 매도 칸");
-  assert.match(sell[0], /\sdisabled(\s|>|$)/);
-  assert.doesNotMatch(sell[0], /x-model|@change|:disabled/);
-  assert.match(sell[0], /:checked="opsForm\.sellOff"/);
-  assert.match(block, /이 항목은 아직 바꿀 수 없습니다\(시간 밖 손절 처리 결정 뒤 열립니다\)/);
+  assert.ok(sell, "시간 밖 익절 칸");
+  assert.doesNotMatch(sell[0], /\sdisabled(\s|>|$)/);
+  assert.match(sell[0], /x-model="opsForm\.sellOff"/);
+  assert.match(sell[0], /@change="opsDirty = true"/);
+  assert.match(sell[0], /:disabled="!opsView\.opsSave\.enabled"/);
+  assert.match(block, /<span>시간 밖에도 익절<\/span>/);
+  assert.match(block, /손절·데드크로스는 시간 밖에도 늘 팝니다/);
+  assert.doesNotMatch(block, /아직 바꿀 수 없습니다|시간 밖에도 매도/);
   assert.match(block, /data-live-note[^>]*x-text="opsLiveNote"/);
 });
 
@@ -295,11 +298,11 @@ test("운용 탭 연결(2차 T14, Alpine.reactive): 판정·확인 창·요청 P
     assert.deepEqual(posts.pop()[1], { kind: "force_buy", payload: {} });
     // 운용 설정 저장 → ops_settings {"keys": 4키}
     d.opsForm.start = "11:00";
-    d.opsForm.sellOff = true;            // fix 1: 바꿔 보려 해도 적용본 값(false) 그대로 나간다
+    d.opsForm.sellOff = true;            // 1029-09: 바꾼 칸 값(true)이 나간다(적용본 false)
     d.opsDirty = true;
     await d.opsAct("opsSave");
     assert.deepEqual(posts.pop()[1], { kind: "ops_settings", payload: { keys: { enable_trading_hours: true,
-      trading_start_time: "11:00", trading_end_time: "23:00", allow_sell_during_off_hours: false } } });
+      trading_start_time: "11:00", trading_end_time: "23:00", allow_sell_during_off_hours: true } } });
     // 복귀: 기록 없음 → 요청 없이 전략 고르기, EMA 고르면 revert {"strategy":"EMA"}
     const n = posts.length;
     await d.opsAct("revert");

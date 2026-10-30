@@ -179,8 +179,8 @@
       <label class="kv"><span>거래 시간 제한 켜기</span><input type="checkbox" x-model="opsForm.enable" @change="opsDirty = true" :disabled="!opsView.opsSave.enabled"></label>
       <label class="kv"><span>시작</span><input type="time" x-model="opsForm.start" @input="opsDirty = true" :disabled="!opsView.opsSave.enabled"></label>
       <label class="kv"><span>끝</span><input type="time" x-model="opsForm.end" @input="opsDirty = true" :disabled="!opsView.opsSave.enabled"></label>
-      <label class="kv"><span>시간 밖에도 매도</span><input type="checkbox" data-sell-off :checked="opsForm.sellOff" disabled></label>
-      <p class="note" data-sell-off-note>이 항목은 아직 바꿀 수 없습니다(시간 밖 손절 처리 결정 뒤 열립니다)</p>
+      <label class="kv"><span>시간 밖에도 익절</span><input type="checkbox" data-sell-off x-model="opsForm.sellOff" @change="opsDirty = true" :disabled="!opsView.opsSave.enabled"></label>
+      <p class="note" data-sell-off-note>손절·데드크로스는 시간 밖에도 늘 팝니다</p>
       <p class="note" data-live-note x-show="opsLiveNote" x-text="opsLiveNote"></p>
       <button type="button" class="ops-primary" data-op="opsSave" :disabled="!opsView.opsSave.enabled" @click="opsAct('opsSave')">운용 설정 저장</button>
     </section>

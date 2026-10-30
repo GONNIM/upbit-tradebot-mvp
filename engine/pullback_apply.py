@@ -517,14 +517,6 @@ def ops_keys_or_none(keys) -> Optional[dict]:
     return {k: keys[k] for k in OPS_KEYS}
 
 
-SELL_OFF_KEY = "allow_sell_during_off_hours"
-
-
-def sell_off_changed(prev: dict, keys: dict) -> bool:
-    """T14 fix 2 (PO 결정 1 다): 「시간 밖에도 매도」는 아직 바꿀 수 없다 — 지금 적용본 값(키가 없으면 true)과 다르면 True."""
-    return keys[SELL_OFF_KEY] is not prev.get(SELL_OFF_KEY, True)
-
-
 def _ops_result(res: dict, user: str, mode: str, request_id, *, engine_state: Optional[str] = None):
     prev, new = res["prev"], res["params"]
     changed = {k: [prev.get(k), new.get(k)] for k in OPS_KEYS if prev.get(k) != new.get(k)}
@@ -549,8 +541,6 @@ def engine_ops(engine, payload: dict) -> Dict[str, Any]:
     prev = _valid_or_none(_read_or_none(pbp.applied_path(user)))
     if prev is None:
         return _r("rejected", "params_missing")
-    if sell_off_changed(prev, keys):
-        return _r("rejected", "sell_off_locked")
     merged = dict(prev)
     merged.update(keys)
     try:
@@ -593,8 +583,6 @@ def handle_ops(ctl, req) -> Dict[str, Any]:
     prev = _valid_or_none(_read_or_none(pbp.applied_path(user)))
     if prev is None:
         return _r("rejected", "params_missing")
-    if sell_off_changed(prev, keys):
-        return _r("rejected", "sell_off_locked")
     if all(prev.get(k) == keys[k] for k in OPS_KEYS):
         sha = hashlib.sha256(_read_or_none(pbp.applied_path(user)) or b"").hexdigest()
         return _done(sha, {}, "unchanged", False, unchanged=True, keys=keys)

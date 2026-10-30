@@ -721,14 +721,17 @@ class IncrementalPullbackStrategy:
             elif bar.low <= sl_price:
                 signal = ("SELL", "SL")
 
-        # 2차 T9 (결정 D5·13-7 가): 거래 시간 밖이면 주문이 될 신호만 막는다. 지표·prev_golden 은 위에서 이미
+        # 2차 T9 (결정 D5·13-7 가): 거래 시간 밖이면 매수 신호를 막는다. 지표·prev_golden 은 위에서 이미
         # 갱신했고, armed 는 원본 규칙대로 켜고 끈다(막힌 매수 봉에서는 armed 유지). 회차는 늘리지 않는다.
+        # 1029-09 (결정 1029-08): 「시간 밖에도 익절」 꺼짐이면 익절(TP)만 막는다 — 손절·데드크로스는 늘 판다.
         # 재생(워밍업·BACKFILL)도 같은 규칙 — 판정 상태가 실시간 경로와 같게 흐른다.
         off = self._off_hours(bar.ts)
         blocked = None
-        if signal is not None and off and not c["allow_sell_during_off_hours"]:
-            blocked = signal       # 매도 막음: 거래 정리 안 함(보유·회차 그대로) → 열린 첫 봉에서 다시 평가
+        if signal == ("SELL", "TP") and off and not c["allow_sell_during_off_hours"]:
+            blocked = signal       # 익절 막음: 거래 정리 안 함(보유·회차 그대로) → 열린 첫 봉에서 다시 평가
             signal = None
+            if bar.low <= sl_price:
+                signal = ("SELL", "SL")  # 같은 봉 손절가도 닿음 → 손절로 매도(blocked_signal 은 SELL:TP 로 남김)
 
         origin = "live" if live else "replay"
         exit_round = None
@@ -797,7 +800,8 @@ class IncrementalPullbackStrategy:
             "blocked_signal": f"{blocked[0]}:{blocked[1]}" if blocked is not None else None,
         }
         if blocked is not None and live:
-            logger.info(f"[PULLBACK-HOURS] 거래 시간 밖 — {blocked[0]}:{blocked[1]} 주문 막음 "
+            logger.info(f"[PULLBACK-HOURS] 거래 시간 밖 — {blocked[0]}:{blocked[1]} "
+                        f"{'익절 막음 → 손절로 매도' if signal is not None else '주문 막음'} "
                         f"(armed={self.armed} 회차={self.entry_count}) | 판정 시각(봉 마감 KST)="
                         f"{format_kst(pd.Timestamp(bar.ts) + pd.Timedelta(minutes=self.interval_min))} "
                         f"| 거래 시간 {c['trading_start_time']}~{c['trading_end_time']}")
@@ -839,7 +843,7 @@ class IncrementalPullbackStrategy:
         """
         last_eval → (failed_keys, checks) — 감사 audit_buy_eval·audit_sell_eval 의 칸(계획 T8, 스키마 변경 없음).
           failed_keys: [] (이 봉 신호) | NOT_ACTIVE·WAIT_PULLBACK·WAIT_GOLDEN·SPLITS_FULL·PULLBACK_CAP·DESYNC
-                       | OFF_HOURS (2차 T9: 거래 시간 밖이라 막힌 매수·매도 — checks.blocked_signal)
+                       | OFF_HOURS (2차 T9: 거래 시간 밖이라 막힌 매수·익절 — checks.blocked_signal)
                        | 판정 안 함·막음 표식 TENTATIVE·UNCONFIRMED·DUPLICATE·PENDING_FILL·STATE_POLLUTED·REPLAY
           checks: strategy·round·pullback_round·armed·active·inactive_reason·maTrend·ma200·maPullback·slope200·
                   buy_reason·golden_event(+ 화면·관찰용 덧칸)

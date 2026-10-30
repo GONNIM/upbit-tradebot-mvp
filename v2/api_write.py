@@ -239,11 +239,7 @@ class ControlHandler(ApiHandler):
                     return self.send_json({"error": "reserved"}, 409)
             except sqlite3.Error:
                 return self.send_json({"error": "reservation_unknown"}, 503)
-            # fix 2 (PO 결정 1 다): 「시간 밖에도 매도」는 지금 적용본 값(키가 없으면 true)과 같을 때만. 다르면 아무것도 쓰지 않는다.
-            cur = db.active_params(u["user_id"], "PULLBACK").get("allow_sell_during_off_hours", True)
-            if keys["allow_sell_during_off_hours"] is not cur:
-                return self.send_json({"error": "sell_off_locked",
-                                       "message": "이 항목(시간 밖에도 매도)은 아직 바꿀 수 없습니다."}, 400)
+            # 1029-09: 「시간 밖에도 익절」(allow_sell_during_off_hours) 잠금을 풂 — 결정 1029-08 뒤 바꿀 수 있다(형식은 위 검사).
         try:
             rid = control.write_request(u["user_id"], u["mode"], req.get("kind"), req.get("payload", {}))
         except control.Busy as e:

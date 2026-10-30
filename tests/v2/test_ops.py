@@ -12,7 +12,7 @@ from v2 import control
 from v2.server import DEFAULT_ORIGIN
 from tests.v2 import test_api_read as base
 
-# fix 2: 「시간 밖에도 매도」는 적용본 값(키가 없으면 true)과 같아야 받는다
+# 1029-09: 「시간 밖에도 익절」(allow_sell_during_off_hours) 도 바꿀 수 있다(형식은 참/거짓)
 KEYS = {"enable_trading_hours": True, "trading_start_time": "10:00", "trading_end_time": "23:00",
         "allow_sell_during_off_hours": True}
 SAVED = {"ticker": "KRW-ZRO", "interval": "minute3", "maType": "ema", "ma60p": 60, "ma200p": 200, "pullbackP": 20,
@@ -250,22 +250,25 @@ class OpsApiTest(base.ApiBase):
         self.assertEqual((r.code, json.loads(r.body)["error"]), (409, "live_not_supported"))
         self._no_request_saved_same(before)
 
-    def test_ops_settings_sell_off_must_equal_applied(self):
-        """fix 2: 「시간 밖에도 매도」는 적용본 값(키가 없으면 true)과 같을 때만. 다르면 400·문구, 요청·저장본 그대로."""
+    def test_ops_settings_sell_off_changeable_1029_09(self):
+        """1029-09: 「시간 밖에도 익절」 잠금 풂 — 적용본 값과 달라도 202, 요청·저장본에 바꾼 값. 형식(참/거짓)은 그대로 검사."""
         self.pullback()                                          # 적용본에 키 없음 → 지금 값 true
-        before = (self.root / "alice_latest_params_PULLBACK.json").read_bytes()
-        r = self.post({"kind": "ops_settings", "payload": {"keys": dict(KEYS, allow_sell_during_off_hours=False)}})
+        off = dict(KEYS, allow_sell_during_off_hours=False)
+        r = self.post({"kind": "ops_settings", "payload": {"keys": off}})
+        self.assertEqual(r.code, 202, r.body)
         body = json.loads(r.body)
-        self.assertEqual((r.code, body["error"]), (400, "sell_off_locked"))
-        self.assertEqual(body["message"], "이 항목(시간 밖에도 매도)은 아직 바꿀 수 없습니다.")
-        self._no_request_saved_same(before)
-        # 적용본이 false 면 false 만 받는다
+        self.assertTrue(body["saved_synced"])
+        req = json.loads((self.data / "v2_control" / "alice" / f"req-{body['id']}.json").read_text())
+        self.assertEqual(req["payload"], {"keys": off})
+        saved = json.loads((self.root / "alice_latest_params_PULLBACK.json").read_text())
+        self.assertIs(saved["allow_sell_during_off_hours"], False)
+        # 형식 밖(참/거짓 아님)은 계속 400, 요청 없음
         self.pullback(applied={"allow_sell_during_off_hours": False})
         before = (self.root / "alice_latest_params_PULLBACK.json").read_bytes()
-        self.assertEqual(self.post({"kind": "ops_settings", "payload": {"keys": KEYS}}).code, 400)
-        self._no_request_saved_same(before)
-        r = self.post({"kind": "ops_settings", "payload": {"keys": dict(KEYS, allow_sell_during_off_hours=False)}})
-        self.assertEqual(r.code, 202, r.body)
+        for bad in (1, "false", None):
+            r = self.post({"kind": "ops_settings", "payload": {"keys": dict(KEYS, allow_sell_during_off_hours=bad)}})
+            self.assertEqual((r.code, json.loads(r.body)["error"]), (400, "bad_request"), bad)
+        self.assertEqual((self.root / "alice_latest_params_PULLBACK.json").read_bytes(), before)
 
     def test_ops_settings_bad_origin_403_no_request(self):
         """다른 Origin 이면 403, 요청·저장본 그대로 (V07)."""

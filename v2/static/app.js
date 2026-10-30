@@ -482,8 +482,8 @@ document.addEventListener("alpine:init", () => {
       }
       if (name === "forceSell") { if (ask(O.CONFIRM.forceSell)) return this.opsSend("force_sell", {}); return; }
       if (name === "opsSave") {
-        // 「시간 밖에도 매도」는 지금 적용본 값 그대로(바꿀 수 없음)
-        const payload = O.opsPayload(this.opsForm, o.hours);
+        // 1029-09: 「시간 밖에도 익절」도 입력 칸 값을 보낸다(형식이 틀리면 null)
+        const payload = O.opsPayload(this.opsForm);
         if (payload === null) { this.opsMsg = "시작·끝 시각을 HH:MM 으로 넣어 주세요."; return; }
         if (ask(O.CONFIRM.opsSave)) return this.opsSend("ops_settings", payload);
         return;
