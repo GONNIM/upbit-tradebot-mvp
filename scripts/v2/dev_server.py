@@ -7,6 +7,9 @@ v2 모듈의 경로 전역을 그곳으로 돌려 로컬 브라우저로 화면�
 로컬 개발 전용 — 운영 서버에서 실행하지 말 것(tradebot-v2 는 8502 를 쓴다). 기본 포트는 8512.
 
 실행(어느 폴더에서나): python3 <저장소>/scripts/v2/dev_server.py [--port 8512]
+
+tests.v2 를 불러오므로 시험용 바깥 연결 차단(tests/_netguard, 1030-09)이 켜진다 — 업비트 캔들 받기 등
+루프백 밖 연결은 막히고, 차단이 한 번이라도 있으면 종료 코드 1 로 끝난다.
 """
 import sys
 from pathlib import Path

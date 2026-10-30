@@ -16,6 +16,12 @@
 # - 어떤 테스트가 실패했는지 확인
 # - 실패 원인 = 결함 재발 or 테스트 자체 오류
 # - 절대 회귀 테스트를 우회하지 말 것 (2026-07-27 원칙)
+#
+# 바깥 네트워크 차단 (1030-09): 게이트는 자신을 한 번 더 띄워 PYTHONPATH 앞에 tests/_netguard 를
+# 붙인다. 그 sitecustomize 가 게이트 안 모든 python(하위 프로세스 포함)의 루프백 밖 연결
+# (업비트·외부 IP 조회·텔레그램 등)을 이름 풀이 단계에서 막고 [NETGUARD] 줄을 남기며,
+# 출력이나 NETGUARD_LOG 에 그 줄이 하나라도 있으면 게이트가 실패한다. 엔진 프로세스와는 무관.
+# 시험은 python3 -m unittest 로만 돌린다(파일 직접 실행 금지 — 게이트 밖에서는 패키지 __init__ 이 차단을 켠다).
 
 set -e  # 어떤 명령이든 실패하면 즉시 종료
 
@@ -24,11 +30,47 @@ set -e  # 어떤 명령이든 실패하면 즉시 종료
 # export 하면 .env 의 자격증명이 로드되지 않는다. (2026-09-30 테스트 경고 실발송 사고)
 export TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID=""
 export TELEGRAM_CHAT_ID_CRITICAL="" TELEGRAM_CHAT_ID_WARNING="" TELEGRAM_CHAT_ID_INFO="" TELEGRAM_CHAT_ID_OPERATOR=""
+# ✅ 1030-09: 같은 원리로 업비트 키도 가짜 값을 먼저 넣어 .env 의 실키가 시험에 읽히지 않게 한다
+# (config.py 는 키가 비면 import 에서 멈추므로 빈 값이 아닌 자리표시 값)
+export UPBIT_ACCESS="netguard-placeholder" UPBIT_SECRET="netguard-placeholder"
 
 # 프로젝트 루트
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
+
+# ✅ 1030-09: 바깥 네트워크 차단 — 바깥 껍데기가 안쪽 게이트를 띄우고 [NETGUARD] 줄을 판정
+if [ -z "${NETGUARD_GATE_INNER:-}" ]; then
+    NETGUARD_LOG="$(mktemp "${TMPDIR:-/tmp}/netguard_log.XXXXXX")"
+    GATE_OUT="$(mktemp "${TMPDIR:-/tmp}/netguard_out.XXXXXX")"
+    NG_STAMP="$(mktemp "${TMPDIR:-/tmp}/netguard_stamp.XXXXXX")"
+    export NETGUARD=1 NETGUARD_LOG NETGUARD_GATE_INNER=1
+    export PYTHONPATH="$PROJECT_ROOT/tests/_netguard${PYTHONPATH:+:$PYTHONPATH}"
+    # 프록시 경유 연결은 루프백 프록시로 보여 차단을 비켜 갈 수 있으므로 지운다
+    unset HTTP_PROXY HTTPS_PROXY ALL_PROXY http_proxy https_proxy all_proxy
+    set +e
+    bash "$SCRIPT_DIR/regression_gate.sh" "$@" 2>&1 | tee "$GATE_OUT"
+    GATE_RC=${PIPESTATUS[0]}
+    set -e
+    # 회귀 단계는 tail -5 만 화면에 내므로 그 단계 로그(이번 실행에서 쓴 것)도 함께 본다
+    NG_SOURCES=("$GATE_OUT" "$NETGUARD_LOG")
+    if [ -f /tmp/regression_gate.log ] && [ /tmp/regression_gate.log -nt "$NG_STAMP" ]; then
+        NG_SOURCES+=(/tmp/regression_gate.log)
+    fi
+    NG_LINES="$(grep -h '\[NETGUARD\]' "${NG_SOURCES[@]}" 2>/dev/null | sort -u || true)"
+    rm -f "$NETGUARD_LOG" "$GATE_OUT" "$NG_STAMP"
+    if [ -n "$NG_LINES" ]; then
+        echo ""
+        echo "=========================================="
+        echo "🚨 시험 중 바깥 연결 시도 [NETGUARD] — 배포 중단"
+        echo "=========================================="
+        echo "$NG_LINES"
+        echo "해당 시험이 업비트·외부 호출을 patch 하지 않았다 (1030-09). 시험을 고친 뒤 재실행."
+        exit 1
+    fi
+    echo "🔌 NETGUARD: 바깥 연결 시도 0건"
+    exit "$GATE_RC"
+fi
 
 echo "=========================================="
 echo "🛡️  회귀 테스트 CI 게이트 (Phase 2)"
