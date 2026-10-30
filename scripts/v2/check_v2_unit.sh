@@ -3,11 +3,15 @@
 #
 # 하는 일:
 #   1) 실행 중인 tradebot-v2 의 보호 속성 값을 systemctl 로 읽어 그대로 systemd-run 임시 유닛에 넘기고,
-#      그 안에서 scripts/v2/check_v2_unit_probe.py 를 돌려 10항목을 검사한다.
+#      그 안에서 scripts/v2/check_v2_unit_probe.py 를 돌려 15항목을 검사한다(2차 T18 에서 제어 요청·적용본 5항목 추가).
+#   1-1) 유닛의 ReadWritePaths 가 저장소 services/data 와 계정별 저장본(<user>_latest_params_PULLBACK.json)뿐인지,
+#      둘(services/data·점검 계정 저장본)이 다 있는지 본다(unit-rw-paths-unchanged, 값 출력 없음 — 적용본 경로가 들어가도 FAIL).
 #   2) 호스트에서 tradebot-v2 프로세스의 환경 변수 이름 중 UPBIT_ 로 시작하는 것이 0개인지 센다(이름만, 값 출력 없음).
 #   3) 호스트에서 실행 중 v2 가 보는 PULLBACK 파일 inode 와 디스크 파일 inode 가 같은지 비교한다(읽기 전용 stat).
 # 출력은 `PASS|FAIL|RESIDUAL <항목>` 줄뿐이다. 서비스는 재시작·중지하지 않는다.
 # 사용: check_v2_unit.sh [user] (기본 mcmax33)
+# 실행 시점: 배포 때와 첫 모의 전환 입회 뒤(전환 완료·워밍업 뒤) 두 번(결정 1030-06 A). 배포 직후에는 제어 요청 폴더·
+#   적용본이 아직 없어 새 항목 대부분이 `PASS <항목>(absent)` 로 나온다(정상).
 # 종료 코드: 0 = FAIL 없음, 1 = FAIL 있음, 2 = user 인자 형식 오류(bad-user-argument) 또는 tradebot-v2 가 켜져 있지 않음.
 #
 # 주의:
@@ -26,8 +30,34 @@ set -o pipefail
 REPO=/root/upbit-tradebot-mvp
 PY="$REPO/venv/bin/python"
 PROBE="$REPO/scripts/v2/check_v2_unit_probe.py"
-EXPECTED_PROBE_LINES=10
+EXPECTED_PROBE_LINES=15
 FAILS=0
+# unit-rw-paths-unchanged 가 허용하는 계정별 저장본 꼴(적용본 *_applied_params_PULLBACK*.json 은 허용하지 않는다)
+RW_PULLBACK_RE="^${REPO}/[A-Za-z0-9_]{1,32}_latest_params_PULLBACK\\.json\$"
+
+# ReadWritePaths 값($1)이 허용 꼴 토큰뿐이고 services/data 와 점검 계정 저장본($2, 저장소 기준 상대 경로)이 다 있으면 0.
+# 토큰 앞 `-`(없으면 무시)는 떼고 본다 — systemctl show 가 접두를 유지하든 않든 같은 판정. 값은 출력하지 않는다.
+rw_paths_ok() {
+    local tok p have_data=0 have_self=0
+    local -a toks=()
+    read -r -a toks <<< "$1"
+    if [ "${#toks[@]}" -eq 0 ]; then
+        return 1
+    fi
+    for tok in "${toks[@]}"; do
+        p="${tok#-}"
+        if [ "$p" = "$REPO/services/data" ]; then
+            have_data=1
+        elif [[ "$p" =~ $RW_PULLBACK_RE ]]; then
+            if [ "$p" = "$REPO/$2" ]; then
+                have_self=1
+            fi
+        else
+            return 1
+        fi
+    done
+    [ "$have_data" = "1" ] && [ "$have_self" = "1" ]
+}
 
 # 첫 인자: 점검할 계정(기본 mcmax33). 형식이 어긋나면 FAIL 후 종료 2.
 USER_ID="${1:-mcmax33}"
@@ -57,6 +87,14 @@ if [ "$PROP_PROTECT_SYSTEM" = "strict" ] && [ "$PROP_PROTECT_HOME" = "read-only"
     echo "PASS unit-props"
 else
     echo "FAIL unit-props"
+    FAILS=1
+fi
+
+# 2차 T18: 유닛 ReadWritePaths 는 2차에서 바뀌지 않는다(D3·D9) — 허용 꼴만·둘 다 있음(값은 출력하지 않는다)
+if rw_paths_ok "$PROP_RW_PATHS" "$PULLBACK_REL"; then
+    echo "PASS unit-rw-paths-unchanged"
+else
+    echo "FAIL unit-rw-paths-unchanged"
     FAILS=1
 fi
 

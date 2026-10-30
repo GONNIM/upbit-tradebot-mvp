@@ -143,7 +143,9 @@ journalctl -u tradebot-v2 --since "24 hours ago" --no-pager | grep '\[V2-CANDLES
 
 서버에서 배포 승인 뒤에 실행한다. 둘 다 서비스를 재시작·중지하지 않는다.
 
-- `bash scripts/v2/check_v2_unit.sh` — 유닛 보호 속성 점검(탐침 10항목 + 호스트 항목: 유닛 속성·UPBIT 환경 변수·PULLBACK inode).
+`check_v2_unit.sh` 는 두 번 돌린다(2차 결정 1030-06 A): **배포 때 한 번, 첫 모의 전환 입회 뒤(전환 완료·워밍업 뒤) 한 번 더.** 배포 직후에는 제어 요청 폴더·결과 파일·적용본이 아직 없어 2차 새 항목 대부분이 `(absent)` 로 나온다 — 두 번째 실행에서 실제 권한을 본다.
+
+- `bash scripts/v2/check_v2_unit.sh` — 유닛 보호 속성 점검(탐침 15항목 + 호스트 항목: 유닛 속성·ReadWritePaths 꼴·UPBIT 환경 변수·PULLBACK inode).
 - `bash scripts/v2/a3_memory_probe.sh` — 메모리 상한 격리 점검(300MB 할당 탐침이 임시 유닛에서만 OOM 으로 죽는지).
 
 출력은 `PASS|FAIL|RESIDUAL <항목>` 줄뿐이다.
@@ -158,7 +160,7 @@ journalctl -u tradebot-v2 --since "24 hours ago" --no-pager | grep '\[V2-CANDLES
 
 - `unit-props` — 유닛의 보호 속성이 의도한 값으로 적용됨.
 - `live-db-ro-read` — 실매매 DB 읽기 전용 조회. 이 연결이 `-wal`·`-shm` 을 만들 수 있다(본 DB 와 같은 권한, 소유자 root, 엔진이 정리).
-- `live-db-write-lock` — 실매매 DB 에 쓰기 연결로 `BEGIN IMMEDIATE` → 곧바로 `ROLLBACK` 만 한다(데이터 안 바뀜). 신버전 「매매 중지/재개」가 이 유닛 안에서 실매매 DB 에 쓸 수 있는지 미리 보는 항목이다. 잡혀 있는 밀리초 동안 엔진 쓰기가 잠깐 기다릴 수 있다(busy_timeout 안에서 풀림). FAIL 이면 매매 중지/재개가 503 이 되므로 배포 중단하고 `ReadWritePaths` 를 본다. 배포 점검 때 한 번 실행한다(탐침이 엔진 쓰기와 우연히 겹쳐 FAIL 이면 1회 재실행 허용, 두 번 다 FAIL 이면 멈춤).
+- `live-db-write-lock` — 실매매 DB 에 쓰기 연결로 `BEGIN IMMEDIATE` → 곧바로 `ROLLBACK` 만 한다(데이터 안 바뀜). 신버전 「매매 중지/재개」가 이 유닛 안에서 실매매 DB 에 쓸 수 있는지 미리 보는 항목이다. 잡혀 있는 밀리초 동안 엔진 쓰기가 잠깐 기다릴 수 있다(busy_timeout 안에서 풀림). FAIL 이면 매매 중지/재개가 503 이 되므로 배포 중단하고 `ReadWritePaths` 를 본다. 배포 때와 첫 모의 전환 입회 뒤(전환 완료·워밍업 뒤)에만 실행한다 — 전환·워밍업 중에는 엔진 쓰기가 몰려 잠금이 겹치기 쉽다(탐침이 엔진 쓰기와 우연히 겹쳐 FAIL 이면 1회 재실행 허용, 두 번 다 FAIL 이면 멈춤).
 - `v2hist-write` / `v2hist-write(folder)` — 이력 DB 쓰기 가능(행은 남지 않음). 파일이 아직 없으면(첫 저장 전) 폴더 쓰기만 본다.
 - `env-inaccessible` — `.env` 열기 차단. `(placeholder)` 는 0바이트 자리표가 덧씌워진 경우.
 - `root-readonly` — 저장소 루트에 새 파일을 만들 수 없음. 이 항목은 유닛의 `ProtectHome=read-only` 로 성립한다(`ProtectSystem=strict` 만으로는 systemd 249 에서 `/root` 가 쓰기 가능 — 2026-10-25 배포 첫 실행에서 `FAIL root-writable` 로 확인). 그래서 기존 v2/__pycache__ 는 읽고, 소스가 바뀐 모듈의 pyc 는 쓰지 못해 메모리에서 컴파일한다(오류 없음).
@@ -168,7 +170,17 @@ journalctl -u tradebot-v2 --since "24 hours ago" --no-pager | grep '\[V2-CANDLES
 - `pullback-inode-match` / `pullback-inode-mismatch` — 실행 중 v2 가 보는 PULLBACK 파일이 호스트 파일과 같은 inode 인가. mismatch 면 `systemctl restart tradebot-v2`.
 - `no-upbit-env` — v2 프로세스 환경 변수에 `UPBIT_` 로 시작하는 이름이 0개(이름만 센다).
 - `probe-run-failed` — 임시 유닛 실행 실패. **배포 때 첫 실행에서 이게 나오면 `ReadWritePaths` 의 `-` 접두 처리부터 본다**(`systemctl show -p ReadWritePaths --value` 가 접두를 유지하는지는 로컬에서 확인하지 못했다).
-- `probe-line-count=<n>` — 탐침 출력 줄 수가 10이 아님(탐침이 못 돌았거나 중간에 죽음).
+- `probe-line-count=<n>` — 탐침 출력 줄 수가 15가 아님(탐침이 못 돌았거나 중간에 죽음).
+
+2차 T18 에서 더한 항목(새 전략 제어 요청 통로·적용본). 모두 `lstat` 으로 모드·소유자·링크 여부만 보고 파일 내용은 출력하지 않는다. 폴더·파일이 아직 없으면 `PASS <항목>(absent)`:
+
+- `unit-rw-paths-unchanged`(셸) — 유닛 `ReadWritePaths` 토큰(앞 `-` 를 뗀 값)이 `/root/upbit-tradebot-mvp/services/data` 와 `/root/upbit-tradebot-mvp/<계정>_latest_params_PULLBACK.json` 꼴뿐이고, `services/data` 와 점검 계정 저장본이 둘 다 있다. 적용본 경로가 들어가면 FAIL(신버전이 적용본을 쓰면 안 된다). 계정을 더해 저장본 토큰이 늘어나는 것은 허용.
+- `v2-control-dir-700` — `services/data/v2_control` 와 점검 계정 폴더가 700·root·일반 폴더(링크 아님). 신버전이 첫 요청 때 만든다(엔진은 만들지 않는다). FAIL 이면 권한·소유자를 확인한다. 모드에 그룹·다른 사용자 비트가 있거나 소유자가 다르면 엔진 감시가 그 폴더 요청을 거부하므로(권한을 고치지 않음) 화면 제어 요청이 처리되지 않는다(예: 500 은 탐침 FAIL 이지만 엔진은 처리한다).
+- `v2-control-files-600` — 그 계정 폴더의 `req-*.json`·`res-*.json` 이 600·root·일반 파일. 요청은 신버전(`UMask=0077`), 결과는 엔진이 600 으로 쓴다.
+- `applied-600` — 적용본 `<계정>_applied_params_PULLBACK.json`·사본 `.last_good.json` 이 600·root. 엔진만 쓴다. 활성 전략이 아직 기존 전략이면(첫 전환 전) 없는 것이 정상.
+- `applied-not-writable-by-v2` — 신버전 유닛 안에서 적용본을 쓰기로 열 수 없다(`os.access` 거짓 + `open(…, "r+")` 가 EROFS/EACCES 로 실패). 파일이 없으면 만들어 보지 않고 저장소 루트에 쓸 수 없는지만 본다(`(absent)`). 혹시 열리면 아무것도 쓰지 않고 닫은 뒤 FAIL.
+- `v2-control-results-readable` — 신버전이 엔진이 쓴 결과 파일을 읽을 수 있다. 계정 폴더 `res-*.json` 이름순 첫 1개를 1바이트만 읽는다(요청·임시 파일 제외). 지우기는 엔진 몫이라 보지 않는다. 결과가 50개를 넘으면 엔진이 가장 오래된 파일부터 지우므로, 읽는 순간 지워져 FAIL 이면 1회 재실행을 허용하고 두 번 다 FAIL 이면 멈춘다.
+- 계획의 `saved-writable-by-v2`(저장본 쓰기 가능)는 새 항목을 만들지 않고 기존 `pullback-open`(유닛 안 `r+` 열기)·`pullback-inode-match`(호스트) 가 맡는다.
 - a3: `probe-oom-killed`(문자열 `oom-kill` 또는 `killed by the OOM killer` 로 판정), `swap-unchanged(+Nmb)`(스왑 증가 5MB 이내), `tradebot-not-restarted`.
 - a3 의 `probe-not-oom`·`swap-grew` 가 나오면 한 번 다시 실행해 보고, 두 번 다 FAIL 이면 멈추고 보고한다.
 

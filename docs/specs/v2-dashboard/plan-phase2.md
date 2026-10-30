@@ -871,7 +871,7 @@ COMMIT;
 - Test: `tests/regressions/test_r_2026_10_28_p4_t11_control.py`, `tests/v2/test_control.py`, `tests/v2/test_candles.py`(세대 값)
 
 **폴더·파일:**
-- `services/data/v2_control/<user>/`(700, 신버전이 `mkdir(mode=0o700)`; 엔진도 없으면 만든다).
+- `services/data/v2_control/<user>/`(700, 신버전이 `mkdir(mode=0o700)`; 엔진은 만들지 않음 — `engine/control_requests.py:818` 의 mkdir 은 `services/data` 의 `.engine_restart.json` 용. 10/30 T18 정정, T11 메모와 맞춤).
 - 요청 `req-<KST yyyymmddHHMMSS>-<nonce8>.json`(신버전 `UMask=0077` 이라 600): `{"v":1,"id","user_id","mode","kind","payload","created_at","expires_at"}`. `expires_at = created_at + 60초`.
 - 결과 `res-<id>.json`(엔진이 `os.open(…, 0o600)` + `os.chmod 0o600` — 엔진 UMask 0022 대비, F21): `{"id","status":"done"|"rejected"|"expired"|"error","code","message","at","detail"}`.
 - 처리한 요청은 `req-…` 를 지우고 결과만 남긴다. 결과는 사용자당 최근 50개만 남긴다.
@@ -1428,9 +1428,23 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 - `saved-writable-by-v2`: 저장본 쓰기 가능(지금 항목 유지).
 - 유닛 `ReadWritePaths` 는 바뀌지 않는다(D3·D9 권고안). 확인 줄 `unit-rw-paths-unchanged`.
 
-- [ ] **Step 1~4:** 실패 시험(`test_check_script_has_phase2_items`, `test_check_script_outputs_status_only`) → 구현 → 통과.
+- [x] **Step 1~4:** 실패 시험(`test_check_script_has_phase2_items`, `test_check_script_outputs_status_only`) → 구현 → 통과.
 - [ ] **Step 5: 커밋 승인 요청** — 스크립트 실행은 배포 때(사용자 확인 후).
-- [ ] **Step 6: P4 최종 검증** — `bash scripts/regression_gate.sh`, `node --test tests/v2/js/*.test.mjs`, 로컬 dev 서버 + 로컬 Streamlit 으로 전환·예약·복귀·강제 매도 흐름을 TEST 가짜 계정으로 실측 → verifier → Fable → 구현 완료 보고(번들 zip, 「버전: 구 → 신」, UI diff 브리핑).
+- [ ] **Step 6: P4 최종 검증** — `bash scripts/regression_gate.sh`, `node --test tests/v2/js/*.test.mjs`, 로컬 흐름은 `v2.control.write_request` → 엔진 `Controller` → `v2.control.read_result` 를 임시 폴더 실제 파일로 잇는 통합 시험(`tests/regressions/test_r_2026_10_30_p4_t18_e2e.py`, 게이트 포함, 업비트·텔레그램 호출 0)으로 갈음하고 화면은 배포 뒤 412·360·1440 폭으로 실측(사용자 결정 1030-06 B (라) — 처음 문구 「로컬 dev 서버 + 로컬 Streamlit 으로 … TEST 가짜 계정으로 실측」은 dev_server.py 가 엔진 없는 가짜 루트라 그대로 못 해서 고침) → verifier → Fable → 구현 완료 보고(번들 zip, 「버전: 구 → 신」, UI diff 브리핑).
+
+**T18 구현 메모 (10/30, HEAD 413516b 기준, PO 결정 1~6·Fable 권고 1~6·사용자 결정 1030-06 A (가)·B (라) — 기록 `docs/fable/2026-10-30-phase2-t18-decision-1.md`):**
+- **탐침 5항목(`scripts/v2/check_v2_unit_probe.py`, 10 → 15줄):** 모두 `lstat`(링크 따라가지 않음), 내용은 출력하지 않는다. 폴더·파일이 없으면 `PASS <항목>(absent)`(선례 `v2hist-write(folder)`). 기대 소유자는 모듈 상수 `ROOT_UID = 0`(시험은 가짜 루트에서 지금 사용자로 바꿈).
+  - `v2-control-dir-700`: `services/data/v2_control` 와 점검 계정 폴더가 700·root·일반 폴더.
+  - `v2-control-files-600`: 계정 폴더 `req-*.json`·`res-*.json` 이 600·root·일반 파일(폴더 이름만 읽고 파일은 열지 않음).
+  - `applied-600`: `<user>_applied_params_PULLBACK.json`·`.last_good.json` 이 600·root(있는 것만, 둘 다 없으면 absent).
+  - `applied-not-writable-by-v2`: 없으면 만들지 않고 `os.access(ROOT, W_OK)` 거짓 확인 뒤 `(absent)`(참이면 `FAIL …(absent)`). 있으면 `os.access(W_OK)` 거짓 + `open(…, "r+")` 가 OSError(EROFS·EACCES). 혹시 열리면 쓰지 않고 닫고 FAIL.
+  - `v2-control-results-readable`(§12-10): 계정 폴더 `res-*.json` 이름순 첫 1개를 `rb` 로 `read(1)` 만. 요청·`.tmp` 제외. 지우기는 엔진 몫이라 보지 않는다.
+  - `saved-writable-by-v2`: 새 항목을 만들지 않고 기존 `pullback-open`(유닛 안 r+)·`pullback-inode-match`(호스트)가 맡는다(PO 결정 3).
+- **셸 `unit-rw-paths-unchanged`(`scripts/v2/check_v2_unit.sh` `rw_paths_ok`):** `PROP_RW_PATHS` 를 `read -r -a` 로 토큰으로 나눠(glob 확장 없음) 앞 `-` 를 뗀 뒤, 모든 토큰이 `<REPO>/services/data` 또는 `<REPO>/[A-Za-z0-9_]{1,32}_latest_params_PULLBACK.json` 꼴이고 `services/data` 와 점검 계정 저장본이 둘 다 있으면 PASS(Fable 권고 3 — 계정 추가 때 FAIL 방지). 적용본 경로·그 밖 경로가 하나라도 있으면 FAIL. 값은 출력하지 않는다. `EXPECTED_PROBE_LINES=15`.
+- **실행 시점(결정 A (가)):** 배포 때 한 번, 첫 모의 전환 입회 뒤(전환 완료·워밍업 뒤) 한 번 더. runbook·탐침·셸 머리말의 「한 번만」을 고쳤다(`live-db-write-lock` 이 엔진 쓰기와 겹치지 않게 전환·워밍업 중에는 돌리지 않음).
+- **시험:** `tests/v2/test_deploy_files.py` — 새 `test_check_script_has_phase2_items`(정적), `ProbeFakeRootTest`(탐침을 임시 폴더 가짜 루트로 복사해 absent·PASS·FAIL 을 실제로 확인 — 서버 EROFS 는 권한 비트 EACCES 로 흉내, root 로 돌면 건너뜀), `RwPathsTest`(셸 판정 함수를 `set -u` bash 로 17경우). 기존 시험은 넓히기만: 줄 수·검사 함수 수 10 → 15, open 규칙 「PULLBACK 또는 적용본 변수(`APPLIED_*`·`applied_path`) 인자는 r+ 만」, `.write(`·`.truncate(`·`os.O_RDWR`·`os.O_TRUNC` 금지.
+- **통합 시험(결정 B (라)):** `tests/regressions/test_r_2026_10_30_p4_t18_e2e.py` 2건 — 엔진 시작(모의 엔진 도는 중 → rejected already_running)·한 번에 하나(Busy)·엔진 정지(done stopped)·만료(expired). T11 가짜(FakeClock·FakeThread·FakeMgr)는 그 파일에서 클래스 정의만 꺼내 쓴다(T11 모듈 import 는 `config` → 로컬 .env 읽기라서). 소켓 연결·주소 조회와 엔진 기본 알림·거래기·강제 매매·관리자를 막고 호출 0 을 단언.
+- **고정 파일 9개·스키마·실계좌 EMA 경로·유닛 파일 무변경.** 바뀐 코드는 서버에서 손으로 돌리는 읽기 전용 점검 스크립트 두 개뿐이다.
 
 ---
 
@@ -1569,7 +1583,7 @@ CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(use
 7. (1회째 검증 뒤 고침) 분할 체결과 HTS 판정의 경쟁 — 판정은 `has_recent_bot_buy_for_ticker`(30초)가 막는다(`engine/order_reconciler.py:776`). 체결 BUY 행이 HTS 감지 순회보다 늦게 쓰이는 순서가 실제로 생기는지는 실측하지 않았다(T6 `test_bot_split_buy_not_hts_30s` 로 순서를 고정해 시험).
 8. 구버전 `pages/dashboard.py` 의 다른 `load_params` 호출(729 외)이 PULLBACK 파일 형식에서 깨지는 곳이 더 있는지 — 전수 grep 은 T15 Step 1 에서 한다.
 9. `pages/set_config.py:412-429` 가 `virtual_krw` 를 DB 에 쓰는지(1-1 에서 확인).
-10. 신버전 결과 파일을 엔진이 600 으로 만든 뒤 신버전(유닛 root·`ProtectHome=read-only`·`services/data` 쓰기 허용)이 읽고 지울 수 있는지 — 읽기는 되나 지우기는 엔진이 하므로 문제없다고 보았다. T18 점검 항목으로 서버에서 확인.
+10. 신버전 결과 파일을 엔진이 600 으로 만든 뒤 신버전(유닛 root·`ProtectHome=read-only`·`services/data` 쓰기 허용)이 읽을 수 있는지(지우기는 엔진) — 읽기는 되나 지우기는 엔진이 하므로 문제없다고 보았다. T18 점검 항목 `v2-control-results-readable` 로 서버에서 확인(10/30 T18 정정: 「읽고 지울 수 있는지」→「읽을 수 있는지」).
 11. 엔진 재시작이 전환 때마다 생기므로, 하루 여러 번 적용(MA 변경)하면 업비트 요청이 늘어난다. 횟수 상한(예: 적용 요청 10분 1회)을 둘지 정하지 않았다(목차에 없음 — 범위를 늘리지 않음, 위험으로만 기록).
 12. 목차 0-3 절이 말한 verifier 4회·Fable 기록은 이 계획 작성 중 다시 확인하지 않았다(목차와 `docs/fable/2026-10-27-phase2-outline-1.md` 를 근거로 함).
 13. (1회째 검증 뒤 새로) reconciler 가 시장가 BUY 의 최종 상태를 늘 `FILLED` 또는 체결량 있는 `CANCELED` 로 남기는지 — 코드 주석(`engine/order_reconciler.py:502-503`)만 보았고 업비트 실제 응답은 확인하지 않았다. 분할 체결 콜백 조건(T6)이 이 가정에 기댄다.
