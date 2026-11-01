@@ -22,6 +22,17 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
+ENGINE_THREAD_MODES = ("TEST", "LIVE")
+
+
+def alive_engine_threads(user_id: str) -> list:
+    """이 사용자의 살아 있는 엔진 관리·매매 루프 스레드(이름이 정확히 같은 것만).
+    stop_engine 은 관리 스레드만 기다리고, 관리 스레드는 작업 스레드를 2초만 기다린다 — 표에서는 빠졌지만
+    아직 도는 옛 매매 루프를 찾는다. 신버전 시작 요청·구버전 시작이 같은 기준을 쓴다(1101-05)."""
+    names = {f"{pre}_{user_id}_{m}" for pre in ("engine_runner", "run_live_loop") for m in ENGINE_THREAD_MODES}
+    return [t for t in threading.enumerate() if t.name in names and t.is_alive()]
+
+
 # 사용자 → 기동 준비 Event(engine_manager._start_engine_internal 이 시작마다 새로 만든다). 실패 사유는 Event.fail_reason.
 READY: Dict[str, threading.Event] = {}
 # 사용자 → (engine, stop_event) — 지금 실행 중인 엔진(live_loop 가 엔진을 만든 직후 attach)

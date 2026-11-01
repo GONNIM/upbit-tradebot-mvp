@@ -520,7 +520,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.11.01.1743")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.11.01.1849")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -678,6 +678,9 @@ with col10:
                     st.session_state.engine_started = True
                     st.success("🟢 트레이딩 엔진 실행됨, 새로고침 합니다...")
                     st.rerun()
+                elif engine_manager.last_start_reject(user_id) == "old_engine_alive":
+                    # ✅ 1101-05: 정지한 옛 매매 루프가 아직 끝나지 않음 — 실패 알림 없이 안내만(오래 이어지면 엔진이 운영자 경보)
+                    st.warning("⏳ 이전 엔진이 아직 정리 중입니다. 1~3분 뒤 다시 눌러 주세요.")
                 else:
                     st.warning("⚠️ 트레이딩 엔진 실행 실패")
                     # Critical 신규: 시작 실패 알림 (v2 — 액션 가이드 포함)

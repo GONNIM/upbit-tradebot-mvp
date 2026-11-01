@@ -176,6 +176,11 @@ ENGINE_EXIT_BODY_TRADING = "엔진이 오류로 멈췄습니다."
 ENGINE_EXIT_BODY_TAIL = "지금 자동 매매는 멈춰 있습니다. 운영자가 확인하고 다시 시작합니다."
 # 대시보드 「트레이딩 엔진 로그」(투자자에게 보임)에 남기는 짧은 문구 — 예외 원문은 journal·파일에만(결정 ③)
 ENGINE_EXIT_INVESTOR_LOG = "엔진이 오류로 멈췄습니다. 운영자가 확인하고 다시 시작합니다."
+# ✅ 1101-05: 옛 매매 루프가 살아 있어 시작 거절 — 투자자 화면 문구·운영자 경보(정지 뒤 5분 넘게 이어질 때)
+OLD_ALIVE_INVESTOR_LOG = "⏳ 이전 엔진 정리 중 — 시작을 미뤘습니다. 1~3분 뒤 다시 눌러 주세요."
+OLD_ALIVE_ALERT_SEC = 300.0
+OLD_ALIVE_ALERT_DEDUPE_TTL = 600
+OLD_ALIVE_ALERT_TITLE = "앞 엔진이 5분 넘게 끝나지 않아 시작을 거절하고 있습니다 — 운영자 확인"
 
 
 class EngineWorkerError(RuntimeError):
@@ -234,6 +239,10 @@ class EngineManager:
         # 재시작 실패 판정 표식. 1028-15 (나)에서 자동 재시작을 지워 지금은 쓰기만 한다(1028-18 에서 다시 읽음).
         self._no_recover: set = set()
         self._strategy_override: dict[str, str] = {}  # start_engine(strategy=…) 로 정한 전략(세션 대신)
+        # ✅ 1101-05: 옛 매매 루프가 살아 있어 시작을 거절한 이유·정지 시각·잠금 밖에서 보낼 운영자 경보
+        self._last_start_reject: dict[str, str] = {}  # user_key → "old_engine_alive"(start_engine 호출마다 지움)
+        self._stopped_at: dict[str, float] = {}       # user_key → stop_engine 시각(monotonic, 성공 시작 때 지움)
+        self._pending_alert: dict[str, tuple] = {}    # user_key → (mode, since_stop) — 시작 잠금을 푼 뒤 보냄
 
     @property
     def _live_engine_count(self) -> int:
@@ -309,6 +318,72 @@ class EngineManager:
         """
         key = _user_key(user_id, "")
         self._no_recover.discard(key)   # 2차 T11: 새 시작 때 복구 금지 표시를 지운다(구버전 흐름은 표시 없음 — 무변경)
+        self._last_start_reject.pop(key, None)   # 1101-05: 지난 거절 이유가 다른 실패에 붙지 않게
+        try:
+            return self._start_engine_guarded(key, user_id, test_mode, restart_count, mode, strategy)
+        finally:
+            # 1101-05: 운영자 경보(HTTP 최대 5초)는 시작 잠금을 푼 뒤 보낸다
+            _alert = self._pending_alert.pop(key, None)
+            if _alert is not None:
+                self._send_old_alive_alert(user_id, *_alert)
+
+    def last_start_reject(self, user_id: str, mode: str | None = None) -> str | None:
+        """마지막 start_engine 이 옛 매매 루프 때문에 거절됐으면 "old_engine_alive"(화면 문구·신버전 결과 코드용)."""
+        return self._last_start_reject.get(_user_key(user_id, mode or ""))
+
+    def _reject_if_old_alive(self, user_id: str, captured_mode: str) -> bool:
+        """옛 엔진 스레드가 살아 있으면 거절 기록(journal WARNING·logs INFO)을 남기고 True. 없으면 아무것도 하지 않고 False."""
+        from core.engine_control import alive_engine_threads
+        alive = alive_engine_threads(user_id)
+        if not alive:
+            return False
+        key = _user_key(user_id, captured_mode)
+        self._last_start_reject[key] = "old_engine_alive"
+        t0 = self._stopped_at.get(key)
+        since = None if t0 is None else time.monotonic() - t0
+        logger.warning(
+            f"[ENGINE-START] 옛 엔진 스레드가 아직 살아 있어 시작 거절 | user={user_id} mode={captured_mode} "
+            f"alive={[t.name for t in alive]} since_stop={'?' if since is None else f'{since:.0f}s'}"
+        )
+        try:
+            insert_log(user_id, "INFO", OLD_ALIVE_INVESTOR_LOG)
+        except Exception:
+            pass
+        if since is not None and since > OLD_ALIVE_ALERT_SEC:
+            self._pending_alert[key] = (captured_mode, since)
+        return True
+
+    def note_old_alive_reject(self, user_id: str, mode: str) -> bool:
+        """신버전 시작 요청이 옛 매매 루프 때문에 start_engine 앞에서 거절됐을 때 부른다(1101-11).
+        정지 뒤 OLD_ALIVE_ALERT_SEC 를 넘었으면 운영자 경보 1건(dedupe 는 구버전 경로와 같은 키). 보냈으면 True."""
+        t0 = self._stopped_at.get(_user_key(user_id, mode))
+        if t0 is None:
+            return False
+        since = time.monotonic() - t0
+        if since <= OLD_ALIVE_ALERT_SEC:
+            return False
+        self._send_old_alive_alert(user_id, str(mode).upper(), since)
+        return True
+
+    def _send_old_alive_alert(self, user_id: str, captured_mode: str, since: float):
+        """옛 매매 루프가 정지 뒤 OLD_ALIVE_ALERT_SEC 넘게 끝나지 않아 시작을 거절 중 — 운영자 채널 WARNING 1건."""
+        try:
+            from services.notifier import send as _notify, LEVEL_WARNING, AUDIENCE_OPERATOR
+            mode_text = "실계좌" if captured_mode == MODE_LIVE else "모의"
+            _notify(LEVEL_WARNING, OLD_ALIVE_ALERT_TITLE,
+                    f"정지 뒤 {since / 60:.0f}분이 지났는데 앞 엔진이 끝나지 않아 시작을 거절하고 있습니다.\n"
+                    f"지금 자동 매매는 멈춰 있습니다.\n사용자: {user_id} · 모드: {mode_text}",
+                    dedupe_key=f"engine_start_old_alive:{user_id}",
+                    dedupe_ttl=OLD_ALIVE_ALERT_DEDUPE_TTL,
+                    audience=AUDIENCE_OPERATOR)
+        except Exception as e:
+            try:
+                logger.warning(f"[ENGINE-START] 경보 실패 | {type(e).__name__}")
+            except Exception:
+                pass
+
+    def _start_engine_guarded(self, key, user_id, test_mode, restart_count, mode, strategy) -> bool:
+        """start_engine 본문(1101-05 에서 경보를 잠금 밖으로 빼려고 나눔 — 내용은 그대로)."""
         # ✅ WO-12: mode 가 주어지면 세션(current_mode) 대신 그 값을 쓴다 — 서비스 기동 재개(세션 없음)용.
         if mode is not None:
             captured_mode = str(mode).upper()
@@ -370,6 +445,11 @@ class EngineManager:
                 pass
             return False
 
+        # ✅ 1101-05: 정지한 옛 매매 루프(작업 스레드)가 아직 살아 있으면 거절 — MODE-LOCK 과 같은 원칙으로
+        #   Reconciler 기동·set_engine_status(실행 중·last_mode) 앞에서 막는다(거절 뒤 자동 재개가 켜지지 않게).
+        if self._reject_if_old_alive(user_id, captured_mode):
+            return False
+
         # LIVE 모드 Reconciler 기동 및 미체결 로딩
         if captured_mode == MODE_LIVE:
             rec = get_reconciler()
@@ -404,6 +484,10 @@ class EngineManager:
         with self._locks[key]:
             if self._threads.get(key) and self._threads[key].is_alive():
                 return False
+            # ✅ 1101-05: 이중 방어(경합) — 옛 매매 루프가 살아 있으면 띄우지 않는다
+            if self._reject_if_old_alive(user_id, captured_mode):
+                return False
+            self._stopped_at.pop(key, None)
 
             stop_event = self._events[key] = threading.Event()
             self._restart_counts[key] = restart_count
@@ -445,6 +529,7 @@ class EngineManager:
 
         if key in self._events:
             self._events[key].set()
+        self._stopped_at[key] = time.monotonic()   # 1101-05: 정지 뒤 경과(옛 매매 루프 거절이 길어질 때 경보)
         if key in self._threads:
             self._threads[key].join(timeout=10)  # ✅ 2초 → 10초 (warmup 백테스트 완료 대기)
 

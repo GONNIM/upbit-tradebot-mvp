@@ -716,8 +716,8 @@ class Controller:
     def _stale_threads(user: str) -> list:
         """관리자 표와 상관없이 살아 있는 이 사용자의 엔진·매매 루프 스레드(이름이 정확히 같은 것만).
         stop_engine 의 join 시간 초과 뒤 표에서는 빠졌지만 아직 도는 옛 스레드를 놓치지 않게(품질 4)."""
-        names = {f"{pre}_{user}_{m}" for pre in ("engine_runner", "run_live_loop") for m in MODES}
-        return [t for t in threading.enumerate() if t.name in names and t.is_alive()]
+        from core.engine_control import alive_engine_threads   # 1101-05: 구버전 시작(engine_manager)과 같은 함수
+        return alive_engine_threads(user)
 
     def _thread_of(self, user: str):
         return (getattr(self.manager, "_threads", None) or {}).get(user)
@@ -731,11 +731,22 @@ class Controller:
         if running is not None:
             return self._running_code(running, mode)
         if self._stale_threads(user):
+            _note = getattr(self.manager, "note_old_alive_reject", None)   # 1101-11: 정지 뒤 5분 넘으면 운영자 경보
+            if callable(_note):
+                try:
+                    _note(user, mode)
+                except Exception as e:
+                    logger.warning(f"[CONTROL] 옛 엔진 경보 판단 실패 | {type(e).__name__}")
             return _result("rejected", "old_engine_alive")
         ok = self.manager.start_engine(user, mode=mode)
         if not ok:
             running = self.manager.get_running_mode(user)
-            return self._running_code(running, mode) if running is not None else _result("rejected", "start_failed")
+            if running is not None:
+                return self._running_code(running, mode)
+            _lsr = getattr(self.manager, "last_start_reject", None)   # 1101-05: 위 검사와 시작 사이 경합
+            if callable(_lsr) and _lsr(user, mode) == "old_engine_alive":
+                return _result("rejected", "old_engine_alive")
+            return _result("rejected", "start_failed")
         th = self._thread_of(user)
         t0 = self.mono()
         while self.mono() - t0 < self.start_check:
