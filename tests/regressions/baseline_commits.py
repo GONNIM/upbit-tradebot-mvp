@@ -38,10 +38,13 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 EMA_BASELINE_COMMIT = "f4aac1f"     # 2차 T9 커밋 (push 됨) — 2026-10-28 T10 에서 0b04570·2749080·ebe4605 를 하나로
 # 3) FIXED_FILES_COMMIT — 「실계좌 EMA 경로 바이트 고정 8개」(T12 커밋 메시지) 대조 기준 = 2차 T12 커밋(push 됨).
-#    쓰는 시험: T13 test_fixed_files_unchanged_since_t12. 올리는 규칙은 1) 과 같다(8개 중 하나를 일부러 바꾸는 작업만).
-FIXED_FILES_COMMIT = "6b6f0b5"
+#    쓰는 시험: T13 test_fixed_files_unchanged_since_t12, T14 같은 이름. 올리는 규칙은 1) 과 같다(8개 중 하나를 일부러 바꾸는 작업만).
+#    올린 이력: 6b6f0b5 → bc694a4 (1101-05 engine/engine_manager.py 시작 검사 — 옛 매매 루프가 살아 있으면 거절,
+#    매매·주문 경로 무변경. 나머지 7개는 6b6f0b5 이후 바뀌지 않음).
+FIXED_FILES_COMMIT = "bc694a4"
 # 4) OLD_UI_BASE_COMMIT — 「구버전 화면(EMA 사용자) 무변경」 대조 기준 = 2차 T14 커밋(push 됨, T15 직전).
-#    쓰는 시험: T15 test_r_2026_10_29_p4_t15_old_ui (dashboard·set_config·조건 화면 AppTest 비교, 고정 파일 9개).
+#    쓰는 시험: T15 test_r_2026_10_29_p4_t15_old_ui (dashboard·set_config·조건 화면 AppTest 비교, 고정 파일 8개 —
+#    그중 engine/engine_manager.py 는 1101-05 부터 FIXED_FILES_COMMIT 과 비교).
 #    올리는 규칙은 1) 과 같다(구버전 EMA 화면을 일부러 바꾸는 작업만).
 OLD_UI_BASE_COMMIT = "8464b58"
 # 5) V2_READ_BASE_COMMIT — 「신버전 읽기 API(EMA 사용자) 무변경」 대조 기준 = 2차 T15 커밋(push 됨, T16 직전).
