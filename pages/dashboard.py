@@ -147,7 +147,7 @@ is_live = (mode == "LIVE")
 #   잠기지 않으면(예약 없는 EMA·MACD 사용자) 아래 모든 분기는 지금과 같다.
 from ui.pullback_lock import (
     lock_state as _pb_lock_state, badge_text as _pb_badge_text, round_text as _pb_round_text,
-    keeps_capital as _pb_keeps_capital, LOCKED_SUFFIX as _PB_LOCKED,
+    keeps_capital as _pb_keeps_capital, keeps_wallet as _pb_keeps_wallet, LOCKED_SUFFIX as _PB_LOCKED,
     NEW_STRATEGY_TABLE_TEXT as _PB_TABLE_TEXT,
     FORCE_BUY_PULLBACK_TEXT as _PB_FORCE_BUY_PB, FORCE_BUY_RESERVED_TEXT as _PB_FORCE_BUY_RES,
 )
@@ -155,7 +155,8 @@ _pb_lock = _pb_lock_state(user_id)
 _pb_locked = bool(_pb_lock["locked"])
 _pb_active = bool(_pb_lock["pullback"])
 # C1-a: 잠김 + (새 전략 보유 중 또는 예약 중)이면 TEST 현금 덮어쓰기를 건너뛴다(계정 생성은 그대로).
-_pb_keep_cash = _pb_locked and _pb_keeps_capital(_pb_lock)
+# ✅ 1029-12 (D8, 11/03): 새 전략이 켜져 있으면 보유가 없어도(전환 직후~첫 매수) 모의 현금을 세션 값으로 덮지 않는다.
+_pb_keep_cash = _pb_locked and _pb_keeps_wallet(_pb_lock)
 # ✅ 2차 T15 (사용자 결정 1029-11 A 나): 실계좌 화면 + 활성 파일 PULLBACK → 새 전략 표시 경로에 들어가지 않고 멈춘다.
 #   새 전략은 모의 전용 — 이 화면에서 실계좌 자동 재개·엔진 시작·강제 매수·매도 단추가 모두 없다(HTS 매도는 가능).
 if is_live and _pb_active:
@@ -520,7 +521,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.11.03.1532")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.11.03.2304")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.

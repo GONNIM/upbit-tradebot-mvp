@@ -1202,8 +1202,10 @@ def insert_buy_eval(
             if existing:
                 # 실시간 재판정 (예: Progressive Retry 성공 후) → 실시간 컬럼만 UPDATE
                 existing_id = existing[0]
+                # ✅ 1101-08/1029-12 (D3): 워밍업 자리표시자 갱신은 실시간 재판정이 아니다 — 문구만 나눔(SQL·반환값 무변경)
+                _upd_kind = "워밍업 자리표시자 갱신" if warmup_placeholder else "실시간 재판정"
                 logger.info(
-                    f"[AUDIT-UPDATE] BUY 실시간 재판정 | ticker={ticker} | bar_time={bar_time} | "
+                    f"[AUDIT-UPDATE] BUY {_upd_kind} | ticker={ticker} | bar_time={bar_time} | "
                     f"old_id={existing_id} | new_price={price:.0f}"
                 )
                 cur.execute(
@@ -1423,8 +1425,10 @@ def insert_sell_eval(
         else:
             if existing:
                 existing_id = existing[0]
+                # ✅ 1101-08/1029-12 (D3): 워밍업 자리표시자 갱신은 실시간 재판정이 아니다 — 문구만 나눔(SQL·반환값 무변경)
+                _upd_kind = "워밍업 자리표시자 갱신" if warmup_placeholder else "실시간 재판정"
                 logger.info(
-                    f"[AUDIT-UPDATE] SELL 실시간 재판정 | ticker={ticker} | bar_time={bar_time} | "
+                    f"[AUDIT-UPDATE] SELL {_upd_kind} | ticker={ticker} | bar_time={bar_time} | "
                     f"old_id={existing_id} | new_price={price:.0f}"
                 )
                 cur.execute(

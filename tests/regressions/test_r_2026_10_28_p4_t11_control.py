@@ -1265,8 +1265,20 @@ class TestEmaBaseline(unittest.TestCase):
 
     def test_untouched_ema_files_same_as_base(self):
         for rel in ("engine/boot_resume.py", "services/trading_control.py", "core/trader.py",
-                    "core/strategy_incremental.py", "core/position_state.py", "engine/order_reconciler.py"):
+                    "core/strategy_incremental.py", "core/position_state.py"):
             self.assertEqual((ROOT / rel).read_text(encoding="utf-8"), self.base(rel), rel)
+
+    def test_order_reconciler_only_register_user_changed(self):
+        """1029-12 (D4): order_reconciler.py 는 register_user(TEST 분기에서 unregister_user)만 일부러 고쳤다.
+        나머지 함수는 기준 커밋과 AST 같음, 파일 전체는 FIXED_FILES_COMMIT 과 바이트 같음."""
+        rel = "engine/order_reconciler.py"
+        now = (ROOT / rel).read_text(encoding="utf-8")
+        skip = {"register_user"}
+        self.assertEqual(_funcs(now, skip), _funcs(self.base(rel), skip))
+        fixed = bc.git_show(rel, bc.FIXED_FILES_COMMIT)
+        if fixed is None:
+            self.skipTest("git 기준 원본 없음")
+        self.assertEqual(now, fixed, f"{rel} 가 {bc.FIXED_FILES_COMMIT} 와 다르다")
 
     def test_engine_manager_no_arg_calls_same_trace_as_base(self):
         """기준 커밋 engine_manager 원본과 지금 것을 같은 가짜 환경에서 인자 없이(구버전 흐름) 돌려 호출 흔적을 비교."""

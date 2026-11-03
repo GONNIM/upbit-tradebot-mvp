@@ -346,11 +346,14 @@ elif authentication_status:
                 if _verify_result.get("capital_kept")
                 else f"- 운용자산: {krw_balance:,.0f} KRW (자동 설정)\n"
             )
+            # ✅ 1029-12: 새 전략 모의 지갑을 지키려고 동기화를 건너뛰었으면 그렇게 보인다
+            from services.auto_verify import WALLET_KEPT_LINE
+            _sync_line = WALLET_KEPT_LINE if _verify_result.get("wallet_kept") else "- DB 동기화: 완료"
             st.success(
                 f"✅ 자동 계좌검증 완료\n\n"
                 f"- KRW 잔고: {krw_balance:,.0f} KRW\n"
                 f"{_capital_line}"
-                f"- DB 동기화: 완료",
+                f"{_sync_line}",
                 icon="✅",
             )
         else:
@@ -417,20 +420,28 @@ elif authentication_status:
                             save_user(username, name, krw_balance)
 
                         # ✅ 계정 검증 성공 시 즉시 DB 잔고 동기화
+                        # ✅ 1029-12 (D5): 새 전략 켜짐·보유·예약 중이면 모의 지갑 표를 덮지 않는다(세션 값이 아니라 매번 판정)
                         from services.db import update_account_from_balances, update_position_from_balances
-                        try:
-                            update_account_from_balances(username, data)
-                            # 모든 코인 포지션도 동기화
-                            for bal in (data or []):
-                                currency = bal.get("currency", "").upper()
-                                if currency and currency != "KRW":
-                                    ticker = f"KRW-{currency}"
-                                    update_position_from_balances(username, ticker, data)
-                            logger.info(f"✅ [VERIFY] DB 잔고 동기화 완료: user={username}")
-                        except Exception as e:
-                            logger.error(f"⚠️ [VERIFY] DB 잔고 동기화 실패: {e}")
+                        from services.auto_verify import keeps_wallet_on_verify, WALLET_KEPT_LINE
+                        _wallet_kept = keeps_wallet_on_verify(username)
+                        if _wallet_kept:
+                            logger.info(f"[VERIFY] 새 전략 모의 지갑 그대로 — 잔고 동기화 건너뜀: user={username}")
+                        else:
+                            try:
+                                update_account_from_balances(username, data)
+                                # 모든 코인 포지션도 동기화
+                                for bal in (data or []):
+                                    currency = bal.get("currency", "").upper()
+                                    if currency and currency != "KRW":
+                                        ticker = f"KRW-{currency}"
+                                        update_position_from_balances(username, ticker, data)
+                                logger.info(f"✅ [VERIFY] DB 잔고 동기화 완료: user={username}")
+                            except Exception as e:
+                                logger.error(f"⚠️ [VERIFY] DB 잔고 동기화 실패: {e}")
 
                         st.success("Upbit 계정 검증 성공! 잔고 정보를 표로 표시합니다.")
+                        if _wallet_kept:
+                            st.info(WALLET_KEPT_LINE.lstrip("- "))
                         if st.session_state.upbit_accounts:
                             st.dataframe(
                                 st.session_state.upbit_accounts,

@@ -76,7 +76,11 @@ class OrderReconciler:
         ✅ Policy P-1: TEST 모드 사용자는 등록 스킵 (지갑 조회 금지)
         """
         if test_mode:
-            logger.info(f"[OR] TEST 모드 사용자 등록 스킵 (Policy P-1): {user_id}")
+            # ✅ 1029-12 (D4, 11/03): 실계좌 엔진이 예외로 끝나 집합에 남은 사용자가 모의로 시작하면
+            #   1분 동기화가 모의 지갑을 실계좌 값으로 덮는다 → 모의 시작 때 그 사용자를 뺀다.
+            #   이 호출은 live_loop 에서 StrategyEngine(콜백 등록)보다 먼저라 새 모의 엔진 콜백은 지우지 않는다. _pending 은 그대로.
+            self.unregister_user(user_id)
+            logger.info(f"[OR] TEST 모드 사용자 등록 스킵 (Policy P-1) — 잔고 동기화에서 뺌: {user_id}")
             return
         with self._lock:
             self._live_user_ids.add(user_id)

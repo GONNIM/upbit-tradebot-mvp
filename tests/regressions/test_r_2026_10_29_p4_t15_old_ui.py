@@ -596,11 +596,13 @@ class TestTestCashKept(_Base):
         self.assertEqual(get_account(USER), 900_000)
 
     def test_c1a_overwrite_when_pullback_flat(self):
+        # ✅ 1029-12 (사용자 결정 D8, 11/03): 새 전략이 켜져 있으면 보유가 없어도 모의 현금을 세션 값으로 덮지 않는다
+        #   (이전: C1-a 범위 — 덮어씀 1,000,000). 이름은 이력 대조용으로 그대로 둔다.
         self.pullback(entry=0, qty=0.0)
         from services.db import update_account, get_account
         self.cash(800_000)
         self.dash()
-        self.assertEqual(get_account(USER), 1_000_000)
+        self.assertEqual(get_account(USER), 800_000)
 
     def test_c1a_account_created_when_missing(self):
         self.pullback(entry=1, qty=5.0)
@@ -798,10 +800,13 @@ class TestD10(_Base):
         self.assertEqual(self.user_row(), ("새이름", 1_000_000))
 
     def test_auto_verify_updates_capital_when_flat(self):
+        # ✅ 1029-12 (사용자 결정 D7, 11/03): 새 전략이 켜져 있으면 보유가 없어도 운용자산을 그대로 둔다
+        #   (이전: D10 범위 — 실원화 5,555,555 로 갱신). 새 전략이 꺼져 있으면 갱신은 test_auto_verify_ema_unchanged 쪽.
         self.pullback(entry=0, qty=0.0)
         r = self.verify()
-        self.assertFalse(r["capital_kept"])
-        self.assertEqual(self.user_row(), ("새이름", 5555555))
+        self.assertTrue(r["capital_kept"])
+        self.assertTrue(r["wallet_kept"])
+        self.assertEqual(self.user_row(), ("새이름", 1_000_000))
 
     def test_auto_verify_ema_unchanged(self):
         self.ema()
@@ -1163,14 +1168,16 @@ class TestAutoResumeGateIntegration(_Base):
 
 class TestFixedFiles(unittest.TestCase):
     FIXED = ("core/strategy_incremental.py", "engine/params.py",
-             "engine/boot_resume.py", "services/trading_control.py", "services/db.py")
+             "engine/boot_resume.py", "services/trading_control.py")
     # 1029-09: core/strategy_pullback.py 는 이 목록에서 빠지고 AST 비교로 옮김
     # (test_r_2026_10_30_1029_09_off_hours_tp.TestPullbackRulesFixed, 기준 baseline_commits.PULLBACK_RULES_BASE_COMMIT)
     # 1101-05: engine/engine_manager.py 는 시작 검사를 일부러 더해 baseline_commits.FIXED_FILES_COMMIT 과 비교한다
     #   (BASE_COMMIT 은 화면 비교에도 쓰여 통째로 올리지 않음).
     # 1102-01: core/strategy_engine.py(_on_hts_detect)·engine/live_loop.py(_apply_boot_seed) 도 정체 시계를
     #   일부러 고쳐 같은 방식으로 FIXED_FILES_COMMIT 과 비교한다(비교 대상은 줄지 않음 — 7개 모두 여전히 비교).
-    TO_FIXED_COMMIT = ("engine/engine_manager.py", "core/strategy_engine.py", "engine/live_loop.py")
+    # 1029-12: services/db.py 는 감사 갱신 로그 문구(워밍업 자리표시자)를 일부러 고쳐 같은 방식으로 옮긴다.
+    TO_FIXED_COMMIT = ("engine/engine_manager.py", "core/strategy_engine.py", "engine/live_loop.py",
+                       "services/db.py")
 
     def test_fixed_files_unchanged_since_base(self):
         r = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", BASE_COMMIT, "--", *self.FIXED])

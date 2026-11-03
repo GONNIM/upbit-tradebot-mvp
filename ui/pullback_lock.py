@@ -204,6 +204,13 @@ def keeps_capital(state: Dict[str, Any]) -> bool:
     return bool(state.get("holding") or state.get("reservation") is not None or state.get("reservation_error"))
 
 
+def keeps_wallet(state: Dict[str, Any]) -> bool:
+    """1029-12 (사용자 결정 D5·D7·D8, 11/03): 모의 지갑(accounts·account_positions)과 새 전략 운용자산을 지킬 때.
+    새 전략이 켜져 있거나(보유가 없어도 — 전환 직후~첫 매수) keeps_capital 이 참이면 참.
+    이때 실계좌 엔진은 시작할 수 없다(engine_manager 활성 파일 PULLBACK → 실계좌 거부)."""
+    return bool(state.get("pullback")) or keeps_capital(state)
+
+
 def keep_capital_update_display_name(username: str, display_name: str) -> bool:
     """D10: virtual_krw 는 두고 display_name 만 갱신. 행이 없으면 False(호출자가 기존 save_user 로)."""
     from services.db import get_db, now_kst

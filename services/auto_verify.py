@@ -90,18 +90,24 @@ def run_live_auto_verify(user_id: str, name: str) -> dict[str, Any]:
         except Exception as e:
             logger.warning(f"[AUTO-VERIFY] save_user 실패: {e}")
 
-    try:
-        update_account_from_balances(user_id, data)
-        for bal in (data or []):
-            currency = bal.get("currency", "").upper()
-            if currency and currency != "KRW":
-                ticker = f"KRW-{currency}"
-                update_position_from_balances(user_id, ticker, data)
-        logger.info(f"✅ [AUTO-VERIFY] DB 잔고 동기화 완료: user={user_id}")
-    except Exception as e:
-        logger.error(f"⚠️ [AUTO-VERIFY] DB 잔고 동기화 실패: {e}")
+    # ✅ 1029-12 (D5): 새 전략 켜짐·보유·예약 중이면 모의 지갑 표(accounts·account_positions)를 실계좌 값으로 덮지 않는다
+    wallet_kept = keeps_wallet_on_verify(user_id)
+    if wallet_kept:
+        logger.info(f"[AUTO-VERIFY] 새 전략 모의 지갑 그대로 — 잔고 동기화 건너뜀: user={user_id}")
+    else:
+        try:
+            update_account_from_balances(user_id, data)
+            for bal in (data or []):
+                currency = bal.get("currency", "").upper()
+                if currency and currency != "KRW":
+                    ticker = f"KRW-{currency}"
+                    update_position_from_balances(user_id, ticker, data)
+            logger.info(f"✅ [AUTO-VERIFY] DB 잔고 동기화 완료: user={user_id}")
+        except Exception as e:
+            logger.error(f"⚠️ [AUTO-VERIFY] DB 잔고 동기화 실패: {e}")
 
     return {
+        "wallet_kept": wallet_kept,                                     # ✅ 1029-12
         "ok": True,
         "krw_balance": krw_balance,
         "accounts": data or [],
@@ -112,21 +118,35 @@ def run_live_auto_verify(user_id: str, name: str) -> dict[str, Any]:
     }
 
 
-KEEP_TRADING = "trading"   # 새 전략 보유 중(TEST 행) 또는 예약 중
+WALLET_KEPT_LINE = "- DB 동기화: 새 전략 모의 지갑을 지키려고 건너뜀"   # 1029-12 화면 문구(app.py)
+
+
+def keeps_wallet_on_verify(user_id: str) -> bool:
+    """1029-12 (D5): 로그인 검증이 모의 지갑 표를 건너뛸지. 판정 예외는 지키는 쪽(참)."""
+    try:
+        from ui.pullback_lock import lock_state, keeps_wallet
+        return bool(keeps_wallet(lock_state(user_id)))
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"[AUTO-VERIFY] 모의 지갑 판정 실패 → 그대로 둠: {type(e).__name__}")
+        return True
+
+
+KEEP_TRADING = "trading"   # 새 전략 켜짐·보유 중(TEST 행) 또는 예약 중
 KEEP_UNKNOWN = "unknown"   # 예약·보유 상태를 읽지 못함(fail closed)
 
 
 def keep_capital_on_verify(user_id: str, name: str) -> tuple[bool, float | None, str | None]:
-    """D10: 새 전략 보유·예약 중이면 display_name 만 갱신하고 (True, 지금 운용자산, 이유). 아니면 (False, None, None).
+    """D10(1029-12 D7 로 넓힘): 새 전략 켜짐·보유·예약 중이면 display_name 만 갱신하고 (True, 지금 운용자산, 이유). 아니면 (False, None, None).
     이유 = KEEP_TRADING | KEEP_UNKNOWN(판정 실패 — 예약·보유 읽기 실패 포함, 덮어쓰지 않는 쪽).
     운용자산은 DB(users.virtual_krw)에서 다시 읽은 값이고, 못 읽으면 None(화면은 금액 없이 보인다).
     users 행이 없으면 (False, None, None) — 기존 save_user 로."""
     from ui.pullback_lock import kept_capital
     reason = KEEP_TRADING
     try:
-        from ui.pullback_lock import lock_state, keeps_capital
+        from ui.pullback_lock import lock_state, keeps_wallet
         state = lock_state(user_id)
-        if not keeps_capital(state):
+        # ✅ 1029-12 (D7): 새 전략이 켜져 있으면 보유가 없어도 운용자산(매수 금액 기준)을 그대로 둔다
+        if not keeps_wallet(state):
             return False, None, None
         if state.get("reservation_error") or state.get("holding_error"):
             reason = KEEP_UNKNOWN
