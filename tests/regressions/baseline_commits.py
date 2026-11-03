@@ -44,7 +44,10 @@ EMA_BASELINE_COMMIT = "f4aac1f"     # 2차 T9 커밋 (push 됨) — 2026-10-28 T
 #    bc694a4 → 0a1a9e7 (1102-01 앱 추가매수 정체 시계 — core/strategy_engine.py _on_hts_detect·
 #    engine/live_loop.py _apply_boot_seed 두 함수만, 매매 판정·주문 무변경. 이 두 함수는 T9·T11 에서도
 #    EMA_BASELINE 비교에서 빼고 이 기준으로 비교하고, T15 는 두 파일을 이 기준으로 바이트 비교한다).
-FIXED_FILES_COMMIT = "0a1a9e7"
+#    0a1a9e7 → 6175fbe (1029-12 모의 지갑 덮어쓰기 막기 — engine/order_reconciler.py register_user TEST 분기
+#    (unregister_user)·services/db.py 워밍업 자리표시자 갱신 로그 문구만, 매매 판정·주문·SQL 무변경. T11 은
+#    order_reconciler.py 를 register_user 밖 AST=EMA_BASELINE + 파일=이 기준으로, T15 는 db.py 를 이 기준으로 비교).
+FIXED_FILES_COMMIT = "6175fbe"
 # 4) OLD_UI_BASE_COMMIT — 「구버전 화면(EMA 사용자) 무변경」 대조 기준 = 2차 T14 커밋(push 됨, T15 직전).
 #    쓰는 시험: T15 test_r_2026_10_29_p4_t15_old_ui (dashboard·set_config·조건 화면 AppTest 비교, 고정 파일 8개 —
 #    그중 engine/engine_manager.py 는 1101-05 부터 FIXED_FILES_COMMIT 과 비교).
