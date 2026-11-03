@@ -103,6 +103,48 @@ def _fail(position, reason: str) -> Dict[str, Any]:
     return {"status": "reset", "reason": reason}
 
 
+def restore_stale_peak_on_boot(position, *, interval_sec: int, warmup_df: Optional[pd.DataFrame],
+                               now=None) -> Dict[str, Any]:
+    """
+    ✅ 1102-02 (2026-11-03): 재시작 때 정체 판정용 최고가(highest_since_entry)를 진입 시각 뒤 확정 봉 종가로 다시 잡는다.
+
+    배경: 재시작 복원(boot_seed / wallet_sync)의 apply_entry 가 highest_since_entry 를 평단으로 초기화한다.
+    정체 시간이 지난 보유 중 재시작하면, 그 전에 목표 수익을 넘긴 적이 있어도 첫 봉 종가가 평단+목표 미만이면
+    바로 정체 매도될 수 있었다(1102-01 계획 F13 — 코드 읽기로 찾은 틈, 관측 사례 없음).
+
+    규칙:
+    - 시작점은 복원 뒤 position.entry_ts (봇 매수 시각과 앱 추가매수 시각 중 늦은 쪽 — 1102-01, 실행 중 정체 시계와 같음).
+    - 봉 선택은 select_bars_after_buy 와 같다(봉 마감 > 시작점, 미확정 봉 제외).
+    - 실시간처럼 평단에서 출발해 종가의 최댓값을 잡는다: max(평단, 종가들).
+    - 워밍업 봉만 쓴다(추가 REST 조회 없음). 시작점이 워밍업 봉보다 앞이면 있는 봉만으로 잡고 「부분」으로 남긴다
+      (평단보다 작아지지 않으므로 옛 동작보다 정체 매도가 늘지 않음).
+    - highest_since_entry 만 바꾼다. 실패하면 지금 값(평단) 그대로.
+    """
+    if not getattr(position, "has_position", False):
+        return {"status": "skip", "reason": "no_position"}
+    avg = position.avg_price
+    if avg is None or avg <= 0 or position.entry_ts is None:
+        logger.info("[STALE-PEAK] 건너뜀 | 사유=평균가 또는 진입 시각 없음")
+        return {"status": "skip", "reason": "no_avg_or_entry"}
+    try:
+        start_utc = _to_utc(position.entry_ts)
+        now_utc = _to_utc(now if now is not None else datetime.now(timezone.utc))
+        df = warmup_df if warmup_df is not None else pd.DataFrame(columns=["Close"])
+        closes = select_bars_after_buy(df, start_utc, interval_sec, now_utc)
+        partial = len(df) == 0 or _to_utc(df.index[0]) > start_utc.floor(f"{int(interval_sec)}s")
+    except Exception as e:
+        logger.warning(f"[STALE-PEAK] 재계산 불가 → 그대로 | 사유={e}")
+        return {"status": "error", "reason": str(e)}
+    peak = max([float(avg)] + [c for _, c in closes])
+    old = position.highest_since_entry
+    position.highest_since_entry = peak
+    logger.info(
+        f"[STALE-PEAK] highest_since_entry {old} → {peak:.4f} | 기준 봉 {len(closes)}개 시작={position.entry_ts} "
+        f"평균가={avg}{' (부분 — 시작점이 워밍업 봉보다 앞)' if partial else ''}"
+    )
+    return {"status": "restored", "peak": peak, "bars": len(closes), "partial": partial}
+
+
 def restore_trailing_on_boot(
     position,
     strategy,
@@ -120,9 +162,14 @@ def restore_trailing_on_boot(
     """
     재시작 복원(boot_seed / wallet_sync) 뒤, 첫 매도 평가 전에 1회 호출.
     반환: {"status": "restored"|"reset"|"skip", ...}
+    1102-02: 맨 앞에서 정체 판정용 최고가도 다시 잡는다(restore_stale_peak_on_boot — trailing 결과와 무관, 예외는 여기서 끝냄).
     """
     if not getattr(position, "has_position", False):
         return {"status": "skip", "reason": "no_position"}
+    try:
+        restore_stale_peak_on_boot(position, interval_sec=interval_sec, warmup_df=warmup_df, now=now)
+    except Exception as e:
+        logger.warning(f"[STALE-PEAK] 재계산 불가 → 그대로 | 사유=예외 {e}")
 
     ts_filter = find_trailing_filter(strategy)
     if ts_filter is None:
