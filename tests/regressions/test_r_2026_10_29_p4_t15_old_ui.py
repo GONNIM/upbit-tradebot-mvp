@@ -1162,22 +1162,25 @@ class TestAutoResumeGateIntegration(_Base):
 
 
 class TestFixedFiles(unittest.TestCase):
-    FIXED = ("core/strategy_engine.py", "core/strategy_incremental.py", "engine/params.py", "engine/live_loop.py",
+    FIXED = ("core/strategy_incremental.py", "engine/params.py",
              "engine/boot_resume.py", "services/trading_control.py", "services/db.py")
     # 1029-09: core/strategy_pullback.py 는 이 목록에서 빠지고 AST 비교로 옮김
     # (test_r_2026_10_30_1029_09_off_hours_tp.TestPullbackRulesFixed, 기준 baseline_commits.PULLBACK_RULES_BASE_COMMIT)
     # 1101-05: engine/engine_manager.py 는 시작 검사를 일부러 더해 baseline_commits.FIXED_FILES_COMMIT 과 비교한다
     #   (BASE_COMMIT 은 화면 비교에도 쓰여 통째로 올리지 않음).
-    MANAGER = "engine/engine_manager.py"
+    # 1102-01: core/strategy_engine.py(_on_hts_detect)·engine/live_loop.py(_apply_boot_seed) 도 정체 시계를
+    #   일부러 고쳐 같은 방식으로 FIXED_FILES_COMMIT 과 비교한다(비교 대상은 줄지 않음 — 7개 모두 여전히 비교).
+    TO_FIXED_COMMIT = ("engine/engine_manager.py", "core/strategy_engine.py", "engine/live_loop.py")
 
     def test_fixed_files_unchanged_since_base(self):
         r = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", BASE_COMMIT, "--", *self.FIXED])
-        self.assertEqual(r.returncode, 0, f"고정 파일 7개가 {BASE_COMMIT} 와 다르다")
+        self.assertEqual(r.returncode, 0, f"고정 파일 {len(self.FIXED)}개가 {BASE_COMMIT} 와 다르다")
 
     def test_engine_manager_unchanged_since_fixed_commit(self):
         from tests.regressions.baseline_commits import FIXED_FILES_COMMIT
-        r = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", FIXED_FILES_COMMIT, "--", self.MANAGER])
-        self.assertEqual(r.returncode, 0, f"{self.MANAGER} 가 {FIXED_FILES_COMMIT} 와 다르다")
+        for rel in self.TO_FIXED_COMMIT:
+            r = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", FIXED_FILES_COMMIT, "--", rel])
+            self.assertEqual(r.returncode, 0, f"{rel} 가 {FIXED_FILES_COMMIT} 와 다르다")
 
 
 if __name__ == "__main__":

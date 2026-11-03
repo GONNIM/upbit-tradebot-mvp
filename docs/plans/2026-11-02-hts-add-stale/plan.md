@@ -80,4 +80,11 @@
 
 ## 구현 기록
 
-(구현 전)
+- **11/03 (사용자 「1102-01 진행」, 1101-13 배포 완료 뒤):**
+  - `core/strategy_engine.py` `_on_hts_detect` HTS_BUY_ADD 갈래: `highest_since_entry = float(avg_price)`, `entry_ts = datetime.now(Asia/Seoul)`. WARNING 줄을 `→ highest=None·since_entry=<새 평단> | stale_restart=entry_ts <옛>→<새>` 로 고침. 트레일링 리셋·`clear_weak_entry`·HTS_BUY·PULLBACK 무시 갈래 그대로.
+  - `engine/live_loop.py` `_apply_boot_seed`: 봇 매수 시각을 구한 뒤 `services.db.get_last_open_buy_trade` 의 reason 이 HTS_BUY_ADD 이고 그 시각(tz 없으면 KST)이 더 늦으면 그 시각으로, `[STALE-CLOCK]` INFO. trader.user_id·ticker 가 str 아니면 조회 안 함, 예외면 WARNING 뒤 그대로. 호출 인자·중첩 함수 없음.
+  - 고정 기준 시험: T9 `funcs(src, skip=())`, T11 `STALE_CLOCK` 두 함수를 EMA_BASELINE 비교에서 빼고 `FIXED_FILES_COMMIT` 과 따로 비교, T15 `FIXED` 7→5 + `TO_FIXED_COMMIT`(engine_manager·strategy_engine·live_loop) 3개를 FIXED_FILES_COMMIT 과 비교(비교 대상 줄지 않음).
+  - 새 시험 `tests/regressions/test_r_2026_11_02_hts_add_stale.py` 12건: 새 코드 12/12 통과, 옛 코드(bc694a4 두 파일)는 R1·R1b·R7a·R7d 4건 실패(재현).
+  - 전체 게이트 1198건 중 실패 6건 — 모두 FIXED_FILES_COMMIT(bc694a4) 대비 비교, 커밋 A 뒤 기준을 A 로 올리면(커밋 B) 풀림. NETGUARD 0건.
+  - 백테스팅: 해당 없음(3절 4 사유).
+  - verifier(11/03) 「커밋 승인 요청 가능」. 반영: T11 live_loop 시험이 두 함수 밖 비교를 먼저 하도록 순서 바꿈. 2절 남는 틈 ② 보충 — avg_buy_price 0 이라 콜백이 안 불린 HTS_BUY_ADD 도 audit 에는 남으므로, 실행 중에는 시계가 그대로지만 **재시작 뒤에는 추가매수 시각으로 바뀐다**(정체 매도를 늦추는 방향뿐). 정보: BACKFILL 중 콜백이 오면 `_restore_trailing_state` 가 정체용 최고가를 백업값으로 되돌리고 entry_ts 는 새 시계로 남음(옛 코드에도 있던 경합, 정체 매도를 늦추는 방향).

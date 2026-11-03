@@ -1229,14 +1229,28 @@ class TestEmaBaseline(unittest.TestCase):
             self.skipTest("git 기준 원본 없음")
         return src
 
+    # 1102-01: 정체 시계를 일부러 고친 두 함수 — 기준 커밋 비교에서 빼고 FIXED_FILES_COMMIT 과 따로 비교
+    STALE_CLOCK = {"core/strategy_engine.py": "_on_hts_detect", "engine/live_loop.py": "_apply_boot_seed"}
+
+    def _stale_clock_same_as_fixed(self, rel):
+        fn = self.STALE_CLOCK[rel]
+        fixed = bc.git_show(rel, bc.FIXED_FILES_COMMIT)
+        if fixed is None:
+            self.skipTest("git 기준 원본 없음")
+        now = (ROOT / rel).read_text(encoding="utf-8")
+        self.assertIn(fn, _funcs(now))
+        self.assertEqual(_funcs(now)[fn], _funcs(fixed).get(fn), f"{rel}:{fn} 가 {bc.FIXED_FILES_COMMIT} 와 다르다")
+
     def test_strategy_engine_non_pullback_unchanged(self):
         rel = "core/strategy_engine.py"
-        self.assertEqual(_funcs((ROOT / rel).read_text(encoding="utf-8")), _funcs(self.base(rel)))
+        skip = {self.STALE_CLOCK[rel]}
+        self.assertEqual(_funcs((ROOT / rel).read_text(encoding="utf-8"), skip), _funcs(self.base(rel), skip))
+        self._stale_clock_same_as_fixed(rel)
 
     def test_live_loop_ema_path_unchanged(self):
         rel = "engine/live_loop.py"
         now, base = (ROOT / rel).read_text(encoding="utf-8"), self.base(rel)
-        skip = {"run_live_loop"}
+        skip = {"run_live_loop", self.STALE_CLOCK[rel]}
         new_funcs = {k for k in _funcs(now) if k not in _funcs(base)}
         self.assertEqual(new_funcs, {"_control_attach", "_control_ready", "_control_drain"})
         self.assertEqual({k: v for k, v in _funcs(now, skip).items() if k not in new_funcs}, _funcs(base, skip))
@@ -1246,6 +1260,8 @@ class TestEmaBaseline(unittest.TestCase):
         calls = [n.func.id for n in ast.walk(fn) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
                  and n.func.id.startswith("_control_")]
         self.assertEqual(sorted(calls), ["_control_attach", "_control_drain", "_control_ready"])
+        # 1102-01: 두 함수 밖 비교를 먼저 마친 뒤 정체 시계 함수를 FIXED_FILES_COMMIT 과 비교(진단 순서)
+        self._stale_clock_same_as_fixed(rel)
 
     def test_untouched_ema_files_same_as_base(self):
         for rel in ("engine/boot_resume.py", "services/trading_control.py", "core/trader.py",

@@ -219,14 +219,18 @@ class TestBlocksOrdersOnly(EngineCase):
         self.eng._execute_buy(bar(0), {"ema_fast": 1, "ema_slow": 2})   # 봉 0 = PULLBACK 기준 시간 밖
         self.assertEqual(len(self.trader.buy_calls), 1)
 
-        def funcs(src):
+        def funcs(src, skip=()):
             tree = ast.parse(src)
             out = {}
             for node in ast.walk(tree):
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and "pullback" not in node.name.lower():
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and "pullback" not in node.name.lower() \
+                        and node.name not in skip:
                     out[node.name] = ast.dump(node)
             return out
 
+        # 1102-01: 정체 시계를 일부러 고친 _on_hts_detect 는 기준 비교에서 빼고 FIXED_FILES_COMMIT 과 따로 비교
+        from tests.regressions import baseline_commits as _bc
+        stale_clock = {"core/strategy_engine.py": "_on_hts_detect"}
         for rel in ("core/strategy_engine.py", "core/strategy_incremental.py", "engine/params.py"):
             try:
                 base = subprocess.run(["git", "-C", str(ROOT), "show", f"{BASE_COMMIT}:{rel}"],
@@ -234,7 +238,14 @@ class TestBlocksOrdersOnly(EngineCase):
             except Exception:
                 self.skipTest("git 원본 없음")
             now = (ROOT / rel).read_text(encoding="utf-8")
-            self.assertEqual(funcs(now), funcs(base), rel)
+            skip = {stale_clock[rel]} if rel in stale_clock else set()
+            self.assertEqual(funcs(now, skip), funcs(base, skip), rel)
+            if rel in stale_clock:
+                fixed = _bc.git_show(rel, _bc.FIXED_FILES_COMMIT)
+                if fixed is None:
+                    self.skipTest("git 기준 원본 없음")
+                self.assertEqual(funcs(now).get(stale_clock[rel]), funcs(fixed).get(stale_clock[rel]), rel)
+                self.assertIsNotNone(funcs(now).get(stale_clock[rel]), rel)
 
         users = []
         for p in list((ROOT / "core").glob("*.py")) + list((ROOT / "engine").glob("*.py")):

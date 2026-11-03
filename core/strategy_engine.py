@@ -447,15 +447,23 @@ class StrategyEngine:
                 if str(reason).upper() == "HTS_BUY_ADD":
                     old_highest = self.position.highest_price
                     old_since_entry = self.position.highest_since_entry
+                    old_entry_ts = self.position.entry_ts
                     self.position.highest_price = None
-                    self.position.highest_since_entry = None
+                    # ✅ 1102-01: 정체 시계를 앱 추가매수 시각부터 다시 센다 (새 진입 apply_entry 와 같은 초기화)
+                    #   옛 코드는 정체용 최고가만 지우고 entry_ts 를 그대로 둬, 정체 시간이 지난 보유에
+                    #   추가매수하면 다음 봉에 전량 정체 매도됐다 (11/01 13:12 KRW-JTO audit 1470).
+                    self.position.highest_since_entry = float(avg_price)
+                    self.position.entry_ts = datetime.now(ZoneInfo("Asia/Seoul"))
                     self.position.trailing_armed = False
                     self.position.trailing_fixed_amount = None
                     self.position.trailing_activation_price = None
+                    _old_ts = old_entry_ts.isoformat() if hasattr(old_entry_ts, "isoformat") else old_entry_ts
                     logger.warning(
                         f"🔄 [HTS-DETECT-CALLBACK] HTS_BUY_ADD 로 avg 변경 → Trailing 상태 리셋 | "
                         f"old_highest={old_highest} old_since_entry={old_since_entry} "
-                        f"→ 모두 None. 다음 봉부터 새 avg 기준 추적 재개."
+                        f"→ highest=None·since_entry={float(avg_price):.6f}(새 평단) | "
+                        f"stale_restart=entry_ts {_old_ts}→{self.position.entry_ts.isoformat()}. "
+                        f"다음 봉부터 새 avg 기준 추적 재개."
                     )
                     # ✅ WO-26: 같은 정책 — 섞인 평균가 포지션에는 약매수 축소 익절을 적용하지 않는다
                     self.position.clear_weak_entry(reason="hts_buy_add")

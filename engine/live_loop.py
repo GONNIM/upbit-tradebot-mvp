@@ -722,6 +722,30 @@ def _apply_boot_seed(position, db_result: Dict[str, Any], actual_qty: float) -> 
             logger.warning(f"[SEED] entry_ts parse 실패: {e} → seed 시각 부재")
             entry_ts = None
 
+    # ✅ 1102-01: 봇 매수 뒤 앱 추가매수(HTS_BUY_ADD)가 청산 없이 남아 있으면 정체 시계는 그 시각부터
+    #   (실행 중 _on_hts_detect 와 같은 뜻). 조회·파싱 실패면 봇 매수 시각 그대로.
+    if entry_ts is not None:
+        try:
+            _uid = getattr(getattr(position, "trader", None), "user_id", None)
+            _tic = getattr(position, "ticker", None)
+            if isinstance(_uid, str) and isinstance(_tic, str) and _uid and _tic:
+                from services.db import get_last_open_buy_trade
+                from datetime import datetime as _dt
+                from zoneinfo import ZoneInfo as _ZI
+                _last = get_last_open_buy_trade(_uid, _tic)
+                if _last and str(_last.get("reason") or "").upper() == "HTS_BUY_ADD" and _last.get("timestamp"):
+                    _add_ts = _dt.fromisoformat(str(_last["timestamp"]))
+                    if _add_ts.tzinfo is None:
+                        _add_ts = _add_ts.replace(tzinfo=_ZI("Asia/Seoul"))
+                    if _add_ts > entry_ts:
+                        logger.info(
+                            f"[STALE-CLOCK] 봇 매수 뒤 앱 추가매수 → 정체 시계를 추가매수 시각부터 | "
+                            f"bot_entry_ts={entry_ts.isoformat()} → entry_ts={_add_ts.isoformat()} ticker={_tic}"
+                        )
+                        entry_ts = _add_ts
+        except Exception as e:
+            logger.warning(f"[STALE-CLOCK] 앱 추가매수 시각 확인 실패 → 봇 매수 시각 그대로: {e}")
+
     wallet_avg = position.avg_price if (position.avg_price is not None and position.avg_price > 0) else None
     if wallet_avg is not None:
         avg_price, avg_src = float(wallet_avg), "wallet"
