@@ -15,13 +15,13 @@
 | 5 | 워밍업 자리표시자 갱신 로그 문구(BUY·SELL) | services/db.py | 없음(SQL·반환값 그대로) |
 | 6 | 화면 버전 v1.2026.11.03.1532 → v1.2026.11.03.2304 | pages/dashboard.py | 표시만 |
 
-core/trader.py·engine/live_loop.py·매매 판정·주문 무변경. 실계좌 화면에서 달라지는 것: 새 전략 켜짐·보유·예약 중일 때만 「DB 동기화: 새 전략 모의 지갑을 지키려고 건너뜀」. 지금 서버는 EMA 실계좌라(새 전략 꺼짐) 배포 직후 화면·동작 변화는 없을 것으로 본다(추정 — 활성 전략 파일 값은 드라이런 정지선이 아닌 입회 때 화면으로 확인).
+core/trader.py·engine/live_loop.py·매매 판정·주문 무변경. 실계좌 화면에서 달라지는 것: 새 전략 켜짐·보유·예약 중일 때만 「DB 동기화: 새 전략 모의 지갑을 지키려고 건너뜀」. 지금 서버는 EMA 실계좌라(새 전략 꺼짐) 배포 직후 화면·동작 변화는 없을 것으로 본다(활성 전략 EMA 는 스크립트 정지선이 run.sh:67-69 에서 확인 — 11/04 정정: 처음 판의 「정지선 아닌 입회 때 확인」은 틀린 문구).
 
 ## 2. 실행 순서 (서버 스크립트)
 0. 사용자 push 승인(6절 1) → Claude 가 커밋 C push → origin/main = C 확인. 스크립트 정지선이 origin/main = C 를 보므로 push 가 드라이런보다 먼저다.
 1. 사용자 `!` 업로드·드라이런(6절 2 의 첫 명령 — 보고서 본문에 전체 명령을 적음). 드라이런 결과의 `untracked=`·`ready`·`user_db_count` 를 Claude 가 읽고 본 띄우기를 권한다. 드라이런은 정지선·대기 조건·키 있음/없음·사용자 DB 수(R7)·운영자 채널 DRY 알림 1건만(작업 트리·DB·설정 쓰기 0 — git fetch·결과 로그·잠금 파일만).
 2. 사용자 `!` 본 띄우기.
-3. 스크립트: 정지선(HEAD=46e2864, 미추적 5, tradebot 기동 11/03 15:45:10·NRestarts 0, v2 기동 11/01 14:21:31, 비밀 파일 600·사본 0, 전략 EMA, journal 실패 표지 0, origin/main = 커밋 C) → 봉마다 보유 0·묶임 0·미체결 0·잔고 갱신 120초 안·새 audit BUY 없음·minute3·최근 5분 ERROR 0 → DB 백업(무결성 ok·600) → 다음 봉 재확인·경계까지 60초 이상 → `git merge --ff-only C` → `systemctl restart tradebot` → 기동 확인 → 첫 봉 2개·check_v2_unit, 3점 일치·새 코드 표식(keeps_wallet·wallet_kept·placeholder_log) 기록 → 「배포 완료」 알림 → 1시간 관찰 → 「1시간 관찰 통과 — 배포 ② 끝」 알림.
+3. 스크립트: 정지선(HEAD=46e2864, git status 줄 5, tradebot 기동 11/03 15:45:10·NRestarts 0, v2 기동 11/01 14:21:31, 비밀 파일 600·사본 0, 전략 EMA, journal 실패 표지 0, origin/main = 커밋 C) → 봉마다 보유 0·묶임 0·미체결 0·잔고 갱신 120초 안·새 audit BUY 없음·minute3·최근 5분 ERROR 0 → DB 백업(무결성 ok·600) → 다음 봉 재확인·경계까지 60초 이상 → `git merge --ff-only C` → `systemctl restart tradebot` → 기동 확인 → 첫 봉 2개·check_v2_unit, 3점 일치·새 코드 표식(keeps_wallet·wallet_kept·placeholder_log) 기록 → 「배포 완료」 알림 → 1시간 관찰 → 「1시간 관찰 통과 — 배포 ② 끝」 알림.
 4. 되돌리기(승인 범위): 기동 확인 실패·10분 봉 줄 0·Bar# 형식 변화·기동 뒤 ERROR·관찰 중 비활성/재시작 → `git checkout 46e2864` + 재시작 1회 → 알림. 되돌린 뒤 서버는 detached HEAD — 다음 배포 전 `git checkout main`.
 5. 마감: 재시작 명령 11/07 23:59 까지. 취소: `systemctl stop deploy-1104`.
 6. 스크립트가 도는 동안 origin/main 에 push 하지 않는다(정지선이 origin/main = C 를 봄).
