@@ -245,7 +245,8 @@ test("install: 업비트로 돌리면 Ver2 의 「바이낸스에서 새로 조�
   const env = fakeEnv({ onRun: async () => { env.el("status").textContent = "완료: 10개 봉. [바이낸스에서 새로 조회함]"; } });
   installOn(env);
   await env.win.run();
-  assert.equal(env.els.status.textContent, "완료: 10개 봉. [업비트에서 새로 받음]");
+  // 1106-01 ㉠: 문구를 「업비트에서 새로 받음」에서 실제 동작(서버 저장분 + 새 봉)으로 바꿈 — 사용자가 전부 다시 받는 것으로 오해함
+  assert.equal(env.els.status.textContent, "완료: 10개 봉. [업비트: 서버 저장분 + 새 봉 이어 받음]");
   const env2 = fakeEnv({ source: "binance", onRun: async () => { env2.el("status").textContent = "[바이낸스에서 새로 조회함]"; } });
   installOn(env2);
   await env2.win.run();
@@ -430,4 +431,12 @@ test("backtester.html: 입력 41개 id 가 모두 있고 기본값 그대로 (11
   assert.equal(p.symbol.value, "JTOUSDT");
   assert.equal(p.src.value, "3m");
   assert.equal(p.days.value, "30");
+});
+
+test("backtester.html: 다시 받기 칸 이름·도움말이 업비트 이어 받기 동작을 말한다 (1106-01 ㉠)", () => {
+  // 이유: 옛 이름 「캐시 무시하고 새로 가져오기」는 서버까지 전부 다시 받는 것으로 읽혔다(11/06 사용자 조사 요청)
+  assert.ok(!HTML.includes("캐시 무시하고 새로 가져오기"));
+  assert.ok(HTML.includes("받아 둔 데이터 무시하고 다시 받기(업비트는 저장 뒤 새 봉만)"));
+  assert.ok(HTML.includes("저장 뒤의 새 봉(마지막 2개는 겹쳐 다시)과 저장이 모자란 기간만 받습니다"));
+  assert.ok(HTML.includes("바이낸스는 체크하면 기간 전체를 다시 받습니다"));
 });

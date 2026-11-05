@@ -228,9 +228,10 @@
         runBtn.disabled = false;
       }
       // Ver2 원문은 출처와 상관없이 「바이낸스에서 새로 조회함」을 붙인다 — 업비트면 바로잡는다.
+      // 업비트는 서버 저장분에 새 봉만 이어 받으므로 「전부 새로 받음」으로 읽히지 않게 쓴다(1106-01 ㉠).
       if (el("dataSource").value === "upbit") {
         var stEl = el("status");
-        stEl.textContent = String(stEl.textContent || "").replace("[바이낸스에서 새로 조회함]", "[업비트에서 새로 받음]");
+        stEl.textContent = String(stEl.textContent || "").replace("[바이낸스에서 새로 조회함]", "[업비트: 서버 저장분 + 새 봉 이어 받음]");
       }
       var st = o.getState();
       if (st.lastResults && st.lastResults !== before) {
