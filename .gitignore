@@ -93,3 +93,16 @@ docs/plans/*/*.zip
 .v2_allowlist
 # 신버전 대시보드 Fable 번들 zip (docs/specs 작업 폴더)
 docs/specs/*/*.zip
+
+# 1105-02 미관리 정리 (2026-11-05 사용자 「㉠~㉣ 권고대로」 · docs/fable/2026-11-05-untracked-13-proposal-1.md)
+# ㉠ 작업 그림 폴더 (맥에만 보관)
+.superpowers/
+# ㉡ 분석 pdf 는 md 와 같은 내용 — md 만 추적
+docs/analysis/trading-performance/*.pdf
+# ㉢ 오래된 시험 4개 (맥에만 보관): mode_lock 은 0c8e729 뒤 1건 실패, 나머지 3개는 DB·json 을 쓰는 스크립트형이라 미실행
+tests/test_mode_lock.py
+tests/test_order_ratio_verification.py
+tests/test_sell_filter_execution.py
+tests/test_tp_sl_integration.py
+# ㉣ 백테스터 Ver2 설명 글은 전역 *.txt 무시에서 뺌
+!docs/new-version/*.txt
