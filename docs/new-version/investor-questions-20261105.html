@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>최종판 백테스터(Ver2) 반영 전 확인 질문 (2026-11-05)</title>
+<style>
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Regular.ttf");font-weight:400}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Bold.ttf");font-weight:700}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-ExtraBold.ttf");font-weight:800}
+@page{size:A4;margin:16mm 15mm 16mm 15mm}
+*{box-sizing:border-box}
+body{font-family:"NG",sans-serif;font-size:10.6pt;line-height:1.68;color:#1a1a1a;margin:0}
+h1{font-size:16.5pt;margin:0 0 4px;font-weight:800}
+.meta{color:#555;font-size:9.5pt;margin-bottom:14px;border-bottom:2px solid #1a1a1a;padding-bottom:8px}
+h2{font-size:12.2pt;margin:18px 0 6px;padding:3px 0 3px 9px;border-left:5px solid #2563eb;font-weight:800;break-after:avoid}
+p{margin:5px 0}
+ul,ol{margin:4px 0;padding-left:20px}
+li{margin:4px 0;break-inside:avoid}
+b{font-weight:700}
+.box{background:#f4f6f8;border-radius:6px;padding:9px 12px;margin:8px 0;break-inside:avoid}
+.ex{background:#fffbeb;border:1px solid #f3d27a;border-radius:6px;padding:9px 12px;margin:8px 0;break-inside:avoid}
+.opt{border:1px solid #c9d2dc;border-radius:6px;padding:8px 12px;margin:6px 0;break-inside:avoid}
+.opt b.n{display:inline-block;min-width:22px}
+.q{break-inside:avoid-page}
+.ans{background:#ecfdf3;border:1px solid #86d7a5;border-radius:6px;padding:9px 12px;margin:14px 0;font-weight:700}
+table{border-collapse:collapse;width:100%;margin:6px 0;font-size:10pt}
+th,td{border:1px solid #c9d2dc;padding:5px 8px;text-align:left;vertical-align:top}
+th{background:#f4f6f8}
+</style>
+</head>
+<body>
+
+<h1>최종판 백테스터(Ver2) 반영 전 확인 질문</h1>
+<div class="meta">2026년 11월 5일</div>
+
+<p>투자자님, 보내 주신 최종판 백테스터 파일을 잘 받았습니다.</p>
+<div class="box">받은 파일: <b>MA_GC_Pullback_Backtester_2611051030(Ver2).html</b>, 설명 글 1개, 시험 화면 2장</div>
+<p>파일을 모두 읽고 지금 운영 중인 버전과 비교했습니다. 봇에 반영하기 전에 세 가지만 확인하고 싶습니다. 답을 받으면 그대로 반영하겠습니다.</p>
+
+<div class="q">
+<h2>질문 1. 설명 글에 없는 기능도 최종판에 넣을까요?</h2>
+<p>설명 글은 바뀐 점 9가지를 적고 있습니다. 그런데 받은 파일에는 설명 글에 없는 기능 3가지가 더 들어 있습니다. 파일 안에는 이 기능들이 「(신규)」로 표시되어 있습니다.</p>
+<table>
+<tr><th style="width:34%">기능</th><th>하는 일</th></tr>
+<tr><td>연속 손절 뒤 매수 중단</td><td>손절이 정한 횟수만큼 이어지면, 정한 시간(예: 6시간) 동안 새 매수를 멈춥니다. 들고 있는 코인의 익절·손절은 계속합니다.</td></tr>
+<tr><td>구간 안 눌림목 횟수를 넘으면 익절 % 줄이기</td><td>골든크로스 한 구간 안에서 눌림목 매수가 정한 횟수를 넘으면, 그 뒤 거래의 익절 %를 단계적으로 줄입니다. 하한(기본 0.3%) 밑으로는 줄이지 않습니다.</td></tr>
+<tr><td>거래 기록 새 칸 4개</td><td>진입 때의 60선 기울기, 200선과의 거리, 구간 안 순번, 실제로 쓴 익절 %를 거래 기록에 남깁니다.</td></tr>
+</table>
+<p>또 설명 글에는 파일 이름이 「…2610221843.html」로 적혀 있습니다. 받은 파일 이름은 「…2611051030(Ver2).html」입니다. 받은 파일이 최종판이 맞는지도 함께 알려 주세요.</p>
+<div class="opt"><b class="n">①</b> 받은 파일이 최종판이 맞고, 위 3가지도 모두 넣습니다.</div>
+<div class="opt"><b class="n">②</b> 받은 파일이 최종판이 맞고, 위 3가지 가운데 일부만 넣습니다. (넣을 것을 적어 주세요.)</div>
+<div class="opt"><b class="n">③</b> 최종판은 다른 파일입니다. (그 파일을 보내 주세요.)</div>
+</div>
+
+<div class="q">
+<h2>질문 2. 「G/C 매수제한 상승폭」을 눌림목 매수에도 걸까요?</h2>
+<p>이 설정은 가격이 이미 많이 오른 뒤에 따라 사는 것을 막는 기능입니다. 지금 받은 파일은 이 제한을 <b>골든크로스 순간의 1차 매수에만</b> 겁니다. 눌림목 매수에는 걸지 않습니다. 설명 글 끝에도 같은 질문이 있었습니다.</p>
+<div class="ex"><b>예시</b> — 제한을 2%로 정했습니다. 눌림목에서 가격이 다시 60선 위로 올라선 봉의 종가가 200선보다 3% 위에 있습니다.<br>
+· ①을 고르시면: 이 눌림목 매수는 <b>합니다</b>(지금 파일과 같습니다).<br>
+· ②를 고르시면: 이 눌림목 매수는 <b>하지 않습니다</b>.</div>
+<div class="opt"><b class="n">①</b> 골든크로스 1차 매수에만 겁니다. (지금 받은 파일 그대로)</div>
+<div class="opt"><b class="n">②</b> 눌림목 매수에도 똑같이 겁니다.</div>
+</div>
+
+<div class="q">
+<h2>질문 3. 「구간 내 눌림목 돌파 횟수」를 어떻게 셀까요?</h2>
+<p>지금 받은 파일은 한 구간 안의 <b>모든 눌림목 매수</b>를 셉니다. 한 거래 안에서 추가로 분할매수한 것도 셉니다. 그래서 한 거래에서 눌림목으로 여러 번 사면, 다음 거래는 처음부터 익절 %가 줄어든 채로 시작할 수 있습니다.</p>
+<div class="ex"><b>예시</b> — 횟수 2회, 줄이는 비율 50%, 익절 2.5%로 정했습니다. 한 골든크로스 구간 안에서 이렇게 거래했습니다.<br>
+· 첫 거래: 눌림목으로 처음 사고, 눌림목에서 2번 더 사서 모두 3번 산 뒤 익절했습니다.<br>
+· 둘째 거래: 같은 구간에서 눌림목으로 다시 처음 삽니다.<br>
+· ①을 고르시면: 둘째 거래는 4번째로 셉니다. 익절은 <b>0.625%</b>입니다(2.5% × 0.5 × 0.5).<br>
+· ②를 고르시면: 둘째 거래는 2번째로 셉니다. 익절은 <b>2.5%</b> 그대로입니다.</div>
+<div class="opt"><b class="n">①</b> 추가 분할매수까지 모두 셉니다. (지금 받은 파일 그대로)</div>
+<div class="opt"><b class="n">②</b> 새 거래를 시작한 눌림목 매수만 셉니다.</div>
+</div>
+
+<div class="ans">답은 「1번 ①, 2번 ①, 3번 ②」처럼 번호로 보내 주시면 됩니다.</div>
+<p>답을 받으면 먼저 업비트 KRW-JTO 시세로 같은 설정의 결과를 확인하겠습니다. 그 결과를 보내 주신 시험 결과(바이낸스 jtoUSDT)와 함께 알려 드리겠습니다. 실제 봇에 반영하기 전에는 바뀌는 점을 다시 안내드리겠습니다.</p>
+
+</body>
+</html>
