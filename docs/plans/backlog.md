@@ -96,3 +96,11 @@
 - 방향: 엔진을 systemd 별도 서비스로 돌리고, 대시보드는 DB·IPC 로 상태를 읽고 명령을 보냅니다.
 - 상태: 등록만. WO-12 운영 안정 확인 뒤 필요성을 다시 판단합니다.
 
+## 짧음 · 표 칸 추가의 칸 중복 예외 흡수(로그인·기동 경합)
+
+- 등록일: 2026-11-05
+- 근거: Ver2 배포 요청서 Fable 질의 권고 4(docs/fable/2026-11-05-ver2-deploy-request-1.md). services/init_db.py `_ensure_column` 은 칸 확인과 ALTER 사이에 잠금이 없다. 구버전 화면 로그인(app.py:281 → init_db_if_needed)과 엔진 기동 마이그레이션(engine/boot_resume.py)이 겹치면 `duplicate column` 예외가 나고, 기동 확인이 이를 실패로 보아 거짓 되돌리기를 할 수 있다(DB 손실 없음).
+- 방향: `_ensure_column` 이 `duplicate column name` 예외만 「이미 있음」으로 흡수한다. 런타임 변경이라 시험·버전 갱신·배포 승인이 따로 필요하다.
+- 상태: 등록만. 이번 Ver2 배포(1106)에는 넣지 않고, 사용자 행동 규칙(재시작 직후 5분 로그인 자제)으로 막는다.
+
+---
