@@ -119,6 +119,8 @@ PULLBACK_STATE_LABEL: dict[str, str] = {
     "UNCONFIRMED": "확정 전 봉(판정 안 함)",
     "DUPLICATE": "이미 본 봉(판정 안 함)",
     "OFF_HOURS": "거래 시간 밖 — 주문 막음",  # 2차 T9 (결정 D5)
+    "SL_PAUSE": "연속 손절로 매수 중단 중",      # 1105-09 (Ver2 R4)
+    "GC_GAP": "상승폭 제한 — 1차 매수 건너뜀",   # 1105-09 (Ver2 R3)
 }
 
 # 회차 건너뜀·주문 전 차단 원인(엔진 알림 제목·감사 체결 표 「새 전략 내용」 공용)
@@ -137,7 +139,9 @@ PULLBACK_SYNC_CLASS_LABEL: dict[str, str] = {
     "restart_mismatch": "재시작 때 수량 다름",
 }
 
-_INACTIVE_LABEL = {"not_golden": "60선 ≤ 200선", "slope_low": "200선 기울기 낮음", "slope_drop": "200선 기울기 둔화"}
+# 1105-09 (Ver2 R2): ma60_* 가 새 사유. slope_* 는 옛 감사 행용으로 남긴다
+_INACTIVE_LABEL = {"not_golden": "60선 ≤ 200선", "slope_low": "200선 기울기 낮음", "slope_drop": "200선 기울기 둔화",
+                   "ma60_slope_low": "60선 기울기 낮음", "ma60_slope_drop": "60선 기울기 둔화"}
 
 # 거래 행 분류(services.trade_strategy.classify) → 화면 라벨. 분류 불명은 경고 없이 「-」(결정 1028-06).
 _STRATEGY_CLASS_LABEL = {"PULLBACK": NEW_STRATEGY_LABEL, "EMA": "EMA", "MACD": "MACD",
@@ -189,6 +193,11 @@ def pullback_eval_text(failed_keys, checks) -> str:
         text = f"{text} — {rnd + 1}회차 준비"
     elif k == "NOT_ACTIVE" and ck.get("inactive_reason") in _INACTIVE_LABEL:
         text = f"{text}({_INACTIVE_LABEL[ck['inactive_reason']]})"
+    elif k == "SL_PAUSE" and isinstance(ck.get("pause_end"), str) and len(ck["pause_end"]) >= 16:
+        # 1105-09 (2-6): 「연속 손절로 매수 중단 중 — MM-DD HH:MM 까지」(checks.pause_end = KST ISO)
+        text = f"{text} — {ck['pause_end'][5:10]} {ck['pause_end'][11:16]} 까지"
+    elif k == "GC_GAP" and isinstance(ck.get("gap200_pct"), (int, float)):
+        text = f"{text}(장기선 대비 +{ck['gap200_pct']:.2f}%)"   # 1105-09 (R3)
     if k != "OFF_HOURS" and ck.get("off_hours") in (1, True):
         text = f"{text} · 거래 시간 밖"  # 2차 T9: 막힌 신호가 없는 시간 밖 봉
     return text

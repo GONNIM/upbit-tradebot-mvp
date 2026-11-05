@@ -172,10 +172,16 @@ OPS_KEYS = ("enable_trading_hours", "trading_start_time", "trading_end_time", "a
 OPS_DEFAULTS = {"enable_trading_hours": False, "trading_start_time": "09:00", "trading_end_time": "02:00",
                 "allow_sell_during_off_hours": True}   # engine/pullback_params.OPTIONAL_KEYS 와 같은 값(시험이 비교)
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-# engine/pullback_params.PULLBACK_KEYS 와 같은 18키(시험이 비교) — 「저장본 정상」 화면 판정용(엔진이 다시 검증)
-SAVED_KEYS = ("ticker", "interval", "maType", "ma60p", "ma200p", "pullbackP", "slopeLB", "minSlope", "slopeDrop",
+# engine/pullback_params.PULLBACK_KEYS 와 같은 24키(시험이 비교) — 「저장본 정상」 화면 판정용(엔진이 다시 검증)
+SAVED_KEYS = ("ticker", "interval", "maType", "ma60p", "ma200p", "pullbackP", "slopeLB",
+              "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+              "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
               "buyOnGoldenCross", "maxSplits", "maxPullbackBuys", "tp", "sl", "deadcross", "compounding",
               "capital", "fee")
+# 1105-09 (2-5): 옛 저장본(18키)에는 새 8키가 없다. 엔진이 기본값으로 채우므로(engine/pullback_params.NEW_KEY_DEFAULTS)
+# 화면 판정은 이 8키를 빼고 본다. 옛 2키(minSlope·slopeDrop)가 남아 있어도 엔진이 버린다.
+SAVED_NEW_KEYS = ("gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+                  "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct")
 
 
 def _row(user_id: str, sql: str, args: tuple) -> Optional[dict]:
@@ -227,7 +233,7 @@ def _saved_state(user_id: str) -> dict:
         d = json.loads(raw.decode("utf-8"))
     except (OSError, ValueError, UnicodeDecodeError):
         return {"ok": False, "sha256": None}
-    ok = isinstance(d, dict) and all(k in d for k in SAVED_KEYS)
+    ok = isinstance(d, dict) and all(k in d for k in SAVED_KEYS if k not in SAVED_NEW_KEYS)
     return {"ok": ok, "sha256": hashlib.sha256(raw).hexdigest() if ok else None}
 
 

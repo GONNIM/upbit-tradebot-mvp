@@ -4,12 +4,17 @@
   "use strict";
 
   var GUIDE_TEXT = "구버전 입장 화면에서 『신버전 대시보드』를 다시 눌러 주세요";
-  var NUMBER_IDS = ["days", "ma60p", "ma200p", "pullbackP", "slopeLB", "minSlope", "slopeDrop",
+  // 1105-09 (Ver2): 200선 기울기 2칸을 빼고 새 8칸을 넣었다(19 → 25). gcMaxGapPct 는 select 라 문자열로 보낸다.
+  var NUMBER_IDS = ["days", "ma60p", "ma200p", "pullbackP", "slopeLB",
+    "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+    "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
     "maxSplits", "maxPullbackBuys", "tp", "sl", "capital", "fee"];
-  var TEXT_IDS = ["symbol", "maType", "src", "buyOnGoldenCross", "deadcross", "compounding"];
-  // 서버가 받는 순서(화면 입력 19개)
+  var TEXT_IDS = ["symbol", "maType", "src", "gcMaxGapPct", "buyOnGoldenCross", "deadcross", "compounding"];
+  // 서버가 받는 순서(화면 입력 25개 — v2/params_schema.PARAM_FIELDS 와 같음)
   var ORDER = ["symbol", "maType", "src", "days", "ma60p", "ma200p", "pullbackP", "slopeLB",
-    "minSlope", "slopeDrop", "buyOnGoldenCross", "maxSplits", "maxPullbackBuys", "tp", "sl",
+    "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+    "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
+    "buyOnGoldenCross", "maxSplits", "maxPullbackBuys", "tp", "sl",
     "capital", "fee", "deadcross", "compounding"];
 
   // number 칸은 빈 값이면 null, 아니면 Number. select·symbol 은 문자열 그대로.
@@ -54,7 +59,7 @@
     return String(iv);
   }
 
-  // 창을 열 때 19개 값을 한 번 모은 스냅샷. 저장 POST 는 이 스냅샷을 그대로 보낸다.
+  // 창을 열 때 25개 값을 한 번 모은 스냅샷. 저장 POST 는 이 스냅샷을 그대로 보낸다.
   function makeSnapshot(getById) {
     var ds = getById("dataSource");
     return { params: collectParams(getById), source: ds && ds.value === "upbit" ? "upbit" : "binance" };
@@ -167,6 +172,15 @@
     return "시험한 종목(" + sym + ")이 엔진 종목(" + engineTicker + ")과 다릅니다 — 저장은 엔진 종목 기준입니다";
   }
 
+  // 1105-09 (2-1): 구간 초과 TP 하한이 익절 TP 보다 크면 경고만(Ver2 도 막지 않음). 그 밖 null
+  function floorWarning(params) {
+    var p = params || {};
+    var cap = Number(p.episodePullbackCap), floor = Number(p.episodeTpFloorPct), tp = Number(p.tp);
+    if (!(cap > 0) || !Number.isFinite(floor) || !Number.isFinite(tp) || !(floor > tp)) return null;
+    return "구간 초과 TP 하한(" + floor + "%)이 익절 TP(" + tp + "%)보다 큽니다 — 눌림목 돌파 횟수(" + cap +
+      "회)를 넘은 거래는 익절 목표가 기본 TP 보다 높아집니다";
+  }
+
   function snapshotBody(snap) {
     return JSON.stringify(snap);
   }
@@ -188,8 +202,10 @@
   }
 
   // 화면 src → 파일 interval. 서버(params_schema._INTERVAL)와 같아야 하며 시험이 대조한다.
-  var SRC_INTERVAL = { "1m": "minute1", "3m": "minute3", "5m": "minute5", "1h": "minute60" };
-  var SRC_LABEL = { "1m": "1분", "3m": "3분", "5m": "5분", "1h": "60분" };
+  // 1105-09 (Ver2 R7): 10·15·30분 추가
+  var SRC_INTERVAL = { "1m": "minute1", "3m": "minute3", "5m": "minute5", "10m": "minute10", "15m": "minute15",
+    "30m": "minute30", "1h": "minute60" };
+  var SRC_LABEL = { "1m": "1분", "3m": "3분", "5m": "5분", "10m": "10분", "15m": "15분", "30m": "30분", "1h": "60분" };
 
   function srcToInterval(src) {
     return Object.prototype.hasOwnProperty.call(SRC_INTERVAL, src) ? SRC_INTERVAL[src] : null;
@@ -237,7 +253,7 @@
     collectParams: collectParams, saveMessage: saveMessage, engineLabel: engineLabel,
     NUMBER_IDS: NUMBER_IDS, TEXT_IDS: TEXT_IDS, GUIDE_TEXT: GUIDE_TEXT,
     testedText: testedText, stateRows: stateRows, runBtnLabel: runBtnLabel, runNote: runNote,
-    symbolWarning: symbolWarning, preloadAll: preloadAll,
+    symbolWarning: symbolWarning, floorWarning: floorWarning, preloadAll: preloadAll,
     runPlan: runPlan, runButtonDisabled: runButtonDisabled, runResultText: runResultText,
     controlPostText: controlPostText, pollResult: pollResult,
     SWITCH_CONFIRM: SWITCH_CONFIRM, START_CONFIRM: START_CONFIRM, NO_RESPONSE_TEXT: NO_RESPONSE_TEXT,
@@ -331,6 +347,8 @@
     if (warn) addSmall("경고", warn);
     var sw = symbolWarning(snapshot, status.ticker);
     if (sw) addSmall("경고", sw);
+    var fw = floorWarning(snapshot.params);
+    if (fw) addSmall("경고", fw);
     lastSavedSpan = addSmall("마지막 저장", lastSavedText(null, current));
     hasTicker = !!status.ticker;
     plan = runPlan(status, basic, snapshot.source);
@@ -340,7 +358,7 @@
 
   function openDialog() {
     var g = gate.next();
-    // 창을 여는 순간의 19개 값을 한 번 모은다(닫았다 다시 열면 새로 모음)
+    // 창을 여는 순간의 25개 값을 한 번 모은다(닫았다 다시 열면 새로 모음)
     snapshot = makeSnapshot(function (id) { return document.getElementById(id); });
     dialog.hidden = false;
     testedBox.textContent = testedText(snapshot);

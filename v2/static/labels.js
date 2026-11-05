@@ -47,7 +47,9 @@ export const FAILED_KEY_LABELS = {
   "TENTATIVE": "잠정 봉(판정 안 함)",
   "UNCONFIRMED": "확정 전 봉(판정 안 함)",
   "DUPLICATE": "이미 본 봉(판정 안 함)",
-  "OFF_HOURS": "거래 시간 밖 — 주문 막음"
+  "OFF_HOURS": "거래 시간 밖 — 주문 막음",
+  "SL_PAUSE": "연속 손절로 매수 중단 중",
+  "GC_GAP": "상승폭 제한 — 1차 매수 건너뜀"
 };
 
 // 사유 코드 -> 한글. 대소문자 무시, TRAILING_STOP* 접두 일치, 모르는 값은 원래 값.

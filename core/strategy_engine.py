@@ -16,6 +16,7 @@ from datetime import datetime
 import logging
 import queue
 import threading  # ✅ Issue #10: 스레드 락 추가
+import pandas as pd  # 1105-09: 연속 손절 중단 시각(Timestamp·Timedelta)
 
 logger = logging.getLogger(__name__)
 
@@ -268,6 +269,12 @@ class StrategyEngine:
     4. 전략 평가
     5. 주문 실행 (중복 방지)
     """
+
+    # ✅ 1105-09 (Ver2 R4): 연속 손절 매수 중단 — 엔진 칸(재생·링 밖). 실제 봇 매도 접수에서만 바뀐다.
+    # 클래스 기본값(불변 int·None)으로 두어 EMA·MACD 공용 __init__ 을 고치지 않는다. 값은 인스턴스 대입이 덮는다.
+    _pb_sl_streak: int = 0
+    _pb_pause_start = None                 # tz 있는 pd.Timestamp(KST) — 손절 신호 봉 시각
+    _pb_pause_end = None                   # 시작 + slStreakCooldownHours
 
     def __init__(
         self,
@@ -1191,6 +1198,8 @@ class StrategyEngine:
                 logger.info(f"[ENGINE] 봉당 매매 판단 1회 규칙 적용 (PULLBACK) | ts={bar.ts}")
                 return
 
+            # ✅ 1105-09 (R4): 중단 해제 검사는 판정·표식 전에 — 봉 시각 ≥ 끝이면 연속 손절 수 0 과 함께 해제
+            self._pullback_pause_tick(bar)
             # ✅ 2차 T6: 판정 직전 엔진 표식 — 체결 대기(미보유여도 회차 유지)·어긋남(추가 분할매수 멈춤)
             if hasattr(self.strategy, "fill_wait"):
                 self.strategy.fill_wait = self._pending_split is not None
@@ -1262,7 +1271,90 @@ class StrategyEngine:
             "buy_fail_bar_ts": self._pullback_buy_fail_ts,
             "params_sha256": self._pullback_params_sha,
             "last_bar_ts": ex.get("last_ts"),
+            # 1105-09 (Ver2 2-3): 엔진 칸 3 + 전략 칸 3
+            "sl_streak": int(self._pb_sl_streak or 0),
+            "pause_start_ts": self._pb_pause_start, "pause_end_ts": self._pb_pause_end,
+            "episode_idx": ex.get("episode_idx", 0), "trade_episode_idx": ex.get("trade_episode_idx"),
+            "trade_tp_pct": ex.get("trade_tp_pct"),
         }
+
+    # ---- 1105-09 (Ver2 R4): 연속 손절 매수 중단 — 엔진 칸
+    @staticmethod
+    def _pullback_kst(ts):
+        """봉 시각 → tz 있는 KST Timestamp. 시간대 없음 = UTC(엔진 봉 시각 규칙, Issue #2)."""
+        t = pd.Timestamp(ts)
+        if t.tzinfo is None:
+            t = t.tz_localize("UTC")
+        return t.tz_convert(ZoneInfo("Asia/Seoul"))
+
+    def _pullback_push_pause(self) -> None:
+        """엔진 칸의 중단 시작·끝 시각을 전략에 읽기 전용 표식으로 넘긴다(판정·재생이 같은 값을 본다)."""
+        st = self.strategy
+        if hasattr(st, "pause_start"):
+            st.pause_start = self._pb_pause_start
+            st.pause_end = self._pb_pause_end
+
+    def _pullback_pause_tick(self, bar: Bar) -> None:
+        """판정 전: 봉 시각 ≥ 끝 시각이면 연속 손절 수 0 과 함께 해제(Ver2 409). 그 뒤 표식을 넘긴다."""
+        if self._pb_pause_end is not None and self._pullback_kst(bar.ts) >= self._pb_pause_end:
+            logger.info(f"[PULLBACK-PAUSE] 연속 손절 매수 중단 해제 | 끝={self._pb_pause_end.isoformat()} "
+                        f"봉={self._pullback_kst(bar.ts).isoformat()} 연속 손절 {self._pb_sl_streak} → 0")
+            self._pb_sl_streak = 0
+            self._pb_pause_start = None
+            self._pb_pause_end = None
+        self._pullback_push_pause()
+
+    def _pullback_count_sell(self, reason: Optional[str], bar: Bar) -> None:
+        """봇 매도 접수 성공 뒤(Ver2 closePosition 395-403): 손절이면 +1, 다른 사유면 0.
+        임계값에 닿고 아직 중단 중이 아니면 시작 = 손절 신호 봉 시각, 끝 = 시작 + 지속 시간."""
+        c = getattr(self.strategy, "cfg", {}) or {}
+        if reason != "SL":
+            self._pb_sl_streak = 0
+            return
+        self._pb_sl_streak = int(self._pb_sl_streak or 0) + 1
+        n = int(c.get("slStreakPause") or 0)
+        if n > 0 and self._pb_sl_streak >= n and self._pb_pause_end is None:
+            start = self._pullback_kst(bar.ts)
+            self._pb_pause_start = start
+            self._pb_pause_end = start + pd.Timedelta(hours=float(c.get("slStreakCooldownHours") or 0))
+            logger.warning(f"⏸️ [PULLBACK-PAUSE] 연속 손절 {self._pb_sl_streak}회 ≥ {n} → 새 매수 중단 "
+                           f"{start.isoformat()} ~ {self._pb_pause_end.isoformat()} (보유분 익절·손절은 계속)")
+        self._pullback_push_pause()
+
+    def _pullback_apply_pause_row(self, row: Optional[dict]) -> None:
+        """저장 행의 엔진 칸 3개를 엔진에 넣는다(복원과 같은 검사를 지난 행만 부른다)."""
+        from core import strategy_pullback as _sp
+        if not row:
+            return
+        try:
+            self._pb_sl_streak = int(row.get("sl_streak") or 0)
+            s, e = row.get("pause_start_ts"), row.get("pause_end_ts")
+            self._pb_pause_start = _sp._to_ts(s) if s else None
+            self._pb_pause_end = _sp._to_ts(e) if e else None
+            if (self._pb_pause_start is None) != (self._pb_pause_end is None):
+                self._pb_pause_start = self._pb_pause_end = None   # 한쪽만 있으면 쓰지 않는다
+        except Exception as ex:
+            logger.error(f"[PULLBACK-PAUSE] 저장 칸 읽기 실패 → 중단 없음으로 시작 | {ex}")
+            self._pb_sl_streak, self._pb_pause_start, self._pb_pause_end = 0, None, None
+        if self._pb_pause_end is not None:
+            logger.warning(f"[PULLBACK-PAUSE] 저장된 매수 중단 이어 감 | {self._pb_pause_start.isoformat()} ~ "
+                           f"{self._pb_pause_end.isoformat()} 연속 손절={self._pb_sl_streak}")
+        self._pullback_push_pause()
+
+    def pullback_preload_pause(self) -> None:
+        """기동 워밍업 재생보다 먼저(2-3 기동 순서): 저장 행의 엔진 칸을 읽어 재생이 중단 기간을 알게 한다.
+        읽기 오류·종목·봉 단위 다름이면 쓰지 않는다(복원과 같은 검사). 복원(restore_pullback_state)이 다시 맞춘다."""
+        from services import pullback_state as pbs
+        try:
+            row = pbs.load(self.user_id, self._pullback_mode())
+        except Exception as e:
+            logger.warning(f"[PULLBACK-PAUSE] 기동 전 읽기 실패 → 중단 없음으로 재생 | {e}")
+            return
+        st = self.strategy
+        interval = f"minute{int(getattr(st, 'interval_min', 1) or 1)}"
+        if not row or row.get("ticker") != self.ticker or row.get("interval") != interval:
+            return
+        self._pullback_apply_pause_row(row)
 
     def _pullback_persist(self) -> bool:
         """분할 상태를 pullback_state 에 1행 저장. 실패는 매매를 멈추지 않는다 — CRITICAL 로그 + (DB 가 있으면) 알림 1회.
@@ -1389,6 +1481,19 @@ class StrategyEngine:
         self._pullback_desync = False
         self._pullback_sizing_base = None
         self._pending_split = None
+        if reason != "bot_sell":
+            # 1105-09: 봇 밖 청산(지갑 0 — 앱 매도·수동 매도)은 손절이 아닌 청산 → 연속 손절 수 0. 중단 끝 시각은 그대로.
+            self._pb_sl_streak = 0
+        else:
+            # 1105-09 (R4): 봇 매도 접수 성공 갈래(_execute_sell)에서만 온다. 사유는 _execute_sell 의 sell_reason 과 같은
+            # strategy.last_sell_reason, 봉은 막 판정한 봉(strategy.last_ts — _execute_sell 의 유일한 호출자가 판정 직후 부름).
+            st = self.strategy
+            ts = getattr(st, "last_ts", None)
+            if ts is not None:
+                from types import SimpleNamespace
+                self._pullback_count_sell(getattr(st, "last_sell_reason", None), SimpleNamespace(ts=ts))
+            else:
+                logger.error("[PULLBACK-PAUSE] 매도 봉 시각 없음 → 연속 손절 셈 건너뜀")
 
     def _pullback_wallet_check(self, bar: Bar) -> None:
         """
@@ -1526,6 +1631,7 @@ class StrategyEngine:
             logger.warning("[PULLBACK-RESTORE] 적용본이 저장 때와 다름 — 진행 중 거래의 회차·평단은 그대로 이어 감")
 
         self._pullback_realized_pnl = float(row.get("realized_pnl_krw") or 0.0)
+        self._pullback_apply_pause_row(row)  # ✅ 1105-09: flat 반환보다 먼저 — 손절 뒤 미보유 재시작에도 중단 유지
         fail_ts = _sp._to_ts(row.get("buy_fail_bar_ts")) if row.get("buy_fail_bar_ts") else None
         if fail_ts is not None and self.last_bar_ts is not None:
             elapsed = int(round((_sp._to_ts(self.last_bar_ts) - fail_ts).total_seconds() / max(1, int(self.interval_sec))))
@@ -1550,6 +1656,9 @@ class StrategyEngine:
             logger.warning(f"[PULLBACK-RESTORE] 저장 회차 {row.get('entry_count')} 인데 지갑 0 → 분할 상태 초기화"
                            f"(꺼져 있는 동안 앱 매도 등)")
             pbs.reset_after_exit(self.user_id, mode, 0.0)
+            # 1105-09 (plan 2-3): 봇 밖 청산(꺼져 있는 동안 앱·수동 매도)은 손절이 아님 → 연속 손절 수 0
+            # (실행 중 경로 _pullback_on_exit(reason="wallet_zero") 와 같음). 중단 끝 시각은 그대로.
+            self._pb_sl_streak = 0
             res["reason"] = "wallet_zero"
             self.pullback_restore_result = res
             return res
@@ -1583,6 +1692,11 @@ class StrategyEngine:
             "first_entry_ts": first_ts, "first_entry_reason": row.get("first_entry_reason"),
             "armed": bool(row.get("armed")), "trade_origin": row.get("trade_origin") or "live",
             "pending_fill": False, "fill_n": int(row.get("fill_n") or 0), "inv_sum": float(row.get("inv_sum") or 0.0),
+            # 1105-09: 구간 순번·이 거래 순번·이번 거래 TP%(진행 중 거래의 익절가가 재시작 뒤에도 같게)
+            "episode_idx": int(row.get("episode_idx") or 0),
+            "trade_episode_idx": (int(row["trade_episode_idx"]) if row.get("trade_episode_idx") is not None
+                                  else None),
+            "trade_tp_pct": (float(row["trade_tp_pct"]) if row.get("trade_tp_pct") is not None else None),
         }
         if row.get("prev_golden") is not None:
             saved["prev_golden"] = bool(row["prev_golden"])
@@ -1636,7 +1750,7 @@ class StrategyEngine:
     def _pullback_ind_dict(self) -> Dict[str, Any]:
         """감사·이벤트용 지표 dict (EMA 칸은 비움)."""
         ev = getattr(self.strategy, "last_eval", {}) or {}
-        d = {k: ev.get(k) for k in ("maTrend", "ma200", "maPullback", "slope200", "slope200_lb")}
+        d = {k: ev.get(k) for k in ("maTrend", "ma200", "maPullback", "slope60", "slope60_lb")}
         d.update({"macd": None, "signal": None, "ema_fast": None, "ema_slow": None})
         return d
 
@@ -1895,6 +2009,15 @@ class StrategyEngine:
             st._save_buy_undo(True)
             if int(st.entry_count or 0) == 0:
                 st.first_entry_reason = "FORCE"
+                # 1105-09: 강제 매수로 연 거래는 순번 없음 · 설정 tp(R5 안 함)
+                st.trade_episode_idx = None
+                st.trade_tp_pct = float(c.get("tp")) if c.get("tp") is not None else None
+            in_pause = self._pb_pause_end is not None and self._pb_pause_start is not None \
+                and self._pb_pause_start <= self._pullback_kst(bar.ts) < self._pb_pause_end
+            if in_pause:
+                # 8-D: 사용자가 직접 누르는 개입이라 매수 중단 중에도 허용한다 — 로그와 화면에 표시
+                logger.warning(f"[PULLBACK-FORCE] 연속 손절 매수 중단 중 강제 매수 "
+                               f"(중단 {self._pb_pause_end.isoformat()} 까지) | user={self.user_id}")
             st.entry_count = int(st.entry_count or 0) + 1
             st.trade_origin = "live"
             st.pending_fill = True
@@ -1922,7 +2045,10 @@ class StrategyEngine:
             self._pullback_persist()
         if placed:
             logger.info(f"[PULLBACK-FORCE] 강제 매수 {round_n}회차 주문 | user={self.user_id} ticker={self.ticker}")
-            return {"status": "done", "code": "ok", "detail": {"round": round_n}}
+            detail = {"round": round_n}
+            if in_pause:   # 로그와 같은 조건(중단 기간 안) — 끝이 지났는데 아직 봉이 안 온 때는 붙이지 않음
+                detail["paused_until"] = self._pb_pause_end.isoformat()   # 8-D: 중단 중 강제 매수 표식
+            return {"status": "done", "code": "ok", "detail": detail}
         code = self._pullback_last_skip_code or ("split_order_cooldown" if cooling else "order_failed")
         logger.warning(f"[PULLBACK-FORCE] 강제 매수 주문 없음 | code={code} user={self.user_id}")
         return {"status": "rejected", "code": code, "detail": {"round": round_n}}

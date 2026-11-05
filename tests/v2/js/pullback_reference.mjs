@@ -5,7 +5,10 @@
 //            또는 {bars:[{t,o,h,l,c}]} (업비트 확정 봉 — 그대로 씀)
 //   cfg: 원본 run() 543-556행과 같은 모양(buyOnGoldenCross 는 bool, deadcross·compounding 은 "yes"|"no")
 // 출력: {"buys":[{signal_bar_t,fill_bar_t,round,trigger}], "sells":[{bar_t,type,entries}]}
-// 2차 T10: `node tests/v2/js/pullback_reference.mjs --write-expected` = 일치 시험 기준값 27개를 다시 만든다.
+// 2차 T10: `node tests/v2/js/pullback_reference.mjs --write-expected` = 일치 시험 기준값(세트 × 조합)을 다시 만든다.
+// 1105-09 (Ver2 2단계): 기준 원본을 옛 백테스터(2610201820 143~938행)에서 Ver2 인라인 스크립트 + 정해진 차이 2곳
+// (ver2_source.patchedScript — Q3 ② 구간 순번·결정 ③ 건너뜀 횟수, 화면 이식본 backtester.js 와 같은 규칙)으로 바꿨다. 엔진은 Ver2 규칙(R1~R7)을 따르므로 옛 원본과는 더 이상 같을 수 없다.
+// 옛 원본 기준값은 git 이력(커밋 f4a370f 이전 expected/)에 남아 있다.
 import vm from "node:vm";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -14,11 +17,13 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(here, "../../..");
-export const ORIG = path.join(ROOT, "docs/specs/MA60_200_GoldenCross_Pullback_Backtester_2610201820.html");
+import { VER2_HTML_PATH, patchedScript } from "./ver2_source.mjs";
+export const ORIG = VER2_HTML_PATH;
 
+// Ver2 인라인 스크립트(줄 범위 = fixtures/ver2_patches.json script_lines) + 정해진 차이 2곳. 엔진도 이 두 규칙을 따른다
+// (Q3 ②: 새 거래를 연 눌림목만 구간 순번 +1, 결정 ③: 건너뜀 횟수 셈 — 매매 목록에는 영향 없음).
 export function originalScript() {
-  const html = fs.readFileSync(ORIG, "utf8");
-  return html.split("\n").slice(142, 938).join("\n") + "\n";
+  return patchedScript();
 }
 
 function stubEl() {
@@ -45,6 +50,7 @@ function makeContext(fixture) {
       getElementById: (id) => (els[id] ??= stubEl()),
       createElement: () => stubEl(),
       addEventListener() {},
+      querySelectorAll: () => [],   // 1105-09: Ver2 스크립트가 기동 때 숫자 칸 증감 버튼을 붙인다(attachSteppers)
     },
     fetch: fakeFetch,
     Date: FixedDate,
@@ -69,11 +75,12 @@ export async function reference(fixture, cfg) {
   }
   const res = vm.runInContext(`(() => {
     const bars = __bars, cfg = __cfg;
+    // Ver2 run() 709-714행과 같은 순서: 기울기는 60선(maTrend) 자체 기울기(R2)
     const maTrend = computeMA(bars, cfg.ma60p, cfg.maType);
     const ma200 = computeMA(bars, cfg.ma200p, cfg.maType);
     const maPullback = computeMA(bars, cfg.pullbackP, cfg.maType);
-    const slope200 = computeSlope(ma200, cfg.slopeLB);
-    return simulate(bars, maTrend, ma200, slope200, maPullback, cfg);
+    const slope60 = computeSlope(maTrend, cfg.slopeLB);
+    return simulate(bars, maTrend, ma200, slope60, maPullback, cfg);
   })()`, ctx);
   const bars = ctx.__bars;
   const idx = new Map(bars.map((b, i) => [b.t, i]));

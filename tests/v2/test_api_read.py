@@ -239,10 +239,19 @@ PB_CREATE_STATEMENTS = [
 PB_INDEX_STATEMENTS = [
     "CREATE INDEX IF NOT EXISTS idx_strategy_switch_user_state ON strategy_switch(user_id, mode, state)",
 ]
+# 1105-09 (Ver2 2-3): init_db.ensure_pullback_tables 가 CREATE 뒤 _ensure_column 으로 붙이는 6칸(CREATE 문은 그대로)
+PB_ALTER_STATEMENTS = [
+    "ALTER TABLE pullback_state ADD COLUMN sl_streak INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pullback_state ADD COLUMN pause_start_ts TEXT",
+    "ALTER TABLE pullback_state ADD COLUMN pause_end_ts TEXT",
+    "ALTER TABLE pullback_state ADD COLUMN episode_idx INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE pullback_state ADD COLUMN trade_episode_idx INTEGER",
+    "ALTER TABLE pullback_state ADD COLUMN trade_tp_pct REAL",
+]
 
 
 def create_pb_schema(conn: sqlite3.Connection) -> None:
-    for s in PB_CREATE_STATEMENTS + PB_INDEX_STATEMENTS:
+    for s in PB_CREATE_STATEMENTS + PB_INDEX_STATEMENTS + PB_ALTER_STATEMENTS:
         conn.execute(s)
     conn.commit()
 

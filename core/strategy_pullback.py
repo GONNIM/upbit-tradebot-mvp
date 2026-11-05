@@ -97,7 +97,10 @@ class _IncSMA:
 
 # ---------------------------------------------------------------- 지표 묶음
 class PullbackIndicators:
-    """maTrend(ma60p) · ma200(ma200p) · maPullback(pullbackP) · slope200(slopeLB) 증분 상태."""
+    """maTrend(ma60p) · ma200(ma200p) · maPullback(pullbackP) · slope60(slopeLB) 증분 상태.
+
+    1105-09 (Ver2 R1·R2): 기울기는 60선(maTrend) 자체의 slopeLB 봉 전 대비 % 다(Ver2 712
+    computeSlope(ma60, slopeLB)). 이전 판의 200선 기울기(slope200)는 쓰지 않는다."""
 
     def __init__(self, ma60p: int, ma200p: int, pullbackP: int, slopeLB: int, maType: str,
                  *, history_extra: int = RING_CAPACITY):
@@ -108,10 +111,10 @@ class PullbackIndicators:
         self._trend = cls(self.ma60p)
         self._ma200 = cls(self.ma200p)
         self._pull = cls(self.pullbackP)
-        # 긴 이력: SMA 창 · ma200[-LB] · slope200[-LB] 를 링 버퍼 범위 안에서 되살리는 데 쓴다.
+        # 긴 이력: SMA 창 · maTrend[-LB] · slope60[-LB] 를 링 버퍼 범위 안에서 되살리는 데 쓴다.
         self.history_len = max(self.ma60p, self.ma200p, self.pullbackP, self.slopeLB + 1) + int(history_extra)
         self._h_close: deque = deque(maxlen=self.history_len)
-        self._h_ma200: deque = deque(maxlen=self.history_len)
+        self._h_trend: deque = deque(maxlen=self.history_len)
         self._h_slope: deque = deque(maxlen=self.history_len)
         self.n = 0              # 넣은 봉 수
         self.update_count = 0   # 갱신 횟수 계측(되살려도 줄지 않음)
@@ -120,7 +123,7 @@ class PullbackIndicators:
 
     @staticmethod
     def _values(t, m, p, s, s_lb) -> dict:
-        return {"maTrend": t, "ma200": m, "maPullback": p, "slope200": s, "slope200_lb": s_lb}
+        return {"maTrend": t, "ma200": m, "maPullback": p, "slope60": s, "slope60_lb": s_lb}
 
     def update(self, close: float) -> dict:
         c = float(close)
@@ -128,13 +131,13 @@ class PullbackIndicators:
         m = self._ma200.update(c)
         p = self._pull.update(c)
         self._h_close.append(c)
-        self._h_ma200.append(m)
+        self._h_trend.append(t)
         lb = self.slopeLB
         s = None
-        if len(self._h_ma200) >= lb + 1:
-            prev = self._h_ma200[-(lb + 1)]
-            if prev is not None and m is not None and prev != 0:
-                s = (m - prev) / abs(prev) * 100
+        if len(self._h_trend) >= lb + 1:
+            prev = self._h_trend[-(lb + 1)]
+            if prev is not None and t is not None and prev != 0:
+                s = (t - prev) / abs(prev) * 100
         self._h_slope.append(s)
         s_lb = self._h_slope[-(lb + 1)] if len(self._h_slope) >= lb + 1 else None
         self.n += 1
@@ -163,7 +166,7 @@ class PullbackIndicators:
         drop = self.n - int(st["n"])
         for _ in range(drop):
             self._h_close.pop()
-            self._h_ma200.pop()
+            self._h_trend.pop()
             self._h_slope.pop()
         self._trend.restore(st["trend"], self._h_close)
         self._ma200.restore(st["ma200"], self._h_close)
@@ -382,11 +385,17 @@ _SPLIT_DEFAULTS = {
     "armed": False, "prev_golden": False, "pending_fill": False, "fill_n": 0, "inv_sum": 0.0,
     "last_ts": None,
     "trade_origin": None,  # "live" 실시간 판정이 연 거래 | "replay" 워밍업·BACKFILL 재생이 만든 가상 거래
+    # 1105-09 (Ver2 R5 · Q3 ②): 골든크로스 구간 안 순번(새 거래를 연 눌림목 매수만 셈), 이 거래 순번,
+    # 이번 거래 TP%(None = 설정 tp). 구간 순번은 청산 때 남기고 새 골든크로스에서 0.
+    "episode_idx": 0,
+    "trade_episode_idx": None,
+    "trade_tp_pct": None,
 }
 _TS_KEYS = ("first_entry_ts", "last_ts")
 # 2차 T6: 실주문이 정한 거래 칸(재생이 실거래 중에 바꾸지 않는 칸 — live_loop._PULLBACK_TRADE_KEYS 와 같은 목록)
 SPLIT_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "first_entry_reason",
-                    "pending_fill", "fill_n", "inv_sum", "trade_origin")
+                    "pending_fill", "fill_n", "inv_sum", "trade_origin",
+                    "episode_idx", "trade_episode_idx", "trade_tp_pct")
 
 
 def _to_ts(v):
@@ -466,7 +475,15 @@ class IncrementalPullbackStrategy:
             "maType": str(p["maType"]).lower(),
             "ma60p": int(p["ma60p"]), "ma200p": int(p["ma200p"]),
             "pullbackP": int(p["pullbackP"]), "slopeLB": int(p["slopeLB"]),
-            "minSlope": float(p["minSlope"]), "slopeDrop": float(p["slopeDrop"]),
+            # 1105-09 (Ver2): 새 8칸. 없으면 Ver2 기본값(로더가 먼저 채움 — 여기 기본값은 시험·옛 호출용)
+            "ma60MinSlope": float(p.get("ma60MinSlope", 0)),
+            "ma60SlopeDrop": float(p.get("ma60SlopeDrop", 0)),
+            "gcMaxGapPct": float(p.get("gcMaxGapPct", 0)),
+            "slStreakPause": int(p.get("slStreakPause", 0)),
+            "slStreakCooldownHours": float(p.get("slStreakCooldownHours", 6)),
+            "episodePullbackCap": int(p.get("episodePullbackCap", 0)),
+            "episodeTpDecayPct": float(p.get("episodeTpDecayPct", 50)),
+            "episodeTpFloorPct": float(p.get("episodeTpFloorPct", 0.3)),
             "buyOnGoldenCross": _yes(p["buyOnGoldenCross"]),
             "maxSplits": int(p["maxSplits"]), "maxPullbackBuys": int(p["maxPullbackBuys"]),
             "tp": float(p["tp"]), "sl": float(p["sl"]),
@@ -495,6 +512,10 @@ class IncrementalPullbackStrategy:
         # 2차 T6: 엔진이 실시간 판정 직전에 넣는 표식(판정 상태 아님 — 링·저장에 넣지 않는다)
         self.fill_wait = False      # LIVE 분할 주문 체결 대기 중(엔진 _pending_split) → 미보유여도 회차 정리를 미룸
         self.split_desync = False   # 지갑·분할 상태 어긋남(desync=1) → 추가 분할매수 멈춤, 매도는 계속(D11 b)
+        # 1105-09 (Ver2 R4): 연속 손절 매수 중단 기간. 엔진 칸(재생·링 밖)이며 엔진이 판정·재생 전에 넣는다.
+        # 시작 ≤ 봉 시각 < 끝 인 봉에서만 매수를 막는다(재생이 중단 시작 전 봉을 막지 않게 — Fable 11/05 막음 1).
+        self.pause_start = None     # tz 있는 pd.Timestamp(KST) 또는 None
+        self.pause_end = None
         self._pos_desync_logged = False  # 2차 T8: POS_DESYNC 경고는 상태가 바뀔 때 1회
 
     # ------------------------------------------------ 2차 T5: 엔진·trader 가 읽는 값 (적용본 기준, 읽기 전용)
@@ -606,6 +627,8 @@ class IncrementalPullbackStrategy:
         self.inv_sum = 0.0
         self.armed = False
         self.trade_origin = None
+        self.trade_episode_idx = None   # 1105-09: 구간 순번(episode_idx)은 남긴다(Ver2 closePosition)
+        self.trade_tp_pct = None
 
     def _off_hours(self, bar_ts) -> bool:
         """2차 T9: 이 봉의 판정 시각이 거래 시간 밖인지. 판정 시각 = 봉 마감(봉 시작 + 봉 단위) KST —
@@ -617,20 +640,42 @@ class IncrementalPullbackStrategy:
         return not is_trading_time(judge, c["trading_start_time"], c["trading_end_time"])
 
     def _is_active(self, v: dict) -> bool:
-        """원본 isFilterActive 229-240."""
-        t, m, s, s_lb = v.get("maTrend"), v.get("ma200"), v.get("slope200"), v.get("slope200_lb")
-        if t is None or m is None or s is None:
+        """Ver2 isFilterActive 314-327 (60선 기울기)."""
+        t, m, s, s_lb = v.get("maTrend"), v.get("ma200"), v.get("slope60"), v.get("slope60_lb")
+        if t is None or m is None:
             return False
         if not (t > m):
             return False
-        if s < self.cfg["minSlope"]:
+        if s is None:
             return False
-        if self.cfg["slopeDrop"] > 0 and s_lb is not None:
-            if (s_lb - s) > self.cfg["slopeDrop"]:
+        if s < self.cfg["ma60MinSlope"]:
+            return False
+        if self.cfg["ma60SlopeDrop"] > 0 and s_lb is not None:
+            if (s_lb - s) > self.cfg["ma60SlopeDrop"]:
                 return False
         return True
 
-    _UNDO_KEYS = ("entry_count", "pullback_count", "first_entry_reason", "trade_origin", "pending_fill")
+    def is_paused(self, bar_ts) -> bool:
+        """1105-09 (R4): 이 봉이 연속 손절 매수 중단 기간(시작 ≤ 봉 시각 < 끝) 안인지.
+        봉 시각의 시간대 없음 = UTC(엔진 봉 시각 규칙, Issue #2)."""
+        if self.pause_start is None or self.pause_end is None:
+            return False
+        t = pd.Timestamp(bar_ts)
+        if t.tzinfo is None:
+            t = t.tz_localize("UTC")
+        return self.pause_start <= t < self.pause_end
+
+    def episode_tp(self, idx) -> float:
+        """1105-09 (R5): 구간 순번 idx 로 연 거래의 TP% = max(하한, tp × (1 − 감소율/100)^(idx − 횟수)).
+        횟수 0(꺼짐)이거나 idx 가 횟수 이하·없음이면 설정 tp (Ver2 486-491)."""
+        c = self.cfg
+        cap = c["episodePullbackCap"]
+        if idx is None or cap <= 0 or int(idx) <= cap:
+            return c["tp"]
+        return max(c["episodeTpFloorPct"], c["tp"] * (1 - c["episodeTpDecayPct"] / 100) ** (int(idx) - cap))
+
+    _UNDO_KEYS = ("entry_count", "pullback_count", "first_entry_reason", "trade_origin", "pending_fill",
+                  "episode_idx", "trade_episode_idx", "trade_tp_pct")
 
     def _save_buy_undo(self, live: bool) -> None:
         """BUY 신호가 회차를 올리기 직전 값(실시간만). 체결 대기 처리(순서 0)는 이미 끝난 뒤라 그 값은 유지된다."""
@@ -696,6 +741,10 @@ class IncrementalPullbackStrategy:
         golden = t is not None and m is not None and t > m
         self.prev_golden = golden  # 1) 어느 경로로 빠지든 먼저 갱신
         just_crossed = golden and not was_golden
+        if just_crossed:
+            self.episode_idx = 0  # 1105-09 (R5): 새 골든크로스 구간 시작 → 구간 순번 0 (Ver2 413)
+        paused = self.is_paused(bar.ts)  # 1105-09 (R4)
+        gap200 = (float(bar.close) - m) / m * 100 if (m is not None and m != 0) else None
 
         avg = None
         if holding:
@@ -704,7 +753,8 @@ class IncrementalPullbackStrategy:
                 avg = float(p_avg)
             elif self.fill_n > 0:
                 avg = self.fill_n / self.inv_sum
-        tp_price = avg * (1 + c["tp"] / 100) if avg is not None else None
+        tp_pct = self.trade_tp_pct if self.trade_tp_pct is not None else c["tp"]  # 1105-09 (R5)
+        tp_price = avg * (1 + tp_pct / 100) if avg is not None else None
         sl_price = avg * (1 - c["sl"] / 100) if avg is not None else None
 
         signal = None
@@ -735,8 +785,15 @@ class IncrementalPullbackStrategy:
 
         origin = "live" if live else "replay"
         exit_round = None
+        # 1105-09 (R3 · Q2 ①): 골든크로스 봉 종가가 200선보다 gcMaxGapPct% 이상 위이면 1차 매수만 건너뛴다.
+        # 같은 봉의 눌림목 판정은 이어서 한다(Ver2 438-443).
+        gc_gap_hit = (c["gcMaxGapPct"] > 0 and c["buyOnGoldenCross"] and just_crossed and self.entry_count == 0
+                      and gap200 is not None and gap200 >= c["gcMaxGapPct"])
         golden_buy = (c["buyOnGoldenCross"] and just_crossed and self.entry_count == 0 and not holding
-                      and active and self.entry_count < c["eff_max_splits"])
+                      and active and not paused and not gc_gap_hit and self.entry_count < c["eff_max_splits"])
+        # 결정 ③: 살 수 있었는데 상승폭 때문에만 막힌 골든크로스(감시 켜짐·중단 아님·회차 여유)
+        gc_gap_counted = (gc_gap_hit and not holding and active and not paused
+                          and self.entry_count < c["eff_max_splits"])
         if signal is not None:
             exit_round = (self.entry_count, self.pullback_count)  # 2차 T8: 매도 체결 행 회차(정리 전 값)
             self._reset_trade()
@@ -749,6 +806,8 @@ class IncrementalPullbackStrategy:
             self._save_buy_undo(live)
             self.entry_count += 1
             self.first_entry_reason = "GOLDEN"
+            self.trade_episode_idx = None   # 1105-09: 골든크로스 1차로 연 거래는 순번 없음 · 설정 tp
+            self.trade_tp_pct = c["tp"]
             self.trade_origin = origin
             self.pending_fill = True
             self.armed = False
@@ -760,7 +819,8 @@ class IncrementalPullbackStrategy:
                 blocked = ("BUY", "GOLDEN")
             # 5) 눌림목 → 재돌파
             capped = self.pullback_count >= c["maxPullbackBuys"]
-            if not c["golden_only"] and not capped and active and self.entry_count < c["eff_max_splits"]:
+            if not c["golden_only"] and not capped and not paused and active \
+                    and self.entry_count < c["eff_max_splits"]:
                 if pm is not None and bar.low < pm:
                     self.armed = True
                 if self.armed and pm is not None and bar.close > pm and off:
@@ -769,6 +829,10 @@ class IncrementalPullbackStrategy:
                     self._save_buy_undo(live)
                     if self.entry_count == 0:
                         self.first_entry_reason = "PULLBACK"
+                        # 1105-09 Q3 ②: 새 거래를 여는 눌림목 매수만 구간 순번에 센다(기준 파일과 다름 — 1105-06)
+                        self.episode_idx += 1
+                        self.trade_episode_idx = self.episode_idx
+                        self.trade_tp_pct = self.episode_tp(self.episode_idx)
                     self.entry_count += 1
                     self.pullback_count += 1
                     if live:
@@ -779,14 +843,14 @@ class IncrementalPullbackStrategy:
                     self.armed = False
                     signal = ("BUY", "PULLBACK")
                     split_round = self.entry_count
-            elif not active or c["golden_only"] or capped:
+            elif not active or c["golden_only"] or capped or paused:
                 self.armed = False
             # 전체 회차가 찬 경우(entry_count ≥ eff_max_splits)는 armed 그대로
 
         self.last_ts = bar.ts
         ev = {
             "strategy": "PULLBACK", "mode": "live" if live else "replay", "bar_ts": _kst_iso(bar.ts),
-            **{k: v.get(k) for k in ("maTrend", "ma200", "maPullback", "slope200", "slope200_lb")},
+            **{k: v.get(k) for k in ("maTrend", "ma200", "maPullback", "slope60", "slope60_lb")},
             "active": active, "golden": golden, "just_crossed": just_crossed, "armed": self.armed,
             "holding": holding, "avg": avg, "tp_price": tp_price, "sl_price": sl_price,
             "entry_count": self.entry_count, "pullback_count": self.pullback_count,
@@ -798,7 +862,17 @@ class IncrementalPullbackStrategy:
                              (list(buy_block) if buy_block else ["NO_SIGNAL"])))),
             "off_hours": off,
             "blocked_signal": f"{blocked[0]}:{blocked[1]}" if blocked is not None else None,
+            # 1105-09 (Ver2)
+            "tp_used_pct": tp_pct if holding else self.trade_tp_pct,
+            "episode_idx": self.episode_idx, "trade_episode_idx": self.trade_episode_idx,
+            "streak_paused": paused,
+            "pause_end": _kst_iso(self.pause_end) if (paused and self.pause_end is not None) else None,
+            "gap200_pct": gap200,
+            "gc_gap_blocked": bool(gc_gap_counted and signal is None and not buy_block and not off),
         }
+        if live and ev["gc_gap_blocked"]:
+            logger.info(f"[PULLBACK] gc_gap_blocked | 상승폭 {gap200:.3f}% ≥ {c['gcMaxGapPct']}% "
+                        f"→ 골든크로스 1차 매수 건너뜀 | ts={format_kst(bar.ts)}")
         if blocked is not None and live:
             logger.info(f"[PULLBACK-HOURS] 거래 시간 밖 — {blocked[0]}:{blocked[1]} "
                         f"{'익절 막음 → 손절로 매도' if signal is not None else '주문 막음'} "
@@ -814,16 +888,17 @@ class IncrementalPullbackStrategy:
 
     # ------------------------------------------------ 2차 T8: 감사 칸 모양
     def _inactive_reason(self, ev: dict) -> Optional[str]:
-        """감시 구간 밖 사유(원본 isFilterActive 순서): not_golden → slope_low → slope_drop. 감시 구간이면 None."""
+        """감시 구간 밖 사유(Ver2 isFilterActive 순서): not_golden → ma60_slope_low → ma60_slope_drop.
+        감시 구간이면 None. 1105-09: 옛 200선 사유(slope_low·slope_drop)는 옛 감사 행에만 남는다."""
         if "active" not in ev or ev.get("active"):
             return None
-        t, m, s, s_lb = ev.get("maTrend"), ev.get("ma200"), ev.get("slope200"), ev.get("slope200_lb")
+        t, m, s, s_lb = ev.get("maTrend"), ev.get("ma200"), ev.get("slope60"), ev.get("slope60_lb")
         if t is None or m is None or not (t > m):
             return "not_golden"
-        if s is None or s < self.cfg["minSlope"]:
-            return "slope_low"
-        if self.cfg["slopeDrop"] > 0 and s_lb is not None and (s_lb - s) > self.cfg["slopeDrop"]:
-            return "slope_drop"
+        if s is None or s < self.cfg["ma60MinSlope"]:
+            return "ma60_slope_low"
+        if self.cfg["ma60SlopeDrop"] > 0 and s_lb is not None and (s_lb - s) > self.cfg["ma60SlopeDrop"]:
+            return "ma60_slope_drop"
         return None
 
     def _wait_key(self, ev: dict) -> str:
@@ -831,6 +906,10 @@ class IncrementalPullbackStrategy:
         c = self.cfg
         if int(ev.get("entry_count") or 0) >= c["eff_max_splits"]:
             return "SPLITS_FULL"
+        if ev.get("streak_paused"):
+            return "SL_PAUSE"      # 1105-09 (R4): 연속 손절로 매수 중단 중(checks.pause_end)
+        if ev.get("gc_gap_blocked"):
+            return "GC_GAP"        # 1105-09 (R3): 상승폭 때문에 골든크로스 1차 매수를 건너뜀
         if not ev.get("active"):
             return "NOT_ACTIVE"
         if c["golden_only"]:
@@ -843,9 +922,10 @@ class IncrementalPullbackStrategy:
         """
         last_eval → (failed_keys, checks) — 감사 audit_buy_eval·audit_sell_eval 의 칸(계획 T8, 스키마 변경 없음).
           failed_keys: [] (이 봉 신호) | NOT_ACTIVE·WAIT_PULLBACK·WAIT_GOLDEN·SPLITS_FULL·PULLBACK_CAP·DESYNC
+                       | SL_PAUSE (1105-09: 연속 손절 매수 중단 중) · GC_GAP (1105-09: 상승폭으로 1차 매수 건너뜀)
                        | OFF_HOURS (2차 T9: 거래 시간 밖이라 막힌 매수·익절 — checks.blocked_signal)
                        | 판정 안 함·막음 표식 TENTATIVE·UNCONFIRMED·DUPLICATE·PENDING_FILL·STATE_POLLUTED·REPLAY
-          checks: strategy·round·pullback_round·armed·active·inactive_reason·maTrend·ma200·maPullback·slope200·
+          checks: strategy·round·pullback_round·armed·active·inactive_reason·maTrend·ma200·maPullback·slope60·
                   buy_reason·golden_event(+ 화면·관찰용 덧칸)
         """
         ev = dict(self.last_eval or {})
@@ -870,12 +950,12 @@ class IncrementalPullbackStrategy:
             "maTrend": ev.get("maTrend"),
             "ma200": ev.get("ma200"),
             "maPullback": ev.get("maPullback"),
-            "slope200": ev.get("slope200"),
+            "slope60": ev.get("slope60"),
             "buy_reason": reason if sig == "BUY" else None,
             "golden_event": _b("just_crossed"),
             # 덧칸(화면·관찰용)
             "golden": _b("golden"),
-            "slope200_lb": ev.get("slope200_lb"),
+            "slope60_lb": ev.get("slope60_lb"),
             "holding": _b("holding"),
             "avg": ev.get("avg"),
             "tp_price": ev.get("tp_price"),
@@ -891,6 +971,14 @@ class IncrementalPullbackStrategy:
             # 2차 T9: 거래 시간 밖 봉 표식·막힌 신호("BUY:PULLBACK"·"BUY:GOLDEN"·"SELL:TP" 등)
             "off_hours": _b("off_hours"),
             "blocked_signal": ev.get("blocked_signal"),
+            # 1105-09 (Ver2): 이번 거래 TP% · 구간 순번 · 연속 손절 중단 · 상승폭
+            "tp_used_pct": ev.get("tp_used_pct"),
+            "episode_idx": ev.get("episode_idx"),
+            "trade_episode_idx": ev.get("trade_episode_idx"),
+            "streak_paused": _b("streak_paused"),
+            "pause_end": ev.get("pause_end"),
+            "gap200_pct": ev.get("gap200_pct"),
+            "gc_gap_blocked": _b("gc_gap_blocked"),
         }
         if ev.get("note"):
             checks["note"] = ev["note"]

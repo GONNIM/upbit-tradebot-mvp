@@ -249,8 +249,10 @@ class TestPullbackStatusAssets(PbBase):
         b = self.get_json("/v2/api/assets")[1]
         self.assertAlmostEqual(b["tp_price"], 1050.0)
         self.assertAlmostEqual(b["sl_price"], 970.0)
+        # 1105-09 (2-6): 새 전략 응답에만 이번 거래 익절 %·연속 손절 중단 끝 칸이 더 있다(EMA 응답은 그대로)
         self.assertEqual(set(b), {"krw", "krw_locked", "coin", "coin_locked", "entry_price", "price", "price_at",
-                                  "pnl", "tp_price", "sl_price", "round", "updated_at"})
+                                  "pnl", "tp_price", "sl_price", "round", "updated_at", "tp_used_pct", "pause_until"})
+        self.assertEqual((b["tp_used_pct"], b["pause_until"]), (None, None))   # 새 칸 비어 있음 → 설정 TP 그대로
 
     def test_assets_tp_sl_desync_uses_engine_record(self):
         """어긋남(지갑 평단 기준으로 엔진이 관리) — 상태 평단이 아니라 엔진 판단 기록 값."""
@@ -491,8 +493,9 @@ class TestPullbackSignals(PbBase):
         self.set_pb()
         self.pb_eval("audit_buy_eval", "2026-10-30 10:41:00", ["WAIT_PULLBACK"], round=2, armed=1, active=1)
         s = self.get_json("/v2/api/signals?limit=1")[1]["signals"][0]
+        # 1105-09 (2-6): 연속 손절 중단 봉(SL_PAUSE)의 끝 시각 칸 pause_end 를 더함(그 밖 봉은 None)
         self.assertEqual(s["pb"], {"state": "WAIT_PULLBACK", "round": 2, "armed": 1, "active": 1, "holding": 0,
-                                   "inactive_reason": None})
+                                   "inactive_reason": None, "pause_end": None})
         self.set_strategy("EMA")
         s = self.get_json("/v2/api/signals?limit=1")[1]["signals"][0]
         self.assertNotIn("pb", s)
@@ -518,9 +521,99 @@ class TestLabelTables(unittest.TestCase):
         self.assertEqual(api_read.APPLY_LABELS["reseed"], "지표 다시 계산(그동안 매수 없음)")
 
     def test_param_labels_cover_engine_keys(self):
+        # 1105-09 (Ver2): 옛 2키(minSlope·slopeDrop) 이름은 지난 적용 기록(strategy_switch PARAMS)을 읽으려고 남긴다
         keys = set(control.SAVED_KEYS) | set(control.OPS_KEYS)
-        self.assertEqual(keys, set(api_read.PARAM_KEY_LABELS))
+        self.assertEqual(keys | {"minSlope", "slopeDrop"}, set(api_read.PARAM_KEY_LABELS))
 
+
+
+class TestVer2Display(PbBase):
+    """1105-09 (Ver2 2-6): 연속 손절 중단·이번 거래 익절 %·60선 기울기 사유·옛 저장본 판정."""
+
+    def v2_state(self, *, pause_start=None, pause_end=None, trade_tp=None):
+        self.conn.execute("UPDATE pullback_state SET pause_start_ts=?, pause_end_ts=?, trade_tp_pct=? "
+                          "WHERE user_id='alice'", (pause_start, pause_end, trade_tp))
+        self.conn.commit()
+
+    def test_assets_trade_tp_pct_sets_tp_price(self):
+        self.pb_db()
+        self.set_pb(tp=5, sl=3)
+        self.holding()
+        self.pb_state(entry=2, avg=1000.0)
+        self.v2_state(trade_tp=2.5)
+        b = self.get_json("/v2/api/assets")[1]
+        self.assertAlmostEqual(b["tp_price"], 1025.0)      # 엔진 식 avg × (1 + 이번 거래 TP%)
+        self.assertAlmostEqual(b["sl_price"], 970.0)
+        self.assertEqual(b["tp_used_pct"], 2.5)
+
+    def test_assets_pause_until_only_while_future(self):
+        self.pb_db()
+        self.set_pb()
+        self.pb_state(entry=0, qty=0.0, avg=None)
+        self.v2_state(pause_start="2099-01-01T09:00:00+09:00", pause_end="2099-01-01T15:00:00+09:00")
+        self.assertEqual(self.get_json("/v2/api/assets")[1]["pause_until"], "2099-01-01T15:00:00+09:00")
+        self.v2_state(pause_start="2000-01-01T09:00:00+09:00", pause_end="2000-01-01T15:00:00+09:00")
+        self.assertIsNone(self.get_json("/v2/api/assets")[1]["pause_until"])   # 지난 끝 시각은 보이지 않음
+
+    def test_assets_old_table_without_v2_columns(self):
+        """새 칸이 아직 없는 DB(엔진 기동 전 배포 직후) — 새 칸은 null, 회차·가격은 그대로."""
+        c = self.make_live_db()
+        from tests.v2.test_api_read import PB_CREATE_STATEMENTS, PB_INDEX_STATEMENTS
+        for st in PB_CREATE_STATEMENTS + PB_INDEX_STATEMENTS:
+            c.execute(st)
+        c.commit()
+        self.set_pb(tp=5, sl=3)
+        self.holding()
+        self.pb_state(entry=2, avg=1000.0)
+        b = self.get_json("/v2/api/assets")[1]
+        self.assertEqual(b["round"], {"entry": 2, "max": 5, "desync": False})
+        self.assertAlmostEqual(b["tp_price"], 1050.0)
+        self.assertEqual((b["tp_used_pct"], b["pause_until"]), (None, None))
+
+    def test_sl_pause_and_gc_gap_texts(self):
+        self.pb_db()
+        self.set_pb()
+        self.pb_eval("audit_buy_eval", "2026-10-30 10:41:00", ["SL_PAUSE"], round=0, active=1,
+                     pause_end="2026-10-30T16:42:00+09:00", streak_paused=1)
+        self.pb_eval("audit_buy_eval", "2026-10-30 10:44:00", ["GC_GAP"], round=0, active=1, gap200_pct=1.2)
+        texts = self.audit_texts()
+        self.assertIn("매수 대기 — 연속 손절로 매수 중단 중(16:42 까지)", texts)
+        self.assertIn("매수 대기 — 상승폭 제한 — 1차 매수 건너뜀", texts)
+        s = self.get_json("/v2/api/signals?limit=2")[1]["signals"]
+        pe = {x["pb"]["state"]: x["pb"]["pause_end"] for x in s}
+        self.assertEqual(pe, {"SL_PAUSE": "2026-10-30T16:42:00+09:00", "GC_GAP": None})
+
+    def test_inactive_ma60_reasons_use_ma60_period(self):
+        self.pb_db()
+        self.set_pb(ma60p=50, ma200p=150)
+        self.pb_eval("audit_buy_eval", "2026-10-30 10:41:00", ["NOT_ACTIVE"], inactive_reason="ma60_slope_low")
+        self.pb_eval("audit_buy_eval", "2026-10-30 10:44:00", ["NOT_ACTIVE"], inactive_reason="ma60_slope_drop")
+        self.pb_eval("audit_buy_eval", "2026-10-30 10:47:00", ["NOT_ACTIVE"], inactive_reason="slope_low")
+        texts = self.audit_texts()
+        self.assertIn("매수 대기 — 감시 구간 밖(50선 기울기 낮음)", texts)
+        self.assertIn("매수 대기 — 감시 구간 밖(50선 기울기 둔화)", texts)
+        self.assertIn("매수 대기 — 감시 구간 밖(150선 기울기 낮음)", texts)   # 옛 감사 행은 옛 문구
+
+    def test_saved_state_accepts_old_and_new_files(self):
+        """옛 저장본(18키, minSlope·slopeDrop 있음)도 「저장본 정상」 — 엔진이 옮겨 읽는다(2-5). 키가 빠지면 아님."""
+        from v2 import db as v2db
+        path = v2db.pullback_params_path("alice")
+        old = {k: v for k, v in PB_APPLIED.items()}
+        path.write_text(json.dumps(old), encoding="utf-8")
+        self.assertTrue(control._saved_state("alice")["ok"])
+        new = {k: v for k, v in old.items() if k not in ("minSlope", "slopeDrop")}
+        new.update({k: 0 for k in control.SAVED_NEW_KEYS})
+        path.write_text(json.dumps(new), encoding="utf-8")
+        self.assertTrue(control._saved_state("alice")["ok"])
+        del new["tp"]
+        path.write_text(json.dumps(new), encoding="utf-8")
+        self.assertFalse(control._saved_state("alice")["ok"])
+
+    def test_param_records_show_new_keys_with_pct(self):
+        for k in ("gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "episodeTpDecayPct", "episodeTpFloorPct"):
+            self.assertIn(k, api_read.PARAM_PCT_KEYS, k)
+        self.assertEqual(api_read.PARAM_KEY_LABELS["slopeLB"], "60선 기울기 lookback")
+        self.assertNotIn("slStreakPause", api_read.PARAM_PCT_KEYS)   # 횟수·시간 칸은 % 아님
 
 if __name__ == "__main__":
     unittest.main()

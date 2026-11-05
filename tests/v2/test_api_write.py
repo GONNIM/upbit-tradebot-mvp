@@ -15,19 +15,24 @@ from v2.server import DEFAULT_ORIGIN
 from tests.v2 import test_api_read as base
 
 ROOT = Path(__file__).resolve().parents[2]
-ORIG_HTML = ROOT / "docs" / "specs" / "MA60_200_GoldenCross_Pullback_Backtester_2610201820.html"
+# 1105-09 (Ver2): 화면 입력 기준을 옛 백테스터에서 Ver2 기준 파일로 바꿨다(19 → 25칸, 파일 18 → 24키)
+ORIG_HTML = ROOT / "docs" / "new-version" / "MA_GC_Pullback_Backtester_2611051030(Ver2).html"
 SAVE_URL = "/v2/api/params/save"
 CURRENT_URL = "/v2/api/params/current"
 
 VALID = {
     "symbol": "jtousdt", "maType": "ema", "src": "3m", "days": 30,
     "ma60p": 60, "ma200p": 200, "pullbackP": 60, "slopeLB": 20,
-    "minSlope": 0, "slopeDrop": 0, "buyOnGoldenCross": "yes",
+    "gcMaxGapPct": "0", "ma60MinSlope": 0, "ma60SlopeDrop": 0, "slStreakPause": 0, "slStreakCooldownHours": 6,
+    "episodePullbackCap": 0, "episodeTpDecayPct": 50, "episodeTpFloorPct": 0.3,
+    "buyOnGoldenCross": "yes",
     "maxSplits": 5, "maxPullbackBuys": 5, "tp": 1.0, "sl": 1.5,
     "capital": 10000, "fee": 0.05, "deadcross": "yes", "compounding": "no",
 }
 FILE_KEYS = ["ticker", "interval", "maType", "ma60p", "ma200p", "pullbackP",
-             "slopeLB", "minSlope", "slopeDrop", "buyOnGoldenCross", "maxSplits",
+             "slopeLB", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause",
+             "slStreakCooldownHours", "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
+             "buyOnGoldenCross", "maxSplits",
              "maxPullbackBuys", "tp", "sl", "deadcross", "compounding",
              "capital", "fee"]
 INITIAL_FILE = '{"ticker": "KRW-OLD", "interval": "minute1"}\n'
@@ -97,7 +102,9 @@ class TestSave(WriteBase):
         self.assertEqual(data, {
             "ticker": "KRW-ZRO", "interval": "minute3", "maType": "ema",
             "ma60p": 60, "ma200p": 200, "pullbackP": 60, "slopeLB": 20,
-            "minSlope": 0, "slopeDrop": 0, "buyOnGoldenCross": True,
+            "gcMaxGapPct": 0.0, "ma60MinSlope": 0, "ma60SlopeDrop": 0, "slStreakPause": 0,
+            "slStreakCooldownHours": 6, "episodePullbackCap": 0, "episodeTpDecayPct": 50,
+            "episodeTpFloorPct": 0.3, "buyOnGoldenCross": True,
             "maxSplits": 5, "maxPullbackBuys": 5, "tp": 1.0, "sl": 1.5,
             "deadcross": True, "compounding": False, "capital": 10000, "fee": 0.05})
         self.assertNotIn("days", data)
@@ -134,11 +141,15 @@ class TestSave(WriteBase):
     def test_invalid_param_400_and_file_unchanged(self):
         cases = [
             ("days", 4), ("days", 366), ("ma60p", 1), ("maxSplits", 11),
-            ("maxPullbackBuys", 0), ("slopeDrop", -0.1),
+            ("maxPullbackBuys", 0), ("ma60SlopeDrop", -0.1),
+            # 1105-09 (Ver2 새 칸): select 는 문자열 선택지만, 정수 칸은 정수만, 범위 밖 거절
+            ("gcMaxGapPct", 0.5), ("gcMaxGapPct", "0.7"), ("slStreakPause", 1.5), ("slStreakPause", 21),
+            ("episodePullbackCap", -1), ("episodeTpDecayPct", 100), ("episodeTpFloorPct", -0.05),
+            ("slStreakCooldownHours", -0.5),
             ("tp", None), ("sl", True), ("fee", "0.05"), ("capital", float("nan")),
             ("capital", float("inf")),
             ("days", 30.5), ("slopeLB", 1.5),
-            ("maType", "wma"), ("src", "15m"), ("deadcross", "maybe"), ("compounding", 1),
+            ("maType", "wma"), ("src", "2m"), ("deadcross", "maybe"), ("compounding", 1),   # 1105-09: 15m 은 허용(R7)
             ("symbol", "A"), ("symbol", "BTC-USDT"), ("symbol", "x" * 21), ("symbol", 5),
             ("tp", 10 ** 400), ("days", 10 ** 400),
             # 결정 1024-03 가: 서버 추가 하한
@@ -628,7 +639,7 @@ class TestSchema(unittest.TestCase):
                 continue
             attrs = {k: v for k, v in re.findall(r'\b(min|max|step|type)="([^"]*)"', m.group(1))}
             found[idm.group(1)] = ("input", attrs)
-        self.assertEqual(len(params_schema.PARAM_FIELDS), 19)
+        self.assertEqual(len(params_schema.PARAM_FIELDS), 25)   # 1105-09: 19 − 2 + 8
         for name, spec in params_schema.PARAM_FIELDS.items():
             self.assertIn(name, found, name)
             kind, info = found[name]

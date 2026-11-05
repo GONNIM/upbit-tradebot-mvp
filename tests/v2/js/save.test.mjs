@@ -20,11 +20,14 @@ function load() {
   return ctx.__v2save;
 }
 
+// 1105-09 (Ver2): 화면 입력 25개(v2/params_schema.PARAM_FIELDS 순서) — 200선 기울기 2칸 빼고 새 8칸
 const IDS = ["symbol", "maType", "src", "days", "ma60p", "ma200p", "pullbackP", "slopeLB",
-  "minSlope", "slopeDrop", "buyOnGoldenCross", "maxSplits", "maxPullbackBuys", "tp", "sl",
+  "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+  "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
+  "buyOnGoldenCross", "maxSplits", "maxPullbackBuys", "tp", "sl",
   "capital", "fee", "deadcross", "compounding"];
 
-test("collectParams: 19 keys, number->Number, empty number->null, select string", () => {
+test("collectParams: 25 keys, number->Number, empty number->null, select string", () => {
   const S = load();
   const d = parseDefaults(HTML);
   const els = {};
@@ -40,7 +43,21 @@ test("collectParams: 19 keys, number->Number, empty number->null, select string"
   assert.equal(out.symbol, "JTOUSDT");
   assert.equal(typeof out.buyOnGoldenCross, "string");
   assert.equal(out.compounding, "no");
+  assert.equal(out.gcMaxGapPct, "0");          // select → 문자열(서버가 float 으로 바꿔 파일에 씀)
+  assert.equal(out.slStreakCooldownHours, 6);
+  assert.equal(out.episodeTpFloorPct, 0.3);
   assert.deepEqual([...S.NUMBER_IDS, ...S.TEXT_IDS].sort(), IDS.slice().sort());
+});
+
+test("floorWarning: 구간 횟수가 켜지고 하한 > TP 일 때만 경고(저장은 막지 않음, 2-1)", () => {
+  const S = load();
+  assert.equal(S.floorWarning({ episodePullbackCap: 0, episodeTpFloorPct: 2, tp: 1 }), null);
+  assert.equal(S.floorWarning({ episodePullbackCap: 2, episodeTpFloorPct: 0.3, tp: 1 }), null);
+  assert.equal(S.floorWarning({ episodePullbackCap: 2, episodeTpFloorPct: 1, tp: 1 }), null);
+  assert.match(S.floorWarning({ episodePullbackCap: 2, episodeTpFloorPct: 1.5, tp: 1 }),
+    /하한\(1\.5%\)이 익절 TP\(1%\)보다 큽니다.*2회/);
+  assert.equal(S.floorWarning({ episodePullbackCap: 2, episodeTpFloorPct: null, tp: 1 }), null);
+  assert.equal(S.floorWarning(null), null);
 });
 
 test("saveMessage: 응답별 문구", () => {
@@ -98,13 +115,17 @@ test("makeGate: 최신 세대만 유효", () => {
   assert.equal(g.isCurrent(b), false);
 });
 
-test("srcToInterval: 4종 매핑·매핑 밖은 null, 문구·경고", () => {
+test("srcToInterval: 7종 매핑·매핑 밖은 null, 문구·경고", () => {   // 1105-09: 10·15·30분 추가(R7)
   const S = load();
   assert.equal(S.srcToInterval("1m"), "minute1");
   assert.equal(S.srcToInterval("3m"), "minute3");
   assert.equal(S.srcToInterval("5m"), "minute5");
   assert.equal(S.srcToInterval("1h"), "minute60");
-  for (const bad of ["15m", "", "toString", "__proto__", undefined, null]) assert.equal(S.srcToInterval(bad), null, String(bad));
+  assert.equal(S.srcToInterval("10m"), "minute10");
+  assert.equal(S.srcToInterval("15m"), "minute15");
+  assert.equal(S.srcToInterval("30m"), "minute30");
+  assert.equal(S.srcText("15m"), "15분 (minute15)");
+  for (const bad of ["2m", "", "toString", "__proto__", undefined, null]) assert.equal(S.srcToInterval(bad), null, String(bad));
   assert.equal(S.srcText("1h"), "60분 (minute60)");
   assert.equal(S.srcText("zz"), "알 수 없음");
   assert.equal(S.intervalWarning("1h", "minute3"),
@@ -121,7 +142,7 @@ test("save.js 매핑이 params_schema._INTERVAL 과 같다", () => {
   const pyMap = {};
   for (const m of block.matchAll(/"([^"]+)":\s*"([^"]+)"/g)) pyMap[m[1]] = m[2];
   assert.deepEqual({ ...S.SRC_INTERVAL }, pyMap);
-  assert.equal(Object.keys(pyMap).length, 4);
+  assert.equal(Object.keys(pyMap).length, 7);   // 1105-09: 4 → 7
 });
 
 test("스냅샷: 원본 입력이 바뀌어도 보낼 본문은 스냅샷 그대로", () => {

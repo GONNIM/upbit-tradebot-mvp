@@ -1,5 +1,13 @@
 """
-2차 T10: 새 전략(PULLBACK) 원본 일치 시험 — 업비트 확정 봉 3세트 × 조합 9개 = 27건.
+2차 T10: 새 전략(PULLBACK) 원본 일치 시험 — 업비트 확정 봉 3세트 × 조합 13개 = 39건.
+
+1105-09 (Ver2 2단계) 고친 까닭: 엔진이 Ver2 규칙(R1~R7)을 따르게 되어 기준 원본을 옛 백테스터에서 Ver2 인라인
+스크립트 + 정해진 차이 2곳(tests/v2/js/fixtures/ver2_patches.json)으로 바꿨다. 기준값 39개를 다시 만들었고
+(옛 27개는 git 이력에 남음), 조합에 gc_gap(R3)·sl_streak(R4)·episode_cap(R5)·min_slope(R2)를 더했다.
+- 적용본은 24키(minSlope·slopeDrop 대신 새 8키).
+- 익절 가격은 이번 거래 TP%(R5, checks.tp_used_pct) — 원본 closePosition 의 currentTradeTpPct 와 같다.
+- 연속 손절 중단(R4)은 엔진 칸이라 core.strategy_engine.StrategyEngine 의 같은 함수(_pullback_pause_tick·
+  _pullback_count_sell)를 가벼운 대역 객체에 빌려 와 실시간 경로와 같은 순서로 부른다.
 
 계획 `docs/specs/v2-dashboard/plan-phase2.md` 「### T10:」 「일치 시험 설계」:
 - 기준값: 원본 백테스터 스크립트(HTML 143~938행)를 그대로 돌린 출력을 `tests/fixtures/pullback/expected/` 에 고정
@@ -39,7 +47,8 @@ from tests.regressions import baseline_commits as bc  # noqa: E402
 PB_DIR = ROOT / "tests" / "fixtures" / "pullback"
 FIXTURES = ("upbit_a", "upbit_b", "upbit_c")
 CFG_NAMES = ("base", "golden_no", "golden_only", "pb_lt_splits", "slope_drop",
-             "deadcross_no", "compounding_yes", "sma", "splits_full_armed")
+             "deadcross_no", "compounding_yes", "sma", "splits_full_armed",
+             "gc_gap", "sl_streak", "episode_cap", "min_slope")   # 1105-09: 새 규칙 4조합
 
 _cache: dict = {}
 
@@ -64,9 +73,11 @@ def js_cfg(name: str, cfgs: dict | None = None) -> dict:
 
 
 def py_params(js: dict, fixture: dict) -> dict:
-    """원본 cfg 모양 → 전략 적용본 모양(18키, deadcross·compounding bool)."""
+    """원본 cfg 모양 → 전략 적용본 모양(24키, deadcross·compounding bool). 1105-09: 옛 2키 대신 새 8키."""
     meta = fixture["meta"]
-    p = {k: js[k] for k in ("maType", "ma60p", "ma200p", "pullbackP", "slopeLB", "minSlope", "slopeDrop",
+    p = {k: js[k] for k in ("maType", "ma60p", "ma200p", "pullbackP", "slopeLB",
+                            "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+                            "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
                             "buyOnGoldenCross", "maxSplits", "maxPullbackBuys", "tp", "sl", "capital", "fee")}
     p["deadcross"] = js["deadcross"] == "yes"
     p["compounding"] = js["compounding"] == "yes"
@@ -129,27 +140,47 @@ class SimFill:
         base = self.equity if self.p["compounding"] else float(self.p["capital"])
         self.pending = base / self.sum_w
 
-    def sell(self, bar, reason: str) -> None:
+    def sell(self, bar, reason: str, tp_pct=None) -> None:
         pos = self.pos
         avg = pos.cost / pos.qty
-        price = {"TP": avg * (1 + self.p["tp"] / 100), "SL": avg * (1 - self.p["sl"] / 100)}.get(reason, bar.close)
+        tp = self.p["tp"] if tp_pct is None else tp_pct   # 1105-09 (R5): 이번 거래 TP%
+        price = {"TP": avg * (1 + tp / 100), "SL": avg * (1 - self.p["sl"] / 100)}.get(reason, bar.close)
         gross = pos.qty * price
         self.equity += gross - pos.cost - pos.entry_fees - gross * self.p["fee"] / 100
         pos.qty = pos.cost = pos.entry_fees = 0.0
 
 
+class PauseEngine:
+    """1105-09 (R4): 연속 손절 중단 엔진 칸 대역. 함수는 StrategyEngine 의 것을 그대로 빌린다(같은 코드 경로)."""
+    from core.strategy_engine import StrategyEngine as _SE
+    _pullback_kst = staticmethod(_SE._pullback_kst)
+    _pullback_push_pause = _SE._pullback_push_pause
+    _pullback_pause_tick = _SE._pullback_pause_tick
+    _pullback_count_sell = _SE._pullback_count_sell
+    del _SE
+
+    def __init__(self, st):
+        self.strategy = st
+        self._pb_sl_streak = 0
+        self._pb_pause_start = None
+        self._pb_pause_end = None
+
+
 def run_strategy(params: dict, bars: list, *, st=None, fill=None, start: int = 0, stop: int | None = None,
-                 interval_min: int = 3):
+                 interval_min: int = 3, eng=None):
     """봉 배열을 실시간 경로(on_bar + 실제 보유)로 넣는다. 반환 (buys, sells, st, fill).
-    buys = [(signal_bar_t, fill_bar_t, round, trigger)] (마지막 봉 신호 제외), sells = [(bar_t, type, entries)]."""
+    buys = [(signal_bar_t, fill_bar_t, round, trigger)] (마지막 봉 신호 제외), sells = [(bar_t, type, entries)].
+    1105-09: 엔진과 같은 순서 — 판정 전 중단 해제 확인(_pullback_pause_tick), 매도 접수 뒤 손절 셈(_pullback_count_sell)."""
     st = st or sp.IncrementalPullbackStrategy("t10", params["ticker"], params, interval_min)
     fill = fill or SimFill(params)
+    eng = eng or PauseEngine(st)
     n = len(bars)
     stop = n if stop is None else stop
     buys, sells = [], []
     for i in range(start, stop):
         b = bars[i]
         fill.before_bar(b)
+        eng._pullback_pause_tick(b)
         a = st.on_bar(b, {}, fill.pos, i)
         if a is Action.BUY:
             if i + 1 < n:
@@ -157,7 +188,8 @@ def run_strategy(params: dict, bars: list, *, st=None, fill=None, start: int = 0
                 fill.buy()
         elif a is Action.SELL:
             sells.append((ms(b.ts), st.last_sell_reason, st.last_eval["exit_round"]))
-            fill.sell(b, st.last_sell_reason)
+            fill.sell(b, st.last_sell_reason, st.last_eval.get("tp_used_pct"))
+            eng._pullback_count_sell(st.last_sell_reason, b)
     return buys, sells, st, fill
 
 
@@ -188,7 +220,7 @@ class _Quiet:
 
 
 class TestParity(unittest.TestCase):
-    """test_parity_<fixture>_<cfg> 27개 (아래에서 만든다)."""
+    """test_parity_<fixture>_<cfg> 39개 (아래에서 만든다)."""
 
     def check(self, fixture: str, cfg: str):
         fx = load_fixture(fixture)
@@ -217,7 +249,7 @@ for _f in FIXTURES:
 
 
 class TestFixtures(unittest.TestCase):
-    def test_cfgs_nine_and_fixtures_three(self):
+    def test_cfgs_thirteen_and_fixtures_three(self):   # 1105-09: 9 → 13 조합
         cfgs = load_cfgs()
         self.assertEqual(tuple(cfgs["cfgs"]), CFG_NAMES)
         self.assertEqual(tuple(cfgs["meta"]["fixtures"]), FIXTURES)
@@ -226,7 +258,7 @@ class TestFixtures(unittest.TestCase):
                 self.assertTrue((PB_DIR / "expected" / f"{f}__{c}.json").is_file(), (f, c))
 
     def test_event_counts_base(self):
-        """각 경우 사건 수: base 세 세트 모두 GOLDEN ≥ 1, PULLBACK ≥ 1, 매도 ≥ 1. 27건 모두 매수·매도 ≥ 1."""
+        """각 경우 사건 수: base 세 세트 모두 GOLDEN ≥ 1, PULLBACK ≥ 1, 매도 ≥ 1. 39건 모두 매수·매도 ≥ 1."""
         for f in FIXTURES:
             exp = load_expected(f, "base")
             trig = [b["trigger"] for b in exp["buys"]]
@@ -242,7 +274,7 @@ class TestFixtures(unittest.TestCase):
             self.assertNotIn("PULLBACK", [b["trigger"] for b in load_expected(f, "golden_only")["buys"]], f)
 
     def test_expected_script_sha_matches_cfgs(self):
-        """고정 파일 27개가 cfgs.json 의 원본 스크립트 sha 로 만들어졌다(원본 sha 자체는 node 시험이 본다)."""
+        """고정 파일 39개가 cfgs.json 의 원본 스크립트 sha 로 만들어졌다(원본 sha 자체는 node 시험이 본다)."""
         sha = load_cfgs()["meta"]["original_script_sha256"]
         self.assertRegex(sha, r"^[0-9a-f]{64}$")
         for f in FIXTURES:

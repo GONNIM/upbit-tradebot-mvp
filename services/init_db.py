@@ -1041,6 +1041,12 @@ def ensure_pullback_tables(user_id: str):
         )
         """
     )
+    # ✅ 1105-09 (Ver2 2-3, ⚠ 칸 추가): 연속 손절 수·중단 시작·끝 시각(엔진 칸), 구간 순번·이 거래 순번·이번 거래 TP%(전략 칸).
+    #   ADD COLUMN 만 한다. 되돌리기(코드 revert) 때 옛 코드는 이 칸을 읽지도 쓰지도 않는다(SELECT 칸 목록을 정해 씀).
+    for _col, _ddl in (("sl_streak", "INTEGER NOT NULL DEFAULT 0"), ("pause_start_ts", "TEXT"),
+                       ("pause_end_ts", "TEXT"), ("episode_idx", "INTEGER NOT NULL DEFAULT 0"),
+                       ("trade_episode_idx", "INTEGER"), ("trade_tp_pct", "REAL")):
+        _ensure_column(conn, "pullback_state", _col, _ddl)
     # ✅ 2차 T12 (2026-10-29, X1·결정 13-1): 전략 전환·복귀·예약 기록 strategy_switch 신설 (⚠ 스키마 변경).
     #   - 손익 집계 밖(audit_trades 에 넣지 않음). 예약 조회는 (user_id, mode, kind IN SWITCH/REVERT, state RESERVED).
     #   - PARAMS 행(결정 13-8, T13)은 늘 state='DONE' 이고 예약 판정에 쓰지 않는다.

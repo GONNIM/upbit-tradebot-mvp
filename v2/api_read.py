@@ -38,6 +38,8 @@ FAILED_KEY_LABELS = {
     "DESYNC": "보유 수량 어긋남 — 추가 매수 멈춤", "SWITCH_RESERVED": "전환 예약",
     "WARMUP": "준비 중(지표 계산)", "REPLAY": "재생(주문 없음)", "BACKFILL": "재평가(주문 없음)",
     "PENDING_FILL": "체결 대기", "STATE_POLLUTED": "지표 확인 필요 — 매수 멈춤",
+    # 1105-09 (Ver2 R4·R3, 2-6)
+    "SL_PAUSE": "연속 손절로 매수 중단 중", "GC_GAP": "상승폭 제한 — 1차 매수 건너뜀",
     "TENTATIVE": "잠정 봉(판정 안 함)", "UNCONFIRMED": "확정 전 봉(판정 안 함)",
     "DUPLICATE": "이미 본 봉(판정 안 함)", "OFF_HOURS": "거래 시간 밖 — 주문 막음",
 }
@@ -48,19 +50,27 @@ SKIP_CAUSE_LABELS = {
     "split_unconfirmed_bar": "봉 마감 확인 전",
 }
 # 2차 T16: 감시 구간 밖 사유(checks.inactive_reason) — terminology._INACTIVE_LABEL 과 같은 뜻, 「60선·200선」 은 설정 기간으로 바꿔 씀
+# 1105-09 (Ver2 R2): 새 사유는 60선 기울기(ma60_*). 옛 감사 행의 200선 사유(slope_*)는 옛 문구 그대로 둔다
 INACTIVE_TEMPLATES = {"not_golden": "{a}선 ≤ {b}선", "slope_low": "{b}선 기울기 낮음",
-                      "slope_drop": "{b}선 기울기 둔화"}
+                      "slope_drop": "{b}선 기울기 둔화",
+                      "ma60_slope_low": "{a}선 기울기 낮음", "ma60_slope_drop": "{a}선 기울기 둔화"}
 # 2차 T16: 설정 적용(strategy_switch PARAMS) 기록의 키 이름 — 백테스터 입력 칸 이름과 같게
 PARAM_KEY_LABELS = {
     "ticker": "종목", "interval": "봉 단위", "maType": "이동평균 방식", "ma60p": "60선 기간",
-    "ma200p": "200선 기간", "pullbackP": "눌림목 기준선 기간", "slopeLB": "200선 기울기 lookback",
-    "minSlope": "200선 최소 기울기", "slopeDrop": "기울기 둔화 허용치", "buyOnGoldenCross": "골든크로스 시 1차 매수",
+    "ma200p": "200선 기간", "pullbackP": "눌림목 기준선 기간", "slopeLB": "60선 기울기 lookback",
+    # 옛 2키는 지난 적용 기록을 읽을 때만 쓴다(1105-09 이후 파일에는 없음)
+    "minSlope": "200선 최소 기울기(옛 설정)", "slopeDrop": "기울기 둔화 허용치(옛 설정)",
+    "gcMaxGapPct": "G/C 매수제한 상승폭", "ma60MinSlope": "60선 최소 기울기", "ma60SlopeDrop": "60선 기울기 둔화 허용치",
+    "slStreakPause": "연속 SL 중단 임계값", "slStreakCooldownHours": "연속 SL 중단 지속시간(시간)",
+    "episodePullbackCap": "구간 내 눌림목 돌파 횟수", "episodeTpDecayPct": "구간 초과 시 TP 감소율",
+    "episodeTpFloorPct": "구간 초과 TP 하한", "buyOnGoldenCross": "골든크로스 시 1차 매수",
     "maxSplits": "분할 최대 횟수", "maxPullbackBuys": "눌림목 매수 최대 횟수", "tp": "익절 TP", "sl": "손절 SL",
     "deadcross": "데드크로스 청산", "compounding": "복리 모드", "capital": "초기자본", "fee": "수수료",
     "enable_trading_hours": "거래 시간 제한", "trading_start_time": "거래 시작 시각",
     "trading_end_time": "거래 끝 시각", "allow_sell_during_off_hours": "시간 밖에도 익절",
 }
-PARAM_PCT_KEYS = ("tp", "sl", "minSlope", "slopeDrop", "fee")
+PARAM_PCT_KEYS = ("tp", "sl", "minSlope", "slopeDrop", "fee", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop",
+                  "episodeTpDecayPct", "episodeTpFloorPct")
 # 적용 시점(note.apply) — 엔진 engine/pullback_apply·strategy_switch 가 쓰는 값. 결정 1030-02 U4: reseed 글자
 APPLY_LABELS = {"next_bar": "다음 봉부터", "immediate": "즉시", "reseed": "지표 다시 계산(그동안 매수 없음)",
                 "switch": "전환과 함께 적용", "restart": "재시작 적용"}   # reserved 는 엔진이 쓰지 않음(결정 10)
@@ -150,6 +160,9 @@ SQL_MARKERS = ("SELECT type, price, bar_time FROM audit_trades "
 # 표가 없는 DB(배포 전·엔진 재시작 전)에서는 sqlite3.Error → 그 부분만 「모름」(_try_query).
 SQL_PB_STATE = ("SELECT entry_count, qty, avg_price, desync FROM pullback_state "
                 "WHERE user_id=? AND mode=? LIMIT 1")
+# 1105-09 (2-6): Ver2 새 칸(연속 손절 중단 끝·이번 거래 TP%). 칸이 아직 없는 DB 면 _try_query 가 None → 표시 안 함
+SQL_PB_STATE_V2 = ("SELECT pause_start_ts, pause_end_ts, trade_tp_pct FROM pullback_state "
+                   "WHERE user_id=? AND mode=? LIMIT 1")
 SQL_SIGNALS_PB_TICKER = ("SELECT id, timestamp, bar_time, ticker, price, macd, signal, "
                          "have_position, overall_ok, failed_keys, checks FROM audit_buy_eval "
                          "WHERE ticker=? ORDER BY timestamp DESC, id DESC LIMIT ?")
@@ -329,6 +342,10 @@ def _pb_wait_text(keys: list, ck: dict, cfg: Optional[dict]) -> str:
         if ck.get("armed") in (1, True):
             return "매수 대기 — 눌림 상태, %d회차 준비" % nxt
         return "매수 대기 — 눌림 대기, %d회차 준비" % nxt
+    if k == "SL_PAUSE":
+        pe = _dt(ck.get("pause_end")) if isinstance(ck.get("pause_end"), str) else None
+        if pe is not None:
+            return "매수 대기 — 연속 손절로 매수 중단 중(%s 까지)" % _hhmm(pe)
     if k == "NOT_ACTIVE" and ck.get("inactive_reason") in INACTIVE_TEMPLATES:
         why = INACTIVE_TEMPLATES[ck["inactive_reason"]].format(
             a=_line(cfg.get("ma60p"), 60)[:-1], b=_line(cfg.get("ma200p"), 200)[:-1])
@@ -361,9 +378,11 @@ def pb_signal(checks, failed_keys) -> Optional[dict]:
         return None
     keys = _json_list(failed_keys) or _json_list(ck.get("failed_keys"))
     b = lambda k: 1 if ck.get(k) in (1, True) else 0   # noqa: E731
+    pe = ck.get("pause_end")
     return {"state": str(keys[0]).upper() if keys else None, "round": _int_or_none(ck.get("round")),
             "armed": b("armed"), "active": b("active"), "holding": b("holding"),
-            "inactive_reason": ck.get("inactive_reason") if ck.get("inactive_reason") in INACTIVE_TEMPLATES else None}
+            "inactive_reason": ck.get("inactive_reason") if ck.get("inactive_reason") in INACTIVE_TEMPLATES else None,
+            "pause_end": pe if isinstance(pe, str) and pe else None}   # 1105-09: SL_PAUSE 봉의 중단 끝(KST ISO)
 
 
 class ReadHandler(ApiHandler):
@@ -494,13 +513,14 @@ class AssetsHandler(ReadHandler):
                 tp, sl = _nonzero(sell["tp_price"]), _nonzero(sell["sl_price"])
 
         rnd = None
+        pb_extra = {"tp_used_pct": None, "pause_until": None}
         if value == "PULLBACK":
-            rnd, pb_tp, pb_sl = self._pullback_round(user_id, holding)
+            rnd, pb_tp, pb_sl, pb_extra = self._pullback_round(user_id, holding)
             if pb_tp is not None:
                 tp, sl = pb_tp, pb_sl
 
         upd = acc.get("updated_at") or pos.get("updated_at")
-        self.send_json({
+        body = {
             "krw": _num(acc.get("virtual_krw"), 0),
             "krw_locked": _num(acc.get("virtual_krw_locked"), 0),
             "coin": coin,
@@ -513,7 +533,13 @@ class AssetsHandler(ReadHandler):
             "sl_price": sl,
             "round": rnd,   # 2차 T16: 새 전략이면 {"entry","max","desync"}, EMA·MACD 는 null(1차와 같음)
             "updated_at": _iso(upd),
-        })
+        }
+        if value == "PULLBACK":
+            # 1105-09 (2-6): 새 전략만 — 보유 중 이번 거래 익절 %(R5), 연속 손절 중단 끝(아직 안 지났을 때만). 그 밖 null.
+            # EMA·MACD 응답 칸은 그대로 둔다(TestEmaUnchangedVsBase).
+            body["tp_used_pct"] = pb_extra["tp_used_pct"]
+            body["pause_until"] = pb_extra["pause_until"]
+        self.send_json(body)
 
     def _pullback_round(self, user_id: str, holding: bool):
         """2차 T16 (결정 5): 분할 회차·어긋남·평단 기준 익절/손절 가격. ops_info 를 부르지 않는다
@@ -522,20 +548,30 @@ class AssetsHandler(ReadHandler):
         cfg = self._pb_cfg or {}
         mode = self.current_user.get("mode")
         rows = _try_query(user_id, SQL_PB_STATE, (user_id, mode)) if mode in ("TEST", "LIVE") else None
+        extra = {"tp_used_pct": None, "pause_until": None}
         if rows is None:
-            return None, None, None
+            return None, None, None, extra
         st = rows[0] if rows else {}
+        v2rows = _try_query(user_id, SQL_PB_STATE_V2, (user_id, mode))
+        st2 = v2rows[0] if v2rows else {}
+        trade_tp = _float_or_none(st2.get("trade_tp_pct"))
+        pe = _dt(st2.get("pause_end_ts")) if isinstance(st2.get("pause_end_ts"), str) else None
+        if pe is not None and pe > datetime.now(db.KST):
+            extra["pause_until"] = _iso(st2.get("pause_end_ts"))
         entry = _int_or_none(st.get("entry_count")) or 0
         desync = bool(st.get("desync"))
         eff = cfg.get("max_splits")
         rnd = {"entry": entry, "max": eff, "desync": desync} if eff else None
         avg = _float_or_none(st.get("avg_price"))
         tp_pct, sl_pct = cfg.get("tp"), cfg.get("sl")
+        if holding and trade_tp is not None:
+            tp_pct = trade_tp   # 1105-09 (R5): 엔진도 이번 거래 TP% 로 익절가를 계산한다(trade_tp_pct or cfg tp)
+            extra["tp_used_pct"] = trade_tp
         if (holding and not desync and avg is not None and avg > 0
                 and tp_pct is not None and sl_pct is not None):
             # 엔진 식(core/strategy_pullback.py: avg × (1 ± %/100))과 같다
-            return rnd, avg * (1 + tp_pct / 100.0), avg * (1 - sl_pct / 100.0)
-        return rnd, None, None
+            return rnd, avg * (1 + tp_pct / 100.0), avg * (1 - sl_pct / 100.0), extra
+        return rnd, None, None, extra
 
 
 class _ListHandler(ReadHandler):

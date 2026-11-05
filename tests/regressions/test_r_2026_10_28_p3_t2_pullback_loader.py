@@ -31,10 +31,12 @@ LAST_GOOD = f"{USER}_applied_params_PULLBACK.last_good.json"
 
 
 def good(**over):
+    """1105-09 (Ver2): 24키 파일. 옛 18키(minSlope·slopeDrop)는 legacy() 로 따로 시험한다(TestLegacyMigration)."""
     d = {
         "ticker": "KRW-JTO", "interval": "minute3", "maType": "ema",
         "ma60p": 60, "ma200p": 200, "pullbackP": 20, "slopeLB": 5,
-        "minSlope": 0.0, "slopeDrop": 0.5, "buyOnGoldenCross": True,
+        "gcMaxGapPct": 0, "ma60MinSlope": 0.0, "ma60SlopeDrop": 0.5, "slStreakPause": 0, "slStreakCooldownHours": 6, "episodePullbackCap": 0, "episodeTpDecayPct": 50, "episodeTpFloorPct": 0.3,
+        "buyOnGoldenCross": True,
         "maxSplits": 5, "maxPullbackBuys": 2, "tp": 5.0, "sl": 3.0,
         "deadcross": True, "compounding": False, "capital": 3000000, "fee": 0.05,
     }
@@ -479,11 +481,16 @@ class TestRules(Base):
             else:
                 if name == "maType":
                     self.assertEqual(sorted(pp.MA_TYPES), sorted(spec["options"]))
+                elif name == "gcMaxGapPct":
+                    # 1105-09 (R3): 화면은 select(문자열 선택지), 파일·엔진은 숫자 키(float(값), 범위 0 이상)
+                    self.assertIn(name, pp.NUMBER_KEYS)
+                    self.assertEqual(pp.RANGES[name], (0, None))
+                    self.assertTrue(all(float(o) >= 0 for o in spec["options"]), spec["options"])
                 else:
                     self.assertIn(name, pp.BOOL_KEYS, name)
                     self.assertEqual(sorted(spec["options"]), ["no", "yes"])
         v2_numbers = {n for n, s in fields.items() if s["type"] == "number"} - {"days"}
-        self.assertEqual(set(pp.NUMBER_KEYS), v2_numbers)
+        self.assertEqual(set(pp.NUMBER_KEYS), v2_numbers | {"gcMaxGapPct"})   # 1105-09: gcMaxGapPct 는 화면 select
         for name, lim in extra.items():
             self.assertEqual(tuple(pp.EXTRA_LIMITS[name]), tuple(lim), name)
         self.assertEqual(set(pp.EXTRA_LIMITS), set(extra))
@@ -521,7 +528,7 @@ class TestRules(Base):
         pp.validate(good())
         bad = [
             good(buyOnGoldenCross="yes"), good(deadcross=1), good(compounding=None),
-            good(interval="minute10"), good(ma60p=1), good(ma200p=1001), good(tp=0),
+            good(interval="minute2"), good(ma60p=1),   # 1105-09: minute10 은 이제 허용(R7) — 업비트에 없는 2분으로 good(ma200p=1001), good(tp=0),
             good(fee=-0.1), good(capital=0), good(maxPullbackBuys=6), good(ma60p=True),
             good(tp=float("nan")), good(maType="wma"), good(ticker="BTC"),
             good(ma60p=60.5),
@@ -562,6 +569,51 @@ class TestRules(Base):
     def test_required_bars_max(self):
         self.assertEqual(pp.required_bars({"ma60p": 60, "ma200p": 1000, "pullbackP": 20, "slopeLB": 500}), 2010)
         self.assertEqual(pp.required_bars({"ma60p": 60, "ma200p": 200, "pullbackP": 20, "slopeLB": 5}), 220)
+
+
+class TestLegacyMigration(Base):
+    """1105-09 (결정 ②·2-5): 옛 18키 파일(minSlope·slopeDrop)은 검증 전에 두 키를 버리고 새 8키를 기본값으로 채운다.
+    알림은 프로세스당 사용자별 1회(CRITICAL), 로그 1줄."""
+
+    def setUp(self):
+        super().setUp()
+        pp._LEGACY_NOTIFIED.discard(USER)
+
+    def legacy(self, **over):
+        d = {k: v for k, v in good(**over).items() if k not in pp.NEW_KEY_DEFAULTS}
+        d.update({"minSlope": 0.0, "slopeDrop": 0.5})
+        return d
+
+    def test_legacy_dropped_and_defaults_filled(self):
+        out = pp.validate(self.legacy(), user_id=USER)
+        self.assertNotIn("minSlope", out)
+        self.assertNotIn("slopeDrop", out)
+        for k, v in pp.NEW_KEY_DEFAULTS.items():
+            self.assertEqual(out[k], v, k)
+        self.assertEqual(out["slopeLB"], 5)          # 값 그대로(뜻만 60선)
+        self.assertEqual(out["deadcross"], True)     # 옛 파일의 데드크로스 청산은 그대로
+
+    def test_notify_once_per_user(self):
+        pp.validate(self.legacy(), user_id=USER)
+        pp.validate(self.legacy(), user_id=USER)
+        self.assertEqual(self.notify.call_count, 1)
+        self.assertIn("Ver2", self.notify.call_args[0][0])
+        self.assertEqual(self.notify.call_args[0][2], f"pullback_params_legacy:{USER}")
+
+    def test_no_notify_for_new_file_or_no_user(self):
+        pp.validate(good(), user_id=USER)
+        pp.validate(self.legacy())                   # user_id 없음(시험·도구 호출) → 알림 없음
+        self.notify.assert_not_called()
+
+    def test_boot_reads_legacy_applied(self):
+        put(APPLIED, self.legacy(tp=5.0))
+        (params, src), _log = TestBootCases._boot(self, False)
+        self.assertEqual((src, params["tp"], params["ma60MinSlope"]), ("applied", 5.0, 0))
+        self.assertEqual(self.notify.call_count, 1)
+
+    def test_unknown_key_still_rejected(self):
+        with self.assertRaises(pp.PullbackParamsError):
+            pp.validate(good(slope200=1))
 
 
 if __name__ == "__main__":

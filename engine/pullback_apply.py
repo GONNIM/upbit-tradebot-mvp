@@ -182,6 +182,8 @@ def last_source(user: str) -> Optional[str]:
 
 # ================================================================ pullback_state 행 (종목·봉 단위 정리)
 _ROW_CLEAR = ("buy_fail_bar_ts", "prev_golden", "last_bar_ts")
+# 1105-09 (2-3′): 종목·봉 단위를 바꿀 때 Ver2 새 6칸도 비운다(되돌릴 때는 이전 값으로)
+_ROW_CLEAR_V2 = ("sl_streak", "pause_start_ts", "pause_end_ts", "episode_idx", "trade_episode_idx", "trade_tp_pct")
 
 
 def row_holding(row: Optional[dict]) -> bool:
@@ -206,14 +208,15 @@ def rewrite_row_market(user: str, mode: str, ticker: str, interval: str):
         return "same", None
     if row_holding(row):
         return "holding", None
-    prev = {k: row.get(k) for k in (*MARKET_KEYS, *_ROW_CLEAR)}
+    prev = {k: row.get(k) for k in (*MARKET_KEYS, *_ROW_CLEAR, *_ROW_CLEAR_V2)}
     from services.pullback_state import now_kst_iso
     conn = ss._connect_rw(user)
     try:
         cur = conn.execute(
             "UPDATE pullback_state SET ticker=?, interval=?, buy_fail_bar_ts=NULL, prev_golden=NULL, "
-            "last_bar_ts=NULL, updated_at=? WHERE user_id=? AND mode=? AND entry_count=0 AND qty=0 "
-            "AND pending_fill=0", (ticker, interval, now_kst_iso(), user, mode))
+            "last_bar_ts=NULL, sl_streak=0, pause_start_ts=NULL, pause_end_ts=NULL, episode_idx=0, "
+            "trade_episode_idx=NULL, trade_tp_pct=NULL, updated_at=? WHERE user_id=? AND mode=? "
+            "AND entry_count=0 AND qty=0 AND pending_fill=0", (ticker, interval, now_kst_iso(), user, mode))
         conn.commit()
         if cur.rowcount != 1:
             return "holding", None
@@ -224,6 +227,29 @@ def rewrite_row_market(user: str, mode: str, ticker: str, interval: str):
     return "rewritten", prev
 
 
+def _ts_text(v):
+    """pullback_state.load 가 돌려준 시각 칸(Timestamp 또는 문자열) → 저장 문자열(KST ISO). 없으면 None."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return v
+    try:
+        return v.tz_convert("Asia/Seoul").isoformat() if getattr(v, "tzinfo", None) else v.isoformat()
+    except Exception:
+        return str(v)
+
+
+def trade_tp_after_change(old_cfg: dict, new_tp: float, trade_episode_idx) -> float:
+    """1105-09 (2-3′): 보유 중 tp 를 바꿨을 때 이번 거래 TP%. 감소 횟수·감소율·하한은 「다음 새 거래부터」이므로
+    이전 cfg 값을 쓰고 tp 만 새 값으로 R5 공식을 다시 계산한다. 순번 없음(골든크로스 1차·강제 매수) = 새 tp."""
+    cap = int(old_cfg.get("episodePullbackCap") or 0)
+    if trade_episode_idx is None or cap <= 0 or int(trade_episode_idx) <= cap:
+        return float(new_tp)
+    decay = float(old_cfg.get("episodeTpDecayPct") or 0)
+    floor = float(old_cfg.get("episodeTpFloorPct") or 0)
+    return max(floor, float(new_tp) * (1 - decay / 100) ** (int(trade_episode_idx) - cap))
+
+
 def restore_row_market(user: str, mode: str, prev: dict) -> bool:
     """정리한 행의 종목·봉 단위를 되돌린다. fix 1: 그사이 회차·수량·체결 대기가 생긴 행은 덮지 않는다(False)."""
     try:
@@ -231,9 +257,13 @@ def restore_row_market(user: str, mode: str, prev: dict) -> bool:
         try:
             cur = conn.execute(
                 "UPDATE pullback_state SET ticker=?, interval=?, buy_fail_bar_ts=?, prev_golden=?, "
-                "last_bar_ts=? WHERE user_id=? AND mode=? AND entry_count=0 AND qty=0 AND pending_fill=0",
+                "last_bar_ts=?, sl_streak=?, pause_start_ts=?, pause_end_ts=?, episode_idx=?, "
+                "trade_episode_idx=?, trade_tp_pct=? "
+                "WHERE user_id=? AND mode=? AND entry_count=0 AND qty=0 AND pending_fill=0",
                 (prev["ticker"], prev["interval"], prev["buy_fail_bar_ts"], prev["prev_golden"],
-                 prev["last_bar_ts"], user, mode))
+                 prev["last_bar_ts"], int(prev.get("sl_streak") or 0), _ts_text(prev.get("pause_start_ts")),
+                 _ts_text(prev.get("pause_end_ts")), int(prev.get("episode_idx") or 0),
+                 prev.get("trade_episode_idx"), prev.get("trade_tp_pct"), user, mode))
             conn.commit()
             done = cur.rowcount == 1
         finally:
@@ -325,8 +355,18 @@ def engine_apply(engine, payload: dict) -> Dict[str, Any]:
     except OSError as e:
         logger.error(f"{TAG} 적용본 쓰기 실패 | user={user} | {type(e).__name__}")
         return _r("error", "apply_failed", {"why": "write"})
+    old_cfg = st.cfg
     st.cfg = new_cfg                                  # 1. cfg 교체(한 번에)
     engine._pullback_params_sha = res["sha"]          # 2. 교체 뒤 해시 갱신(분할 상태 저장 행에 새 해시)
+    if "tp" in changed and getattr(st, "trade_tp_pct", None) is not None:
+        # 1105-09 (2-3′): 열린 거래의 TP% 를 새 tp 로 다시 정한다(눌림목 거래는 「이 거래 순번」으로 R5 재계산)
+        before = st.trade_tp_pct
+        st.trade_tp_pct = trade_tp_after_change(old_cfg, new["tp"], getattr(st, "trade_episode_idx", None))
+        logger.info(f"{TAG} 이번 거래 TP% 재계산 | user={user} {before} → {st.trade_tp_pct} "
+                    f"trade_episode_idx={getattr(st, 'trade_episode_idx', None)}")
+        persist = getattr(engine, "_pullback_persist", None)
+        if callable(persist):
+            persist()
     if hasattr(engine, "take_profit"):
         engine.take_profit = new["tp"] / 100          # 감사 기본값(전략 객체가 우선)
     if hasattr(engine, "stop_loss"):

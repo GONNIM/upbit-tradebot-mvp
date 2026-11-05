@@ -52,7 +52,10 @@ TICKER = "KRW-TEST"
 CFG = {
     "ticker": TICKER, "interval": "minute3", "maType": "ema",
     "ma60p": 3, "ma200p": 10, "pullbackP": 5, "slopeLB": 2,
-    "minSlope": 0, "slopeDrop": 0, "buyOnGoldenCross": False,
+    # 1105-09 (Ver2): 옛 2키(minSlope·slopeDrop) 대신 새 8키(Ver2 화면 기본값) — 24키 적용본
+    "gcMaxGapPct": 0, "ma60MinSlope": 0, "ma60SlopeDrop": 0, "slStreakPause": 0, "slStreakCooldownHours": 6,
+    "episodePullbackCap": 0, "episodeTpDecayPct": 50, "episodeTpFloorPct": 0.3,
+    "buyOnGoldenCross": False,
     "maxSplits": 5, "maxPullbackBuys": 3, "tp": 5, "sl": 90,
     "deadcross": True, "compounding": False, "capital": 1_000_000, "fee": 0.05,
 }

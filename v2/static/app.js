@@ -115,6 +115,9 @@ function homeView(status, assets, basic, nowMs, ctl) {
   // 2차 T16: 예약이 있을 때만 「전환 예약 중」(노랑) — 전략 배지 바로 뒤. 예약 없으면 배지 4개 그대로
   const res = ctl && ctl.reservation;
   if (res) badges.splice(3, 0, { id: "reserve-badge", text: reservationBadgeText(res), cls: "p-warn" });
+  // 1105-09 (2-6): 연속 손절 중단 중이면 배지 하나 더(끝 시각이 지나면 서버가 null 로 준다)
+  const pauseUntil = assets && assets.pause_until ? _untilText(assets.pause_until, nowMs) : null;
+  if (pauseUntil) badges.push({ id: "sl-pause-badge", text: "연속 손절로 매수 중단 중 — " + pauseUntil + " 까지", cls: "p-warn" });
   const pb = st.pullback || null;
 
   const krw = Number(a.krw), coin = Number(a.coin), price = Number(a.price), entry = Number(a.entry_price);
@@ -153,7 +156,10 @@ function homeView(status, assets, basic, nowMs, ctl) {
     const roundText = r && typeof r === "object" && Number.isInteger(r.entry) && Number.isInteger(r.max)
       ? r.entry + " / " + r.max + "회" : "—";
     const pbPct = (v, sign) => (pb && Number.isFinite(Number(v)) && v !== null ? " (" + sign + _pct(v) + "%)" : null);
-    const tpL = pbPct(pb && pb.tp, "+"), slL = pbPct(pb && pb.sl, "-");
+    // 1105-09 (R5): 이번 거래 익절 % 가 설정 TP 와 다르면 그 값을 「이번 거래」로 표시한다
+    const tu = a.tp_used_pct != null && Number.isFinite(Number(a.tp_used_pct)) ? Number(a.tp_used_pct) : null;
+    const tpL = tu !== null && pb && Number(pb.tp) !== tu ? " (+" + _pct(tu) + "% · 이번 거래)" : pbPct(pb && pb.tp, "+");
+    const slL = pbPct(pb && pb.sl, "-");
     holding = {
       ticker: st.ticker || "—",
       round: roundText,
@@ -167,8 +173,16 @@ function homeView(status, assets, basic, nowMs, ctl) {
 
 // 2차 T16: 새 전략 최신 신호 문장(그림 2-가). 우선순위: 매도 발동 > 예약 > 어긋남 > 회차 다 참 > 눌림(armed)
 // > 감시 구간 안 > 감시 구간 밖 > 그 밖 판정 키. 「N선」 = 눌림은 pullbackP, 감시 구간은 ma60p·ma200p.
+// 1105-09 (Ver2 R2): ma60_* 가 새 사유, slope_* 는 옛 행용
 const _INACTIVE_TEXT = { not_golden: (a, b) => a + "선 ≤ " + b + "선", slope_low: (a, b) => b + "선 기울기 낮음",
-  slope_drop: (a, b) => b + "선 기울기 둔화" };
+  slope_drop: (a, b) => b + "선 기울기 둔화", ma60_slope_low: (a, b) => a + "선 기울기 낮음",
+  ma60_slope_drop: (a, b) => a + "선 기울기 둔화" };
+// 1105-09 (2-6): 「HH:MM」(오늘) 또는 「MM-DD HH:MM」. 값이 없으면 null
+function _untilText(iso, nowMs) {
+  const p = _kstParts(iso);
+  if (!p) return null;
+  return (p.day === _kstDay(nowMs == null ? Date.now() : nowMs) ? "" : p.mo + "-" + p.da + " ") + p.h + ":" + p.mi;
+}
 function pullbackSentence(row, ctx) {
   const c = ctx || {};
   const cfg = c.pb || {};
@@ -189,6 +203,10 @@ function pullbackSentence(row, ctx) {
   if (key === "WAIT_PULLBACK" && next !== null) {
     if (s.armed === 1) return "눌림 대기 중 — 가격이 " + p + "선 아래로 내려옴. 다시 위에서 마감하면 " + next + "회차 매수";
     return "매수 대기 — 가격이 " + p + "선 위. " + p + "선 아래로 내려왔다가 다시 위에서 마감하면 " + next + "회차 매수";
+  }
+  if (key === "SL_PAUSE" && !holding) {
+    const u = s.pause_end ? _untilText(s.pause_end, c.nowMs) : null;
+    return "매수 대기 — 연속 손절로 매수 중단 중" + (u ? " — " + u + " 까지" : "");
   }
   if (key === "NOT_ACTIVE") {
     if (holding) return "보유 유지 — 감시 구간 밖. 익절·손절 가격 안";

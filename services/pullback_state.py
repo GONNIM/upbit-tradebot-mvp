@@ -22,17 +22,20 @@ logger = logging.getLogger(__name__)
 TABLE = "pullback_state"
 MODES = ("TEST", "LIVE")
 _KST = ZoneInfo("Asia/Seoul")
-_TS_COLS = ("first_entry_ts", "buy_fail_bar_ts", "last_bar_ts")
+_TS_COLS = ("first_entry_ts", "buy_fail_bar_ts", "last_bar_ts", "pause_start_ts", "pause_end_ts")
 _COLS = (
     "user_id", "mode", "ticker", "interval", "entry_count", "pullback_count", "first_entry_ts",
     "first_entry_reason", "armed", "prev_golden", "trade_origin", "pending_fill", "fill_n", "inv_sum",
     "sizing_base_krw", "realized_pnl_krw", "qty", "cost_krw", "avg_price", "desync", "buy_fail_bar_ts",
     "params_sha256", "last_bar_ts", "updated_at",
+    # 1105-09 (Ver2 2-3)
+    "sl_streak", "pause_start_ts", "pause_end_ts", "episode_idx", "trade_episode_idx", "trade_tp_pct",
 )
-_INT_COLS = ("entry_count", "pullback_count", "fill_n")
+_INT_COLS = ("entry_count", "pullback_count", "fill_n", "sl_streak", "episode_idx")
+_OPT_INT_COLS = ("trade_episode_idx",)
 _BOOL_COLS = ("armed", "pending_fill", "desync")
 _REAL_COLS = ("inv_sum", "realized_pnl_krw", "qty", "cost_krw")
-_OPT_REAL_COLS = ("sizing_base_krw", "avg_price")
+_OPT_REAL_COLS = ("sizing_base_krw", "avg_price", "trade_tp_pct")
 
 
 def now_kst_iso() -> str:
@@ -107,6 +110,9 @@ def _row_values(user_id: str, mode: str, state: dict) -> dict:
         out[c] = _num(state.get(c))
     for c in _OPT_REAL_COLS:
         out[c] = _opt_num(state.get(c))
+    for c in _OPT_INT_COLS:
+        v = state.get(c)
+        out[c] = None if v is None else int(v)
     pg = state.get("prev_golden")
     out["prev_golden"] = None if pg is None else (1 if pg else 0)
     for c in ("first_entry_reason", "trade_origin", "params_sha256"):
@@ -180,7 +186,8 @@ def save(user_id: str, mode: str, state: dict) -> bool:
 
 def reset_after_exit(user_id: str, mode: str, realized_pnl: float = 0.0) -> bool:
     """청산 뒤(pullback spec 3절 5): 회차·눌림목 회차·첫 진입·armed·체결 수량·원가·평단·배분 기준·어긋남을 초기화하고
-    realized_pnl_krw 에 이번 실현 손익을 더한다. prev_golden·last_bar_ts 는 판정 상태라 그대로 둔다. 행이 없으면 False."""
+    realized_pnl_krw 에 이번 실현 손익을 더한다. prev_golden·last_bar_ts 는 판정 상태라 그대로 둔다. 행이 없으면 False.
+    1105-09: 이 거래 순번·이번 거래 TP% 는 지우고, 연속 손절 수·중단 시작·끝 시각·구간 순번은 남긴다."""
     try:
         m = _check_mode(mode)
         pnl = _num(realized_pnl)
@@ -197,7 +204,8 @@ def reset_after_exit(user_id: str, mode: str, realized_pnl: float = 0.0) -> bool
         cur = conn.execute(
             f"UPDATE {TABLE} SET entry_count=0, pullback_count=0, first_entry_ts=NULL, first_entry_reason=NULL, "
             f"armed=0, trade_origin=NULL, pending_fill=0, fill_n=0, inv_sum=0, sizing_base_krw=NULL, "
-            f"qty=0, cost_krw=0, avg_price=NULL, desync=0, realized_pnl_krw=realized_pnl_krw + ?, updated_at=? "
+            f"qty=0, cost_krw=0, avg_price=NULL, desync=0, trade_episode_idx=NULL, trade_tp_pct=NULL, "
+            f"realized_pnl_krw=realized_pnl_krw + ?, updated_at=? "
             f"WHERE user_id=? AND mode=?",
             (pnl, now_kst_iso(), user_id, m),
         )

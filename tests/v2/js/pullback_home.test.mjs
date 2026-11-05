@@ -107,17 +107,63 @@ test("EMA 사용자: 예약 중이면 예약 문장, 아니면 1차 문장 그�
 });
 
 test("투자자 문장에 내부 코드가 나오지 않는다", () => {
-  // services/terminology.py PULLBACK_STATE_LABEL 16키(labels.js 표와 같음 — test_labels_match_server)
+  // services/terminology.py PULLBACK_STATE_LABEL 18키(labels.js 표와 같음 — test_labels_match_server).
+  // 1105-09 (Ver2): SL_PAUSE·GC_GAP 추가, 감시 밖 사유에 ma60_slope_low·ma60_slope_drop 추가
   const states = ["NOT_ACTIVE", "WAIT_PULLBACK", "WAIT_GOLDEN", "SPLITS_FULL", "PULLBACK_CAP", "DESYNC",
     "SWITCH_RESERVED", "WARMUP", "REPLAY", "BACKFILL", "PENDING_FILL", "STATE_POLLUTED", "TENTATIVE",
-    "UNCONFIRMED", "DUPLICATE", "OFF_HOURS"];
+    "UNCONFIRMED", "DUPLICATE", "OFF_HOURS", "SL_PAUSE", "GC_GAP"];
   for (const st of states) assert.ok(labels.FAILED_KEY_LABELS[st], st);
   for (const st of states) {
     for (const armed of [0, 1]) {
-      const t = signalSentence(buyRow({ state: st, round: 1, armed, active: 1, holding: 0, inactive_reason: "slope_low" }), ctx()).text;
-      assert.doesNotMatch(t, /[A-Z_]{4,}|armed|slope_/, t);
+      for (const why of ["slope_low", "ma60_slope_low", "ma60_slope_drop"]) {
+        const t = signalSentence(buyRow({ state: st, round: 1, armed, active: 1, holding: 0, inactive_reason: why,
+          pause_end: "2026-10-30T16:42:00+09:00" }), ctx()).text;
+        assert.doesNotMatch(t, /[A-Z_]{4,}|armed|slope_/, t);
+      }
     }
   }
+});
+
+// ---- 1105-09 (Ver2 2-6) 화면 문구 ----
+test("감시 밖 사유: 60선 기울기 낮음·둔화는 60선 기간(ma60p)으로, 옛 200선 사유는 옛 문구 그대로", () => {
+  const row = (why) => buyRow({ state: "NOT_ACTIVE", round: 0, armed: 0, active: 0, holding: 0, inactive_reason: why });
+  const c = ctx({ pb: { ...PB, ma60p: 50, ma200p: 150 } });
+  assert.equal(signalSentence(row("ma60_slope_low"), c).text, "매수 대기 — 감시 구간 아님 (50선 기울기 낮음)");
+  assert.equal(signalSentence(row("ma60_slope_drop"), c).text, "매수 대기 — 감시 구간 아님 (50선 기울기 둔화)");
+  assert.equal(signalSentence(row("slope_low"), c).text, "매수 대기 — 감시 구간 아님 (150선 기울기 낮음)");
+});
+
+test("연속 손절 중단 봉: 「연속 손절로 매수 중단 중 — HH:MM 까지」(다른 날이면 MM-DD HH:MM)", () => {
+  const row = (pe) => buyRow({ state: "SL_PAUSE", round: 0, armed: 0, active: 1, holding: 0, pause_end: pe });
+  assert.equal(signalSentence(row("2026-10-30T16:42:00+09:00"), ctx({ nowMs: NOW })).text,
+    "매수 대기 — 연속 손절로 매수 중단 중 — 16:42 까지");
+  assert.equal(signalSentence(row("2026-10-31T02:10:00+09:00"), ctx({ nowMs: NOW })).text,
+    "매수 대기 — 연속 손절로 매수 중단 중 — 10-31 02:10 까지");
+  assert.equal(signalSentence(row(null), ctx({ nowMs: NOW })).text, "매수 대기 — 연속 손절로 매수 중단 중");
+  // 보유 중이면 보유 유지 문장(익절·손절은 계속)
+  const held = { ...row("2026-10-30T16:42:00+09:00"), kind: "sell", pb: { state: "SL_PAUSE", round: 1, holding: 1 } };
+  assert.equal(signalSentence(held, ctx({ holding: true })).text,
+    "보유 유지 — 연속 손절로 매수 중단 중. 익절·손절 가격 안");
+});
+
+test("상승폭 제한 봉 문장", () => {
+  const t = signalSentence(buyRow({ state: "GC_GAP", round: 0, armed: 0, active: 1, holding: 0 }), ctx()).text;
+  assert.equal(t, "매수 대기 — 상승폭 제한 — 1차 매수 건너뜀");
+});
+
+test("연속 손절 중단 배지: 서버가 끝 시각을 줄 때만 노란 배지 하나 더", () => {
+  assert.equal(homeView(PB_ST, HOLD, BASIC, NOW).badges.length, 4);
+  const b = homeView(PB_ST, { ...HOLD, pause_until: "2026-10-30T16:42:00+09:00" }, BASIC, NOW).badges;
+  assert.equal(b.length, 5);
+  assert.deepEqual([b[4].id, b[4].text, b[4].cls], ["sl-pause-badge", "연속 손절로 매수 중단 중 — 16:42 까지", "p-warn"]);
+});
+
+test("이번 거래 익절 %: 설정 TP 와 다를 때만 「· 이번 거래」 로 그 값을 보임", () => {
+  const h = homeView(PB_ST, { ...HOLD, tp_used_pct: 2.5, tp_price: 1025 }, BASIC, NOW).holding;
+  assert.equal(h.tp.label, "익절 가격 (+2.5% · 이번 거래)");
+  assert.equal(h.tp.price, "1,025원");
+  assert.equal(homeView(PB_ST, { ...HOLD, tp_used_pct: 5 }, BASIC, NOW).holding.tp.label, "익절 가격 (+5%)");
+  assert.equal(homeView(PB_ST, { ...HOLD, tp_used_pct: null }, BASIC, NOW).holding.tp.label, "익절 가격 (+5%)");
 });
 
 // ---- 최근 거래 ----

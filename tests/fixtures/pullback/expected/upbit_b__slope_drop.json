@@ -3,36 +3,36 @@
   "fixture": "upbit_b",
   "cfg": "slope_drop",
   "bar_count": 10078,
-  "script_sha256": "4418dad6123ad852849f146130227366b6891c79cacf5dcce6281860d2de2576"
+  "script_sha256": "00557219a1328b60ea2f7da1e92d5940db24d163fed30772c740ba3652ffef7d"
  },
  "buys": [
   {
+   "signal_bar_t": 1792581660000,
+   "fill_bar_t": 1792581720000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1792582500000,
+   "fill_bar_t": 1792582560000,
+   "round": 2,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792582560000,
+   "fill_bar_t": 1792582620000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
    "signal_bar_t": 1792583220000,
    "fill_bar_t": 1792583280000,
-   "round": 1,
+   "round": 4,
    "trigger": "PULLBACK"
   },
   {
    "signal_bar_t": 1792583340000,
    "fill_bar_t": 1792583400000,
-   "round": 2,
-   "trigger": "PULLBACK"
-  },
-  {
-   "signal_bar_t": 1792583460000,
-   "fill_bar_t": 1792583520000,
-   "round": 3,
-   "trigger": "PULLBACK"
-  },
-  {
-   "signal_bar_t": 1792584000000,
-   "fill_bar_t": 1792584060000,
-   "round": 4,
-   "trigger": "PULLBACK"
-  },
-  {
-   "signal_bar_t": 1792584060000,
-   "fill_bar_t": 1792584120000,
    "round": 5,
    "trigger": "PULLBACK"
   },
@@ -205,26 +205,26 @@
    "trigger": "GOLDEN"
   },
   {
-   "signal_bar_t": 1792726200000,
-   "fill_bar_t": 1792726260000,
-   "round": 2,
-   "trigger": "PULLBACK"
-  },
-  {
-   "signal_bar_t": 1792726260000,
-   "fill_bar_t": 1792726320000,
-   "round": 3,
-   "trigger": "PULLBACK"
-  },
-  {
    "signal_bar_t": 1792728060000,
    "fill_bar_t": 1792728120000,
-   "round": 4,
+   "round": 2,
    "trigger": "PULLBACK"
   },
   {
    "signal_bar_t": 1792728120000,
    "fill_bar_t": 1792728180000,
+   "round": 3,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792728240000,
+   "fill_bar_t": 1792728300000,
+   "round": 4,
+   "trigger": "PULLBACK"
+  },
+  {
+   "signal_bar_t": 1792728300000,
+   "fill_bar_t": 1792728360000,
    "round": 5,
    "trigger": "PULLBACK"
   },
@@ -424,12 +424,6 @@
    "signal_bar_t": 1792833300000,
    "fill_bar_t": 1792833360000,
    "round": 4,
-   "trigger": "PULLBACK"
-  },
-  {
-   "signal_bar_t": 1792833480000,
-   "fill_bar_t": 1792833540000,
-   "round": 5,
    "trigger": "PULLBACK"
   },
   {
@@ -757,12 +751,6 @@
    "trigger": "PULLBACK"
   },
   {
-   "signal_bar_t": 1793063160000,
-   "fill_bar_t": 1793063220000,
-   "round": 3,
-   "trigger": "PULLBACK"
-  },
-  {
    "signal_bar_t": 1793088240000,
    "fill_bar_t": 1793088300000,
    "round": 1,
@@ -895,20 +883,20 @@
    "trigger": "PULLBACK"
   },
   {
-   "signal_bar_t": 1793161920000,
-   "fill_bar_t": 1793161980000,
+   "signal_bar_t": 1793163000000,
+   "fill_bar_t": 1793163060000,
    "round": 3,
    "trigger": "PULLBACK"
   },
   {
-   "signal_bar_t": 1793162820000,
-   "fill_bar_t": 1793162880000,
+   "signal_bar_t": 1793163180000,
+   "fill_bar_t": 1793163240000,
    "round": 4,
    "trigger": "PULLBACK"
   },
   {
-   "signal_bar_t": 1793163000000,
-   "fill_bar_t": 1793163060000,
+   "signal_bar_t": 1793163300000,
+   "fill_bar_t": 1793163360000,
    "round": 5,
    "trigger": "PULLBACK"
   }
@@ -1017,7 +1005,7 @@
   {
    "bar_t": 1792833780000,
    "type": "DEADCROSS",
-   "entries": 5
+   "entries": 4
   },
   {
    "bar_t": 1792851540000,
@@ -1077,7 +1065,7 @@
   {
    "bar_t": 1793066100000,
    "type": "DEADCROSS",
-   "entries": 3
+   "entries": 2
   },
   {
    "bar_t": 1793093700000,

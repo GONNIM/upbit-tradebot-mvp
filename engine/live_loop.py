@@ -329,13 +329,20 @@ def _pullback_seed_warmup(engine, initial_df: pd.DataFrame, pullback_cfg: dict, 
     _bind = getattr(getattr(engine, "strategy", None), "bind", None)
     if callable(_bind):
         _bind(engine.pullback_indicators, engine.pullback_ring)
+    # 1105-09 (Ver2 2-3 기동 순서): 연속 손절 수·중단 시작·끝 시각을 재생보다 먼저 읽어 재생이 중단 기간을 알게 한다
+    _pre = getattr(engine, "pullback_preload_pause", None)
+    if callable(_pre):
+        try:
+            _pre()
+        except Exception as e:
+            logger.error(f"[PULLBACK-PAUSE] 기동 전 중단 칸 읽기 예외 → 중단 없음으로 재생 | {e}")
     for ts, row in iter_valid_rows(initial_df, candle_validator, tag="[PULLBACK-WARMUP]"):
         feed_confirmed_bar(engine, bar_from_row(ts, row, source="REST_WARMUP"))
     v = engine.pullback_indicators.last_values
     logger.info(
         f"[WARMUP] 시드 방식=pullback bars={len(initial_df)} fed={engine.pullback_indicators.n} "
         f"ring={len(engine.pullback_ring)} "
-        f"maTrend={v['maTrend']} ma200={v['ma200']} maPullback={v['maPullback']} slope200={v['slope200']}"
+        f"maTrend={v['maTrend']} ma200={v['ma200']} maPullback={v['maPullback']} slope60={v['slope60']}"
     )
     return True, "pullback", "", initial_df.iloc[-PULLBACK_BUFFER_BARS:]
 
@@ -369,7 +376,9 @@ def _pullback_mark_polluted(engine, user_id: str, why: str) -> None:
 
 # BACKFILL·catch-up 재생이 실보유 중에 바꾸지 않는 판정 칸 (실제 주문이 정한 회차·첫 체결·가상 평단)
 _PULLBACK_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "first_entry_reason",
-                        "pending_fill", "fill_n", "inv_sum", "trade_origin")
+                        "pending_fill", "fill_n", "inv_sum", "trade_origin",
+                        # 1105-09 (Ver2 2-3): 구간 순번·이 거래 순번·이번 거래 TP% (strategy_pullback.SPLIT_TRADE_KEYS 와 같음)
+                        "episode_idx", "trade_episode_idx", "trade_tp_pct")
 
 
 def _pullback_restore_split_state(engine, user_id: str, warmup_df, candle_validator) -> None:

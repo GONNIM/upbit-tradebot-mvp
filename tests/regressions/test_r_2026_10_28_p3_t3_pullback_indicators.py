@@ -183,10 +183,12 @@ class TestIndicators(unittest.TestCase):
             got_t.append(v["maTrend"])
             got_m.append(v["ma200"])
             got_p.append(v["maPullback"])
-            got_s.append(v["slope200"])
+            got_s.append(v["slope60"])
         exp_m = ref(closes, 200)
-        for got, exp in ((got_t, ref(closes, 60)), (got_m, exp_m), (got_p, ref(closes, 20)),
-                         (got_s, ref_slope(exp_m, 5))):
+        exp_t = ref(closes, 60)
+        # 1105-09 (Ver2 R2): 기울기는 200선이 아니라 60선(maTrend) 자체 기울기
+        for got, exp in ((got_t, exp_t), (got_m, exp_m), (got_p, ref(closes, 20)),
+                         (got_s, ref_slope(exp_t, 5))):
             for i, (g, e) in enumerate(zip(got, exp)):
                 if e is None:
                     self.assertIsNone(g, f"i={i}")
@@ -203,18 +205,18 @@ class TestIndicators(unittest.TestCase):
     def test_slope_none_when_zero_or_missing(self):
         ind = PullbackIndicators(1, 1, 1, 3, "sma")
         for c in (5.0, 6.0, 7.0):
-            self.assertIsNone(ind.update(c)["slope200"])
-        self.assertIsNotNone(ind.update(8.0)["slope200"])
+            self.assertIsNone(ind.update(c)["slope60"])
+        self.assertIsNotNone(ind.update(8.0)["slope60"])
         ind = PullbackIndicators(1, 1, 1, 2, "sma")
         ind.update(0.0)
         ind.update(1.0)
-        self.assertIsNone(ind.update(2.0)["slope200"])
+        self.assertIsNone(ind.update(2.0)["slope60"])
         ind = PullbackIndicators(1, 1, 1, 1, "sma")
         ind.update(1.0)
         v = ind.update(2.0)
-        self.assertIsNotNone(v["slope200"])
-        self.assertIsNone(v["slope200_lb"])
-        self.assertEqual(ind.update(3.0)["slope200_lb"], v["slope200"])
+        self.assertIsNotNone(v["slope60"])
+        self.assertIsNone(v["slope60_lb"])
+        self.assertEqual(ind.update(3.0)["slope60_lb"], v["slope60"])
 
     def test_no_full_recompute_function(self):
         src = PULLBACK_SRC.read_text(encoding="utf-8")
@@ -323,7 +325,9 @@ class TestRing(unittest.TestCase):
 # ================================================================ 워밍업 (live_loop)
 def _pb_cfg(**over):
     d = dict(ticker="KRW-JTO", interval="minute3", maType="ema", ma60p=60, ma200p=1000, pullbackP=20,
-             slopeLB=500, minSlope=0.0, slopeDrop=0.5, buyOnGoldenCross=True, maxSplits=5,
+             slopeLB=500, gcMaxGapPct=0, ma60MinSlope=0.0, ma60SlopeDrop=0.5, slStreakPause=0,   # 1105-09: 24키
+             slStreakCooldownHours=6, episodePullbackCap=0, episodeTpDecayPct=50, episodeTpFloorPct=0.3,
+             buyOnGoldenCross=True, maxSplits=5,
              maxPullbackBuys=2, tp=5.0, sl=3.0, deadcross=True, compounding=False, capital=3000000, fee=0.05)
     d.update(over)
     return d
@@ -615,7 +619,7 @@ class TestBackfillAuditDb(unittest.TestCase):
                               position=SimpleNamespace(has_position=False))
         bar = SimpleNamespace(ts=bar_ts, close=97.0)
         sp._default_audit(eng, bar, {"maTrend": 1.0, "ma200": 2.0, "maPullback": None,
-                                     "slope200": None, "slope200_lb": None})
+                                     "slope60": None, "slope60_lb": None})   # 1105-09: 60선 기울기 키
         after = self._rows()
         self.assertEqual(len(after), 1)  # 새 행 INSERT 0
         self.assertEqual(after[0][:6], before[0][:6])  # 실시간 칸 불변

@@ -400,8 +400,9 @@ class TestPullbackRulesFixed(unittest.TestCase):
             "split_defaults": ('"armed": False, "prev_golden": False,', '"armed": True, "prev_golden": False,'),
             "ring_init": ("        self._q: deque = deque(maxlen=self.capacity)",
                           "        self._q: deque = deque(maxlen=self.capacity + 1)"),
-            "step_other_stmt": ("        tp_price = avg * (1 + c[\"tp\"] / 100) if avg is not None else None",
-                                "        tp_price = avg * (1 + c[\"tp\"] / 99) if avg is not None else None"),
+            # 1105-09 (Ver2 R5): 익절가 식이 이번 거래 TP%(tp_pct)로 바뀌어 변이 대상 줄도 그 줄로 옮김
+            "step_other_stmt": ("        tp_price = avg * (1 + tp_pct / 100) if avg is not None else None",
+                                "        tp_price = avg * (1 + tp_pct / 99) if avg is not None else None"),
             # verifier 지적 1-3: 비교에서 뺀 두 If 안 부작용 주입
             "block_if_side_effect": ("            signal = None\n", "            signal = None; self.armed = False\n"),
             "log_if_side_effect": ("{c['trading_start_time']}~{c['trading_end_time']}\")\n",

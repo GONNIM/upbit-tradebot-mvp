@@ -142,17 +142,18 @@ class T13Case(SwitchCase):
 class TestHotApply(T13Case):
     def test_apply_next_bar(self):
         eng = self.pb_engine()
-        new = self.save_new(minSlope=0.5)
+        # 1105-09 (Ver2): minSlope 는 없어졌다 — 같은 「다음 봉부터」 키인 ma60MinSlope 로 본다(2-3′ 새 8키 = hot)
+        new = self.save_new(ma60MinSlope=0.5)
         r = self.apply()
         self.assertEqual((r["status"], r["code"]), ("done", "ok"), r)
         self.assertEqual(r["detail"]["apply"], "next_bar")
-        self.assertEqual(eng.strategy.cfg["minSlope"], 0.5)
+        self.assertEqual(eng.strategy.cfg["ma60MinSlope"], 0.5)
         self.assertEqual(pbp.sha256_of(pbp.applied_path(USER)), new)
         self.assertEqual([c for c in self.mgr.calls if c[0] in ("start", "stop")], [])   # 재시작 없음
         rows = self.params_rows()
         self.assertEqual(len(rows), 1)
         self.assertEqual((rows[0]["state"], rows[0]["params_sha256"]), ("DONE", new))
-        self.assertEqual(self.note(rows[0]), {"changed": {"minSlope": [0, 0.5]}, "apply": "next_bar"})
+        self.assertEqual(self.note(rows[0]), {"changed": {"ma60MinSlope": [0, 0.5]}, "apply": "next_bar"})
         self.assertIsNotNone(rows[0]["done_at"])
 
     def test_apply_writes_params_record(self):

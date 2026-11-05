@@ -3,9 +3,15 @@
   "fixture": "upbit_c",
   "cfg": "golden_only",
   "bar_count": 14299,
-  "script_sha256": "4418dad6123ad852849f146130227366b6891c79cacf5dcce6281860d2de2576"
+  "script_sha256": "00557219a1328b60ea2f7da1e92d5940db24d163fed30772c740ba3652ffef7d"
  },
  "buys": [
+  {
+   "signal_bar_t": 1790618400000,
+   "fill_bar_t": 1790618580000,
+   "round": 1,
+   "trigger": "GOLDEN"
+  },
   {
    "signal_bar_t": 1790663580000,
    "fill_bar_t": 1790663760000,
@@ -266,6 +272,11 @@
   }
  ],
  "sells": [
+  {
+   "bar_t": 1790645760000,
+   "type": "DEADCROSS",
+   "entries": 1
+  },
   {
    "bar_t": 1790670060000,
    "type": "TP",

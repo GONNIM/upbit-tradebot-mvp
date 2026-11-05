@@ -3,19 +3,25 @@
   "fixture": "upbit_c",
   "cfg": "pb_lt_splits",
   "bar_count": 14299,
-  "script_sha256": "4418dad6123ad852849f146130227366b6891c79cacf5dcce6281860d2de2576"
+  "script_sha256": "00557219a1328b60ea2f7da1e92d5940db24d163fed30772c740ba3652ffef7d"
  },
  "buys": [
   {
-   "signal_bar_t": 1790625960000,
-   "fill_bar_t": 1790626140000,
+   "signal_bar_t": 1790618400000,
+   "fill_bar_t": 1790618580000,
    "round": 1,
+   "trigger": "GOLDEN"
+  },
+  {
+   "signal_bar_t": 1790618760000,
+   "fill_bar_t": 1790618940000,
+   "round": 2,
    "trigger": "PULLBACK"
   },
   {
-   "signal_bar_t": 1790626680000,
-   "fill_bar_t": 1790626860000,
-   "round": 2,
+   "signal_bar_t": 1790619480000,
+   "fill_bar_t": 1790619660000,
+   "round": 3,
    "trigger": "PULLBACK"
   },
   {
@@ -40,12 +46,6 @@
    "signal_bar_t": 1790686260000,
    "fill_bar_t": 1790686440000,
    "round": 1,
-   "trigger": "PULLBACK"
-  },
-  {
-   "signal_bar_t": 1790690040000,
-   "fill_bar_t": 1790690220000,
-   "round": 2,
    "trigger": "PULLBACK"
   },
   {
@@ -857,19 +857,13 @@
    "fill_bar_t": 1793161980000,
    "round": 1,
    "trigger": "PULLBACK"
-  },
-  {
-   "signal_bar_t": 1793173680000,
-   "fill_bar_t": 1793173860000,
-   "round": 2,
-   "trigger": "PULLBACK"
   }
  ],
  "sells": [
   {
    "bar_t": 1790645760000,
    "type": "DEADCROSS",
-   "entries": 2
+   "entries": 3
   },
   {
    "bar_t": 1790670060000,
@@ -884,7 +878,7 @@
   {
    "bar_t": 1790695080000,
    "type": "SL",
-   "entries": 2
+   "entries": 1
   },
   {
    "bar_t": 1790771400000,

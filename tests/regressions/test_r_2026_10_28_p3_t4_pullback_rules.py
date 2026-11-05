@@ -9,6 +9,11 @@
 - 원본 대조: 원본 식을 옮긴 Python 기준(ref_simulate) 1개 + node 로 원본 HTML 을 그대로 돌린 기준 1회
   (원본 대조 일치 시험 묶음은 T10 범위 — 여기서는 1회만).
 
+1105-09 (Ver2 2단계) 고친 까닭: 감시 구간 기울기가 200선에서 60선 자체 기울기로 바뀌었다(R2). 손 제작 지표 키를
+slope200·slope200_lb → slope60·slope60_lb 로, 설정 키를 minSlope·slopeDrop → ma60MinSlope·ma60SlopeDrop 으로 바꿨다.
+시험 뜻(기울기 낮음·둔화면 감시 밖)은 그대로다. Python 기준 포트(ref_simulate_values)에 Ver2 의 상승폭 제한(R3)과
+구간 TP(R5)를 더했고, node 대조는 pullback_reference.mjs(지금 기준 = Ver2)를 그대로 쓴다.
+
 실행:
     python3 -m unittest tests.regressions.test_r_2026_10_28_p3_t4_pullback_rules -v
 """
@@ -52,8 +57,8 @@ def bar(i, o=100.0, h=None, l=None, c=None, *, confirmed=True, closed=True, sour
 
 
 def V(t=11.0, m=10.0, p=50.0, s=1.0, slb=None):
-    """손으로 적는 지표 값. 기본 = 골든(t>m)·감시 구간(s ≥ minSlope 0)·maPullback 50."""
-    return {"maTrend": t, "ma200": m, "maPullback": p, "slope200": s, "slope200_lb": slb}
+    """손으로 적는 지표 값. 기본 = 골든(t>m)·감시 구간(s ≥ ma60MinSlope 0)·maPullback 50. s = 60선 기울기(1105-09)."""
+    return {"maTrend": t, "ma200": m, "maPullback": p, "slope60": s, "slope60_lb": slb}
 
 
 DEAD = dict(t=9.0, m=10.0)
@@ -84,7 +89,7 @@ class ScriptedIndicators:
 BASE_PARAMS = {
     "ticker": "KRW-TEST", "interval": "minute3", "maType": "ema",
     "ma60p": 3, "ma200p": 5, "pullbackP": 2, "slopeLB": 1,
-    "minSlope": 0, "slopeDrop": 0, "buyOnGoldenCross": True,
+    "ma60MinSlope": 0, "ma60SlopeDrop": 0, "buyOnGoldenCross": True,
     "maxSplits": 3, "maxPullbackBuys": 3, "tp": 5, "sl": 3,
     "deadcross": True, "compounding": False, "capital": 1_000_000, "fee": 0.05,
 }
@@ -184,7 +189,7 @@ class TestBuyOrder(unittest.TestCase):
         self.assertFalse(st.armed)
 
     def test_armed_cleared_when_inactive(self):
-        # 0: low 40 < 50, close 45 < 50 → armed  1: 골든이지만 slope<minSlope(감시 밖) → armed 해제
+        # 0: low 40 < 50, close 45 < 50 → armed  1: 골든이지만 slope60<ma60MinSlope(감시 밖) → armed 해제
         # 2: 감시 구간·close 60 > 50 이지만 armed 아님 → 매수 0
         vals = [V(), V(s=-1.0), V()]
         st = make_strategy(vals, buyOnGoldenCross=False)
@@ -195,8 +200,8 @@ class TestBuyOrder(unittest.TestCase):
         self.assertEqual(actions(res), ["HOLD", "HOLD"])
 
     def test_inactive_by_slope_drop(self):
-        # slopeDrop 2: 과거 slope 5 → 지금 1 (둔화 4 > 2) → 감시 밖. 과거 slope 없으면 둔화 조건 통과.
-        st = make_strategy([V(s=1.0, slb=5.0), V(s=1.0, slb=None)], buyOnGoldenCross=False, slopeDrop=2)
+        # ma60SlopeDrop 2: 과거 slope60 5 → 지금 1 (둔화 4 > 2) → 감시 밖. 과거 값 없으면 둔화 조건 통과.
+        st = make_strategy([V(s=1.0, slb=5.0), V(s=1.0, slb=None)], buyOnGoldenCross=False, ma60SlopeDrop=2)
         res = run(st, [bar(0, o=60, h=61, l=40, c=55), bar(1, o=60, h=61, l=40, c=55)])
         self.assertEqual(actions(res), ["HOLD", "BUY"])
 
@@ -506,8 +511,19 @@ class TestReviewFixes(unittest.TestCase):
 
 # ================================================================ 원본 대조 (Python 기준 · node 1회)
 def ref_simulate_values(bars, vals, cfg):
-    """원본 simulate() 296-363 을 신호만 옮긴 기준. vals[i] 는 봉 i 의 지표 값."""
+    """원본 simulate() 를 신호만 옮긴 기준. vals[i] 는 봉 i 의 지표 값.
+    1105-09: Ver2 R2(60선 기울기)·R3(골든크로스 1차 상승폭 제한, 막히면 같은 봉 눌림목 판정 계속)·
+    R5(구간 순번 — 새 거래를 연 눌림목만 셈(Q3 ②), 이번 거래 TP%) 를 옮겼다. R4(연속 손절 중단)는 엔진 칸이라 여기 없음."""
     golden_only = cfg["buyOnGoldenCross"] and cfg["maxSplits"] == 0
+    cap = cfg.get("episodePullbackCap", 0)
+
+    def ep_tp(idx):
+        if idx is None or cap <= 0 or idx <= cap:
+            return cfg["tp"]
+        return max(cfg.get("episodeTpFloorPct", 0.3),
+                   cfg["tp"] * (1 - cfg.get("episodeTpDecayPct", 50) / 100) ** (idx - cap))
+    episode = 0
+    trade_tp = None
     eff = 1 if golden_only else cfg["maxSplits"]
     buys, sells = [], []
     entry = pb = 0
@@ -524,35 +540,42 @@ def ref_simulate_values(bars, vals, cfg):
             if first_t is None:
                 first_t = b.ts
             pending = False
-        t, m, s, slb, p = v["maTrend"], v["ma200"], v["slope200"], v["slope200_lb"], v["maPullback"]
-        active = t is not None and m is not None and s is not None and t > m and s >= cfg["minSlope"]
-        if active and cfg["slopeDrop"] > 0 and slb is not None and (slb - s) > cfg["slopeDrop"]:
+        t, m, s, slb, p = v["maTrend"], v["ma200"], v["slope60"], v["slope60_lb"], v["maPullback"]
+        active = t is not None and m is not None and s is not None and t > m and s >= cfg["ma60MinSlope"]
+        if active and cfg["ma60SlopeDrop"] > 0 and slb is not None and (slb - s) > cfg["ma60SlopeDrop"]:
             active = False
         was = prev_golden
         golden = t is not None and m is not None and t > m
         prev_golden = golden
         just = golden and not was
+        if just:
+            episode = 0
         if entry > 0 and cfg["deadcross"] and t is not None and m is not None and not (t > m):
             sells.append((i, "DEADCROSS"))
             entry = pb = nfill = 0; inv = 0.0; first_t = None; armed = False
             continue
         if entry > 0 and first_t is not None and b.ts > first_t:
             avg = nfill / inv
-            if b.high >= avg * (1 + cfg["tp"] / 100):
+            if b.high >= avg * (1 + (cfg["tp"] if trade_tp is None else trade_tp) / 100):
                 sells.append((i, "TP")); entry = pb = nfill = 0; inv = 0.0; first_t = None; armed = False
                 continue
             if b.low <= avg * (1 - cfg["sl"] / 100):
                 sells.append((i, "SL")); entry = pb = nfill = 0; inv = 0.0; first_t = None; armed = False
                 continue
         last = i + 1 >= len(bars)
-        if cfg["buyOnGoldenCross"] and just and entry == 0 and active and entry < eff and not last:
-            buys.append((i, "GOLDEN")); entry += 1; pending = True; armed = False
+        gap = cfg.get("gcMaxGapPct", 0)
+        gap_ok = not (gap > 0 and m and (b.close - m) / m * 100 >= gap)
+        if cfg["buyOnGoldenCross"] and just and entry == 0 and active and gap_ok and entry < eff and not last:
+            buys.append((i, "GOLDEN")); entry += 1; pending = True; armed = False; trade_tp = cfg["tp"]
             continue
         capped = pb >= cfg["maxPullbackBuys"]
         if not golden_only and not capped and active and entry < eff:
             if p is not None and b.low < p:
                 armed = True
             if armed and p is not None and b.close > p and not last:
+                if entry == 0:
+                    episode += 1
+                    trade_tp = ep_tp(episode)
                 buys.append((i, "PULLBACK")); entry += 1; pb += 1; pending = True; armed = False
         elif not active or golden_only or capped:
             armed = False
@@ -572,7 +595,10 @@ def rand_bars(n, seed=11):
     return out
 
 
-REF_CFG = dict(BASE_PARAMS, ma60p=20, ma200p=60, pullbackP=10, slopeLB=5, minSlope=0, slopeDrop=0.3,
+# 1105-09: 60선 기울기 둔화 0.3(R2)·상승폭 1%(R3)·구간 횟수 1(R5)을 함께 켠다
+REF_CFG = dict(BASE_PARAMS, ma60p=20, ma200p=60, pullbackP=10, slopeLB=5, ma60MinSlope=0, ma60SlopeDrop=0.3,
+               gcMaxGapPct=1.0, episodePullbackCap=1, episodeTpDecayPct=50, episodeTpFloorPct=0.3,
+               slStreakPause=0, slStreakCooldownHours=6,
                maxSplits=4, maxPullbackBuys=3, tp=1.0, sl=1.5)
 
 
@@ -609,8 +635,10 @@ class TestReference(unittest.TestCase):
         bars = rand_bars(1500, seed=3)
         buys, sells, _ = run_virtual(cfg, bars)
         ms = [int(b.ts.value // 1_000_000) for b in bars]
-        js_cfg = {k: cfg[k] for k in ("maType", "ma60p", "ma200p", "pullbackP", "slopeLB", "minSlope",
-                                      "slopeDrop", "buyOnGoldenCross", "maxSplits", "maxPullbackBuys",
+        js_cfg = {k: cfg[k] for k in ("maType", "ma60p", "ma200p", "pullbackP", "slopeLB",
+                                      "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause",
+                                      "slStreakCooldownHours", "episodePullbackCap", "episodeTpDecayPct",
+                                      "episodeTpFloorPct", "buyOnGoldenCross", "maxSplits", "maxPullbackBuys",
                                       "tp", "sl", "capital", "fee")}
         js_cfg["deadcross"] = "yes" if cfg["deadcross"] else "no"
         js_cfg["compounding"] = "no"

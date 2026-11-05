@@ -31,7 +31,10 @@ EXPECTED_COLUMNS = [
     "first_entry_reason", "armed", "prev_golden", "trade_origin", "pending_fill", "fill_n", "inv_sum",
     "sizing_base_krw", "realized_pnl_krw", "qty", "cost_krw", "avg_price", "desync", "buy_fail_bar_ts",
     "params_sha256", "last_bar_ts", "updated_at",
+    # 1105-09 (Ver2 2-3): 연속 손절 중단(엔진 칸 3)·구간 순번·이 거래 순번·이번 거래 TP%(전략 칸 3) — _ensure_column 으로 뒤에 붙음
+    "sl_streak", "pause_start_ts", "pause_end_ts", "episode_idx", "trade_episode_idx", "trade_tp_pct",
 ]
+OLD_COLUMNS = EXPECTED_COLUMNS[:24]   # 1105-09 전 표(옛 DB)
 
 
 class _TmpDb(unittest.TestCase):
@@ -116,6 +119,29 @@ class TestPullbackStateMigration(_TmpDb):
         self.assertEqual(self.q("SELECT COUNT(*) FROM pullback_state")[0][0], 0)
         self.assertEqual(self.q("PRAGMA integrity_check")[0][0], "ok")
         self.assertEqual(self.q("PRAGMA foreign_key_check"), [])
+
+    def test_old_pullback_table_gets_six_columns_rows_kept(self):
+        """1105-09 (Ver2 2-3): 1105-09 전 모양의 pullback_state(24칸, 행 1개) → ensure 2회 → 30칸, 행 값 그대로,
+        새 칸은 기본값(sl_streak 0·episode_idx 0, 나머지 NULL)."""
+        self.idb.initialize_db(U)
+        self.idb.ensure_all_schemas(U)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            for c in EXPECTED_COLUMNS[24:]:
+                conn.execute(f"ALTER TABLE pullback_state DROP COLUMN {c}")
+            conn.execute("INSERT INTO pullback_state(user_id, mode, ticker, interval, entry_count, updated_at) "
+                         "VALUES (?, 'TEST', 'KRW-JTO', 'minute3', 2, '2026-11-05T10:00:00+09:00')", (U,))
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertEqual([r[1] for r in self.q("PRAGMA table_info(pullback_state)")], OLD_COLUMNS)
+        self.idb.ensure_all_schemas(U)
+        self.idb.ensure_all_schemas(U)
+        self.assertEqual([r[1] for r in self.q("PRAGMA table_info(pullback_state)")], EXPECTED_COLUMNS)
+        row = self.q("SELECT entry_count, ticker, sl_streak, pause_start_ts, pause_end_ts, episode_idx, "
+                     "trade_episode_idx, trade_tp_pct FROM pullback_state")
+        self.assertEqual(row, [(2, "KRW-JTO", 0, None, None, 0, None, None)])
+        self.assertEqual(self.q("PRAGMA integrity_check")[0][0], "ok")
 
     def test_mode_check_constraint(self):
         self.idb.initialize_db(U)

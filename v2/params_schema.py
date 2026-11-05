@@ -1,4 +1,7 @@
-"""백테스터 화면 입력 19개의 검증과 PULLBACK 파라미터 파일 변환 (표준 라이브러리만 사용).
+"""백테스터 화면 입력 25개의 검증과 PULLBACK 파라미터 파일 변환 (표준 라이브러리만 사용).
+
+1105-09 (Ver2): 입력 19 − 2(minSlope·slopeDrop) + 8 = 25, 파일 18 − 2 + 8 = 24키. PARAM_FIELDS 는 Ver2 화면
+(docs/new-version/MA_GC_Pullback_Backtester_2611051030(Ver2).html)의 id 속성을 옮긴 것이다.
 
 1차 규칙: 19개 키 정확히 · 모르는 키 400 · 파일 전체 덮어쓰기 (P4 에서 거래 시간 키를 추가할 때 바뀐다).
 2차 T13: 화면 입력은 그대로 19개, 파일은 18키 + 이전 저장본에 있던 선택 4키(거래 시간)를 보존(keep_optional).
@@ -12,14 +15,21 @@ import re
 PARAM_FIELDS = {
     "symbol": {"type": "text"},
     "maType": {"type": "select", "options": ["ema", "sma"]},
-    "src": {"type": "select", "options": ["1m", "3m", "5m", "1h"]},
+    "src": {"type": "select", "options": ["1m", "3m", "5m", "10m", "15m", "30m", "1h"]},
     "days": {"type": "number", "min": 5, "max": 365},
     "ma60p": {"type": "number", "min": 2, "max": 500},
     "ma200p": {"type": "number", "min": 10, "max": 1000},
     "pullbackP": {"type": "number", "min": 2, "max": 500},
     "slopeLB": {"type": "number", "min": 1, "max": 500},
-    "minSlope": {"type": "number", "step": 0.05},
-    "slopeDrop": {"type": "number", "min": 0, "step": 0.05},
+    "gcMaxGapPct": {"type": "select",
+                    "options": ["0", "0.5", "1", "1.5", "2", "2.5", "3", "3.5", "4", "4.5", "5"]},
+    "ma60MinSlope": {"type": "number", "step": 0.05},
+    "ma60SlopeDrop": {"type": "number", "min": 0, "step": 0.05},
+    "slStreakPause": {"type": "number", "min": 0, "max": 20},
+    "slStreakCooldownHours": {"type": "number", "min": 0, "step": 0.5},
+    "episodePullbackCap": {"type": "number", "min": 0, "max": 20},
+    "episodeTpDecayPct": {"type": "number", "min": 0, "max": 99, "step": 5},
+    "episodeTpFloorPct": {"type": "number", "min": 0, "step": 0.05},
     "buyOnGoldenCross": {"type": "select", "options": ["yes", "no"]},
     "maxSplits": {"type": "number", "min": 0, "max": 10},
     "maxPullbackBuys": {"type": "number", "min": 1, "max": 5},
@@ -27,7 +37,7 @@ PARAM_FIELDS = {
     "sl": {"type": "number", "step": 0.1},
     "capital": {"type": "number", "step": 100},
     "fee": {"type": "number", "step": 0.01},
-    "deadcross": {"type": "select", "options": ["yes", "no"]},
+    "deadcross": {"type": "select", "options": ["yes", "no"]},   # Ver2 기본 선택 no(R6) — 옵션 순서는 화면 그대로
     "compounding": {"type": "select", "options": ["no", "yes"]},
 }
 
@@ -40,7 +50,7 @@ SERVER_EXTRA_LIMITS = {
 }
 
 # HTML 에 step 이 없는 number 칸(브라우저 기본 step 1) — 정수만 받는다.
-INTEGER_FIELDS = ("days", "ma60p", "ma200p", "pullbackP", "slopeLB",
+INTEGER_FIELDS = ("days", "ma60p", "ma200p", "pullbackP", "slopeLB", "slStreakPause", "episodePullbackCap",
                   "maxSplits", "maxPullbackBuys")
 
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9]{2,20}$")
@@ -49,12 +59,13 @@ _UPBIT_SYMBOL_RE = re.compile(r"^KRW-[A-Z]{1,15}$")
 # 2차 T13: 저장 때 지우지 않고 보존하는 선택 4키(거래 시간 — engine/pullback_params.OPTIONAL_KEYS 와 같은 이름·형식)
 OPTIONAL_KEYS = ("enable_trading_hours", "trading_start_time", "trading_end_time", "allow_sell_during_off_hours")
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-_INTERVAL = {"1m": "minute1", "3m": "minute3", "5m": "minute5", "1h": "minute60"}
+_INTERVAL = {"1m": "minute1", "3m": "minute3", "5m": "minute5", "10m": "minute10", "15m": "minute15",
+             "30m": "minute30", "1h": "minute60"}
 _YES_NO = {"yes": True, "no": False}
 
 
 def validate_params(d, source="binance"):
-    """검증된 19개 dict(정해진 순서)를 돌려준다. 실패 시 ValueError(필드 이름 또는 "keys").
+    """검증된 25개 dict(정해진 순서)를 돌려준다. 실패 시 ValueError(필드 이름 또는 "keys").
 
     symbol 규칙은 시험한 데이터 출처로 나눈다: binance 영숫자 2~20자, upbit KRW-XXX."""
     if source not in ("binance", "upbit"):
@@ -123,7 +134,7 @@ def keep_optional(file_dict, old):
 
 
 def to_engine_file(p, ticker):
-    """검증된 19개 → P3 4.2 키 18개(순서 유지). days·Binance symbol 은 넣지 않는다."""
+    """검증된 25개 → 파일 24키(engine/pullback_params.PULLBACK_KEYS 순서). days·Binance symbol 은 넣지 않는다."""
     return {
         "ticker": ticker,
         "interval": _INTERVAL[p["src"]],
@@ -132,8 +143,14 @@ def to_engine_file(p, ticker):
         "ma200p": p["ma200p"],
         "pullbackP": p["pullbackP"],
         "slopeLB": p["slopeLB"],
-        "minSlope": p["minSlope"],
-        "slopeDrop": p["slopeDrop"],
+        "gcMaxGapPct": float(p["gcMaxGapPct"]),
+        "ma60MinSlope": p["ma60MinSlope"],
+        "ma60SlopeDrop": p["ma60SlopeDrop"],
+        "slStreakPause": p["slStreakPause"],
+        "slStreakCooldownHours": p["slStreakCooldownHours"],
+        "episodePullbackCap": p["episodePullbackCap"],
+        "episodeTpDecayPct": p["episodeTpDecayPct"],
+        "episodeTpFloorPct": p["episodeTpFloorPct"],
         "buyOnGoldenCross": _YES_NO[p["buyOnGoldenCross"]],
         "maxSplits": p["maxSplits"],
         "maxPullbackBuys": p["maxPullbackBuys"],

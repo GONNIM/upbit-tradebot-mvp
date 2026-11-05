@@ -95,7 +95,7 @@ class TestEvalAudit(T8EngineCase):
         rows = self.buy_rows()
         self.assertEqual(len(rows), 2)
         keys = {"strategy", "round", "pullback_round", "armed", "active", "inactive_reason", "maTrend",
-                "ma200", "maPullback", "slope200", "buy_reason", "golden_event"}
+                "ma200", "maPullback", "slope60", "buy_reason", "golden_event"}   # 1105-09: slope200 → slope60
         for r in rows:
             self.assertTrue(keys <= set(r["checks"]), keys - set(r["checks"]))
             self.assertEqual(r["checks"]["strategy"], "PULLBACK")
@@ -114,11 +114,12 @@ class TestEvalAudit(T8EngineCase):
         self.assertIsNone(buy["checks"]["inactive_reason"])
 
     def test_failed_keys_not_active_with_reason(self):
-        self.make([V(t=9.0, m=10.0), V(s=-1.0), V(s=0.5, slb=2.0)], slopeDrop=1.0)
+        # 1105-09 (Ver2 R2): 60선 기울기 사유 이름 ma60_slope_low·ma60_slope_drop, 설정 키 ma60SlopeDrop
+        self.make([V(t=9.0, m=10.0), V(s=-1.0), V(s=0.5, slb=2.0)], ma60SlopeDrop=1.0)
         self.feed(bar(0, **DIP), bar(1, **DIP), bar(2, **DIP))
         got = [(r["failed_keys"], r["checks"]["inactive_reason"]) for r in self.buy_rows()]
-        self.assertEqual(got, [(["NOT_ACTIVE"], "not_golden"), (["NOT_ACTIVE"], "slope_low"),
-                               (["NOT_ACTIVE"], "slope_drop")])
+        self.assertEqual(got, [(["NOT_ACTIVE"], "not_golden"), (["NOT_ACTIVE"], "ma60_slope_low"),
+                               (["NOT_ACTIVE"], "ma60_slope_drop")])
 
     def test_failed_keys_caps(self):
         self.make(maxSplits=1)

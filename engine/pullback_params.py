@@ -32,9 +32,19 @@ _TAG = "[PULLBACK-PARAMS]"
 
 PULLBACK_KEYS = (
     "ticker", "interval", "maType", "ma60p", "ma200p", "pullbackP", "slopeLB",
-    "minSlope", "slopeDrop", "buyOnGoldenCross", "maxSplits", "maxPullbackBuys",
+    # 1105-09 (Ver2): 200선 기울기 2키(minSlope·slopeDrop)를 빼고 새 8키를 넣는다 → 24키
+    "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+    "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
+    "buyOnGoldenCross", "maxSplits", "maxPullbackBuys",
     "tp", "sl", "deadcross", "compounding", "capital", "fee",
 )
+# 1105-09 (결정 ②·2-5): 옛 파일의 200선 기울기 키는 검증 전에 버린다. 새 8키가 없으면 Ver2 기본값으로 채운다.
+LEGACY_KEYS = ("minSlope", "slopeDrop")
+NEW_KEY_DEFAULTS = {
+    "gcMaxGapPct": 0, "ma60MinSlope": 0, "ma60SlopeDrop": 0, "slStreakPause": 0,
+    "slStreakCooldownHours": 6, "episodePullbackCap": 0, "episodeTpDecayPct": 50, "episodeTpFloorPct": 0.3,
+}
+_LEGACY_NOTIFIED: set = set()   # 프로세스당 사용자별 1회 알림 표식
 OPTIONAL_KEYS = {
     "enable_trading_hours": False,
     "trading_start_time": "09:00",
@@ -48,19 +58,28 @@ RANGES = {
     "ma200p": (10, 1000),
     "pullbackP": (2, 500),
     "slopeLB": (1, 500),
-    "slopeDrop": (0, None),
+    "gcMaxGapPct": (0, None),
+    "ma60SlopeDrop": (0, None),
+    "slStreakPause": (0, 20),
+    "slStreakCooldownHours": (0, None),
+    "episodePullbackCap": (0, 20),
+    "episodeTpDecayPct": (0, 99),
+    "episodeTpFloorPct": (0, None),
     "maxSplits": (0, 10),
     "maxPullbackBuys": (1, 5),
 }
 NUMBER_KEYS = (
-    "ma60p", "ma200p", "pullbackP", "slopeLB", "minSlope", "slopeDrop",
+    "ma60p", "ma200p", "pullbackP", "slopeLB",
+    "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours",
+    "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct",
     "maxSplits", "maxPullbackBuys", "tp", "sl", "capital", "fee",
 )
-INTEGER_KEYS = ("ma60p", "ma200p", "pullbackP", "slopeLB", "maxSplits", "maxPullbackBuys")
+INTEGER_KEYS = ("ma60p", "ma200p", "pullbackP", "slopeLB", "slStreakPause", "episodePullbackCap",
+                "maxSplits", "maxPullbackBuys")
 EXTRA_LIMITS = {"tp": ("gt", 0), "sl": ("gt", 0), "capital": ("gt", 0), "fee": ("ge", 0)}
 BOOL_KEYS = ("buyOnGoldenCross", "deadcross", "compounding")
 MA_TYPES = ("ema", "sma")
-INTERVALS = ("minute1", "minute3", "minute5", "minute60")
+INTERVALS = ("minute1", "minute3", "minute5", "minute10", "minute15", "minute30", "minute60")  # 1105-09: 10·15·30분
 
 # engine.params.LiveParams._validate_ticker 보다 좁은 규칙: KRW- 접두·대문자 영문자만(숫자 든 종목은 거부)
 _TICKER_RE = re.compile(r"^KRW-[A-Z]{1,15}$")
@@ -143,10 +162,39 @@ def _num(v, name):
     return v
 
 
-def validate(d: dict) -> dict:
-    """18키 정확히(+선택 4키). 통과하면 정규화한 새 dict(선택 키는 기본값으로 채움)를 돌려준다."""
+def _migrate_legacy(d: dict) -> tuple[dict, list]:
+    """1105-09 (결정 ②·2-5): 옛 200선 기울기 키를 버리고 없는 새 키를 기본값으로 채운 사본, 버린 키 목록."""
+    out = dict(d)
+    dropped = [k for k in LEGACY_KEYS if k in out]
+    for k in dropped:
+        out.pop(k)
+    for k, v in NEW_KEY_DEFAULTS.items():
+        out.setdefault(k, v)
+    return out, dropped
+
+
+def _notify_legacy(user_id: str | None, dropped: list) -> None:
+    """옛 값을 버린 사실과 바뀐 뜻을 프로세스당 사용자별 1회 CRITICAL 알림 + 로그 1줄로 남긴다."""
+    if not dropped or not user_id or user_id in _LEGACY_NOTIFIED:
+        return
+    _LEGACY_NOTIFIED.add(user_id)
+    logger.warning(f"{_TAG} legacy keys dropped user={user_id} keys={','.join(dropped)} "
+                   f"→ 60선 기울기 조건 기본으로 켜짐(최소 기울기 0) · slopeLB 뜻은 60선 기울기 기간")
+    _notify_critical(
+        "새 전략 설정이 최종판(Ver2) 규칙으로 바뀌었습니다",
+        "이전 설정의 200선 기울기 값(최소 기울기·둔화)은 버렸습니다. 이제 60선 기울기 조건이 기본으로 켜집니다"
+        "(60선 최소 기울기 0 — 60선이 내려가는 동안에는 매수를 감시하지 않음). 기울기 lookback 값은 그대로이고 "
+        "뜻만 60선 기울기 기간으로 바뀌었습니다. 신버전 백테스터에서 설정을 확인해 주세요.",
+        f"pullback_params_legacy:{user_id}",
+    )
+
+
+def validate(d: dict, *, user_id: str | None = None) -> dict:
+    """24키(+선택 4키). 옛 200선 기울기 키는 먼저 버리고 없는 새 키는 기본값으로 채운다(1105-09).
+    통과하면 정규화한 새 dict(선택 키는 기본값으로 채움)를 돌려준다."""
     if not isinstance(d, dict):
         raise PullbackParamsError("type")
+    d, dropped = _migrate_legacy(d)
     allowed = set(PULLBACK_KEYS) | set(OPTIONAL_KEYS)
     for k in PULLBACK_KEYS:
         if k not in d:
@@ -202,7 +250,8 @@ def validate(d: dict) -> dict:
             raise PullbackParamsError(k)
         out[k] = v
 
-    # 키 순서: 18키 -> 선택 4키
+    _notify_legacy(user_id, dropped)
+    # 키 순서: 24키 -> 선택 4키
     return {k: out[k] for k in (*PULLBACK_KEYS, *OPTIONAL_KEYS)}
 
 
@@ -214,8 +263,8 @@ def _reason_of(e: PullbackParamsError) -> str:
     return "field"
 
 
-def _load_valid(path: str) -> dict:
-    return validate(read_json_strict(path))
+def _load_valid(path: str, user_id: str | None = None) -> dict:
+    return validate(read_json_strict(path), user_id=user_id)
 
 
 # ---------------------------------------------------------------- 기동
@@ -224,11 +273,11 @@ def load_for_boot(user_id: str, *, holding: bool) -> tuple[dict | None, str]:
     a_path, lg_path = applied_path(user_id), last_good_path(user_id)
 
     try:
-        params = _load_valid(a_path)
+        params = _load_valid(a_path, user_id)
     except PullbackParamsError as e_applied:
         reason = _reason_of(e_applied)
         try:
-            params = _load_valid(lg_path)
+            params = _load_valid(lg_path, user_id)
         except PullbackParamsError as e_last:
             msg = (
                 f"{_TAG} no usable params user={user_id} holding={holding} "
@@ -269,7 +318,7 @@ def load_for_boot(user_id: str, *, holding: bool) -> tuple[dict | None, str]:
 def reload_applied(user_id: str, current: dict) -> dict:
     """운용 중 다시 읽기 (경우 12). 적용본이 깨졌으면 이전 값(current)을 그대로 돌려준다."""
     try:
-        return _load_valid(applied_path(user_id))
+        return _load_valid(applied_path(user_id), user_id)
     except PullbackParamsError as e:
         logger.warning(f"{_TAG} reload rejected reason={_reason_of(e)} field={e.field} user={user_id}")
         return current
@@ -334,7 +383,7 @@ def apply_saved(user_id: str, expected_sha: str) -> dict:
     sha = hashlib.sha256(data).hexdigest()
     if sha != expected_sha:
         raise PullbackParamsError("sha_mismatch")
-    validated = validate(_parse_bytes(data))
+    validated = validate(_parse_bytes(data), user_id=user_id)
     to_live_params(validated, MIN_CASH)  # LiveParams 가 받아 주는지 쓰기 전에 시험
 
     a_path, lg_path = applied_path(user_id), last_good_path(user_id)

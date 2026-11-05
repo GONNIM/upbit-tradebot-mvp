@@ -1,9 +1,13 @@
 {
  "meta": {
-  "note": "2차 T10 일치 시험 조합 (계획 T10 「조합」, spec 6절). base 에서 하나씩 바꿈. 모양은 원본 run() 543-556행과 같음(buyOnGoldenCross bool, deadcross·compounding \"yes\"|\"no\"). base = tests/v2/js/fixtures/pullback_cfg_base.json",
-  "original": "docs/specs/MA60_200_GoldenCross_Pullback_Backtester_2610201820.html 143~938행",
-  "original_script_sha256": "4418dad6123ad852849f146130227366b6891c79cacf5dcce6281860d2de2576",
-  "fixtures": ["upbit_a", "upbit_b", "upbit_c"]
+  "note": "2차 T10 일치 시험 조합. 1105-09 Ver2 2단계: base 에서 minSlope·slopeDrop 를 빼고 새 8키(Ver2 화면 기본값)를 넣음 (deadcross 는 기존 조합 뜻을 지키려고 base \"yes\" 유지), slope_drop 은 ma60SlopeDrop 로 바꿈, 새 규칙 조합 gc_gap(R3)·sl_streak(R4)·episode_cap(R5)·min_slope(R2) 추가. 모양은 Ver2 run() 680-698행과 같음",
+  "original": "docs/new-version/MA_GC_Pullback_Backtester_2611051030(Ver2).html 인라인 스크립트 + 정해진 차이 2곳 (tests/v2/js/fixtures/ver2_patches.json)",
+  "original_script_sha256": "00557219a1328b60ea2f7da1e92d5940db24d163fed30772c740ba3652ffef7d",
+  "fixtures": [
+   "upbit_a",
+   "upbit_b",
+   "upbit_c"
+  ]
  },
  "base": {
   "maType": "ema",
@@ -11,8 +15,14 @@
   "ma200p": 200,
   "pullbackP": 60,
   "slopeLB": 20,
-  "minSlope": 0,
-  "slopeDrop": 0,
+  "gcMaxGapPct": 0,
+  "ma60MinSlope": 0,
+  "ma60SlopeDrop": 0,
+  "slStreakPause": 0,
+  "slStreakCooldownHours": 6,
+  "episodePullbackCap": 0,
+  "episodeTpDecayPct": 50,
+  "episodeTpFloorPct": 0.3,
   "buyOnGoldenCross": true,
   "maxSplits": 5,
   "maxPullbackBuys": 5,
@@ -25,13 +35,44 @@
  },
  "cfgs": {
   "base": {},
-  "golden_no": {"buyOnGoldenCross": false},
-  "golden_only": {"maxSplits": 0},
-  "pb_lt_splits": {"maxPullbackBuys": 2},
-  "slope_drop": {"slopeDrop": 0.3},
-  "deadcross_no": {"deadcross": "no"},
-  "compounding_yes": {"compounding": "yes"},
-  "sma": {"maType": "sma"},
-  "splits_full_armed": {"maxSplits": 2}
+  "golden_no": {
+   "buyOnGoldenCross": false
+  },
+  "golden_only": {
+   "maxSplits": 0
+  },
+  "pb_lt_splits": {
+   "maxPullbackBuys": 2
+  },
+  "slope_drop": {
+   "ma60SlopeDrop": 0.3
+  },
+  "deadcross_no": {
+   "deadcross": "no"
+  },
+  "compounding_yes": {
+   "compounding": "yes"
+  },
+  "sma": {
+   "maType": "sma"
+  },
+  "splits_full_armed": {
+   "maxSplits": 2
+  },
+  "gc_gap": {
+   "gcMaxGapPct": 0.5
+  },
+  "sl_streak": {
+   "slStreakPause": 2,
+   "slStreakCooldownHours": 6
+  },
+  "episode_cap": {
+   "episodePullbackCap": 1,
+   "episodeTpDecayPct": 50,
+   "episodeTpFloorPct": 0.3
+  },
+  "min_slope": {
+   "ma60MinSlope": 0.02
+  }
  }
 }
