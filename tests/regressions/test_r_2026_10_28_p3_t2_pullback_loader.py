@@ -598,7 +598,17 @@ class TestLegacyMigration(Base):
         pp.validate(self.legacy(), user_id=USER)
         self.assertEqual(self.notify.call_count, 1)
         self.assertIn("Ver2", self.notify.call_args[0][0])
+        # 1105-09 사용자 결정 ㉡ ②: 알림 본문에 멈추는 방법(다시 저장)을 적는다
+        self.assertIn("다시 저장하시면 이 알림은 더 오지 않습니다", self.notify.call_args[0][1])
         self.assertEqual(self.notify.call_args[0][2], f"pullback_params_legacy:{USER}")
+
+    def test_resaved_file_stops_notify(self):
+        """1105-09 ㉡ ②: 다시 저장한 파일(새 24키, 옛 키 없음)은 알림을 보내지 않는다 — 본문 문장이 사실임을 지킨다."""
+        out = pp.validate(self.legacy(), user_id=USER + "_resaved")
+        self.notify.reset_mock()
+        pp._LEGACY_NOTIFIED.discard(USER + "_resaved")
+        pp.validate(dict(out), user_id=USER + "_resaved")
+        self.notify.assert_not_called()
 
     def test_no_notify_for_new_file_or_no_user(self):
         pp.validate(good(), user_id=USER)
