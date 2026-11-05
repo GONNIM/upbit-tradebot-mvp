@@ -1,0 +1,7 @@
+# 1105-09 · 1-5 비교 실측 실행 명령 원문 (2026-11-05, 로컬 맥, 저장소 최상위에서)
+node scripts/build_backtester_js.mjs
+node docs/plans/2026-11-05-ver2-backtester/compare/run_compare.mjs
+python3 docs/plans/2026-11-05-ver2-backtester/compare/measure_1m_90d.py
+UPBIT_ACCESS=netguard-placeholder UPBIT_SECRET=netguard-placeholder NETGUARD=1 PYTHONPATH=tests/_netguard python3 docs/plans/2026-11-05-ver2-backtester/compare/measure_worst_mem.py
+node --test tests/v2/js/parity.test.mjs tests/v2/js/ver2_diffs.test.mjs tests/v2/js/bt_ui.test.mjs
+UPBIT_ACCESS=netguard-placeholder UPBIT_SECRET=netguard-placeholder NETGUARD=1 PYTHONPATH=tests/_netguard python3 -m unittest tests.v2.test_candles tests.v2.test_static_lint

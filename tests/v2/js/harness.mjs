@@ -105,7 +105,8 @@ export async function runInHarness(scriptText, htmlText, fixture) {
   const blobs = [];
   const urls = [];
   const ctx = {
-    document: { getElementById: getEl, createElement: () => makeEl("", listeners), addEventListener() {} },
+    // querySelectorAll: Ver2 attachSteppers(휴대폰 −/+ 단추)가 부른다. 시험에는 단추가 필요 없어 빈 목록.
+    document: { getElementById: getEl, createElement: () => makeEl("", listeners), addEventListener() {}, querySelectorAll: () => [] },
     fetch: fakeFetch,
     Date: FixedDate,
     setTimeout: (fn) => { fn(); return 0; },

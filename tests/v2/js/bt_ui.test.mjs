@@ -137,6 +137,8 @@ test("(d) 상태별 문구로 멈춤", async () => {
     [res(504, {}), M_ERR],
     [res(401, {}), M_AUTH],
     [res(403, {}), M_AUTH],
+    [res(400, { error: "bad_request", field: "size" }), "요청한 데이터가 너무 큽니다. 기간을 줄이거나 봉 단위를 키워 주세요"],   // 1105-09
+    [res(400, { error: "bad_request", field: "days" }), M_ERR],
     [new Error("network"), M_ERR],
   ];
   for (const [r, msg] of cases) {
@@ -150,7 +152,7 @@ test("(d) 상태별 문구로 멈춤", async () => {
   }
 });
 
-test("(d2) progress error 칸 -> 문구, 5분 상한 -> 일반 오류", async () => {
+test("(d2) progress error 칸 -> 문구, 10분 상한 -> 일반 오류 (1105-09: 5분 → 10분)", async () => {
   for (const [err, msg] of [["upbit_limit", M_LIMIT], ["upbit_blocked", M_BLOCK], ["upbit_error", M_ERR]]) {
     const f = router({
       [CANDLES]: [res(202, { job: "running" })],
@@ -171,7 +173,7 @@ test("(d2) progress error 칸 -> 문구, 5분 상한 -> 일반 오류", async ()
     B.fetchUpbitKlines("KRW-JTO", "1m", 30, { fetchFn: f, sleepFn: c.sleep, nowFn: c.now }),
     (e) => { assert.equal(e.message, M_ERR); return true; },
   );
-  assert.ok(c.t >= 300000 && c.t <= 304000, String(c.t));
+  assert.ok(c.t >= 600000 && c.t <= 604000, String(c.t));
 });
 
 test("(e) briefSummary: 총 수익률·거래 수 / 승률·최대 낙폭", () => {
@@ -208,12 +210,15 @@ test("briefHtml·sweepHtml: 결과 없음·표", () => {
   assert.match(t, /\+6\.2%/);
 });
 
-test("봉 단위 기본값: 엔진 interval -> 1m·3m·5m·1h, 그 밖은 3m", () => {
+test("봉 단위 기본값: 엔진 interval -> 1m·3m·5m·10m·15m·30m·1h, 그 밖은 3m (1105-09)", () => {
   assert.equal(B.srcFromInterval("minute1"), "1m");
   assert.equal(B.srcFromInterval("minute3"), "3m");
   assert.equal(B.srcFromInterval("minute5"), "5m");
   assert.equal(B.srcFromInterval("minute60"), "1h");
-  assert.equal(B.srcFromInterval("minute15"), "3m");
+  assert.equal(B.srcFromInterval("minute10"), "10m");
+  assert.equal(B.srcFromInterval("minute15"), "15m");
+  assert.equal(B.srcFromInterval("minute30"), "30m");
+  assert.equal(B.srcFromInterval("minute240"), "3m");
   assert.equal(B.srcFromInterval(undefined), "3m");
 });
 
@@ -235,6 +240,28 @@ function fakeEnv(opts = {}) {
   };
   return { els, el, state, calls, win, release: () => release && release() };
 }
+
+test("install: 업비트로 돌리면 Ver2 의 「바이낸스에서 새로 조회함」을 업비트 문구로 바꾼다 (1105-09)", async () => {
+  const env = fakeEnv({ onRun: async () => { env.el("status").textContent = "완료: 10개 봉. [바이낸스에서 새로 조회함]"; } });
+  installOn(env);
+  await env.win.run();
+  assert.equal(env.els.status.textContent, "완료: 10개 봉. [업비트에서 새로 받음]");
+  const env2 = fakeEnv({ source: "binance", onRun: async () => { env2.el("status").textContent = "[바이낸스에서 새로 조회함]"; } });
+  installOn(env2);
+  await env2.win.run();
+  assert.equal(env2.els.status.textContent, "[바이낸스에서 새로 조회함]");
+});
+
+test("install: 업비트 10·15·30분 봉은 서버 단위 10·15·30 으로 부른다 (1105-09)", async () => {
+  for (const [src, unit] of [["10m", 10], ["15m", 15], ["30m", 30]]) {
+    const env = fakeEnv();
+    const f = installOn(env);
+    await env.win.fetchKlines("KRW-JTO", src, 90);
+    assert.equal(f.calls[0].url, `/v2/api/candles?market=KRW-JTO&unit=${unit}&days=90`);
+  }
+  assert.equal(B.upbitCallCount("3m", 90), 216);
+  assert.equal(B.upbitCallCount("1m", 90), 648);
+});
 
 function installOn(env, extra = {}) {
   const c = clock();
@@ -263,19 +290,19 @@ test("install: 출처 업비트면 서버 경로, 바이낸스면 원래 fetchKl
   assert.equal(env2.calls.orig, 1);
 });
 
-test("install: 업비트 종목 형식 아니면 멈춤, 기간 30일 초과도 멈춤(서버 호출 없음)", async () => {
+test("install: 업비트 종목 형식 아니면 멈춤, 기간 90일 초과도 멈춤(서버 호출 없음, 1105-06 결정 ④)", async () => {
   const env = fakeEnv({ symbol: "JTOUSDT" });
   const f = installOn(env);
   await assert.rejects(env.win.fetchKlines("JTOUSDT", "1m", 30), /업비트 종목은 KRW-XXX 형식입니다/);
-  await assert.rejects(env.win.fetchKlines("KRW-JTO", "1m", 31), /30일/);
+  await assert.rejects(env.win.fetchKlines("KRW-JTO", "1m", 91), /90일/);
   assert.equal(f.calls.length, 0);
 });
 
-test("install: 업비트 기간이 정수가 아니면(7.5) 서버 호출 없이 30일 문구로 멈춤", async () => {
+test("install: 업비트 기간이 정수가 아니면(7.5) 서버 호출 없이 90일 문구로 멈춤", async () => {
   const env = fakeEnv();
   const f = installOn(env);
-  await assert.rejects(env.win.fetchKlines("KRW-JTO", "1m", 7.5), /최대 30일/);
-  await assert.rejects(env.win.fetchKlines("KRW-JTO", "1m", 0), /최대 30일/);
+  await assert.rejects(env.win.fetchKlines("KRW-JTO", "1m", 7.5), /최대 90일/);
+  await assert.rejects(env.win.fetchKlines("KRW-JTO", "1m", 0), /최대 90일/);
   assert.equal(f.calls.length, 0);
 });
 
@@ -361,7 +388,7 @@ test("backtester.html: 머리 막대·아래 메뉴·스크립트 순서", () =>
   assert.ok(iJs >= 0 && iUi > iJs && iSave > iUi);
 });
 
-test("backtester.html: 출처 토글·접힘 11개·카드·자세한 결과", () => {
+test("backtester.html: 출처 토글·접힘 17개·카드·자세한 결과 (1105-09 Ver2)", () => {
   assert.match(HTML, /데이터 출처/);
   assert.match(HTML, /업비트 \(KRW\)/);
   assert.match(HTML, /바이낸스/);
@@ -371,11 +398,11 @@ test("backtester.html: 출처 토글·접힘 11개·카드·자세한 결과", (
   for (const t of ["종목", "봉 단위 · 기간", "60선 / 200선", "분할 최대 횟수", "익절 TP %", "손절 SL %"]) {
     assert.ok(HTML.includes(t), t);
   }
-  assert.match(HTML, /… 그 밖의 입력 11개\(접힘\)/);
+  assert.match(HTML, /… 그 밖의 입력 17개\(접힘\)/);
   const m = /<details id="btMore"[^>]*>([\s\S]*?)<\/details>/.exec(HTML);
   assert.ok(m, "btMore");
   const inner = [...m[1].matchAll(/<(?:input|select)\b[^>]*\sid="([^"]+)"/g)].map((x) => x[1]).sort();
-  assert.deepEqual(inner, ["buyOnGoldenCross", "capital", "deadcross", "compounding", "fee", "maType", "maxPullbackBuys", "minSlope", "pullbackP", "slopeDrop", "slopeLB"].sort());
+  assert.deepEqual(inner, ["buyOnGoldenCross", "capital", "deadcross", "compounding", "fee", "maType", "maxPullbackBuys", "pullbackP", "slopeLB", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours", "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct"].sort());
   assert.match(HTML, /데이터 가져오기 \+ 백테스트/);
   assert.match(HTML, /id="btNote"[^>]*hidden/);
   assert.match(HTML, /다른 화면으로 가도 서버가 계속 받아 둡니다/);
@@ -397,9 +424,9 @@ test("backtester.html: 출처 토글·접힘 11개·카드·자세한 결과", (
   assert.ok(HTML.indexOf("전략 로직 설명") > HTML.indexOf('<details id="btDetail"'));
 });
 
-test("backtester.html: 입력 30개 id 가 모두 있고 기본값 그대로", () => {
+test("backtester.html: 입력 41개 id 가 모두 있고 기본값 그대로 (1105-09 Ver2)", () => {
   const p = parseDefaults(HTML);
-  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 30);
+  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 41);
   assert.equal(p.symbol.value, "JTOUSDT");
   assert.equal(p.src.value, "3m");
   assert.equal(p.days.value, "30");

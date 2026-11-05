@@ -32,8 +32,12 @@ from v2 import db
 from v2.status import engine_alive_running
 
 UPBIT_URL = "https://api.upbit.com/v1/candles/minutes/{unit}"
-UNITS = (1, 3, 5, 15, 60, 240)
-MAX_DAYS = 30
+UNITS = (1, 3, 5, 10, 15, 30, 60, 240)   # 1105-09: 업비트 공식 unit 1·3·5·10·15·30·60·240
+MAX_DAYS = 30               # 미리 받기 기간·기본 보관 기간
+USER_MAX_DAYS = 90          # 사용자 요청 상한 (1105-06 결정 ④)
+KEEP_LONG_FOR = 7 * 86_400  # 30일 넘게 요청한 파일은 마지막 요청 뒤 이 초 동안 그 기간만큼 보관
+KEEP_FILE = ".keep.json"    # {"<market>_<unit>": {"days": n, "at": 초}} — 사용자 작업만 쓴다
+BYTES_PER_BAR = 60          # 보관 파일 크기 어림(받기 전 상한 판단용)
 PER_REQ = 200               # 업비트 1회 최대 개수
 INLINE_MAX_REQ = 2          # 이 횟수 안이면 처리기 안에서 바로 받는다
 OVERLAP = 2                 # 새 봉을 받을 때 겹쳐 다시 받는 보관 마지막 봉 수(Issue #8)
@@ -105,8 +109,11 @@ def validate(market, unit, days):
     if not _DIGITS.fullmatch(u) or int(u) not in UNITS:
         raise BadRequest("unit")
     d = str(days).strip() if days is not None else ""
-    if not _DIGITS.fullmatch(d) or not 1 <= int(d) <= MAX_DAYS:
+    if not _DIGITS.fullmatch(d) or not 1 <= int(d) <= USER_MAX_DAYS:
         raise BadRequest("days")
+    # 받기 전에 보관 크기 상한을 본다 — 받은 뒤 거절하면 요청을 헛되이 쓴다(1105-09)
+    if int(d) * 1440 // int(u) * BYTES_PER_BAR > MAX_TOTAL_BYTES:
+        raise BadRequest("size")
     return m, int(u), int(d)
 
 
@@ -381,9 +388,45 @@ class Collector:
         except OSError:
             pass
 
+    # ---- 긴 기간 보관 표식 (1105-09) ----
+    def _keep_read(self) -> dict:
+        try:
+            data = json.loads((self._dir() / KEEP_FILE).read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
+
+    def _keep_days(self, market, unit, keep=None) -> int:
+        """이 파일의 보관 기간(일). 마지막 사용자 요청이 30일보다 길고 7일 안이면 그 기간, 아니면 30."""
+        e = (self._keep_read() if keep is None else keep).get(f"{market}_{unit}")
+        if not isinstance(e, dict):
+            return MAX_DAYS
+        days, at = e.get("days"), e.get("at")
+        if not (isinstance(days, int) and not isinstance(days, bool) and isinstance(at, (int, float))
+                and not isinstance(at, bool) and math.isfinite(at)):
+            return MAX_DAYS
+        if self.now() - at >= KEEP_LONG_FOR:
+            return MAX_DAYS
+        return max(MAX_DAYS, min(days, USER_MAX_DAYS))
+
+    def _keep_mark(self, market, unit, days) -> None:
+        """사용자 요청 기간이 30일보다 길면 표식을 남긴다. 미리 받기는 부르지 않는다."""
+        if days <= MAX_DAYS:
+            return
+        keep = self._keep_read()
+        now = self.now()
+        keep = {k: v for k, v in keep.items()
+                if isinstance(v, dict) and isinstance(v.get("at"), (int, float))
+                and now - v["at"] < KEEP_LONG_FOR}
+        keep[f"{market}_{unit}"] = {"days": int(days), "at": now}
+        d = self._dir()
+        d.mkdir(mode=0o700, exist_ok=True)
+        _atomic_write(d / KEEP_FILE, json.dumps(keep, separators=(",", ":")).encode("utf-8"))
+
     def _save(self, market, unit, bars: dict, cov) -> None:
         now = self.now()
-        cutoff = int(now * 1000) - MAX_DAYS * DAY_MS     # 30일보다 오래된 봉은 잘라낸다
+        # 보관 기간보다 오래된 봉은 잘라낸다(기본 30일, 사용자 긴 요청이면 그 기간 — 1105-09)
+        cutoff = int(now * 1000) - self._keep_days(market, unit) * DAY_MS
         keep = [bars[t] for t in sorted(bars) if t >= cutoff]
         d = self._dir()
         d.mkdir(mode=0o700, exist_ok=True)
@@ -406,10 +449,14 @@ class Collector:
             except OSError:
                 continue
             files.append((st.st_mtime, st.st_size, p, (m.group(1), int(m.group(2)))))
+        # 사용자 긴 기간 요청 파일(표식 7일 안)은 미리 받기 대상처럼 지우지 않는다(1105-09)
+        keep = self._keep_read()
+        long_kept = {f[3] for f in files if self._keep_days(f[3][0], f[3][1], keep) > MAX_DAYS}
         # 방금 쓴 파일은 지우지 않는다(대상 밖이면 「최근 3개」 중 하나로 센다)
         others = sorted((f for f in files if f[3] not in self.prefetch_targets
-                         and f[2] != keep_path), key=lambda f: -f[0])
-        keep_n = KEEP_RECENT - (0 if any(f[2] == keep_path and f[3] in self.prefetch_targets
+                         and f[3] not in long_kept and f[2] != keep_path), key=lambda f: -f[0])
+        keep_n = KEEP_RECENT - (0 if any(f[2] == keep_path and (f[3] in self.prefetch_targets
+                                                                 or f[3] in long_kept)
                                          for f in files) else 1)
         total = sum(f[1] for f in files)
         for f in others[keep_n:] + list(reversed(others[:keep_n])):
@@ -419,6 +466,28 @@ class Collector:
                     total -= f[1]
                 except OSError:
                     pass
+
+    def _size_check(self, market, unit, days) -> None:
+        """받기 전 합계 판단(1105-09 검증 지적 3): 지울 수 없는 보관 파일(미리 받기 대상 · 긴 기간
+        표식) 합계 + 이번 요청 어림이 30MB 를 넘으면 BadRequest("size"). 다른 파일은 건드리지 않는다."""
+        keep = self._keep_read()
+        held = 0
+        d = self._dir()
+        if d.is_dir():
+            for p in d.iterdir():
+                m = _STORE_RE.match(p.name)
+                if not m:
+                    continue
+                key = (m.group(1), int(m.group(2)))
+                if key == (market, unit):
+                    continue
+                if key in self.prefetch_targets or self._keep_days(key[0], key[1], keep) > MAX_DAYS:
+                    try:
+                        held += p.stat().st_size
+                    except OSError:
+                        pass
+        if held + days * 1440 // unit * BYTES_PER_BAR > MAX_TOTAL_BYTES:
+            raise BadRequest("size")
 
     def _halt(self, resp, status=418, reason=None) -> None:
         d = self._dir()
@@ -520,6 +589,8 @@ class Collector:
         self._check_open()
         async with self._get_lock():
             self._check_open()
+            if kind == "user":
+                self._keep_mark(market, unit, days)   # 미리 받기(30일)는 표식을 바꾸지 않는다
             bars, cov = self._load(market, unit)
             start, end, cov, total = self._plan(cov, unit, days, self.now())
             if cov is None:
@@ -606,9 +677,11 @@ class Collector:
         start, end, cov, total = self._plan(cov, unit, days, self.now())
         if cov is not None and total == 0:
             self._touch(market, unit)          # 읽은 것도 최근으로 친다(collect 의 0회와 같음)
+            self._keep_mark(market, unit, days)   # 긴 기간을 다시 읽으면 보관 표식을 새로 한다
             out = [bars[t] for t in sorted(bars) if start <= t < end]
             return "ok", {"market": market, "unit": unit, "days": days, "bars": out, "requests": 0}
         del bars                               # 아래 collect 가 다시 읽는다 — 두 벌을 들고 있지 않게
+        self._size_check(market, unit, days)   # 업비트를 부르기 전에만 — 보관분 읽기는 막지 않는다
         self._check_open()
         while self.job is not None:
             job = self.job

@@ -139,7 +139,7 @@ class TestValidate(unittest.TestCase):
         for args, field in ((("KRW-../x", "1", "30"), "market"),
                             (("BTCUSDT", "1", "30"), "market"),
                             (("KRW-JTO", "2", "30"), "unit"),
-                            (("KRW-JTO", "1", "31"), "days"),
+                            (("KRW-JTO", "1", "91"), "days"),   # 1105-09: 상한 30 → 90
                             (("KRW-JTO", "1", "0"), "days"),
                             (("KRW-JTO", "x", "1"), "unit"),
                             ((None, "1", "1"), "market")):
@@ -1102,10 +1102,21 @@ class HandlerTests(AsyncHTTPTestCase):
         for q, field in (("market=KRW-../x&unit=1&days=1", "market"),
                          ("market=BTCUSDT&unit=1&days=1", "market"),
                          ("market=KRW-JTO&unit=2&days=1", "unit"),
-                         ("market=KRW-JTO&unit=1&days=31", "days")):
+                         ("market=KRW-JTO&unit=1&days=91", "days")):
             r = self.get("/v2/api/candles?" + q)
             self.assertEqual(r.code, 400, q)
             self.assertEqual(json.loads(r.body), {"error": "bad_request", "field": field})
+        self.assertEqual(self.up.calls, [])
+
+    def test_total_size_400_from_serve(self):
+        d = self.data / "v2_candles"
+        d.mkdir(exist_ok=True)
+        (d / "KRW-HLD_1.json").write_bytes(b"x" * 990_000)
+        self.col.prefetch_targets = {("KRW-HLD", 1)}
+        with mock.patch.object(candles, "MAX_TOTAL_BYTES", 1_000_000):
+            r = self.get("/v2/api/candles?market=KRW-JTO&unit=60&days=30")
+        self.assertEqual(r.code, 400)
+        self.assertEqual(json.loads(r.body), {"error": "bad_request", "field": "size"})
         self.assertEqual(self.up.calls, [])
 
     # (c)
@@ -1201,6 +1212,110 @@ class TestSourceRules(unittest.TestCase):
         serve = text.split("async def _serve")[1].split("\ndef ")[0]
         self.assertIn("prefetch_loop", serve)
         self.assertTrue(make_app().settings.get("compress_response"))
+
+
+class TestLongPeriod(Base):
+    """1105-09: 봉 단위 10·30분, 사용자 요청 90일, 보관 기간 표식(plan.md 1-3·1-3′)."""
+
+    def test_units_10_30_and_90_days(self):
+        self.assertEqual(candles.validate("KRW-JTO", "10", "90"), ("KRW-JTO", 10, 90))
+        self.assertEqual(candles.validate("KRW-JTO", "30", "1"), ("KRW-JTO", 30, 1))
+        with self.assertRaises(candles.BadRequest) as cm:
+            candles.validate("KRW-JTO", "2", "1")
+        self.assertEqual(cm.exception.field, "unit")
+
+    def test_size_limit_judged_before_fetch(self):
+        with mock.patch.object(candles, "MAX_TOTAL_BYTES", 1_000_000):
+            with self.assertRaises(candles.BadRequest) as cm:
+                candles.validate("KRW-JTO", "1", "90")       # 129,600봉 × 60 바이트
+            self.assertEqual(cm.exception.field, "size")
+            self.assertEqual(candles.validate("KRW-JTO", "60", "90"), ("KRW-JTO", 60, 90))
+        self.assertEqual(self.up.calls, [])
+
+    async def test_90_days_job_then_reget_served_without_loop(self):
+        kind, body = await self.c.serve("KRW-JTO", 3, 90)
+        self.assertEqual(kind, "running")
+        self.assertEqual(body["progress"]["total"], 216)      # 3분봉 90일
+        await self.drain(self.c.job)
+        n = len(self.up.calls)
+        self.assertEqual(n, 216)
+        saved = json.loads(self.store("KRW-JTO", 3).read_text(encoding="utf-8"))
+        self.assertLessEqual(min(b[0] for b in saved["bars"]),
+                             (self.clock.t - 89 * DAY) * 1000)  # 30일로 잘리지 않음
+        kind, body = await self.c.serve("KRW-JTO", 3, 90)
+        self.assertEqual(kind, "ok")                           # 다시 받기 반복 없음
+        self.assertLessEqual(body["requests"], candles.INLINE_MAX_REQ)
+        self.assertGreaterEqual(len(body["bars"]), 90 * 480 - 2)
+        # 봉 경계를 지나면 새 봉 1회는 받는 것이 정상
+        self.clock.t += 3 * 60
+        kind, body = await self.c.serve("KRW-JTO", 3, 90)
+        self.assertEqual(kind, "ok")
+        self.assertLessEqual(body["requests"], candles.INLINE_MAX_REQ)
+
+    async def test_prefetch_does_not_change_keep_mark(self):
+        await self.c.collect("KRW-JTO", 3, 90)                 # 사용자 90일
+        mark = json.loads((self.data / "v2_candles" / candles.KEEP_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(mark["KRW-JTO_3"]["days"], 90)
+        self.clock.t += 600
+        await self.c.collect("KRW-JTO", 3, 30, rate=candles.PREFETCH_RATE, kind="prefetch")
+        mark2 = json.loads((self.data / "v2_candles" / candles.KEEP_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(mark2, mark)
+        saved = json.loads(self.store("KRW-JTO", 3).read_text(encoding="utf-8"))
+        self.assertLessEqual(min(b[0] for b in saved["bars"]),
+                             (self.clock.t - 89 * DAY) * 1000)  # 미리 받기 저장도 90일을 지킴
+
+    async def test_user_30_days_no_mark(self):
+        await self.c.collect("KRW-JTO", 3, 30)
+        self.assertFalse((self.data / "v2_candles" / candles.KEEP_FILE).exists())
+
+    async def test_keep_expires_after_7_days(self):
+        await self.c.collect("KRW-JTO", 60, 90)
+        self.clock.t += 7 * DAY + 60
+        await self.c.collect("KRW-JTO", 60, 30, rate=candles.PREFETCH_RATE, kind="prefetch")
+        saved = json.loads(self.store("KRW-JTO", 60).read_text(encoding="utf-8"))
+        self.assertGreaterEqual(min(b[0] for b in saved["bars"]),
+                                (self.clock.t - 30 * DAY) * 1000 - 60 * MIN)
+
+    async def test_evict_keeps_long_kept_file(self):
+        await self.c.collect("KRW-LNG", 60, 90)
+        for m in ("KRW-AAA", "KRW-BBB", "KRW-CCC", "KRW-DDD"):
+            self.clock.t += 10
+            await self.c.collect(m, 60, 1)
+        names = sorted(p.name for p in (self.data / "v2_candles").glob("KRW-*.json"))
+        self.assertIn("KRW-LNG_60.json", names)
+        self.assertNotIn("KRW-AAA_60.json", names)
+
+    async def test_total_size_blocks_before_fetch_when_held_files_fill_budget(self):
+        """검증 지적 3: 지울 수 없는 파일 합계 + 이번 어림 > 30MB 이면 업비트를 부르기 전에 size."""
+        d = self.data / "v2_candles"
+        d.mkdir(exist_ok=True)
+        held = d / "KRW-HLD_1.json"
+        held.write_bytes(b"x" * 990_000)              # 미리 받기 대상(지울 수 없음)
+        other = d / "KRW-OTH_1.json"
+        other.write_bytes(b"y" * 900_000)             # 대상 밖 — 판단에 넣지 않고 건드리지도 않는다
+        self.c.prefetch_targets = {("KRW-HLD", 1)}
+        with mock.patch.object(candles, "MAX_TOTAL_BYTES", 1_000_000):
+            with self.assertRaises(candles.BadRequest) as cm:
+                await self.c.serve("KRW-JTO", 60, 30)   # 720봉 × 60 = 43,200 바이트 어림
+            self.assertEqual(cm.exception.field, "size")
+            self.assertEqual(self.up.calls, [])
+            self.assertTrue(held.exists() and other.exists())
+            self.assertEqual(other.stat().st_size, 900_000)
+            # 대상 밖 파일만 크면 막지 않는다(정리가 지울 수 있음)
+            self.c.prefetch_targets = set()
+            kind, _ = await self.c.serve("KRW-JTO", 60, 1)
+            self.assertEqual(kind, "ok")
+
+    async def test_total_size_does_not_block_stored_read(self):
+        await self.c.collect("KRW-JTO", 60, 3)
+        n = len(self.up.calls)
+        d = self.data / "v2_candles"
+        (d / "KRW-HLD_1.json").write_bytes(b"x" * 990_000)
+        self.c.prefetch_targets = {("KRW-HLD", 1)}
+        with mock.patch.object(candles, "MAX_TOTAL_BYTES", 1_000_000):
+            kind, body = await self.c.serve("KRW-JTO", 60, 3)   # 보관분으로 덮임 — 0회 경로
+        self.assertEqual((kind, body["requests"]), ("ok", 0))
+        self.assertEqual(len(self.up.calls), n)
 
 
 if __name__ == "__main__":

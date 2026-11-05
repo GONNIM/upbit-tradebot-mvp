@@ -1,0 +1,15 @@
+{
+ "requests": 340,
+ "bars": 67890,
+ "seconds": 137.1,
+ "file_bytes": 2715598,
+ "bytes_per_bar": 40.0,
+ "maxrss_before_mb": 29.7,
+ "maxrss_after_collect_mb": 56.2,
+ "reget_kind": "ok",
+ "reget_requests": 1,
+ "reget_seconds": 0.28,
+ "maxrss_after_reget_mb": 81.0,
+ "first": 1786088160000,
+ "last": 1793864040000
+}

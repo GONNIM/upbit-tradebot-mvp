@@ -1,0 +1,17 @@
+{
+  "source": "docs/new-version/MA_GC_Pullback_Backtester_2611051030(Ver2).html",
+  "script_lines": [168, 1212],
+  "note": "기준 파일(Ver2) 인라인 스크립트에 정해진 차이 2곳만 적용한 것이 v2/static/backtester.js 다 (1105-06 · plan.md 1절). find 는 원문에 정확히 1번 나와야 한다.",
+  "patches": [
+    {
+      "why": "1105-06 Q3 ② — 새 거래를 연 눌림목 매수만 구간 순번에 셈",
+      "find": "        episodePullbackCount++; // (신규) 구간 내 눌림목 돌파 누적 횟수(트레이드 경계와 무관하게 계속 누적)\n",
+      "replace": "        if(entryCount===0) episodePullbackCount++; // 기준 파일과 다름 — 1105-06 Q3 ②: 새 거래를 연 눌림목 매수만 구간 순번에 셈\n"
+    },
+    {
+      "why": "1105-06 결정 ③ — 실제로 살 수 있었던 골든크로스만 상승폭 건너뜀 횟수에 셈",
+      "find": "      if(g!=null && g>=cfg.gcMaxGapPct){ gcGapOk=false; gcGapBlocked++; }\n",
+      "replace": "      if(g!=null && g>=cfg.gcMaxGapPct){ gcGapOk=false; if(active && !streakPaused && entryCount<effMaxSplits && (cfg.compounding!==\"yes\" || sizingBase>0) && i+1<bars.length) gcGapBlocked++; } // 기준 파일과 다름 — 1105-06 결정 ③: 실제로 살 수 있었던 골든크로스만 셈\n"
+    }
+  ]
+}

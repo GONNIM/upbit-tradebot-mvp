@@ -1,24 +1,26 @@
-// 백테스터 화면 보조 (그림 2-다). backtester.js(원본 계산, 바이트 동일)는 건드리지 않고
+// 백테스터 화면 보조 (그림 2-다). backtester.js(Ver2 원문 + 정해진 차이 2곳 — tests/v2/js/fixtures/ver2_patches.json)는 건드리지 않고
 // 이 파일이 출처 토글·업비트 서버 수집·요약 카드·스윕 요약·중복 실행 막기를 맡는다.
 // 업비트 시세는 같은 출처의 v2 서버(/v2/api/candles)만 부른다 — 브라우저가 업비트를 직접 부르지 않는다.
 (function () {
   "use strict";
 
-  var SRC_UNIT = { "1m": 1, "3m": 3, "5m": 5, "1h": 60 };
-  var MAX_WAIT_MS = 300000;   // 서버 수집을 기다리는 전체 상한 5분
+  var SRC_UNIT = { "1m": 1, "3m": 3, "5m": 5, "10m": 10, "15m": 15, "30m": 30, "1h": 60 };
+  var MAX_WAIT_MS = 600000;   // 서버 수집을 기다리는 전체 상한 10분 (1분봉 90일 ≈ 4.3분 이상, 1105-09)
+  var UPBIT_MAX_DAYS = 90;    // 1105-06 결정 ④
   var UPBIT_MARKET_RE = /^KRW-[A-Z0-9]+$/;
 
   var MSG_ERR = "업비트 데이터를 받지 못했습니다. 잠시 뒤 다시 시도해 주세요";
   var MSG_BLOCK = "업비트가 요청을 막았습니다. 운영자 확인이 필요합니다(바이낸스 데이터는 쓸 수 있습니다)";
   var MSG_AUTH = "구버전에서 다시 들어와 주세요";
+  var MSG_SIZE = "요청한 데이터가 너무 큽니다. 기간을 줄이거나 봉 단위를 키워 주세요";
 
   // 엔진 봉 단위(minute1·3·5·60) -> 화면 봉 단위. 그 밖은 3분.
   function srcFromInterval(iv) {
-    var m = { minute1: "1m", minute3: "3m", minute5: "5m", minute60: "1h" };
+    var m = { minute1: "1m", minute3: "3m", minute5: "5m", minute10: "10m", minute15: "15m", minute30: "30m", minute60: "1h" };
     return Object.prototype.hasOwnProperty.call(m, iv) ? m[iv] : "3m";
   }
 
-  // 업비트 요청 횟수(200개씩): 1m·30일 = 216
+  // 업비트 요청 횟수(200개씩): 1m·30일 = 216, 1m·90일 = 648, 3m·90일 = 216
   function upbitCallCount(src, days) {
     var unit = SRC_UNIT[src] || 3;
     return Math.ceil(days * 1440 / unit / 200);
@@ -42,6 +44,7 @@
   // HTTP 상태 + 본문 -> 문구
   function statusMsg(status, body) {
     if (status === 401 || status === 403) return MSG_AUTH;
+    if (status === 400 && body && body.field === "size") return MSG_SIZE;
     if (status === 409) return busyMsg(body && body.progress);
     if (status === 429) return limitMsg(body && body.retry_after);
     if (status === 503 && body && body.error === "upbit_blocked") return MSG_BLOCK;
@@ -193,7 +196,7 @@
       if (el("dataSource").value !== "upbit") return origFetchKlines.apply(win, arguments);
       var market = String(symbol || "").trim().toUpperCase();
       if (!UPBIT_MARKET_RE.test(market)) throw new Error("업비트 종목은 KRW-XXX 형식입니다");
-      if (!(Number.isInteger(days) && days >= 1 && days <= 30)) throw new Error("업비트 데이터는 최대 30일까지 받을 수 있습니다");
+      if (!(Number.isInteger(days) && days >= 1 && days <= UPBIT_MAX_DAYS)) throw new Error("업비트 데이터는 최대 " + UPBIT_MAX_DAYS + "일까지 받을 수 있습니다");
       var note = el("btNote");
       el("status").textContent = "업비트 데이터 확인 중…";
       try {
@@ -224,6 +227,11 @@
         running = false;
         runBtn.disabled = false;
       }
+      // Ver2 원문은 출처와 상관없이 「바이낸스에서 새로 조회함」을 붙인다 — 업비트면 바로잡는다.
+      if (el("dataSource").value === "upbit") {
+        var stEl = el("status");
+        stEl.textContent = String(stEl.textContent || "").replace("[바이낸스에서 새로 조회함]", "[업비트에서 새로 받음]");
+      }
       var st = o.getState();
       if (st.lastResults && st.lastResults !== before) {
         el("btBrief").innerHTML = briefHtml(briefSummary(o.statsFn(st.lastResults, st.lastCfgBase)));
@@ -240,6 +248,9 @@
   }
 
   // ---- 브라우저 연결 ----
+  function clearDataCache() {
+    try { if (typeof dataCache !== "undefined") dataCache = null; } catch (e) { /* 캐시가 없으면 할 일 없음 */ }
+  }
   var dummy = {};
   function byId(id) { return document.getElementById(id) || dummy; }
 
@@ -255,6 +266,8 @@
     var engineTicker = null;
 
     function choose(source) {
+      // Ver2 캐시(dataCache)는 출처를 키에 넣지 않는다 — 출처를 바꾸면 비워 섞이지 않게 한다.
+      if (byId("dataSource").value !== source) clearDataCache();
       setSegment(source);
       byId("symbol").value = source === "upbit" ? (engineTicker || upbitSymbol) : binanceSymbol;
     }

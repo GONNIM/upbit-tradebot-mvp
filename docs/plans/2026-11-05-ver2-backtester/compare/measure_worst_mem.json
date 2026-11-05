@@ -1,0 +1,14 @@
+{
+ "maxrss_start_mb": 30.1,
+ "requests": 648,
+ "bars": 129600,
+ "maxrss_after_collect_mb": 93.6,
+ "file_bytes": 6220638,
+ "bytes_per_bar": 48.0,
+ "serve_kind": "ok",
+ "serve_requests": 1,
+ "serve_bars": 129599,
+ "maxrss_after_serve_mb": 96.7,
+ "response_bytes": 6220813,
+ "maxrss_after_encode_mb": 96.7
+}

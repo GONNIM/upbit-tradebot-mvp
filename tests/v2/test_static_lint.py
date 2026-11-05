@@ -33,7 +33,8 @@ class StaticLintTest(unittest.TestCase):
             self.skipTest("Task 7 전")
         for name in bt:
             self.assertLessEqual(_hosts(name),
-                                 {"data-api.binance.vision", "api.binance.com"}, name)
+                                 {"data-api.binance.vision", "api.binance.com",
+                                  "api1.binance.com"}, name)   # 1105-09: Ver2 는 바이낸스 주소 3곳을 차례로 재시도
 
     def test_vendor_sha256_matches_versions_txt(self):
         """VERSIONS.txt 형식: `#` 으로 시작하지 않는 비어 있지 않은 줄은

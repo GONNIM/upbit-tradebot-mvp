@@ -1,0 +1,3 @@
+end(UTC)=2026-11-05T07:30:00.000Z days=90 unit=3m
+upbit KRW-JTO: requests=173 bars=34571 first=2026-08-07T07:30:00.000Z last=2026-11-05T07:21:00.000Z took=52.2s
+binance JTOUSDT: requests=44 bars=43200 first=2026-08-07T07:30:00.000Z last=2026-11-05T07:27:00.000Z

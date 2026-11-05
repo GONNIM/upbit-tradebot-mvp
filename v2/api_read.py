@@ -1133,6 +1133,8 @@ class CandlesHandler(ReadHandler):
             return
         try:
             kind, body = await self.application.settings["candles"].serve(market, unit, days)
+        except candles.BadRequest as e:          # 보관 합계 30MB 판단(1105-09)
+            self.send_json({"error": "bad_request", "field": e.field}, 400)
         except candles.Busy as e:
             self.send_json({"error": "busy", "progress": e.progress}, 409)
         except candles.UpbitLimit as e:

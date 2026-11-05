@@ -1,0 +1,5 @@
+source,pullbackP,bars,trades,winRatePct,returnPct,mddPct,pf,tp,sl,goldenStart,pullbackStart,gcGapBlocked,openAtEnd
+upbit KRW-JTO,60,34571,124,62.097,39.074,16.163,1.268,77,47,46,78,7,yes
+binance JTOUSDT,60,43200,160,63.125,59.462,14.045,1.325,101,59,57,103,5,yes
+upbit KRW-JTO,120,34571,115,63.478,44.972,14.717,1.346,73,42,46,69,7,no
+binance JTOUSDT,120,43200,150,66.667,84.95,12.886,1.548,100,50,54,96,5,yes

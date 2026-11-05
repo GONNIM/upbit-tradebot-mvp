@@ -1,5 +1,7 @@
 let tradeRows=[], weeklyRows=[], monthlyRows=[], sweepRows=[];
-let lastBars=null, lastMaTrend=null, lastMa200=null, lastSlope200=null, lastMaPullback=null, lastCfgBase=null, lastResults=null;
+let lastBars=null, lastMaTrend=null, lastMa200=null, lastSlope60=null, lastMaPullback=null, lastCfgBase=null, lastResults=null;
+let dataCache=null; // {symbol,interval,days,bars,fetchedAt} — 같은 심볼·원본 봉이면 재조회 없이 재사용(기간이 짧아지면 잘라서 사용)
+let sweepRunning=false;
 let chartState=null;
 let chartViewStart=null; // 휠 줌으로 특정 시점(커서 위치)에 고정해서 본 경우의 시작 인덱스. null이면 항상 최신 봉 기준(전체 화면).
 const $=id=>document.getElementById(id);
@@ -9,36 +11,94 @@ function fmt(n,d=3){
   return Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
 }
 
-async function fetchKlines(symbol, interval, days){
-  const base="https://data-api.binance.vision/api/v3/klines";
-  const msPer={"1m":60000,"3m":180000,"5m":300000,"1h":3600000}[interval]||300000;
+// 한 번의 klines 요청을 여러 미러/엔드포인트로 순서대로 시도하고, 요청수 제한(429/418) 등 일시적 오류는
+// 자동으로 잠시 대기 후 재시도합니다. 모든 시도가 실패하면 "마지막으로 무엇을 시도했는지"를 알 수 있는
+// 구체적인 에러 메시지를 던져서, 화면에 뜨는 "Failed to fetch"만으로는 알 수 없는 원인 파악을 돕습니다.
+async function fetchOneKlinesPage(symbol, interval, cursor, end){
+  const endpoints=[
+    "https://data-api.binance.vision/api/v3/klines",
+    "https://api.binance.com/api/v3/klines",
+    "https://api1.binance.com/api/v3/klines"
+  ];
+  const qs="?symbol="+encodeURIComponent(symbol)+"&interval="+interval+
+    "&startTime="+cursor+"&endTime="+end+"&limit=1000";
+  let lastErr=null;
+  for(const base of endpoints){
+    for(let attempt=0; attempt<3; attempt++){
+      try{
+        const r=await fetch(base+qs);
+        if(r.status===429 || r.status===418){
+          // 요청수 제한(레이트리밋)에 걸림 — 짧게 쉬었다가 같은 엔드포인트로 재시도
+          const retryAfter=Number(r.headers.get("Retry-After"))||0;
+          await sleep(Math.max(1500,retryAfter*1000)*(attempt+1));
+          lastErr=new Error(base+" 요청수 제한(HTTP "+r.status+")");
+          continue;
+        }
+        if(!r.ok){ lastErr=new Error(base+" 응답 오류(HTTP "+r.status+")"); break; } // 4xx/5xx(제한 외)는 이 엔드포인트를 더 재시도하지 않고 다음 엔드포인트로
+        return await r.json();
+      }catch(e){
+        // fetch 자체가 실패(네트워크 끊김, CORS, 방화벽/VPN 차단, DNS 실패 등) — 브라우저 콘솔에는 보통
+        // "TypeError: Failed to fetch"로만 표시되어 원인을 구분하기 어려우므로, 어느 주소에서 실패했는지를 남깁니다.
+        lastErr=new Error(base+" 연결 실패(네트워크/방화벽/VPN/CORS 등 — 원본 메시지: "+e.message+")");
+        if(attempt<2) await sleep(800*(attempt+1));
+      }
+    }
+  }
+  throw lastErr||new Error("알 수 없는 오류");
+}
+
+async function fetchKlinesRaw(symbol, interval, days){
+  const msPer={"1m":60000,"3m":180000,"5m":300000,"15m":900000,"30m":1800000,"1h":3600000}[interval]||300000;
   const end=Date.now(), start=end-days*86400000;
   let cursor=start,out=[],req=0;
 
   while(cursor<end){
-    const u=base+"?symbol="+encodeURIComponent(symbol)+"&interval="+interval+
-      "&startTime="+cursor+"&endTime="+end+"&limit=1000";
-    let data;
-    try{
-      const r=await fetch(u);
-      if(!r.ok) throw new Error("HTTP "+r.status);
-      data=await r.json();
-    }catch(e){
-      const u2="https://api.binance.com/api/v3/klines?symbol="+encodeURIComponent(symbol)+
-        "&interval="+interval+"&startTime="+cursor+"&endTime="+end+"&limit=1000";
-      const r2=await fetch(u2);
-      if(!r2.ok) throw new Error("Binance API 오류: "+r2.status);
-      data=await r2.json();
-    }
+    const data=await fetchOneKlinesPage(symbol,interval,cursor,end);
     if(!Array.isArray(data)||!data.length)break;
     for(const x of data)out.push({t:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4]});
     const next=+data[data.length-1][0]+msPer;
     if(next<=cursor)break;
     cursor=next;req++;
     $("status").textContent=`데이터 수집 중... ${req}회 / ${out.length.toLocaleString()}개 봉`;
-    await sleep(120);
+    await sleep(200);
   }
   return [...new Map(out.map(x=>[x.t,x])).values()].sort((a,b)=>a.t-b.t);
+}
+
+// 바이낸스는 10분봉을 제공하지 않으므로 5분봉 2개를 실제 시계 기준 10분 경계(0,10,20...분)로 묶어 합성합니다.
+// 아직 2번째 5분봉이 없는 마지막 그룹(미완성)은 버립니다.
+function aggregateBars(bars, groupMs, sourceMs){
+  const map=new Map();
+  for(const b of bars){
+    const key=Math.floor(b.t/groupMs)*groupMs;
+    if(!map.has(key)) map.set(key,[]);
+    map.get(key).push(b);
+  }
+  const expected=Math.round(groupMs/sourceMs);
+  const out=[];
+  for(const k of [...map.keys()].sort((a,b)=>a-b)){
+    const g=map.get(k).sort((a,b)=>a.t-b.t);
+    if(g.length<expected) continue;
+    out.push({t:k,o:g[0].o,h:Math.max(...g.map(x=>x.h)),l:Math.min(...g.map(x=>x.l)),c:g[g.length-1].c});
+  }
+  return out;
+}
+
+async function fetchKlines(symbol, interval, days){
+  if(interval==="10m") return aggregateBars(await fetchKlinesRaw(symbol,"5m",days),600000,300000);
+  return fetchKlinesRaw(symbol,interval,days);
+}
+
+// 같은 심볼·원본 봉으로 이미 받아둔 데이터가 요청 기간을 덮으면 재조회 없이 재사용합니다.
+async function getBars(symbol, interval, days, forceRefresh){
+  if(!forceRefresh && dataCache && dataCache.symbol===symbol && dataCache.interval===interval && dataCache.days>=days){
+    const cutoff=dataCache.fetchedAt-days*86400000;
+    const bars=dataCache.days===days?dataCache.bars:dataCache.bars.filter(b=>b.t>=cutoff);
+    return {bars,cached:true,ageMin:(Date.now()-dataCache.fetchedAt)/60000};
+  }
+  const bars=await fetchKlines(symbol,interval,days);
+  dataCache={symbol,interval,days,bars,fetchedAt:Date.now()};
+  return {bars,cached:false,ageMin:0};
 }
 
 function computeSMA(bars,period){
@@ -84,14 +144,16 @@ function computeSlope(ma,lookback){
   return out;
 }
 
-function isFilterActive(i,maTrend,ma200,slope200,cfg){
-  if(maTrend[i]==null||ma200[i]==null||slope200[i]==null) return false;
+function isFilterActive(i,maTrend,ma200,slope60,cfg){
+  if(maTrend[i]==null||ma200[i]==null) return false;
   if(!(maTrend[i]>ma200[i])) return false;             // 골든크로스 상태(MA60 vs MA200, 고정)
-  if(slope200[i]<cfg.minSlope) return false;           // 최소 기울기
-  if(cfg.slopeDrop>0){                                  // 기울기 둔화(각도 붕괴) 체크
-    const j=i-cfg.slopeLB;
-    if(j>=0 && slope200[j]!=null){
-      if((slope200[j]-slope200[i])>cfg.slopeDrop) return false;
+  // 60선 기울기 필터: MA60이 MA200 위에 있어도(골든크로스) MA60 자체가 평평/하락이면 매수 감시를 끔
+  if(slope60[i]==null) return false;
+  if(slope60[i]<cfg.ma60MinSlope) return false;
+  if(cfg.ma60SlopeDrop>0){
+    const j2=i-cfg.slopeLB;
+    if(j2>=0 && slope60[j2]!=null){
+      if((slope60[j2]-slope60[i])>cfg.ma60SlopeDrop) return false;
     }
   }
   return true;
@@ -101,7 +163,7 @@ function isFilterActive(i,maTrend,ma200,slope200,cfg){
   분할마다 동일 비중(1→1)으로 매수합니다. 자본은 분할 횟수(sumW=maxSplits)로 균등 배분되므로
   모든 분할이 체결되면 총 투입액은 기준 자본(sizingBase)과 같아집니다(그리드 자본 배분 방식과 동일).
 */
-function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
+function simulate(bars,maTrend,ma200,slope60,maPullback,cfg){
   // 분할매수 최대 횟수가 0이면서 "골든크로스 시 1차 매수"가 켜져 있으면, 골든크로스 즉시진입 1회만
   // 허용하고 눌림목 추가매수는 전부 차단하는 특수 모드입니다(실제 분할 수는 내부적으로 1로 취급).
   const goldenOnlyMode = cfg.buyOnGoldenCross && cfg.maxSplits===0;
@@ -115,8 +177,14 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
   const depth=Array.from({length:effMaxSplits},()=>({n:0,w:0,pnl:0}));
 
   let qty=0,cost=0,entryFees=0,entryCount=0,firstEntryTime=null,firstEntryTrigger=null,pullbackEntryCount=0;
+  let firstEntrySlope60=null,firstEntryGap200=null; // 최초 진입 시점의 60선 기울기% / 장기선 대비 이격도%(거래로그 CSV 기록용)
+  let gcGapBlocked=0; // G/C 매수제한 상승폭 때문에 골든크로스 즉시진입을 건너뛴 횟수
+  const gapPct=i=>(ma200[i]!=null&&ma200[i]!==0)?(bars[i].c-ma200[i])/ma200[i]*100:null;
+  let currentTradeTpPct=null,firstEntryEpisodeIdx=null; // (신규) 이번 거래에 실제 적용되는 TP%와, 진입 시점의 "구간 내 눌림목 돌파 순번"
   let pullbackArmed=false;
   let prevGolden=false; // 직전 봉이 골든크로스 상태였는지(이번 봉에서 "막 골든크로스로 전환"됐는지 판정용)
+  let consecutiveSl=0,pauseUntil=null,pauseTriggers=0; // (신규) 연속 SL 자동 매수 중단용 상태
+  let episodePullbackCount=0; // (신규) 지금 골든크로스 구간(데드크로스 없이 이어진 구간) 안에서 누적된 눌림목 돌파 체결 횟수
 
   function updateDD(){
     if(equity>peak) peak=equity;
@@ -133,6 +201,10 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
       exitType:type,
       entries:entryCount,
       firstEntryTrigger:firstEntryTrigger,
+      entryMa60SlopePct:firstEntrySlope60,
+      entryGapToMa200Pct:firstEntryGap200,
+      episodeBreakoutIndex:firstEntryEpisodeIdx,
+      tpUsedPct:currentTradeTpPct,
       avg:cost/qty,
       exit:price,
       entryTime:new Date(firstEntryTime).toISOString(),
@@ -148,16 +220,32 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
       depth[k].pnl+=pnl;
     }
     qty=0;cost=0;entryFees=0;entryCount=0;firstEntryTime=null;firstEntryTrigger=null;pullbackEntryCount=0;
+    firstEntrySlope60=null;firstEntryGap200=null;
+    currentTradeTpPct=null;firstEntryEpisodeIdx=null;
     pullbackArmed=false;
+    // (신규) 연속 SL 자동 매수 중단: SL이 아닌 청산(TP/DEADCROSS)이 나오면 연속 카운트를 리셋하고,
+    // SL이면 카운트를 올려 임계값에 도달하는 순간 중단 시작 시각을 기록합니다.
+    if(type==="SL"){
+      consecutiveSl++;
+      if(cfg.slStreakPause>0 && consecutiveSl>=cfg.slStreakPause && pauseUntil==null){
+        pauseUntil=bars[i].t+cfg.slStreakCooldownHours*3600000;
+        pauseTriggers++;
+      }
+    }else{
+      consecutiveSl=0;
+    }
   }
 
   for(let i=0;i<bars.length;i++){
     const b=bars[i];
-    const active=isFilterActive(i,maTrend,ma200,slope200,cfg);
+    if(pauseUntil!=null && b.t>=pauseUntil){ pauseUntil=null; consecutiveSl=0; } // 중단 지속시간 만료 -> 연속 SL 카운트 리셋 후 재개
+    const streakPaused = pauseUntil!=null;
+    const active=isFilterActive(i,maTrend,ma200,slope60,cfg);
     const wasGolden=prevGolden;
     const golden=maTrend[i]!=null&&ma200[i]!=null&&maTrend[i]>ma200[i];
     prevGolden=golden; // continue로 빠지는 경로가 있어도 누락 없이 항상 갱신
     const justCrossedGolden=golden && !wasGolden;
+    if(justCrossedGolden) episodePullbackCount=0; // (신규) 새 골든크로스 구간 시작 -> 구간 내 눌림목 돌파 카운트 리셋
 
     // 데드크로스 발생 시 강제청산
     if(qty>0 && cfg.deadcross==="yes" && maTrend[i]!=null && ma200[i]!=null && !(maTrend[i]>ma200[i])){
@@ -168,7 +256,7 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
     // TP / SL 체크 (진입 당일 봉은 평가하지 않음 — 그리드 백테스터와 동일 규칙)
     if(qty>0 && firstEntryTime!=null && b.t>firstEntryTime){
       const avg=cost/qty;
-      const tpPrice=avg*(1+cfg.tp/100);
+      const tpPrice=avg*(1+(currentTradeTpPct!=null?currentTradeTpPct:cfg.tp)/100);
       const slPrice=avg*(1-cfg.sl/100);
       if(b.h>=tpPrice){ closePosition(i,tpPrice,"TP"); continue; }
       if(b.l<=slPrice){ closePosition(i,slPrice,"SL"); continue; }
@@ -179,7 +267,13 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
     // (신규) 골든크로스 시 1차 매수: 눌림목을 기다리지 않고, 골든크로스로 막 전환된(또는 조회 시작 시점에
     // 이미 골든크로스인) 바로 다음 캔들 시가에 1회차 분할매수를 즉시 체결합니다. 포지션이 없을 때만(entryCount===0) 적용되며,
     // 체결 후에는 같은 봉에서 눌림목 조건을 다시 평가하지 않고 다음 봉으로 넘어갑니다(2회차부터는 기존 눌림목 재돌파 로직 사용).
-    if(cfg.buyOnGoldenCross && justCrossedGolden && entryCount===0 && active && entryCount<effMaxSplits &&
+    // G/C 매수제한 상승폭: 골든크로스 봉 종가가 장기선(MA200)보다 설정% 이상 위면 즉시진입을 건너뜀(0=무제한)
+    let gcGapOk=true;
+    if(cfg.gcMaxGapPct>0 && cfg.buyOnGoldenCross && justCrossedGolden && entryCount===0){
+      const g=gapPct(i);
+      if(g!=null && g>=cfg.gcMaxGapPct){ gcGapOk=false; if(active && !streakPaused && entryCount<effMaxSplits && (cfg.compounding!=="yes" || sizingBase>0) && i+1<bars.length) gcGapBlocked++; } // 기준 파일과 다름 — 1105-06 결정 ③: 실제로 살 수 있었던 골든크로스만 셈
+    }
+    if(cfg.buyOnGoldenCross && justCrossedGolden && gcGapOk && entryCount===0 && active && !streakPaused && entryCount<effMaxSplits &&
        (cfg.compounding!=="yes" || sizingBase>0) && i+1<bars.length){
       const nb=bars[i+1];
       const notional=(sizingBase/sumW)*weights[entryCount];
@@ -190,7 +284,7 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
       firstEntryTrigger="GOLDEN";
       entryCount++;
       entries.push({time:nb.t,splitIndex:entryCount,price:px,qty:q,notional:notional,trigger:"GOLDEN"});
-      if(firstEntryTime===null) firstEntryTime=nb.t;
+      if(firstEntryTime===null){ firstEntryTime=nb.t; firstEntrySlope60=slope60[i]; firstEntryGap200=gapPct(i); currentTradeTpPct=cfg.tp; }
       pullbackArmed=false;
       continue;
     }
@@ -201,7 +295,7 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
     // goldenOnlyMode(분할매수 최대 횟수=0 + 골든크로스 시 1차 매수=예)에서는 눌림목 추가매수를 완전히 차단합니다.
     // 눌림목 매수는 전체 분할 한도(effMaxSplits)와 별개로, 눌림목 전용 횟수 한도(maxPullbackBuys)도 함께 적용됩니다.
     const pullbackCapped = pullbackEntryCount>=cfg.maxPullbackBuys;
-    if(!goldenOnlyMode && !pullbackCapped && active && entryCount<effMaxSplits && (cfg.compounding!=="yes" || sizingBase>0)){
+    if(!goldenOnlyMode && !pullbackCapped && !streakPaused && active && entryCount<effMaxSplits && (cfg.compounding!=="yes" || sizingBase>0)){
       if(maPullback[i]!=null && b.l<maPullback[i]) pullbackArmed=true;
       if(pullbackArmed && maPullback[i]!=null && b.c>maPullback[i] && i+1<bars.length){
         const nb=bars[i+1];
@@ -210,13 +304,28 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
         const q=notional/px;
         const fee=notional*cfg.fee/100;
         qty+=q; cost+=notional; entryFees+=fee;
+        if(entryCount===0) episodePullbackCount++; // 기준 파일과 다름 — 1105-06 Q3 ②: 새 거래를 연 눌림목 매수만 구간 순번에 셈
         if(entryCount===0) firstEntryTrigger="PULLBACK";
         entryCount++; pullbackEntryCount++;
         entries.push({time:nb.t,splitIndex:entryCount,price:px,qty:q,notional:notional,trigger:"PULLBACK"});
-        if(firstEntryTime===null) firstEntryTime=nb.t;
+        if(firstEntryTime===null){
+          firstEntryTime=nb.t; firstEntrySlope60=slope60[i]; firstEntryGap200=gapPct(i);
+          firstEntryEpisodeIdx=episodePullbackCount;
+          // (신규) "구간 내 눌림목 돌파 횟수" 설정을 초과한 순번의 재진입은 TP를 설정한 비율만큼 단계적으로 줄입니다
+          // (예: 상한 2회, 감소율 50%일 때 3번째=TP*0.5, 4번째=TP*0.25, ...). 0(기본값)이면 이 기능은 꺼져 있고 항상 기본 TP를 씁니다.
+          // 하한(episodeTpFloorPct)을 반드시 적용합니다 — 돌파가 수십 회 이어지면 지수적으로 감소한 TP가 수수료보다도
+          // 작아져서(예: TP 0.0006%인데 왕복 수수료는 0.1%) 체결될 때마다 사실상 손실이 확정되는 상태가 되므로,
+          // 아무리 돌파 횟수가 많아져도 TP가 이 값 밑으로는 더 줄어들지 않게 막아줍니다.
+          if(cfg.episodePullbackCap>0 && episodePullbackCount>cfg.episodePullbackCap){
+            const excess=episodePullbackCount-cfg.episodePullbackCap;
+            currentTradeTpPct=Math.max(cfg.episodeTpFloorPct,cfg.tp*Math.pow(1-cfg.episodeTpDecayPct/100,excess));
+          }else{
+            currentTradeTpPct=cfg.tp;
+          }
+        }
         pullbackArmed=false;
       }
-    }else if(!active || goldenOnlyMode || pullbackCapped){
+    }else if(!active || goldenOnlyMode || pullbackCapped || streakPaused){
       pullbackArmed=false;
     }
   }
@@ -237,7 +346,7 @@ function simulate(bars,maTrend,ma200,slope200,maPullback,cfg){
     };
   }
 
-  return {trades,equity,maxDD,depth,mark,entries};
+  return {trades,equity,maxDD,depth,mark,entries,pauseTriggers,gcGapBlocked};
 }
 
 function stats(res,cfg){
@@ -258,6 +367,8 @@ function stats(res,cfg){
     goldenStart:t.filter(x=>x.firstEntryTrigger==="GOLDEN").length,
     pullbackStart:t.filter(x=>x.firstEntryTrigger==="PULLBACK").length,
     pullbackFills:res.entries.filter(e=>e.trigger==="PULLBACK").length,
+    slStreakPauses:res.pauseTriggers||0,
+    gcGapBlocked:res.gcGapBlocked||0,
     mark:res.mark
   };
 }
@@ -280,7 +391,9 @@ function render(res,cfg,bars){
     ["평균 분할 횟수",fmt(s.avgSplit)],
     ["골든크로스 즉시진입으로 시작한 거래",s.goldenStart],
     ["눌림목 재돌파로 시작한 거래",s.pullbackStart],
-    ["눌림목 매수 체결 횟수(전체, 캡="+cfg.maxPullbackBuys+")",s.pullbackFills]
+    ["눌림목 매수 체결 횟수(전체, 캡="+cfg.maxPullbackBuys+")",s.pullbackFills],
+    ["연속 SL 중단 발생 횟수(임계값="+cfg.slStreakPause+")",s.slStreakPauses],
+    ["G/C 상승폭 제한으로 건너뛴 즉시진입("+(cfg.gcMaxGapPct>0?cfg.gcMaxGapPct+"% 이상":"무제한")+")",s.gcGapBlocked]
   ];
   let h="<h2>백테스트 결과</h2><table><tr><th>항목</th><th>동일수량 분할(1→1)</th></tr>";
   rows.forEach(r=>h+=`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`);
@@ -402,7 +515,14 @@ async function run(){
     maType:$("maType").value,
     ma60p:+$("ma60p").value, ma200p:+$("ma200p").value,
     pullbackP:+$("pullbackP").value||+$("ma60p").value,
-    slopeLB:+$("slopeLB").value, minSlope:+$("minSlope").value, slopeDrop:+$("slopeDrop").value,
+    slopeLB:+$("slopeLB").value,
+    gcMaxGapPct:Math.max(0,+$("gcMaxGapPct").value||0),
+    ma60MinSlope:+$("ma60MinSlope").value, ma60SlopeDrop:+$("ma60SlopeDrop").value,
+    slStreakPause:Math.max(0,Math.round(+$("slStreakPause").value||0)),
+    slStreakCooldownHours:Math.max(0,+$("slStreakCooldownHours").value||0),
+    episodePullbackCap:Math.max(0,Math.round(+$("episodePullbackCap").value||0)),
+    episodeTpDecayPct:Math.max(0,Math.min(99,+$("episodeTpDecayPct").value||0)),
+    episodeTpFloorPct:Math.max(0,+$("episodeTpFloorPct").value||0),
     buyOnGoldenCross:$("buyOnGoldenCross").value==="yes",
     maxSplits:Math.max(0,Math.min(10,+$("maxSplits").value)),
     maxPullbackBuys:Math.max(1,Math.min(5,+$("maxPullbackBuys").value||5)),
@@ -412,23 +532,32 @@ async function run(){
     compounding:$("compounding").value
   };
   try{
-    const bars=await fetchKlines($("symbol").value.toUpperCase(),$("src").value,+$("days").value);
+    const forceRefresh=$("forceRefresh").checked;
+    const got=await getBars($("symbol").value.trim().toUpperCase(),$("src").value,+$("days").value,forceRefresh);
+    if(forceRefresh) $("forceRefresh").checked=false; // 강제 새로고침은 1회만 적용
+    const bars=got.bars;
     const needBars=Math.max(cfg.ma200p,cfg.pullbackP)+10;
     if(bars.length<needBars)throw new Error(`가져온 데이터가 너무 적습니다. 최소 ${needBars}개 봉이 필요합니다(조회 기간을 늘려주세요).`);
 
     const ma60=computeMA(bars,cfg.ma60p,cfg.maType);       // 골든크로스 판정용(MA60 vs MA200)
     const ma200=computeMA(bars,cfg.ma200p,cfg.maType);
     const maPullback=computeMA(bars,cfg.pullbackP,cfg.maType); // 눌림목 재진입 기준선(20/60 등 선택)
-    const slope200=computeSlope(ma200,cfg.slopeLB);
+    const slope60=computeSlope(ma60,cfg.slopeLB); // 60선 자체 기울기
 
-    const res=simulate(bars,ma60,ma200,slope200,maPullback,cfg);
+    const res=simulate(bars,ma60,ma200,slope60,maPullback,cfg);
     // 거래로그 CSV는 내부 계산(ISO/UTC 기준 시각)과 별개로, 차트·주간/월간표와 동일한 한국시간(KST)으로 보이도록 변환해서 내보냅니다.
     tradeRows=res.trades.map(t=>({
       ...t,
+      entryMa60SlopePct:t.entryMa60SlopePct!=null?+t.entryMa60SlopePct.toFixed(4):null,
+      entryGapToMa200Pct:t.entryGapToMa200Pct!=null?+t.entryGapToMa200Pct.toFixed(4):null,
+      tpUsedPct:t.tpUsedPct!=null?+t.tpUsedPct.toFixed(4):null,
       entryTime:kstStamp(new Date(t.entryTime).getTime())+" KST",
       exitTime:kstStamp(new Date(t.exitTime).getTime())+" KST"
     }));
     render(res,cfg,bars);
+    $("status").textContent+=got.cached
+      ? ` [데이터 재사용: ${got.ageMin.toFixed(1)}분 전에 받아온 데이터, 재조회 없음]`
+      : ` [바이낸스에서 새로 조회함]`;
 
     const weekly=buildTimeframeRows(res,kstWeekStartUtc,kstDateLabel,k=>kstDateLabel(k+6*86400000),cfg.capital);
     renderWeekly(weekly,cfg.capital);
@@ -442,7 +571,7 @@ async function run(){
     monthlyRows=monthly.map(r=>({period:r.periodLabel,pnl:r.pnl,returnPct:r.returnPct}));
 
     // 파라미터 스윕이 재사용할 수 있도록 이번 실행의 원본 데이터/이동평균/설정을 캐시
-    lastBars=bars; lastMaTrend=ma60; lastMa200=ma200; lastSlope200=slope200; lastMaPullback=maPullback;
+    lastBars=bars; lastMaTrend=ma60; lastMa200=ma200; lastSlope60=slope60; lastMaPullback=maPullback;
     lastCfgBase={...cfg};
     lastResults=res;
     $("sweepHint").textContent=`이번 조회 데이터(${bars.length.toLocaleString()}개 봉) 기준으로 스윕 가능합니다.`;
@@ -461,10 +590,10 @@ function dl(name,text){
   a.href=URL.createObjectURL(new Blob(["﻿"+text],{type:"text/csv;charset=utf-8"}));
   a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
-function downloadTrades(){dl("ma60_200_pullback_trades.csv",csv(tradeRows))}
-function downloadWeekly(){dl("ma60_200_pullback_weekly.csv",csv(weeklyRows))}
-function downloadMonthly(){dl("ma60_200_pullback_monthly.csv",csv(monthlyRows))}
-function downloadSweep(){dl("ma60_200_pullback_sweep.csv",csv(sweepRows))}
+function downloadTrades(){dl("ma_gc_pullback_trades.csv",csv(tradeRows))}
+function downloadWeekly(){dl("ma_gc_pullback_weekly.csv",csv(weeklyRows))}
+function downloadMonthly(){dl("ma_gc_pullback_monthly.csv",csv(monthlyRows))}
+function downloadSweep(){dl("ma_gc_pullback_sweep.csv",csv(sweepRows))}
 
 function frange(from,to,step){
   const out=[];
@@ -473,7 +602,8 @@ function frange(from,to,step){
   return out;
 }
 
-function runSweep(){
+async function runSweep(){
+  if(sweepRunning) return;
   sweepRows=[]; $("sweepResult").innerHTML=""; $("sweepStatus").textContent="";
   if(!lastBars){
     $("sweepStatus").textContent="먼저 \"데이터 가져오기 + 백테스트\"를 실행하세요.";
@@ -485,28 +615,38 @@ function runSweep(){
     const a=+$("sw_spFrom").value,b=+$("sw_spTo").value,st=Math.max(1,Math.round(+$("sw_spStep").value)||1);
     for(let v=a; v<=b; v+=st) spList.push(Math.max(1,Math.min(10,Math.round(v))));
   }
-  if(!tpList.length||!slList.length||!spList.length){
-    $("sweepStatus").textContent="TP/SL/분할횟수 범위를 확인하세요(시작 ≤ 끝, 간격 > 0).";
+  // (신규) 60선 최소 기울기 % 스윕 범위. 시작=끝(기본값)이면 현재 설정값 1가지만 쓰므로 기존 스윕 동작/조합수는 그대로 유지됩니다.
+  const ma60List=frange(+$("sw_ma60From").value,+$("sw_ma60To").value,+$("sw_ma60Step").value);
+  if(!tpList.length||!slList.length||!spList.length||!ma60List.length){
+    $("sweepStatus").textContent="TP/SL/분할횟수/60선 기울기 범위를 확인하세요(시작 ≤ 끝, 간격 > 0).";
     return;
   }
-  const total=tpList.length*slList.length*spList.length;
-  if(total>400){
-    $("sweepStatus").textContent=`조합이 ${total}개로 너무 많습니다. 범위나 간격을 조정해 400개 이하로 줄여주세요.`;
+  const total=tpList.length*slList.length*spList.length*ma60List.length;
+  const MAX_COMBOS=1000;
+  if(total>MAX_COMBOS){
+    $("sweepStatus").textContent=`조합이 ${total}개로 너무 많습니다. 범위나 간격을 조정해 ${MAX_COMBOS}개 이하로 줄여주세요.`;
     return;
   }
 
   const metric=$("sw_metric").value;
   const results=[];
-  for(const tp of tpList){
-    for(const sl of slList){
-      for(const maxSplits of spList){
-        const cfg2={...lastCfgBase,tp,sl,maxSplits};
-        const res=simulate(lastBars,lastMaTrend,lastMa200,lastSlope200,lastMaPullback,cfg2);
-        const s=stats(res,cfg2);
-        results.push({tp,sl,maxSplits,trades:s.trades,winRate:s.winRate,net:s.net,ret:s.ret,mdd:s.mdd,pf:s.pf,avg:s.avg});
+  const combos=[];
+  for(const tp of tpList) for(const sl of slList) for(const maxSplits of spList) for(const ma60MinSlope of ma60List)
+    combos.push({tp,sl,maxSplits,ma60MinSlope});
+  sweepRunning=true;
+  try{
+    for(let ci=0; ci<combos.length; ci++){
+      const c=combos[ci];
+      const cfg2={...lastCfgBase,...c};
+      const res=simulate(lastBars,lastMaTrend,lastMa200,lastSlope60,lastMaPullback,cfg2);
+      const s=stats(res,cfg2);
+      results.push({...c,trades:s.trades,winRate:s.winRate,net:s.net,ret:s.ret,mdd:s.mdd,pf:s.pf,avg:s.avg});
+      if(ci%20===19){ // 화면이 멈추지 않도록 주기적으로 양보 + 진행률 표시
+        $("sweepStatus").textContent=`스윕 진행 중... ${ci+1} / ${total}`;
+        await sleep(0);
       }
     }
-  }
+  }finally{ sweepRunning=false; }
 
   function score(r){
     switch(metric){
@@ -517,16 +657,17 @@ function runSweep(){
     }
   }
   results.sort((a,b)=>score(a)-score(b));
-  sweepRows=results.map(r=>({tp:r.tp,sl:r.sl,maxSplits:r.maxSplits,trades:r.trades,winRate:r.winRate,net:r.net,returnPct:r.ret,mdd:r.mdd,pf:isFinite(r.pf)?r.pf:"Infinity",avgPerTrade:r.avg}));
+  sweepRows=results.map(r=>({tp:r.tp,sl:r.sl,maxSplits:r.maxSplits,ma60MinSlope:r.ma60MinSlope,trades:r.trades,winRate:r.winRate,net:r.net,returnPct:r.ret,mdd:r.mdd,pf:isFinite(r.pf)?r.pf:"Infinity",avgPerTrade:r.avg}));
 
+  const showSlopeCol = ma60List.length>1;
   const top=results.slice(0,20);
-  let h=`<table><tr><th>TP%</th><th>SL%</th><th>분할</th><th>거래수</th><th>승률</th><th>순손익</th><th>수익률</th><th>MDD</th><th>PF</th><th>거래당 평균손익</th></tr>`;
+  let h=`<table><tr><th>TP%</th><th>SL%</th><th>분할</th>${showSlopeCol?"<th>60선 기울기%</th>":""}<th>거래수</th><th>승률</th><th>순손익</th><th>수익률</th><th>MDD</th><th>PF</th><th>거래당 평균손익</th></tr>`;
   top.forEach((r,idx)=>{
-    h+=`<tr${idx===0?' class="highlight"':""}><td>${fmt(r.tp,2)}</td><td>${fmt(r.sl,2)}</td><td>${r.maxSplits}</td><td>${r.trades}</td><td>${fmt(r.winRate,1)}%</td><td>${fmt(r.net)}</td><td>${fmt(r.ret)}%</td><td>${fmt(r.mdd)}%</td><td>${isFinite(r.pf)?fmt(r.pf):"∞"}</td><td>${fmt(r.avg)}</td></tr>`;
+    h+=`<tr${idx===0?' class="highlight"':""}><td>${fmt(r.tp,2)}</td><td>${fmt(r.sl,2)}</td><td>${r.maxSplits}</td>${showSlopeCol?`<td>${fmt(r.ma60MinSlope,2)}</td>`:""}<td>${r.trades}</td><td>${fmt(r.winRate,1)}%</td><td>${fmt(r.net)}</td><td>${fmt(r.ret)}%</td><td>${fmt(r.mdd)}%</td><td>${isFinite(r.pf)?fmt(r.pf):"∞"}</td><td>${fmt(r.avg)}</td></tr>`;
   });
   h+="</table>";
   $("sweepResult").innerHTML=h;
-  $("sweepStatus").textContent=`총 ${total}개 조합 중 상위 ${top.length}개 표시 (정렬: ${$("sw_metric").selectedOptions[0].textContent}).`;
+  $("sweepStatus").textContent=`총 ${total}개 조합 중 상위 ${top.length}개 표시 (정렬: ${$("sw_metric").selectedOptions[0].textContent}).`+(showSlopeCol?" 60선 기울기 열이 추가됐습니다 — 상위 결과에 자주 등장하는 값이 이번 데이터에서의 최적값입니다.":"");
 }
 
 // ---- 차트: 캔들 + MA + 매수/매도 마커 (외부 라이브러리 없이 canvas로 직접 렌더링) ----
@@ -534,6 +675,19 @@ function fmtDate(ms){
   const d=new Date(ms+9*3600000); // KST(UTC+9)로 보정 후 UTC getter로 읽는 트릭
   const p=n=>String(n).padStart(2,"0");
   return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} KST`;
+}
+
+// 차트 마커 라벨용: 한국시간 "YYMMDD_HHMM" (예: 261105_2307)
+function fmtShortStamp(ms){
+  const d=new Date(ms+9*3600000);
+  const p=n=>String(n).padStart(2,"0");
+  return `${String(d.getUTCFullYear()).slice(2)}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}_${p(d.getUTCHours())}${p(d.getUTCMinutes())}`;
+}
+// 가격 크기에 맞춰 소수 자릿수 자동 조절
+function fmtPx(p){
+  const a=Math.abs(p);
+  const d=a>=1000?2:a>=100?3:a>=1?4:a>=0.01?5:8;
+  return Number(p).toFixed(d);
 }
 
 function exitColor(type){
@@ -613,7 +767,7 @@ function renderChart(){
   if(bars.length*barW*dpr>SAFE_DEVICE_PX){
     barW=Math.max(0.4, SAFE_DEVICE_PX/dpr/bars.length);
   }
-  const width=Math.max(600,bars.length*barW);
+  const width=Math.max(600,bars.length*barW+100); // +100: 최근 봉 마커 라벨이 오른쪽 끝에서 잘리지 않도록 여백
   canvas.width=Math.round(width*dpr);
   canvas.height=Math.round(height*dpr);
   canvas.style.width=width+"px";
@@ -695,6 +849,59 @@ function renderChart(){
     sellAtIdx.set(idx,(sellAtIdx.get(idx)||[]).concat([tr]));
     triangleDown(xOf(idx),yOf(bars[idx].h)-14,6.4,exitColor(tr.exitType));
   });
+  // 마커 옆 라벨: 시간(YYMMDD_HHMM, KST) + 체결가격. 같은 봉에 여러 건이면 아래(매수)/위(매도)로 쌓아서 표시
+  const showLabels=!$("chart_showLabels") || $("chart_showLabels").checked;
+  if(showLabels){
+    ctx.font="10px Arial, sans-serif";
+    ctx.textBaseline="middle";
+    ctx.lineJoin="round";
+    const lineH=11;
+    const clampY=y=>Math.max(7,Math.min(height-7,y));
+    function label(x,y,text,color){
+      ctx.lineWidth=3; ctx.strokeStyle="rgba(11,18,32,0.9)"; ctx.strokeText(text,x,y);
+      ctx.fillStyle=color; ctx.fillText(text,x,y);
+    }
+    // 겹침 방지: 이미 그린 라벨 박스와 겹치면 매수는 아래로, 매도는 위로 한 칸씩 밀어서 그립니다
+    const placed=[];
+    const blockH=lineH*2+2;
+    function place(x,y0,dir,w){
+      let y=y0;
+      for(let guard=0; guard<30; guard++){
+        const top=dir>0?y-lineH/2:y-lineH*1.5, bot=top+blockH;
+        if(!placed.some(r=>x<r.x2 && x+w>r.x1 && top<r.y2 && bot>r.y1)){ placed.push({x1:x,x2:x+w,y1:top,y2:bot}); return y; }
+        y+=dir*blockH;
+      }
+      return y;
+    }
+    [...buyAtIdx.keys()].sort((a,b)=>a-b).forEach(idx=>{
+      const x=xOf(idx)+8;
+      let y=yOf(bars[idx].l)+14+5;
+      buyAtIdx.get(idx).forEach(e=>{
+        const col=e.trigger==="GOLDEN"?"#f9a8d4":"#fde68a";
+        const t1="매수 "+fmtShortStamp(e.time), t2="@"+fmtPx(e.price);
+        const w=Math.max(ctx.measureText(t1).width,ctx.measureText(t2).width)+4;
+        const yy=place(x,y,1,w);
+        label(x,clampY(yy),t1,col);
+        label(x,clampY(yy+lineH),t2,col);
+        y=yy+blockH;
+      });
+    });
+    [...sellAtIdx.keys()].sort((a,b)=>a-b).forEach(idx=>{
+      const x=xOf(idx)+8;
+      let y=yOf(bars[idx].h)-14-5;
+      sellAtIdx.get(idx).forEach(tr=>{
+        const col=exitColor(tr.exitType);
+        const t1=exitLabel(tr.exitType)+" "+fmtShortStamp(new Date(tr.exitTime).getTime()), t2="@"+fmtPx(tr.exit);
+        const w=Math.max(ctx.measureText(t1).width,ctx.measureText(t2).width)+4;
+        const yy=place(x,y,-1,w);
+        label(x,clampY(yy-lineH),t1,col);
+        label(x,clampY(yy),t2,col);
+        y=yy-blockH;
+      });
+    });
+    ctx.textBaseline="alphabetic";
+  }
+
   if(res.mark){
     const idx=bars.length-1;
     ctx.fillStyle="#9ca3af";
@@ -794,3 +1001,45 @@ function renderChart(){
   <span style="color:#f59e0b">▼</span> 데드크로스 강제청산 &nbsp;
   <span style="color:#9ca3af">●</span> 미청산(MARK)`;
 }
+
+// ---- 모바일용 숫자 입력 −/+ 버튼 ----
+// 모바일 브라우저는 type=number의 상하 화살표(스피너)를 보여주지 않으므로, 모든 숫자 입력칸 양옆에 −/+ 버튼을 붙입니다
+// (PC에서는 CSS로 숨겨져 기본 스피너를 그대로 씀). input을 DOM상 첫 번째로 두고 CSS order로 −를 왼쪽에 배치해서,
+// 라벨 글자를 눌러도 −버튼이 눌리지 않고 입력칸에 포커스가 가도록 했습니다. 길게 누르면 연속으로 증감됩니다.
+function stepDecimals(s){ const t=String(s); return t.includes(".")?t.split(".")[1].length:0; }
+function applyStep(inp,dir){
+  const step=parseFloat(inp.step)>0?parseFloat(inp.step):1;
+  const dec=Math.max(stepDecimals(inp.step||"1"),stepDecimals(inp.value||"0"));
+  let v=(parseFloat(inp.value)||0)+dir*step;
+  if(inp.min!=="" && v<parseFloat(inp.min)) v=parseFloat(inp.min);
+  if(inp.max!=="" && v>parseFloat(inp.max)) v=parseFloat(inp.max);
+  inp.value=+v.toFixed(Math.min(dec,8));
+  inp.dispatchEvent(new Event("input",{bubbles:true}));
+  inp.dispatchEvent(new Event("change",{bubbles:true}));
+}
+function attachSteppers(){
+  document.querySelectorAll('input[type="number"]').forEach(inp=>{
+    if(inp.parentElement && inp.parentElement.classList.contains("stepper")) return;
+    const wrap=document.createElement("div");
+    wrap.className="stepper";
+    inp.parentNode.insertBefore(wrap,inp);
+    wrap.appendChild(inp);
+    inp.style.order="1";
+    [["−",-1,"0"],["+",1,"2"]].forEach(([txt,dir,ord])=>{
+      const b=document.createElement("button");
+      b.type="button"; b.className="stepBtn"; b.textContent=txt; b.style.order=ord;
+      b.setAttribute("aria-label",dir<0?"감소":"증가");
+      let holdT=null, repT=null;
+      const stop=()=>{ clearTimeout(holdT); clearInterval(repT); holdT=repT=null; };
+      b.addEventListener("pointerdown",ev=>{
+        ev.preventDefault(); applyStep(inp,dir);
+        holdT=setTimeout(()=>{ repT=setInterval(()=>applyStep(inp,dir),90); },450);
+      });
+      ["pointerup","pointerleave","pointercancel"].forEach(t=>b.addEventListener(t,stop));
+      b.addEventListener("click",ev=>ev.preventDefault()); // pointerdown에서 이미 처리
+      b.addEventListener("contextmenu",ev=>ev.preventDefault());
+      wrap.appendChild(b);
+    });
+  });
+}
+attachSteppers();
