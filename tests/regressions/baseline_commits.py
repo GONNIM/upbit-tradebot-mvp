@@ -47,7 +47,10 @@ EMA_BASELINE_COMMIT = "f4aac1f"     # 2차 T9 커밋 (push 됨) — 2026-10-28 T
 #    0a1a9e7 → 6175fbe (1029-12 모의 지갑 덮어쓰기 막기 — engine/order_reconciler.py register_user TEST 분기
 #    (unregister_user)·services/db.py 워밍업 자리표시자 갱신 로그 문구만, 매매 판정·주문·SQL 무변경. T11 은
 #    order_reconciler.py 를 register_user 밖 AST=EMA_BASELINE + 파일=이 기준으로, T15 는 db.py 를 이 기준으로 비교).
-FIXED_FILES_COMMIT = "6175fbe"
+#    6175fbe → c0559e3 (1105-09 Ver2 2단계 — core/strategy_engine.py·engine/live_loop.py 의 pullback 이름 함수
+#    변경·추가, 모듈 import pandas 1줄·_PULLBACK_TRADE_KEYS 3키·StrategyEngine 클래스 기본값 3개(_pb_sl_streak 등).
+#    pullback 이름이 아닌 함수 AST 는 6175fbe 와 같음(EMA 판정·주문 무변경). 나머지 6개는 6175fbe 이후 바뀌지 않음).
+FIXED_FILES_COMMIT = "c0559e3"
 # 4) OLD_UI_BASE_COMMIT — 「구버전 화면(EMA 사용자) 무변경」 대조 기준 = 2차 T14 커밋(push 됨, T15 직전).
 #    쓰는 시험: T15 test_r_2026_10_29_p4_t15_old_ui (dashboard·set_config·조건 화면 AppTest 비교, 고정 파일 8개 —
 #    그중 engine/engine_manager.py 는 1101-05 부터 FIXED_FILES_COMMIT 과 비교).
@@ -65,7 +68,9 @@ V2_READ_BASE_COMMIT = "4e86afb"
 #    쓰는 시험: test_r_2026_10_30_1029_09_off_hours_tp.TestPullbackRulesFixed. 올리는 규칙은 1) 과 같다.
 #    막음 블록을 다시 고칠 때는 이 기준 커밋·ALLOWED_OLD_RANGES·NEW_LINES_CAP·EXPECTED_*_IF 네 곳을 함께 올린다
 #    (새 줄 수 상한은 여유가 없어 주석 한 줄만 바꿔도 시험이 깨진다).
-PULLBACK_RULES_BASE_COMMIT = "8464b58"
+#    올린 이력: 8464b58 → c0559e3 (1105-09 Ver2 2단계 — R1~R6 으로 이 파일을 일부러 바꿈(60선 기울기·상승폭 제한·
+#    연속 손절 중단 표식·구간 TP). 막음 블록·로그 문구는 그대로, 줄 번호만 옮겨 감. ALLOWED_OLD_RANGES·NEW_LINES_CAP 함께 올림).
+PULLBACK_RULES_BASE_COMMIT = "c0559e3"
 REVERT_OLD_CODE_COMMIT = "1747fcc"  # 서버 실행본(2차 배포 전) — 되돌리기 무해성 시험의 옛 코드
 
 

@@ -8,7 +8,7 @@
   [PULLBACK-HOURS] 로그는 「익절 막음 → 손절로 매도」.
 - 재생(워밍업·BACKFILL)도 같은 _step — 판정 상태 = 실시간 경로.
 - 잠금 해제: 화면·서버·엔진 어디에도 sell_off_locked 가 없다.
-- 고정 파일 core/strategy_pullback.py: 바이트 비교 대신 PULLBACK_RULES_BASE_COMMIT(8464b58) AST 비교(Fable 막음 1).
+- 고정 파일 core/strategy_pullback.py: 바이트 비교 대신 PULLBACK_RULES_BASE_COMMIT(8464b58 → 1105-09 c0559e3) AST 비교(Fable 막음 1).
 
 시험 봉 시각: ts_at(i) = 09:00 KST + 3i 분, 판정 시각(봉 마감) = 09:03 + 3i 분 (KST).
 
@@ -357,9 +357,11 @@ def compare_pullback_ast(base_src: str, now_src: str) -> list:
     return diffs
 
 
-# 기준(8464b58) 파일의 줄 번호 — 바뀌어도 되는 곳: 막음 블록 주석·If(724-731), 로그 문구(800), audit_view 주석(842)
-ALLOWED_OLD_RANGES = ((724, 731), (800, 800), (842, 842))
-NEW_LINES_CAP = {(724, 731): 6, (800, 800): 2, (842, 842): 1}
+# 기준(c0559e3) 파일의 줄 번호 — 바뀌어도 되는 곳: 막음 블록 주석·If(774-784), 로그 문구(877), audit_view 주석(926)
+# 1105-09: 기준을 8464b58(724-731·800·842, 상한 6·2·1) → c0559e3 으로 올림(Ver2 2단계가 이 파일을 일부러 바꿈).
+# 새 기준과의 diff 는 비어 있으므로 상한은 지금 실제 값 0 — 여유 없음(주석 한 줄만 바꿔도 시험이 깨진다).
+ALLOWED_OLD_RANGES = ((774, 784), (877, 877), (926, 926))
+NEW_LINES_CAP = {(774, 784): 0, (877, 877): 0, (926, 926): 0}
 
 
 class TestPullbackRulesFixed(unittest.TestCase):
