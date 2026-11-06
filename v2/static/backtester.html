@@ -60,7 +60,13 @@ td:first-child,th:first-child{text-align:left}
 .stepper .stepBtn{display:none;width:44px;flex:0 0 44px;padding:0;font-size:20px;font-weight:bold;border:1px solid #bbb;border-radius:6px;background:#eef1f4;color:#222;touch-action:manipulation;-webkit-user-select:none;user-select:none}
 .stepper .stepBtn:active{background:#d6dbe0}
 @media (hover:none),(pointer:coarse),(max-width:640px){
-  .stepper .stepBtn{display:block}
+  .stepper .stepBtn{display:block;width:36px;flex:0 0 36px;font-size:18px}
+  /* 두 칸 짝(기간·200선)은 한 줄 전체를 씀 — 반의반 칸에 단추 4개가 들어가 숫자가 안 보이던 문제(11/06 클레임) */
+  .bt-grid>.bt-wide{grid-column:1/-1}
+  .bt-grid>*{min-width:0}
+}
+@media (max-width:340px){
+  .bt-grid{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -81,12 +87,12 @@ td:first-child,th:first-child{text-align:left}
 
 <div class="bt-grid">
 <label>종목<input id="symbol" value="JTOUSDT"></label>
-<label>봉 단위 · 기간
+<label class="bt-wide">봉 단위 · 기간
 <span class="bt-pair">
 <select id="src"><option value="1m">1분</option><option value="3m" selected>3분</option><option value="5m">5분</option><option value="10m">10분</option><option value="15m">15분</option><option value="30m">30분</option><option value="1h">60분</option></select>
 <input id="days" type="number" value="30" min="5" max="365">
 </span></label>
-<label>60선 / 200선
+<label class="bt-wide">60선 / 200선
 <span class="bt-pair">
 <input id="ma60p" type="number" value="60" min="2" max="500">
 <input id="ma200p" type="number" value="200" min="10" max="1000">

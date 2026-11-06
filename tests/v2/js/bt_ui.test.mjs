@@ -389,6 +389,18 @@ test("backtester.html: 머리 막대·아래 메뉴·스크립트 순서", () =>
   assert.ok(iJs >= 0 && iUi > iJs && iSave > iUi);
 });
 
+test("backtester.html: 휴대폰 숫자 칸 −/+ 단추가 숫자를 가리지 않음 (1106-02 투자자 클레임)", () => {
+  // 두 칸 짝(기간·200선)은 휴대폰에서 한 줄 전체를 써야 숫자 자리가 남는다
+  for (const t of ["봉 단위 · 기간", "60선 / 200선"]) {
+    assert.ok(HTML.includes(`<label class="bt-wide">${t}`), t);
+  }
+  const m = /@media \(hover:none\),\(pointer:coarse\),\(max-width:640px\)\{([\s\S]*?)\n\}/.exec(HTML);
+  assert.ok(m, "휴대폰 미디어 쿼리");
+  assert.match(m[1], /\.bt-grid>\.bt-wide\{grid-column:1\/-1\}/);
+  assert.match(m[1], /\.stepper \.stepBtn\{display:block;width:36px;flex:0 0 36px/);
+  assert.match(HTML, /@media \(max-width:340px\)\{\s*\.bt-grid\{grid-template-columns:1fr\}/);
+});
+
 test("backtester.html: 출처 토글·접힘 17개·카드·자세한 결과 (1105-09 Ver2)", () => {
   assert.match(HTML, /데이터 출처/);
   assert.match(HTML, /업비트 \(KRW\)/);
