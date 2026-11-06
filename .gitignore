@@ -106,3 +106,6 @@ tests/test_sell_filter_execution.py
 tests/test_tp_sl_integration.py
 # ㉣ 백테스터 Ver2 설명 글은 전역 *.txt 무시에서 뺌
 !docs/new-version/*.txt
+# 1106-02 가: 투자자가 보낸 클레임 화면 사진은 공개 저장소에 올리지 않음(투자자 설정값이 보임) — 맥 안에만 보관
+docs/new-version/claim/*.jpeg
+docs/new-version/claim/*.jpg
