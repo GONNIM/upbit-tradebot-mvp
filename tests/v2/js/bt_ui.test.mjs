@@ -401,6 +401,29 @@ test("backtester.html: 휴대폰 숫자 칸 −/+ 단추가 숫자를 가리지 
   assert.match(HTML, /@media \(max-width:340px\)\{\s*\.bt-grid\{grid-template-columns:1fr\}/);
 });
 
+test("backtester.html: 칸 이름 글자 — 짝 칸 이름·단위·크기·봉 단위 칸 반 줄 (1106-03 투자자 클레임 후속)", () => {
+  // 짝 줄은 칸마다 작은 이름(왼쪽·오른쪽 순서)
+  assert.ok(HTML.includes('<label class="bt-wide">봉 단위 · 기간\n<span class="bt-sub"><span>봉 단위(몇 분 봉)</span><span>기간(최근 며칠, 일)</span></span>\n<span class="bt-pair">'));
+  assert.ok(HTML.includes('<label class="bt-wide">60선 / 200선\n<span class="bt-sub"><span>60선 기간(봉 수)</span><span>200선 기간(봉 수)</span></span>\n<span class="bt-pair">'));
+  // 이름 앞부분은 홈·로그 설정 이름(api_read PARAM_KEY_LABELS)과 같게 두고 괄호만 더함
+  for (const t of ["분할 최대 횟수(회)<input id=\"maxSplits\"", "익절 TP %(평단 대비)<input id=\"tp\"",
+    "손절 SL %(평단 대비)<input id=\"sl\"", "60선 기울기 lookback(비교할 봉 수)<input id=\"slopeLB\"",
+    "<label>G/C(골든크로스) 매수제한 상승폭(200선 대비)\n<select id=\"gcMaxGapPct\">"]) {
+    assert.ok(HTML.includes(t), t);
+  }
+  // 칸 이름 14px 진하게 · 짝 칸 이름 줄은 반씩
+  assert.match(HTML, /\.bt-grid>label\{font-size:14px;color:#24292f;font-weight:600\}/);
+  // 작은 이름 줄 간격은 아래 칸 줄과 같게: PC 4px(.bt-pair flex gap) · 휴대폰 8px(Fable 권고 3)
+  assert.match(HTML, /\.bt-sub\{display:grid;grid-template-columns:1fr 1fr;gap:4px;/);
+  // 휴대폰: 짝 줄 두 칸을 반씩(봉 단위 선택 칸 = 이동평균 방식 칸 폭)
+  const m = /@media \(hover:none\),\(pointer:coarse\),\(max-width:640px\)\{([\s\S]*?)\n\}/.exec(HTML);
+  assert.ok(m, "휴대폰 미디어 쿼리");
+  assert.match(m[1], /\.bt-grid>\.bt-wide \.bt-pair\{display:grid;grid-template-columns:1fr 1fr;gap:8px\}\n  \.bt-sub\{gap:8px\}/);
+  // 접힌 17개 여는 줄: 고정폭 글꼴을 쓰지 않고 크게 · 열림 상태에 따라 글자 하나만 보임
+  assert.match(HTML, /#btMore>summary\{font-family:inherit;font-size:15px;/);
+  assert.match(HTML, /#btMore\[open\] \.bt-closed,#btMore:not\(\[open\]\) \.bt-open\{display:none\}/);
+});
+
 test("backtester.html: 출처 토글·접힘 17개·카드·자세한 결과 (1105-09 Ver2)", () => {
   assert.match(HTML, /데이터 출처/);
   assert.match(HTML, /업비트 \(KRW\)/);
@@ -411,7 +434,8 @@ test("backtester.html: 출처 토글·접힘 17개·카드·자세한 결과 (11
   for (const t of ["종목", "봉 단위 · 기간", "60선 / 200선", "분할 최대 횟수", "익절 TP %", "손절 SL %"]) {
     assert.ok(HTML.includes(t), t);
   }
-  assert.match(HTML, /… 그 밖의 입력 17개\(접힘\)/);
+  // 1106-03: 「… 그 밖의 입력 17개(접힘)」 → 접혔을 때 「설정 17개 더 보기」, 펼쳤을 때 「설정 17개 접기」
+  assert.match(HTML, /<summary><span class="bt-closed">설정 17개 더 보기<\/span><span class="bt-open">설정 17개 접기<\/span><\/summary>/);
   const m = /<details id="btMore"[^>]*>([\s\S]*?)<\/details>/.exec(HTML);
   assert.ok(m, "btMore");
   const inner = [...m[1].matchAll(/<(?:input|select)\b[^>]*\sid="([^"]+)"/g)].map((x) => x[1]).sort();

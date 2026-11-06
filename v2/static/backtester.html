@@ -22,6 +22,12 @@ button{cursor:pointer;width:auto}
 .bt-more{margin:8px 0}
 .bt-more>summary{cursor:pointer;color:var(--gray);font-family:ui-monospace,monospace;font-size:12px}
 .bt-more .bt-grid{margin-top:8px}
+/* 1106-03 (사용자 「㉠ 적용」 11/06): 칸 이름을 크고 진하게, 짝 칸마다 작은 이름, 접힌 17개 여는 줄을 크게 — 투자자가 무슨 칸인지 알아보게 */
+.bt-grid>label{font-size:14px;color:#24292f;font-weight:600}
+.bt-grid>label input,.bt-grid>label select{font-weight:400}
+.bt-sub{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:12px;color:#57606a;font-weight:500}
+#btMore>summary{font-family:inherit;font-size:15px;color:#1a56db;font-weight:600;padding:12px 2px}
+#btMore[open] .bt-closed,#btMore:not([open]) .bt-open{display:none}
 .btn-run{display:block;width:100%;margin:8px 0;padding:12px;font-size:16px;font-weight:bold;color:#fff;background:#ef4444;border:0;border-radius:8px}
 .btn-run:disabled{opacity:.6;cursor:default}
 .btn-row{display:flex;gap:8px;margin:12px 0}
@@ -64,6 +70,9 @@ td:first-child,th:first-child{text-align:left}
   /* 두 칸 짝(기간·200선)은 한 줄 전체를 씀 — 반의반 칸에 단추 4개가 들어가 숫자가 안 보이던 문제(11/06 클레임) */
   .bt-grid>.bt-wide{grid-column:1/-1}
   .bt-grid>*{min-width:0}
+  /* 1106-03: 짝 줄의 두 칸을 반씩 — 봉 단위 선택 칸이 이동평균 방식 칸과 같은 폭 */
+  .bt-grid>.bt-wide .bt-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .bt-sub{gap:8px}
 }
 @media (max-width:340px){
   .bt-grid{grid-template-columns:1fr}
@@ -88,28 +97,30 @@ td:first-child,th:first-child{text-align:left}
 <div class="bt-grid">
 <label>종목<input id="symbol" value="JTOUSDT"></label>
 <label class="bt-wide">봉 단위 · 기간
+<span class="bt-sub"><span>봉 단위(몇 분 봉)</span><span>기간(최근 며칠, 일)</span></span>
 <span class="bt-pair">
 <select id="src"><option value="1m">1분</option><option value="3m" selected>3분</option><option value="5m">5분</option><option value="10m">10분</option><option value="15m">15분</option><option value="30m">30분</option><option value="1h">60분</option></select>
 <input id="days" type="number" value="30" min="5" max="365">
 </span></label>
 <label class="bt-wide">60선 / 200선
+<span class="bt-sub"><span>60선 기간(봉 수)</span><span>200선 기간(봉 수)</span></span>
 <span class="bt-pair">
 <input id="ma60p" type="number" value="60" min="2" max="500">
 <input id="ma200p" type="number" value="200" min="10" max="1000">
 </span></label>
-<label>분할 최대 횟수<input id="maxSplits" type="number" value="5" min="0" max="10"></label>
-<label>익절 TP %<input id="tp" type="number" value="1.0" step="0.1"></label>
-<label>손절 SL %<input id="sl" type="number" value="1.5" step="0.1"></label>
+<label>분할 최대 횟수(회)<input id="maxSplits" type="number" value="5" min="0" max="10"></label>
+<label>익절 TP %(평단 대비)<input id="tp" type="number" value="1.0" step="0.1"></label>
+<label>손절 SL %(평단 대비)<input id="sl" type="number" value="1.5" step="0.1"></label>
 </div>
 
 <details id="btMore" class="bt-more">
-<summary>… 그 밖의 입력 17개(접힘)</summary>
+<summary><span class="bt-closed">설정 17개 더 보기</span><span class="bt-open">설정 17개 접기</span></summary>
 <div class="bt-grid">
 <label>이동평균 방식
 <select id="maType"><option value="ema" selected>지수이동평균(EMA)</option><option value="sma">단순이동평균(SMA)</option></select></label>
 <label>눌림목 재진입 기준 MA 기간(봉)<input id="pullbackP" type="number" value="60" min="2" max="500"></label>
-<label>60선 기울기 lookback(봉)<input id="slopeLB" type="number" value="20" min="1" max="500"></label>
-<label>G/C 매수제한 상승폭(장기선 대비)
+<label>60선 기울기 lookback(비교할 봉 수)<input id="slopeLB" type="number" value="20" min="1" max="500"></label>
+<label>G/C(골든크로스) 매수제한 상승폭(200선 대비)
 <select id="gcMaxGapPct"><option value="0" selected>0 = 무제한</option><option value="0.5">0.5% 이상 시 제한</option><option value="1">1.0% 이상 시 제한</option><option value="1.5">1.5% 이상 시 제한</option><option value="2">2.0% 이상 시 제한</option><option value="2.5">2.5% 이상 시 제한</option><option value="3">3.0% 이상 시 제한</option><option value="3.5">3.5% 이상 시 제한</option><option value="4">4.0% 이상 시 제한</option><option value="4.5">4.5% 이상 시 제한</option><option value="5">5.0% 이상 시 제한</option></select></label>
 <label>60선 최소 기울기 %(평평하면 매수 중단)<input id="ma60MinSlope" type="number" value="0" step="0.05"></label>
 <label>60선 기울기 둔화 허용치 %p (0=미사용)<input id="ma60SlopeDrop" type="number" value="0" step="0.05" min="0"></label>
