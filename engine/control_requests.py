@@ -158,6 +158,9 @@ CODE_TEXT = {
     "old_thread_alive": "엔진 정지가 끝나지 않아 재시작을 멈췄습니다.",
     "start_not_ready": "엔진이 매매 준비를 끝내지 못했습니다.",
     "old_engine_alive": "앞 엔진이 아직 멈추는 중이라 시작하지 않았습니다.",
+    # 1104-02 G3 가 (사용자 결정 11/06) — ui.pullback_lock.LIVE_RESERVED_START_TEXT 와 같은 글(시험이 비교)
+    "live_reserved": "모의 투자의 전환·복귀 예약이 있어 실계좌 엔진을 켤 수 없습니다. "
+                     "모의 투자 화면에서 예약을 취소한 뒤 켜십시오",
     "too_frequent": "같은 요청이 30초 안에 다시 들어와 처리하지 않았습니다(겹친 주문 방지). 30초 뒤 다시 눌러 주세요.",
     "control_suspended": "요청이 1시간에 6번을 넘어 1시간 동안 받지 않습니다. "
                          "직접 요청하신 것이 아니라면 운영자에게 바로 알려 주세요.",
@@ -738,6 +741,13 @@ class Controller:
                 except Exception as e:
                     logger.warning(f"[CONTROL] 옛 엔진 경보 판단 실패 | {type(e).__name__}")
             return _result("rejected", "old_engine_alive")
+        # ✅ 1104-02 G3 가 (11/06): 사람이 누르는 실계좌 시작은 모의 예약(모든 모드)이 있거나 확인하지 못하면 거절.
+        #   기존 검사(이미 실행 중·모드 충돌·옛 엔진) 뒤, start_engine 앞. 자동 재개는 start_engine 을 직접 불러 이 검사를 타지 않는다.
+        if mode == "LIVE":
+            from ui.pullback_lock import live_start_reserved
+            if live_start_reserved(user):
+                logger.info(f"[CONTROL] 실계좌 시작 거절 — 모의 예약 있음(또는 확인 실패) | user={user}")
+                return _result("rejected", "live_reserved")
         ok = self.manager.start_engine(user, mode=mode)
         if not ok:
             running = self.manager.get_running_mode(user)

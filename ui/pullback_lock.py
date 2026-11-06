@@ -43,6 +43,9 @@ LOCKED_SUFFIX = " (잠김)"
 # 사용자 결정 1029-11 A (나): 실계좌 화면 + 활성 새 전략 → 이 안내 뒤 멈춤
 LIVE_PULLBACK_STOP_TEXT = ("새 전략은 모의 투자에서만 씁니다. 모의 투자로 들어오시거나 신버전에서 전략을 되돌려 주세요. "
                            "모의 엔진이 실행 중이면 모의 투자로 들어오세요.")
+# 1104-02 G3 가 (사용자 결정 11/06): 모의 예약(모든 모드)이 있거나 확인하지 못하면 사람이 누르는 실계좌 시작을 막는다.
+LIVE_RESERVED_START_TEXT = ("모의 투자의 전환·복귀 예약이 있어 실계좌 엔진을 켤 수 없습니다. "
+                            "모의 투자 화면에서 예약을 취소한 뒤 켜십시오")
 
 
 class ReservationReadError(Exception):
@@ -94,6 +97,16 @@ def reservation_any_mode(user_id: str) -> Optional[Dict[str, Any]]:
         raise ReservationReadError(f"{type(e).__name__}") from e
     finally:
         conn.close()
+
+
+def live_start_reserved(user_id: str) -> bool:
+    """1104-02 G3 가: 사람이 누르는 실계좌 시작을 막을지 — 모든 모드 예약이 있거나 읽기 실패면 참(fail closed).
+    자동 재개(boot_resume·구버전 화면 자동 재개)와 start_engine 은 이 함수를 쓰지 않는다(손절 공백 방지)."""
+    try:
+        return reservation_any_mode(user_id) is not None
+    except Exception as e:  # noqa: BLE001 — ReservationReadError 와 그 밖의 예외 모두 막는 쪽
+        logger.warning(f"[PB-LOCK] 실계좌 시작 전 예약 확인 실패 → 막음 | user={user_id} {type(e).__name__}")
+        return True
 
 
 def pullback_test_row(user_id: str) -> Optional[Dict[str, Any]]:
@@ -207,7 +220,10 @@ def keeps_capital(state: Dict[str, Any]) -> bool:
 def keeps_wallet(state: Dict[str, Any]) -> bool:
     """1029-12 (사용자 결정 D5·D7·D8, 11/03): 모의 지갑(accounts·account_positions)과 새 전략 운용자산을 지킬 때.
     새 전략이 켜져 있거나(보유가 없어도 — 전환 직후~첫 매수) keeps_capital 이 참이면 참.
-    이때 실계좌 엔진은 시작할 수 없다(engine_manager 활성 파일 PULLBACK → 실계좌 거부)."""
+    새 전략이 켜져 있으면 실계좌 엔진은 시작할 수 없다(engine_manager 활성 파일 PULLBACK → 실계좌 거부).
+    예약 중(읽기 실패 포함)이면 사람이 누르는 실계좌 시작은 막히나 자동 재개는 된다(1104-02 G3 가 · live_start_reserved).
+    보유 중이기만 하면 실계좌 시작은 막지 않는다 — 그동안 실계좌 엔진 밖 체결은 Reconciler 가 표에 쓰지 않는다(1104-02 G1).
+    단, 그 상태에서 실계좌 엔진이 켜지면 그 엔진의 1분 동기화는 표에 쓴다(남는 틈 · 1104-02 계획서 3절)."""
     return bool(state.get("pullback")) or keeps_capital(state)
 
 

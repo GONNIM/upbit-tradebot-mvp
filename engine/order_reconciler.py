@@ -34,6 +34,100 @@ class OrderReconciler:
         self._last_balance_sync = 0.0  # ✅ 마지막 잔고 동기화 시각 (time.time())
         # ✅ SP-PI-2: LIMIT BUY 전량 체결 시 발화되는 콜백 — (user_id, ticker) → callable
         self._fill_callbacks: Dict[tuple, Any] = {}
+        # ✅ 1104-02 G1 (11/06): 모의 지갑 지킴. 기본은 꺼짐(지금 동작 그대로) — 운영 Reconciler 는
+        #   reconciler_singleton.get_reconciler 가 켠다. 시험이 직접 만든 Reconciler 는 원래 동작.
+        self.guard_mock_wallet = False
+        self._guard_logged: set = set()   # (user_id, where) — 첫 줄만 INFO
+
+    # ------------------------------------------------------------------ 1104-02 모의 지갑 지킴
+    # 계획: docs/plans/2026-11-06-mock-wallet-gaps/plan.md (G1·G1-m · 5-1 판정 방법)
+    @staticmethod
+    def _live_engine_alive(user_id: str) -> bool:
+        """이 사용자의 실계좌 엔진 스레드(이름 …_LIVE)가 살아 있는가. 표준 라이브러리만 쓰는 판정(1101-05 와 같은 기준)."""
+        from core.engine_control import alive_engine_threads
+        return any(t.name.endswith("_LIVE") for t in alive_engine_threads(user_id))
+
+    def _keeps_mock_wallet(self, user_id: str) -> bool:
+        """실계좌 잔고를 이 사용자 표(accounts·account_positions)에 쓰지 않고 건너뛸지.
+        - 지킴이 꺼져 있으면 거짓(지금 동작).
+        - 실계좌 엔진이 살아 있으면 거짓 — 이때는 W 를 부르지 않는다.
+        - 그 밖에는 W(keeps_wallet). 판정 예외는 지키는 쪽(참) — services/auto_verify.keeps_wallet_on_verify 와 같다.
+        Reconciler 잠금(_lock) 밖에서 부른다(lock_state 는 sqlite 읽기를 최대 3초씩 2번)."""
+        if not self.guard_mock_wallet:
+            return False
+        try:
+            if self._live_engine_alive(user_id):
+                return False
+        except Exception as e:  # noqa: BLE001 — 스레드 목록 판정 실패는 W 로 넘어간다
+            logger.warning(f"[OR] 실계좌 엔진 판정 실패 → 모의 지갑 판정으로 | user={user_id} {type(e).__name__}")
+        try:
+            from ui.pullback_lock import lock_state, keeps_wallet
+            return bool(keeps_wallet(lock_state(user_id)))
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[OR] 모의 지갑 판정 실패 → 지킴 | user={user_id} {type(e).__name__}")
+            return True
+
+    def _log_guard(self, user_id: str, where: str) -> None:
+        msg = f"[OR] 모의 지갑 지킴 — 실계좌 잔고 반영 건너뜀 | user={user_id} where={where}"
+        key = (user_id, where)
+        if key in self._guard_logged:
+            logger.debug(msg)
+        else:
+            self._guard_logged.add(key)
+            logger.info(msg)
+
+    @staticmethod
+    def _ticker_forms(ticker: str) -> tuple:
+        """「KRW-XXX」「XXX」 두 모양 — services/db.update_position_from_balances·get_position_entry_price 와 같은 규칙."""
+        sym = (ticker.split("-")[1] if "-" in ticker else ticker).strip().upper()
+        return sym, f"KRW-{sym}"
+
+    def _clear_entry_price(self, user_id: str, ticker: str) -> None:
+        """G1-m: 그 종목 행의 진입가 캐시(entry_price)만 0. 원화·수량·position_history 는 그대로.
+        0 은 「진입가 없음」 — 실계좌 기동 때 평단을 업비트 avg_buy_price(2순위)로 복구하게 한다."""
+        sym, mkt = self._ticker_forms(ticker)
+        try:
+            from services.db import get_db
+            with get_db(user_id) as conn:
+                conn.execute("UPDATE account_positions SET entry_price=0 WHERE user_id=? AND UPPER(ticker) IN (?, ?)",
+                             (user_id, sym, mkt))
+            logger.info(f"[OR] 모의 지갑 지킴 — 진입가 캐시 비움 | user={user_id} ticker={mkt}")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"[OR] 진입가 캐시 비우기 실패 | user={user_id} ticker={mkt} {type(e).__name__}: {e}")
+
+    @staticmethod
+    def _cached_entry_price(user_id: str, ticker: str) -> float:
+        """진입가 캐시 값(행 없음 = 0.0). 읽기 실패는 예외 그대로 — get_position_entry_price 는 실패·0·행 없음을
+        모두 None 으로 돌려줘 구분하지 못한다(services/db.py)."""
+        sym, mkt = OrderReconciler._ticker_forms(ticker)
+        from services.db import get_db
+        with get_db(user_id) as conn:
+            r = conn.execute("SELECT entry_price FROM account_positions WHERE user_id=? AND UPPER(ticker) IN (?, ?) "
+                             "LIMIT 1", (user_id, sym, mkt)).fetchone()
+        return float(r[0] or 0.0) if r is not None else 0.0
+
+    def _clear_changed_entry_prices(self, user_id: str, balances: list) -> None:
+        """G1-m (1분 동기화 건너뜀): 이미 받은 잔고에서 캐시 진입가 > 0 이고 업비트 평단과 다른 종목만 0.
+        같거나 이미 0·행 없음이면 쓰지 않는다(매분 쓰기 없음). 캐시 읽기 실패면 0(지키는 쪽).
+        수량은 비교하지 않는다(건너뛰는 동안 표의 수량은 모의 수량)."""
+        import math
+        for bal in balances or []:
+            currency = str(bal.get("currency", "")).upper()
+            if not currency or currency == "KRW":
+                continue
+            ticker = f"KRW-{currency}"
+            try:
+                upbit_avg = float(bal.get("avg_buy_price") or 0.0)
+            except Exception:  # noqa: BLE001
+                upbit_avg = 0.0
+            try:
+                cached = self._cached_entry_price(user_id, ticker)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"[OR] 진입가 캐시 읽기 실패 → 비움 | user={user_id} ticker={ticker} {type(e).__name__}")
+                self._clear_entry_price(user_id, ticker)
+                continue
+            if cached > 0 and not math.isclose(cached, upbit_avg, rel_tol=1e-9, abs_tol=0.0):
+                self._clear_entry_price(user_id, ticker)
 
     def start(self):
         if self._thr and self._thr.is_alive():
@@ -596,8 +690,14 @@ class OrderReconciler:
                 except Exception as e:
                     logger.error(f"[OR] insert_trade_audit failed uuid={uuid}: {e}")
 
-            update_account_from_balances(user_id, balances)
-            update_position_from_balances(user_id, ticker, balances)
+            # ✅ 1104-02 G1·G1-m (11/06): 실계좌 엔진 없이 모의 지갑을 지켜야 하면 표를 쓰지 않고
+            #   그 종목 진입가 캐시만 비운다(감사 기록·주문 표 갱신은 위에서 그대로).
+            if self._keeps_mock_wallet(user_id):
+                self._log_guard(user_id, "finalize")
+                self._clear_entry_price(user_id, ticker)
+            else:
+                update_account_from_balances(user_id, balances)
+                update_position_from_balances(user_id, ticker, balances)
         except Exception as e:
             logger.error(f"[OR] finalize failed uuid={uuid}: {e}")
 
@@ -803,6 +903,11 @@ class OrderReconciler:
             # ✅ 모든 추적 중인 사용자의 잔고/포지션 업데이트
             for user_id in user_ids:
                 try:
+                    # ✅ 1104-02 G1·G1-m (11/06): 원화·HTS 감지·포지션 모두 건너뜀. 판정은 사용자당 1번.
+                    if self._keeps_mock_wallet(user_id):
+                        self._log_guard(user_id, "sync")
+                        self._clear_changed_entry_prices(user_id, balances)
+                        continue
                     update_account_from_balances(user_id, balances)
 
                     # 모든 코인 포지션 동기화 (balances에 있는 모든 ticker)

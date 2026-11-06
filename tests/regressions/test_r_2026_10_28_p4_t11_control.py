@@ -1270,10 +1270,16 @@ class TestEmaBaseline(unittest.TestCase):
 
     def test_order_reconciler_only_register_user_changed(self):
         """1029-12 (D4): order_reconciler.py 는 register_user(TEST 분기에서 unregister_user)만 일부러 고쳤다.
+        1104-02 G1·G1-m (11/06): 모의 지갑 지킴 — __init__(지킴 속성 2개, 기본 꺼짐)·_finalize_order(표 쓰기 두 줄을
+        지킴 분기로 감쌈)·_periodic_balance_sync(사용자 반복 맨 앞 건너뜀)를 일부러 고치고 도우미 7개를 더했다.
+        지킴이 꺼져 있으면(시험이 직접 만든 Reconciler) 지금 동작과 같다 — T8 원본 비교가 이를 본다.
         나머지 함수는 기준 커밋과 AST 같음, 파일 전체는 FIXED_FILES_COMMIT 과 바이트 같음."""
         rel = "engine/order_reconciler.py"
         now = (ROOT / rel).read_text(encoding="utf-8")
-        skip = {"register_user"}
+        skip = {"register_user",
+                "__init__", "_finalize_order", "_periodic_balance_sync",          # 1104-02 고친 함수
+                "_live_engine_alive", "_keeps_mock_wallet", "_log_guard", "_ticker_forms",   # 1104-02 새 도우미
+                "_clear_entry_price", "_cached_entry_price", "_clear_changed_entry_prices"}
         self.assertEqual(_funcs(now, skip), _funcs(self.base(rel), skip))
         fixed = bc.git_show(rel, bc.FIXED_FILES_COMMIT)
         if fixed is None:

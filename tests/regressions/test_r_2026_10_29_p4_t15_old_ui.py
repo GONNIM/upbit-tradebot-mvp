@@ -501,10 +501,14 @@ class TestReservedEma(_Base):
         self.assertEqual(fn.call_args.kwargs["strategy_type"], "EMA")
 
     def _live_b(self, at):
-        """사용자 결정 1029-11 B (나): 실계좌 화면 — 수동 시작·파라미터 설정 이동은 열림, 초기화는 잠김."""
+        """실계좌 화면 예약 중·확인 실패: 파라미터 설정 이동은 열림(1029-11 B 나 그대로), 초기화는 잠김.
+        1104-02 G3 가 (사용자 결정 11/06 「1104-02 ㉠ 가」): 1029-11 B 나의 「수동 시작 열기」만 되돌림 —
+        시작 단추는 잠김이고 그 아래 거절 사유 문구를 보인다(예약 중 실계좌가 켜지면 엔진 밖 체결이 모의 지갑을 덮음)."""
+        from ui.pullback_lock import LIVE_RESERVED_START_TEXT
         b = self.btn(at, "btn_start_engine")
-        self.assertFalse(b.disabled)
-        self.assertEqual(b.label, "🚀 엔진 실행하기")
+        self.assertTrue(b.disabled)
+        self.assertEqual(b.label, "🚀 엔진 시작 (잠김)")
+        self.assertIn(LIVE_RESERVED_START_TEXT, [c.value for c in at.caption])
         c = self.btn(at, "btn_config")
         self.assertFalse(c.disabled)
         self.assertEqual(c.label, "⚙️ 파라미터 설정")
@@ -512,14 +516,15 @@ class TestReservedEma(_Base):
 
     def test_live_reservation_locks_too(self):
         """C3 ①: 예약은 모든 모드를 본다 — TEST 예약이면 LIVE 화면도 잠김(배지·초기화).
-        단 1029-11 B (나, 1029-10 C2 의 실계좌 화면 예외): 수동 시작·파라미터 설정 이동은 열림."""
+        파라미터 설정 이동은 열림(1029-11 B 나), 수동 시작은 잠김(1104-02 G3 가 — 이유는 _live_b)."""
         self.ema()
         self.reserve("TEST")
         at = self.dash(mode="LIVE")
         self.assertIn("전환 예약 중 — 설정은 신버전에서 관리합니다", [i.value for i in at.info])
         self._live_b(at)
 
-    def test_live_reservation_unknown_opens_start(self):
+    def test_live_reservation_unknown_locks_start(self):
+        """1104-02 G3 가: 예약 확인 실패도 실계좌 수동 시작을 잠금(뒤집은 시험 — 옛 이름 …_unknown_opens_start)."""
         self.ema()
         import ui.pullback_lock as pl
         with patch.object(pl, "reservation_any_mode", side_effect=pl.ReservationReadError("OperationalError")):
@@ -527,9 +532,76 @@ class TestReservedEma(_Base):
             self.assertIn("전환 예약 상태를 확인하지 못해 설정 저장을 잠시 막습니다", [i.value for i in at.info])
             self._live_b(at)
 
-    def test_live_reservation_start_click_starts_live(self):
+    def test_live_reservation_start_not_clickable(self):
+        """1104-02 G3 가: 예약 중 실계좌 화면에서는 시작 단추가 잠겨 start_engine 이 불리지 않는다
+        (뒤집은 시험 — 옛 이름 …_start_click_starts_live 는 start_engine 이 불리는 것을 단언했음)."""
         self.ema()
         self.reserve("TEST")
+        from engine.engine_manager import engine_manager
+        start = MagicMock(return_value=False)
+        with patch.object(engine_manager, "start_engine", start), patch.object(engine_manager, "is_running",
+                                                                                return_value=False):
+            at = self.dash(mode="LIVE")
+            self.assertTrue(self.btn(at, "btn_start_engine").disabled)
+            at.button(key="btn_start_engine").click().run()
+        start.assert_not_called()
+
+    def test_live_click_time_recheck_rejects(self):
+        """1104-02 G3 가: 화면을 그릴 때는 예약이 없었는데 누른 순간 예약이 있거나(또는 읽기 실패) 하면 거절(F14 보강)."""
+        self.ema()
+        import ui.pullback_lock as pl
+        from engine.engine_manager import engine_manager
+        start = MagicMock(return_value=False)
+        with patch.object(engine_manager, "start_engine", start), \
+                patch.object(engine_manager, "is_running", return_value=False):
+            at = self.dash(mode="LIVE")
+            self.assertFalse(self.btn(at, "btn_start_engine").disabled)
+            with patch.object(pl, "live_start_reserved", return_value=True):
+                at.button(key="btn_start_engine").click().run()
+        start.assert_not_called()
+        self.assertIn(pl.LIVE_RESERVED_START_TEXT, [w.value for w in at.warning])
+
+    def test_test_mode_click_no_live_recheck(self):
+        """1104-02 G3 가: 모의 화면에서 누를 때는 실계좌 재검사를 부르지 않는다(verifier 지적 4 · M21)."""
+        self.ema()
+        import ui.pullback_lock as pl
+        from engine.engine_manager import engine_manager
+        start = MagicMock(return_value=False)
+        chk = MagicMock(return_value=True)
+        with patch.object(engine_manager, "start_engine", start), \
+                patch.object(engine_manager, "is_running", return_value=False):
+            at = self.dash()
+            with patch.object(pl, "live_start_reserved", chk):
+                at.button(key="btn_start_engine").click().run()
+        chk.assert_not_called()
+        start.assert_called_once_with(USER, test_mode=True)
+
+    def test_live_reserved_auto_resume_still_starts(self):
+        """1104-02 G3 가: 예약 중 실계좌 화면도 자동 재개는 그대로 엔진을 띄운다(손절 공백 없음 · verifier 지적 4)."""
+        self.ema()
+        self.reserve("TEST")
+        from services.db import set_engine_status
+        set_engine_status(USER, True, last_mode="LIVE")
+        import ui.pullback_lock as pl
+        from engine.engine_manager import engine_manager
+        start = MagicMock(return_value=True)
+        chk = MagicMock(return_value=True)
+        from streamlit.testing.v1 import AppTest
+        at = AppTest.from_file(str(ROOT / "pages" / "dashboard.py"), default_timeout=120)
+        for k, v in dict(user_id=USER, mode="LIVE", virtual_krw="1000000").items():
+            at.query_params[k] = v
+        at.session_state["user_id"] = USER
+        at.session_state["upbit_verified"] = True      # LIVE 자동 재개 안전망(검증·운용자산) 통과 상태
+        at.session_state["live_capital_set"] = True
+        with patch.object(engine_manager, "start_engine", start), patch.object(pl, "live_start_reserved", chk):
+            at.run()
+        self.assertEqual([e.value for e in at.exception], [])
+        start.assert_called_once_with(USER, test_mode=False)
+        chk.assert_not_called()
+
+    def test_live_no_reservation_click_starts_live(self):
+        """1104-02 G3 가: 예약 없는 실계좌 화면은 지금처럼 시작(누른 직후 재검사 통과)."""
+        self.ema()
         from engine.engine_manager import engine_manager
         start = MagicMock(return_value=False)
         with patch.object(engine_manager, "start_engine", start), patch.object(engine_manager, "is_running",

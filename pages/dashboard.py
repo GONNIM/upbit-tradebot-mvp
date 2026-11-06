@@ -164,9 +164,12 @@ if is_live and _pb_active:
     st.warning(_PB_LIVE_STOP)
     st.stop()
 # ✅ 2차 T15 (사용자 결정 1029-11 B 나 — 1029-10 C2 의 실계좌 화면 예외): 실계좌 화면에서 예약 중·예약 확인 실패면
-#   수동 「엔진 실행하기」·「파라미터 설정」 이동은 연다. 시스템 초기화·설정 저장·전략 선택·복원은 그대로 잠근다.
-#   모의 화면은 지금처럼 수동 시작도 잠근다.
-_pb_start_locked = _pb_locked and not (is_live and _pb_lock["why"] in ("reserved", "unknown"))
+#   「파라미터 설정」 이동은 연다. 시스템 초기화·설정 저장·전략 선택·복원은 그대로 잠근다.
+# ✅ 1104-02 G3 가 (사용자 결정 11/06): 1029-11 B 나의 「수동 엔진 실행하기 열기」만 되돌린다 — 예약 중 실계좌가
+#   켜지면 엔진 밖 체결이 모의 지갑을 덮을 수 있어서. 시작 단추는 잠김이면 모드와 상관없이 잠근다(자동 재개는 그대로).
+_pb_start_locked = _pb_locked
+_pb_cfg_locked = _pb_locked and not (is_live and _pb_lock["why"] in ("reserved", "unknown"))
+_pb_live_reserved = is_live and _pb_locked and _pb_lock["why"] in ("reserved", "unknown")
 
 # ✅ FIX: TEST 모드일 때 virtual_krw를 DB에 동기화 (단, 0이면 DB 값 유지)
 if not is_live:
@@ -521,7 +524,7 @@ st.session_state.engine_started = engine_status
 # ✅ 상단 정보
 _hdr_col1, _hdr_col2 = st.columns([5, 1])
 with _hdr_col1:
-    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.11.06.1552")
+    st.markdown(f"### 📊 Dashboard ({mode}) : `{user_id}`님 --- v1.2026.11.06.1720")
 with _hdr_col2:
     # ✅ [Phase 3-E] 시스템 헬스 배지 (초록/노랑/빨강). 클릭 시 system_health.py 이동.
     # NOTE: params_obj는 line 696에서 로드되므로 여기선 아직 미정의.
@@ -653,13 +656,24 @@ with col10:
     if not engine_status:
         start_trading = st.button(
             # ✅ 2차 T15 (D7): 새 전략 운용·예약 중 수동 시작 잠김(자동 재개는 열림 — D7 예외, 사용자 결정 1029-10)
-            #   실계좌 화면 예약 중·확인 실패는 열림(사용자 결정 1029-11 B 나)
+            #   1104-02 G3 가: 실계좌 화면 예약 중·확인 실패도 잠김(1029-11 B 나의 열기를 되돌림)
             "🚀 엔진 시작 (잠김)" if _pb_start_locked else "🚀 엔진 실행하기",
             key="btn_start_engine",
             use_container_width=True,
             disabled=_pb_start_locked,
         )
-        if start_trading and not _pb_start_locked:
+        if _pb_live_reserved:
+            from ui.pullback_lock import LIVE_RESERVED_START_TEXT as _PB_LIVE_RES_TEXT
+            st.caption(_PB_LIVE_RES_TEXT)
+        # ✅ 1104-02 G3 가: 누른 직후 실계좌면 예약을 모든 모드 기준으로 다시 읽어 있거나 읽기 실패면 거절
+        _pb_click_reserved = False
+        if start_trading and not _pb_start_locked and is_live:
+            from ui.pullback_lock import live_start_reserved as _pb_live_start_reserved
+            _pb_click_reserved = _pb_live_start_reserved(user_id)
+            if _pb_click_reserved:
+                from ui.pullback_lock import LIVE_RESERVED_START_TEXT as _PB_LIVE_RES_TEXT
+                st.warning(_PB_LIVE_RES_TEXT)
+        if start_trading and not _pb_start_locked and not _pb_click_reserved:
             if not engine_manager.is_running(user_id):
                 success = engine_manager.start_engine(user_id, test_mode=(not is_live))
                 if success:
@@ -707,12 +721,12 @@ with col20:
     start_setting = st.button(
         # ✅ 2차 T15 (D7): 엔진 자동 정지 + 설정 화면 — 잠김이어도 top-level 유지(1-B)
         #   실계좌 화면 예약 중·확인 실패는 열림(1029-11 B 나 — 설정 화면의 저장·전략 선택은 그쪽에서 잠김)
-        "⚙️ 파라미터 설정" + (_PB_LOCKED if _pb_start_locked else ""),
+        "⚙️ 파라미터 설정" + (_PB_LOCKED if _pb_cfg_locked else ""),
         key="btn_config",
         use_container_width=True,
-        disabled=_pb_start_locked,
+        disabled=_pb_cfg_locked,
     )
-    if start_setting and not _pb_start_locked:
+    if start_setting and not _pb_cfg_locked:
         # ✅ 엔진 실행 중이면 자동 정지
         if engine_status:
             engine_manager.stop_engine(user_id)
