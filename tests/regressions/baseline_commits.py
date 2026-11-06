@@ -50,7 +50,13 @@ EMA_BASELINE_COMMIT = "f4aac1f"     # 2차 T9 커밋 (push 됨) — 2026-10-28 T
 #    6175fbe → c0559e3 (1105-09 Ver2 2단계 — core/strategy_engine.py·engine/live_loop.py 의 pullback 이름 함수
 #    변경·추가, 모듈 import pandas 1줄·_PULLBACK_TRADE_KEYS 3키·StrategyEngine 클래스 기본값 3개(_pb_sl_streak 등).
 #    pullback 이름이 아닌 함수 AST 는 6175fbe 와 같음(EMA 판정·주문 무변경). 나머지 6개는 6175fbe 이후 바뀌지 않음).
-FIXED_FILES_COMMIT = "c0559e3"
+#    c0559e3 → eaa417f (1104-02 모의 지갑 좁은 틈 — engine/order_reconciler.py 만: __init__ 지킴 속성 2개,
+#    _finalize_order 끝·_periodic_balance_sync 사용자 반복 맨 앞의 지킴 분기, 새 도우미 7개. 지킴 기본값 False
+#    (운영 싱글턴만 켬)이라 지킴이 꺼지면 지금 동작과 같음. 매매 판정·주문 무변경. T11 AST 비교는 바뀐 함수·도우미를
+#    뺀 나머지가 EMA_BASELINE 과 같음. 비교 대상 9개 중 나머지 8개(core/strategy_engine.py · core/strategy_incremental.py ·
+#    engine/params.py · engine/live_loop.py · engine/boot_resume.py · services/trading_control.py ·
+#    engine/engine_manager.py · services/db.py)는 c0559e3 이후 바뀌지 않음 — `git diff --stat c0559e3 eaa417f -- <8개>` 빈 출력).
+FIXED_FILES_COMMIT = "eaa417f"
 # 4) OLD_UI_BASE_COMMIT — 「구버전 화면(EMA 사용자) 무변경」 대조 기준 = 2차 T14 커밋(push 됨, T15 직전).
 #    쓰는 시험: T15 test_r_2026_10_29_p4_t15_old_ui (dashboard·set_config·조건 화면 AppTest 비교, 고정 파일 8개 —
 #    그중 engine/engine_manager.py 는 1101-05 부터 FIXED_FILES_COMMIT 과 비교).
