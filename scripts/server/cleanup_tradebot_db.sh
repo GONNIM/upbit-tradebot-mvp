@@ -1,4 +1,5 @@
 #!/bin/bash
+umask 077
 # Tradebot DB 정리 스크립트 — 무중단 버전 v2 (2026-05-31)
 # 변경점:
 #   - systemctl stop/start 제거 (live_loop 그대로 가동)
@@ -19,12 +20,20 @@ log_message "DB 정리 시작 (무중단 v2)"
 
 mkdir -p "$BACKUP_DIR"
 
-# 1) 백업 — sqlite3 .backup 명령은 WAL 포함 일관성 보장 (cp보다 안전)
-log_message "DB 백업 시작 (.backup, WAL 일관성)..."
-if sqlite3 "$DB_PATH" ".backup $BACKUP_DIR/tradebot_mcmax33.db.backup_$TIMESTAMP" 2>>"$LOG_FILE"; then
-    log_message "DB 백업 완료: tradebot_mcmax33.db.backup_$TIMESTAMP"
+# 1) 백업 — 2026-11-08: VACUUM INTO 로 빈 칸을 뺀 사본을 만든다(읽기 거래 하나, 엔진 쓰기는 막지 않음).
+#    position_history 를 지운 뒤로 원본 파일에는 빈 칸이 많아 .backup 사본은 원본 크기(약 1.1GB) 그대로였다.
+#    VACUUM INTO 가 실패하면 예전처럼 .backup 으로 만든다(WAL 포함 일관성 보장).
+BK_FILE="$BACKUP_DIR/tradebot_mcmax33.db.backup_$TIMESTAMP"
+log_message "DB 백업 시작 (VACUUM INTO, 실패하면 .backup)..."
+if sqlite3 -cmd ".timeout $BUSY_TIMEOUT_MS" "$DB_PATH" "VACUUM INTO '$BK_FILE';" 2>>"$LOG_FILE"; then
+    log_message "DB 백업 완료(VACUUM INTO): tradebot_mcmax33.db.backup_$TIMESTAMP $(du -b "$BK_FILE" | cut -f1)바이트"
 else
-    log_message "ERROR: DB 백업 실패 (계속 진행)"
+    rm -f "$BK_FILE"
+    if sqlite3 "$DB_PATH" ".backup $BK_FILE" 2>>"$LOG_FILE"; then
+        log_message "DB 백업 완료(.backup): tradebot_mcmax33.db.backup_$TIMESTAMP"
+    else
+        log_message "ERROR: DB 백업 실패 (계속 진행)"
+    fi
 fi
 
 # 2) 7일 이전 백업 삭제
@@ -41,6 +50,15 @@ DELETED_BUY=$(run_sql "DELETE FROM audit_buy_eval WHERE timestamp < datetime('no
 DELETED_SELL=$(run_sql "DELETE FROM audit_sell_eval WHERE timestamp < datetime('now', '-30 days'); SELECT changes();" | tail -1)
 DELETED_LOGS=$(run_sql "DELETE FROM logs WHERE timestamp < datetime('now', '-30 days'); SELECT changes();" | tail -1)
 log_message "삭제: audit_buy_eval=$DELETED_BUY, audit_sell_eval=$DELETED_SELL, logs=$DELETED_LOGS"
+
+# 3-1) 2026-11-08: position_history 30일 이전 줄 — 쓰기만 하는 표. 작은 묶음으로 나눠 지운다.
+PH_OUT=$(DB_PATH="$DB_PATH" /root/prune_position_history.sh 30 5000 2>&1)
+DELETED_PH=$(echo "$PH_OUT" | grep -oE '^DELETED=[0-9]+' | tail -1 | cut -d= -f2)
+log_message "position_history 정리: $(echo "$PH_OUT" | head -1) → 지움=${DELETED_PH:-실패}"
+
+# 3-2) 2026-11-08: 배포 때 만든 DB 백업 — 사용자 DB 마다 가장 새 2개만 남긴다.
+BK_OUT=$(/root/prune_deploy_backups.sh 2 2>&1)
+log_message "배포 백업 정리: $(echo "$BK_OUT" | grep -c '^지움:')개 지움, $(echo "$BK_OUT" | grep -oE 'FREED_BYTES=[0-9]+' | tail -1)"
 
 # 4) WAL checkpoint — VACUUM 대신 (exclusive lock 없이 WAL→main 머지 + WAL 압축)
 log_message "WAL 체크포인트(TRUNCATE) 실행..."

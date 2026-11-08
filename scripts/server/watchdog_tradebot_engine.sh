@@ -2,7 +2,12 @@
 # Tradebot 엔진 정체 감지 (보조 안전망) + Telegram 알림 + dedupe
 # 변경 이력:
 #   2026-06-16: flag 파일 dedupe (TTL 3600s) + RECOVERED 복구 알림 추가
+#   2026-11-08: 거래 없는 봉은 Bar# 줄을 남기지 않아 정상인데도 STALE 이 울렸다(11/06 22:15~22:33 등).
+#               매매 루프가 봉마다 남기는 「[CLOCK-CLOSE] 봉 확정 감지」 줄도 살아 있음 표시로 본다.
+#               알림 글은 바꾸지 않는다(투자자가 받는 알림 형식 그대로).
 THRESHOLD_SECS=600
+export LC_ALL=C.UTF-8   # cron 은 로캘이 C 라 한글 검색어가 어긋나지 않게 한다
+ALIVE_PATTERN='Bar#|\[CLOCK-CLOSE\] 봉 확정 감지'
 LOG_FILE="/var/log/tradebot_engine_stale.log"
 NOTIFIER=/root/notify_telegram.sh
 LOCK_FILE=/var/run/tradebot_stale.lock
@@ -33,7 +38,7 @@ notify_recovered_if_needed() {
     echo "$(date '+%Y-%m-%d %H:%M:%S') RECOVERED: $body" >> "$LOG_FILE"
 }
 
-last_line=$(journalctl -u tradebot --since "30 min ago" --no-pager --output=short-iso 2>/dev/null | grep -E "Bar#" | tail -1)
+last_line=$(journalctl -u tradebot --since "30 min ago" --no-pager --output=short-iso 2>/dev/null | grep -E "$ALIVE_PATTERN" | tail -1)
 
 if [ -z "$last_line" ]; then
     msg="최근 30분간 Bar# 평가 로그 없음 (엔진 정체 가능성)"

@@ -1,0 +1,7 @@
+// 설치 위치: /etc/apt/apt.conf.d/52unattended-local (2026-11-08 서버 점검 조치)
+// 자동 재부팅은 하지 않는다(엔진이 멈추므로 사람이 정한 때에만). 커널 갱신은 다음 재부팅 때 적용된다.
+// 쓰지 않는 옛 커널은 지워 /boot(470MB)가 차지 않게 한다.
+// 되돌리기: 이 파일을 지운다.
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-New-Unused-Dependencies "true";

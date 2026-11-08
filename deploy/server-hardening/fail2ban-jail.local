@@ -1,0 +1,22 @@
+# 설치 위치: /etc/fail2ban/jail.local (2026-11-08 서버 점검 조치)
+# 전에는 sshd 감옥이 maxretry 20 · findtime 10분 · bantime 30분이라, 주소를 바꿔 가며 들어오는 시도가 거의 막히지 않았다
+# (11/08 기록: 하루 28개 주소, 차단 2번).
+# aggressive 는 비밀번호 로그인을 끈 뒤에 남는 「preauth 끊김」 줄도 셈에 넣는다.
+# recidive 는 여러 번 차단된 주소를 1주일 막는다.
+# 되돌리기: 이 파일을 지우고 `systemctl restart fail2ban`.
+[DEFAULT]
+ignoreip = 127.0.0.1/8 ::1
+
+[sshd]
+enabled  = true
+mode     = aggressive
+maxretry = 5
+findtime = 1h
+bantime  = 1d
+
+[recidive]
+enabled  = true
+logpath  = /var/log/fail2ban.log
+findtime = 1d
+maxretry = 3
+bantime  = 1w

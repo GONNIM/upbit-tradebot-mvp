@@ -1,0 +1,6 @@
+// 설치 위치: /etc/apt/apt.conf.d/20auto-upgrades (2026-11-08 서버 점검 조치)
+// 이 파일이 없어 자동 보안 갱신이 한 번도 돌지 않았다. 날마다 목록을 받고, 보안 갱신만 설치한다(50unattended-upgrades 의 허용 출처).
+// 되돌리기: 이 파일을 지운다.
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+APT::Periodic::AutocleanInterval "7";
