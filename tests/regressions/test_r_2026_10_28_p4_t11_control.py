@@ -1295,9 +1295,22 @@ class TestEmaBaseline(unittest.TestCase):
         self.assertEqual(_trace(old), _trace(engine_manager))
 
 
+def _wait_no_alive_engine(user_id, timeout=5.0):
+    """1108-03: 앞 시험(또는 기준 원본 실행)의 같은 이름 엔진 스레드가 아직 끝나는 중이면 시작이
+    「이전 엔진 정리 중」으로 거절돼 흔적이 달라진다(간헐 실패). 주로 기준 원본이 작업 스레드를 기다리지 않아(worker.join 없음)
+    그 스레드가 몇 ms 남는 경우다. 끝날 때까지 기다리고, 끝나지 않으면 이름을 보여 주며 실패."""
+    t0 = _time.time()
+    while ec.alive_engine_threads(user_id) and _time.time() - t0 < timeout:
+        _time.sleep(0.01)
+    alive = [t.name for t in ec.alive_engine_threads(user_id)]
+    if alive:
+        raise AssertionError(f"앞 시험의 엔진 스레드가 {timeout}초 넘게 살아 있음: {alive}")
+
+
 def _trace(mod):
     """세션 모드 TEST·전략 EMA 로 start_engine() → 실행 중 확인 → 같은 모드 다시 시작(False) → stop_engine() 흔적.
     (복구 래퍼 재시작 횟수는 TestRecovery 가 본다)"""
+    _wait_no_alive_engine(USER)
     rec = []
     stop_all = threading.Event()
 
