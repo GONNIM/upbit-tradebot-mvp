@@ -52,7 +52,7 @@ DELETED_LOGS=$(run_sql "DELETE FROM logs WHERE timestamp < datetime('now', '-30 
 log_message "삭제: audit_buy_eval=$DELETED_BUY, audit_sell_eval=$DELETED_SELL, logs=$DELETED_LOGS"
 
 # 3-1) 2026-11-08: position_history 30일 이전 줄 — 쓰기만 하는 표. 작은 묶음으로 나눠 지운다.
-PH_OUT=$(DB_PATH="$DB_PATH" /root/prune_position_history.sh 30 5000 2>&1)
+PH_OUT=$(DB_PATH="$DB_PATH" /root/prune_position_history.sh 30 2000 2>&1)
 DELETED_PH=$(echo "$PH_OUT" | grep -oE '^DELETED=[0-9]+' | tail -1 | cut -d= -f2)
 log_message "position_history 정리: $(echo "$PH_OUT" | head -1) → 지움=${DELETED_PH:-실패}"
 

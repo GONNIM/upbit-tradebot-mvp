@@ -3,18 +3,18 @@
 # - 이 표는 엔진이 보유 수량을 바꿀 때마다 쓰기만 하고, 코드 어디에서도 읽지 않는다
 #   (services/db.py insert_position_history · core/trader.py 만 씀). 하루 약 17만 줄씩 늘어 DB 의 약 80% 를 차지했다.
 # - 기본 30일만 남긴다(audit_buy_eval · audit_sell_eval · logs 와 같은 기준).
-# - 엔진 쓰기를 오래 막지 않도록 작은 묶음(기본 5,000줄)으로 나눠 지우고, 묶음 사이에 잠깐 쉰다.
+# - 엔진 쓰기를 오래 막지 않도록 작은 묶음(기본 2,000줄 — 11/08 첫 정리에서 5,000줄 묶음 하나가 4.4초 걸렸고 2,000줄은 가장 길어야 0.1초였다)으로 나눠 지우고, 묶음 사이에 잠깐 쉰다.
 # - 파일 크기는 줄지 않는다(VACUUM 없음). 빈 칸은 다음 쓰기에 다시 쓰이므로 DB 가 더 커지지 않는다.
-# 사용: prune_position_history.sh [남길 날수=30] [묶음 크기=5000] [--dry-run]
+# 사용: prune_position_history.sh [남길 날수=30] [묶음 크기=2000] [--dry-run]
 # 출력 마지막 줄: DELETED=<지운 줄 수>
 set -u
 DB_PATH="${DB_PATH:-/root/upbit-tradebot-mvp/services/data/tradebot_mcmax33.db}"
 KEEP_DAYS="${1:-30}"
-BATCH="${2:-5000}"
+BATCH="${2:-2000}"
 DRY=0
 [ "${3:-}" = "--dry-run" ] && DRY=1
 BUSY_TIMEOUT_MS=5000
-MAX_BATCHES=4000   # 안전 상한
+MAX_BATCHES=10000   # 안전 상한
 
 q() { sqlite3 -cmd ".timeout $BUSY_TIMEOUT_MS" "$DB_PATH" "$1"; }
 
