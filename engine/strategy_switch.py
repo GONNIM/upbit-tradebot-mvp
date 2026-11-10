@@ -71,6 +71,9 @@ TEXT = {
     "failed": "전략 전환에 실패해 기존 전략({strategy})으로 계속합니다. 운영자가 확인합니다. " + NO_ACTION_TEXT,
 }
 FAILED_TITLE = "🚨 전략 전환 실패 — 기존 전략으로 계속합니다"
+LIVE_RECOVERY_FAILED_TITLE = "🚨 실계좌 새 전략 엔진이 뜨지 않았습니다 — 업비트 앱에서 보유를 확인해 주세요"
+LIVE_RECOVERY_FAILED_TEXT = ("서버를 다시 시작한 뒤 실계좌 새 전략 엔진이 준비되지 않았습니다. 엔진과 설정 파일은 건드리지 않았습니다. "
+                             "보유 중이면 업비트 앱에서 직접 확인·매도하실 수 있습니다. 운영자가 확인합니다.")
 ABORTED_TEXT = "⚠️ 전환이 끝나지 않았습니다 — 다시 눌러 주세요. 지금 전략은 그대로입니다."
 SAVED_CHANGED_TEXT = ("⚠️ 예약한 뒤 새 전략 설정이 다시 저장되어 전환하지 않았습니다. 지금 전략을 그대로 씁니다. "
                       "전환하시려면 다시 눌러 주세요.")
@@ -407,11 +410,22 @@ def _locked_qty(user_id: str, ticker: str) -> float:
         conn.close()
 
 
+class WalletUnknown(Exception):
+    """실계좌 지갑(코인 잔고)을 읽지 못함 — 0 이 아니라 「모름」. 호출자는 보유 중으로 본다(전환·복귀 거절)."""
+
+
 def _wallet_qty(user_id: str, ticker: str, trader) -> float:
-    """모의: DB 가상 잔고(가용+잠김, 조회 예외는 그대로 올림 — 0 으로 보지 않음). 실계좌: trader._coin_balance."""
+    """모의: DB 가상 잔고(가용+잠김, 조회 예외는 그대로 올림 — 0 으로 보지 않음).
+    실계좌: trader.coin_balance_checked(1109 작업 D — 읽기 실패를 0.0 으로 돌려주는 _coin_balance 대신). 실패는 WalletUnknown."""
     if getattr(trader, "test_mode", False):
         from services.db import get_coin_balance
         return float(get_coin_balance(user_id, ticker) or 0.0) + _locked_qty(user_id, ticker)
+    checked = getattr(trader, "coin_balance_checked", None)
+    if callable(checked):
+        qty, ok = checked(ticker)
+        if not ok:
+            raise WalletUnknown(ticker)
+        return float(qty)
     return float(trader._coin_balance(ticker))
 
 
@@ -468,6 +482,24 @@ def standalone_flat_state(ctl, user_id: str, mode: str, strategy: str, ticker: s
             "flat": qty < FLAT_EPS and not pending}
 
 
+def target_ticker_flat(ctl, user_id: str, mode: str, strategy: str, ticker) -> Optional[bool]:
+    """실계좌 전환·복귀의 대상 종목 확인(지적 1): 그 종목의 지갑·미체결 매수가 없으면 True, 있으면 False,
+    읽지 못하면 None(보유 취급으로 거절)."""
+    if not ticker:
+        return True
+    try:
+        from core import engine_control as ec
+        engine = ec.running_engine(user_id)
+        trader = engine.trader if engine is not None else ctl.trader_factory(user_id, mode, strategy)
+        qty = _wallet_qty(user_id, ticker, trader)
+        if _pending_buy(user_id, ticker):
+            return False
+        return qty < FLAT_EPS
+    except Exception as e:
+        logger.warning(f"{TAG} 대상 종목 보유 확인 실패 → 보유 중으로 봄 | user={user_id} ticker={ticker} | {type(e).__name__}")
+        return None
+
+
 def flat_state(ctl, user_id: str, mode: str, strategy: str, ticker: str, *,
                queue_wait: Optional[float] = None) -> Optional[Dict[str, Any]]:
     """보유 판정. 엔진이 돌면 엔진 스레드에서(제어 큐 — 감시 스레드는 엔진 잠금을 잡지 않음), 없으면 직접.
@@ -477,8 +509,9 @@ def flat_state(ctl, user_id: str, mode: str, strategy: str, ticker: str, *,
     try:
         running = ctl.manager.get_running_mode(user_id)
         if running is not None:
-            if running != "TEST" or running != mode:
-                logger.warning(f"{TAG} 보유 확인: 모의가 아닌(또는 다른 모드) 엔진 → 큐에 넣지 않고 보유 중으로 봄 | "
+            # 1109 작업 B(M5): 요청 모드와 같은 엔진이면 실계좌(LIVE)도 엔진 큐로 확인한다(EMA 실계좌 엔진이 켜진 채로도 동작).
+            if running != mode:
+                logger.warning(f"{TAG} 보유 확인: 다른 모드 엔진 → 큐에 넣지 않고 보유 중으로 봄 | "
                                f"user={user_id} running={running} mode={mode}")
                 return None
             engine = ec.running_engine(user_id)
@@ -506,10 +539,24 @@ def _active_file(user_id: str) -> Optional[str]:
 
 
 def _write_active(user_id: str, strategy: str) -> bool:
-    """활성 전략 파일을 쓰고 다시 읽어 확인(save_active_strategy 는 실패를 로그로만 남김)."""
+    """활성 전략 파일을 쓰고 다시 읽어 확인(save_active_strategy 는 실패를 로그로만 남김).
+    되돌림·복구 경로도 이 함수를 쓰며 모드 표식은 건드리지 않는다(1109 작업 A)."""
     from engine.params import save_active_strategy
     save_active_strategy(user_id, strategy)
     return _active_file(user_id) == strategy
+
+
+def _write_mode_marker(user_id: str, mode: str) -> bool:
+    """1109 작업 A: 새 전환(EMA·MACD → PULLBACK)이 활성 파일을 쓰기 전에 모드 표식(요청 모드)을 원자 쓰기. 실패면 False
+    (호출자는 활성 파일을 바꾸지 않는다). 되돌림·복구 경로는 이 함수를 부르지 않는다."""
+    from engine.active_mode import write_marker
+    try:
+        write_marker(user_id, mode)
+        return True
+    except Exception as e:
+        logger.critical(f"{TAG} 모드 표식 쓰기 실패 → 활성 파일을 바꾸지 않음 | user={user_id} mode={mode} | "
+                        f"{type(e).__name__}")
+        return False
 
 
 def strategy_ticker_interval(user_id: str, strategy: str):
@@ -531,9 +578,9 @@ def strategy_ticker_interval(user_id: str, strategy: str):
     return p.upbit_ticker, p.interval
 
 
-def _saved_sha(user_id: str) -> str:
+def _saved_sha(user_id: str, mode: Optional[str] = None) -> str:
     from engine import pullback_params as pbp
-    return pbp.check_saved_for_switch(user_id)
+    return pbp.check_saved_for_switch(user_id, mode)
 
 
 def _saved_ticker_interval(user_id: str):
@@ -584,14 +631,36 @@ def _r(status: str, code: str, detail: Optional[dict] = None) -> Dict[str, Any]:
 
 
 def _guard(ctl, req) -> Optional[Dict[str, Any]]:
-    """공통 거절: LIVE(엔진 무접촉) → live_not_supported, 다른 모드 엔진 → mode_conflict(_engine_stop·_force 와 같은 판정)."""
+    """공통 거절(전환·복귀·적용·운용 설정): 다른 모드 엔진 → mode_conflict(_engine_stop·_force 와 같은 판정),
+    활성이 PULLBACK 인데 요청 모드 ≠ 모드 표식(또는 표식 이상) → mode_marker_mismatch(1109 작업 A·M3 — 모의 입장 세션이
+    실계좌 표식의 눌림목을 복귀·적용하는 관리 공백을 막는다). 비율 검사는 여기서 하지 않는다(복귀·운용 설정이 공유)."""
     user, mode = req["user_id"], req["mode"]
-    if mode == "LIVE":
-        logger.info(f"{TAG} 실계좌 전환·복귀 요청 → 엔진 무접촉 거절 | user={user} kind={req.get('kind')}")
-        return _r("rejected", "live_not_supported")
     running = ctl.manager.get_running_mode(user)
     if running is not None and running != mode:
         return _r("rejected", "mode_conflict", {"running": running})
+    if _active_file(user) == "PULLBACK":
+        from engine.active_mode import marker_mismatch_for_request
+        if marker_mismatch_for_request(user, mode):
+            logger.warning(f"{TAG} 요청 모드가 모드 표식과 다름 → 엔진 무접촉 거절 | user={user} mode={mode} "
+                           f"kind={req.get('kind')}")
+            return _r("rejected", "mode_marker_mismatch")
+    return None
+
+
+def _live_flat_or_reject(ctl, user: str, mode: str, strategy: str, ticker, to_ticker=None) -> Optional[Dict[str, Any]]:
+    """실계좌 전환·복귀: 지금 종목과 **대상 종목** 모두 미보유·미체결 없음일 때만 통과(None). 보유·미체결 → live_not_flat,
+    판정 실패 → wallet_unknown. 예약 행은 만들지 않는다(축소안)."""
+    st = flat_state(ctl, user, mode, strategy, ticker)
+    if st is None:
+        return _r("rejected", "wallet_unknown")
+    if not st.get("flat"):
+        return _r("rejected", "live_not_flat", {"pending": list(st.get("pending") or [])})
+    if to_ticker and to_ticker != ticker:
+        t_flat = target_ticker_flat(ctl, user, mode, strategy, to_ticker)
+        if t_flat is None:
+            return _r("rejected", "wallet_unknown")
+        if not t_flat:
+            return _r("rejected", "live_not_flat", {"pending": ["target_ticker"]})
     return None
 
 
@@ -627,9 +696,14 @@ def handle_switch(ctl, req) -> Dict[str, Any]:
         return _r("rejected", "params_missing")
     from engine.pullback_params import PullbackParamsError
     try:
-        cur_sha = _saved_sha(user)
+        cur_sha = _saved_sha(user, mode) if mode == "LIVE" else _saved_sha(user)
         to_ti = _saved_ticker_interval(user)
-    except (PullbackParamsError, OSError):
+    except PullbackParamsError as e:
+        # 1109 작업 C: 실계좌인데 저장본에 투자 비율이 없으면 「saved_invalid」로 덮지 않고 live_ratio_missing
+        if getattr(e, "field", "") == "invest_ratio_pct_live":
+            return _r("rejected", "live_ratio_missing")
+        return _r("rejected", "saved_invalid")
+    except OSError:
         return _r("rejected", "saved_invalid")
     if cur_sha != sha:
         return _r("rejected", "sha_mismatch")
@@ -637,7 +711,14 @@ def handle_switch(ctl, req) -> Dict[str, Any]:
     if from_ti is None:
         return _r("rejected", "params_missing")
     was_running = ctl.manager.get_running_mode(user) is not None
-    st = flat_state(ctl, user, mode, active, from_ti[0])
+    if mode == "LIVE":
+        # 1109 축소안: 실계좌는 미보유·미체결 없음일 때만 즉시 처리. 보유 중이면 예약을 만들지 않고 거절.
+        rej_live = _live_flat_or_reject(ctl, user, mode, active, from_ti[0], to_ti[0])
+        if rej_live is not None:
+            return rej_live
+        st = {"flat": True}
+    else:
+        st = flat_state(ctl, user, mode, active, from_ti[0])
     common = dict(mode=mode, kind="SWITCH", from_strategy=active, from_ticker=from_ti[0], from_interval=from_ti[1],
                   to_strategy="PULLBACK", to_ticker=to_ti[0], to_interval=to_ti[1], params_sha256=sha,
                   request_id=rid, requested_at=kst_iso(ctl.now()))
@@ -690,7 +771,13 @@ def handle_revert(ctl, req) -> Dict[str, Any]:
                        f"record={last.get('from_ticker')}/{last.get('from_interval')} file={to_ti[0]}/{to_ti[1]}")
     from_ti = strategy_ticker_interval(user, "PULLBACK") or (None, None)
     was_running = ctl.manager.get_running_mode(user) is not None
-    st = flat_state(ctl, user, mode, "PULLBACK", from_ti[0] or to_ti[0])
+    if mode == "LIVE":
+        rej_live = _live_flat_or_reject(ctl, user, mode, "PULLBACK", from_ti[0] or to_ti[0], to_ti[0])
+        if rej_live is not None:
+            return rej_live
+        st = {"flat": True}
+    else:
+        st = flat_state(ctl, user, mode, "PULLBACK", from_ti[0] or to_ti[0])
     common = dict(mode=mode, kind="REVERT", from_strategy="PULLBACK", from_ticker=from_ti[0],
                   from_interval=from_ti[1], to_strategy=target, to_ticker=to_ti[0], to_interval=to_ti[1],
                   request_id=rid, requested_at=kst_iso(ctl.now()))
@@ -747,8 +834,18 @@ def execute_switch(ctl, user: str, mode: str, row_id: int, *, was_running: bool,
     sensitive = origin == "request"
     # 활성 파일을 쓰기 직전 재확인(결정 3) — 그사이 매수가 들어왔으면 예약 유지
     ticker = row["from_ticker"] or row["to_ticker"]
-    st = flat_state(ctl, user, mode, src, ticker,
-                    queue_wait=MONITOR_QUEUE_WAIT_SEC if origin != "request" else None)
+    if mode == "LIVE":
+        # 1109 축소안(M1): 실계좌는 예약을 남기지 않는다 — 재확인(지금 종목 + 대상 종목)이 실패면 행을 CANCELED 로 하고 거절
+        rej_live = _live_flat_or_reject(ctl, user, mode, src, ticker, row["to_ticker"])
+        if rej_live is not None:
+            update_row(user, row_id, state="CANCELED", done_at=kst_iso(ctl.now()), note=rej_live["code"])
+            logger.warning(f"{TAG} 실계좌 활성 파일 쓰기 직전 재확인 실패 → 행 CANCELED·거절(예약 안 남김) | user={user} "
+                           f"row={row_id} code={rej_live['code']}")
+            return rej_live
+        st = {"flat": True}
+    else:
+        st = flat_state(ctl, user, mode, src, ticker,
+                        queue_wait=MONITOR_QUEUE_WAIT_SEC if origin != "request" else None)
     if st is None or not st.get("flat"):
         update_row(user, row_id, note=None)
         logger.warning(f"{TAG} 활성 파일 쓰기 직전 재확인: 보유·미체결 매수 있음 → 예약 유지 | user={user} row={row_id} "
@@ -771,6 +868,10 @@ def execute_switch(ctl, user: str, mode: str, row_id: int, *, was_running: bool,
             _pa.cleanup_stale_row(user, mode, row["to_ticker"], row["to_interval"])
         except Exception as e:
             logger.error(f"{TAG} 옛 분할 상태 행 정리 예외(전환은 계속) | user={user} | {type(e).__name__}: {e}")
+    # 1109 작업 A: 새 전환(EMA·MACD → PULLBACK)만 모드 표식(요청 모드)을 활성 파일보다 먼저 쓴다. 복귀는 표식을 쓰지 않는다.
+    if kind == "SWITCH" and dst == "PULLBACK" and not _write_mode_marker(user, mode):
+        return _fail(ctl, user, mode, row, "marker_write_failed", was_running=was_running, restarted=False,
+                     sensitive=sensitive)
     if not _write_active(user, dst):
         return _fail(ctl, user, mode, row, "active_write_failed", was_running=was_running, restarted=False,
                      sensitive=sensitive)
@@ -913,9 +1014,7 @@ class Monitor:
         mode = ctl.manager.get_running_mode(user)
         if mode is None:
             return []
-        if mode != "TEST":
-            self._warn_non_test(user, mode, "엔진(처리 중 행 정리)")
-            return []
+        # 1109 작업 B(M1): 실계좌 처리 중 행도 같은 규칙으로 정리한다(행 mode = 돌고 있는 엔진 모드일 때만)
         ev = ctl.manager._ready.get(user)
         if ev is None or not ev.is_set():
             return []
@@ -1027,7 +1126,7 @@ class Monitor:
             except Exception:
                 continue
             for row in rows:
-                if row.get("mode") != "TEST":
+                if row.get("mode") not in ("TEST", "LIVE"):
                     self._warn_non_test(user, row.get("mode"), "처리 중 행(기동 복구)")
                     done.append((user, row["id"], "skipped"))
                     continue
@@ -1036,9 +1135,10 @@ class Monitor:
 
     def recover_row(self, ctl, user: str, row: dict) -> str:
         row_id, mode, src, dst = row["id"], row["mode"], row["from_strategy"], row["to_strategy"]
-        if mode != "TEST":
+        if mode not in ("TEST", "LIVE"):
             self._warn_non_test(user, mode, "처리 중 행(기동 복구)")
             return "skipped"
+        live = mode == "LIVE"
         active = _active_file(user)
         if active != dst:
             update_row(user, row_id, state="FAILED", done_at=kst_iso(ctl.now()), note="aborted_before_switch")
@@ -1058,6 +1158,14 @@ class Monitor:
                 break
             ctl.sleep(0.5)
         update_row(user, row_id, state="FAILED", done_at=kst_iso(ctl.now()), note="boot_not_ready")
+        if live:
+            # 1109 축소안: 실계좌 처리 중 행은 행 상태만 바꾼다 — 활성 파일을 되돌리지 않고 엔진 재시작도 부르지 않는다
+            # (보유분이 있을 수 있는 실계좌 엔진을 복구 스레드가 끄고 켜지 않는다).
+            logger.critical(f"{TAG} 기동 복구(실계좌): 전환 엔진이 뜨지 않음 → 행만 FAILED, 엔진·활성 파일은 그대로 | "
+                            f"user={user} row={row_id}")
+            _event(ctl, user, "CRITICAL", LIVE_RECOVERY_FAILED_TITLE, LIVE_RECOVERY_FAILED_TEXT,
+                   key=f"{row_id}:failed")
+            return "failed"
         _write_active(user, src)
         running = m.get_running_mode(user)
         if running is None or running == mode:

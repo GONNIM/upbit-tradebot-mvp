@@ -420,7 +420,7 @@ document.addEventListener("alpine:init", () => {
         savedOk: !!(o.saved && o.saved.ok), engineRunning: this.basic ? this.basic.engine_running : undefined,
         holding: coin > 0 || cl > 0, round: o.round || null, perBuy: o.per_buy, orderRatio: o.order_ratio,
         krw: a.krw, busy: this.opsBusy || !!o.pending,
-        // fix 1: 입장 모드(LIVE 이면 전환·복귀·운용 설정 저장을 닫음)
+        // 입장 모드(1109: LIVE 도 전환·복귀·운용 설정 저장이 열림 — 안내 한 줄만 다름)
         mode: String(o.mode || st.mode_entry || "").toUpperCase(),
       };
     },
@@ -479,11 +479,11 @@ document.addEventListener("alpine:init", () => {
       const o = this.ops || {};
       const ask = (text) => window.confirm(text);
       if (name === "switch") {
-        if (!ask(O.CONFIRM.switch)) return;
+        if (!ask(O.switchConfirmText(this.opsCtx.mode))) return;
         return this.opsSend("switch", { saved_sha256: o.saved && o.saved.sha256 });
       }
       if (name === "revert") {
-        const text = O.revertConfirmText(o.revert_target);
+        const text = O.revertConfirmText(o.revert_target, this.opsCtx.mode);
         if (text === null) { this.opsChoose = true; this.opsMsg = O.CONFIRM.chooseStrategy; return; }
         if (!ask(text)) return;
         return this.opsSend("revert", {});

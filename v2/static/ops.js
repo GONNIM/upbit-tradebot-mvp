@@ -71,11 +71,11 @@
     var r = ctx.round;
     var roundsLeft = !!(r && Number(r.max) > 0 && Number(r.entry) < Number(r.max));
     var on = function (cond) { return !busy && !!cond; };
-    // fix 1 (PO 결정 3): 실계좌(LIVE) 입장에서는 전환·복귀·운용 설정 저장을 닫는다(엔진도 거절). 강제 매매·엔진 시작/정지는 그대로.
-    var live = _upper(ctx.mode) === "LIVE";
+    // 1109: 실계좌(LIVE) 입장도 전환·복귀·운용 설정 저장이 열렸다(예전 「LIVE 에서는 닫음」 제거). 실계좌 전환·복귀는 보유 중이면
+    // 엔진이 거절하고(예약 없음) 문구로 「매도 뒤 다시 눌러 주세요」를 알린다 — 단추는 그대로 눌러 볼 수 있다.
     return {
-      switch: { label: LABELS.switch, enabled: on(!live && old && known && !reserved && ctx.savedOk === true) },
-      revert: { label: old ? LABELS.revertNA : LABELS.revert, enabled: on(!live && pb && known && !reserved) },
+      switch: { label: LABELS.switch, enabled: on(old && known && !reserved && ctx.savedOk === true) },
+      revert: { label: old ? LABELS.revertNA : LABELS.revert, enabled: on(pb && known && !reserved) },
       cancel: { label: LABELS.cancel, enabled: on(known && reserved) },
       pause: { label: LABELS.pause, enabled: !busy },
       stop: { label: LABELS.stop, enabled: on(running === true) },
@@ -83,19 +83,35 @@
       forceBuy: { label: LABELS.forceBuy, enabled: on(!holding || (pb && roundsLeft)) },
       forceSell: { label: LABELS.forceSell, enabled: on(holding) },
       // fix 1 (PO 결정 2): 새 전략 운용 중 + 예약 상태를 읽었고 예약이 없을 때만(서버도 같은 조건으로 거절)
-      opsSave: { label: LABELS.opsSave, enabled: on(!live && pb && known && !reserved) },
+      opsSave: { label: LABELS.opsSave, enabled: on(pb && known && !reserved) },
     };
   }
 
-  var LIVE_NOTE = "실계좌(LIVE)에서는 아직 할 수 없습니다";
+  // 1109: 실계좌 입장일 때 전환·복귀 옆 안내 한 줄(모의면 "")
+  var LIVE_NOTE = "실계좌에서는 보유 중이거나 미체결 주문이 있으면 전환·복귀가 되지 않습니다 — 매도 뒤 다시 눌러 주세요";
   // 실계좌 입장일 때 전환·복귀·운용 설정 옆 한 줄(아니면 "")
   function liveNote(mode) { return _upper(mode) === "LIVE" ? LIVE_NOTE : ""; }
 
   // 복귀 확인 문구: 기록이 있으면 「<EMA> · <종목> · <봉> 으로 돌아갑니다」, 없으면 null(전략을 고르게 함)
-  function revertConfirmText(target) {
+  function revertConfirmText(target, mode) {
     if (!target || OLD.indexOf(_upper(target.strategy)) < 0) return null;
-    return NAMES[_upper(target.strategy)] + " · " + (target.ticker || "—") + " · " + _intervalText(target.interval) +
-      " 으로 돌아갑니다. 지금 보유분이 있으면 새 전략 매도 규칙으로 판 뒤 바뀝니다. 진행할까요?";
+    var head = NAMES[_upper(target.strategy)] + " · " + (target.ticker || "—") + " · " + _intervalText(target.interval) +
+      " 으로 돌아갑니다. ";
+    // 1109: 실계좌는 예약이 없다 — 보유 중·미체결이 있으면 되돌아가지 않고, 미보유일 때만 바로 바뀐다
+    if (_upper(mode) === "LIVE") {
+      return head + "실계좌는 지금 보유 중이거나 미체결 주문이 있으면 되돌아가지 않습니다(예약도 없습니다). " +
+        "미보유일 때만 바로 바뀝니다. 진행할까요?";
+    }
+    return head + "지금 보유분이 있으면 새 전략 매도 규칙으로 판 뒤 바뀝니다. 진행할까요?";
+  }
+
+  // 전환 확인 문구(실계좌는 예약 전제 문장을 빼고 나눈다)
+  function switchConfirmText(mode) {
+    if (_upper(mode) === "LIVE") {
+      return "실계좌는 지금 보유 중이거나 미체결 주문이 있으면 전환되지 않습니다(예약도 없습니다). " +
+        "미보유일 때만 바로 바뀝니다. 전환할까요?";
+    }
+    return CONFIRM.switch;
   }
 
   // 강제 매수 확인 문구(금액 표시): PULLBACK = 회당 금액, EMA·MACD = 원화 잔고 × 주문 비율. 금액은 엔진이 다시 정한다.
@@ -136,7 +152,6 @@
     if (status === 409 && body.error === "reserved") {
       return "전환(복귀) 예약 중이라 운용 설정을 바꾸지 않았습니다. 예약이 끝난 뒤 다시 눌러 주세요.";
     }
-    if (status === 409 && body.error === "live_not_supported") return LIVE_NOTE + ".";
     if (status === 409 && body.error === "not_pullback") {
       return "운용 설정은 새 전략 운용 중에만 바꿀 수 있습니다.";
     }
@@ -201,7 +216,7 @@
   globalThis.__v2ops = {
     LABELS: LABELS, CONFIRM: CONFIRM, CODE_TEXT: CODE_TEXT, NO_RESPONSE_TEXT: NO_RESPONSE_TEXT,
     POLL_STEP_MS: POLL_STEP_MS, POLL_MAX_MS: POLL_MAX_MS,
-    buttonStates: buttonStates, revertConfirmText: revertConfirmText, forceBuyConfirmText: forceBuyConfirmText,
+    buttonStates: buttonStates, revertConfirmText: revertConfirmText, switchConfirmText: switchConfirmText, forceBuyConfirmText: forceBuyConfirmText,
     resultText: resultText, postErrorText: postErrorText, pollResult: pollResult, opsPayload: opsPayload,
     opsForm: opsForm, reservationText: reservationText, liveNote: liveNote, LIVE_NOTE: LIVE_NOTE,
   };

@@ -156,10 +156,12 @@ class TestReservationSeparatedByMode(SwitchCase):
         self.assertEqual([(r["id"], r["mode"]) for r in rows], [(live_id, "LIVE")])
 
         mon = ss.Monitor()
-        self.assertEqual(mon.recover_all(self.ctl, users=[USER]), [(USER, live_id, "skipped")])
+        # 1109: 실계좌 처리 중 행도 기동 복구가 행 상태만 정리한다(활성이 대상 아님 → aborted). 엔진 호출 0건.
+        self.assertEqual(mon.recover_all(self.ctl, users=[USER]), [(USER, live_id, "aborted")])
         self.assertEqual(self.mgr.calls, [])
         r = ss.fetch_row(USER, live_id)
-        self.assertEqual((r["state"], r["note"]), ("RESERVED", ss.NOTE_SWITCHING))
+        self.assertEqual((r["state"], r["note"]), ("FAILED", "aborted_before_switch"))
+        live_id = self.add_row(mode="LIVE", note=ss.NOTE_SWITCHING)    # 아래 settle 확인용 새 실계좌 행
 
         # settle: TEST 엔진 실행 + 준비 + 활성 = 대상 + 엔진 전략 = 대상. TEST 행은 정리, LIVE 행은 그대로
         test_id = self.add_row(mode="TEST", note=ss.NOTE_SWITCHING)
@@ -208,8 +210,8 @@ class TestRequestModeMustMatchRunning(OpsCase):
 
     def test_request_mode_must_match_running(self):
         """엔진을 건드리는 8종: LIVE 실행 중 + TEST 요청 → mode_conflict, TEST 실행 중 + LIVE 요청 → 거절. 엔진 호출 0건."""
-        reverse_code = {"switch": "live_not_supported", "revert": "live_not_supported",
-                        "apply_params": "apply_live_not_supported", "ops_settings": "apply_live_not_supported"}
+        # 1109: 실계좌 거절(live_not_supported)이 없어져 두 방향 모두 mode_conflict 다
+        reverse_code = {}
         for running, mode in (("LIVE", "TEST"), ("TEST", "LIVE")):
             for kind in ENGINE_KINDS:
                 with self.subTest(running=running, kind=kind):
@@ -223,7 +225,7 @@ class TestRequestModeMustMatchRunning(OpsCase):
                         self.mgr.mode = "LIVE"
                     before = self._snapshot()
                     r = self.ctl.execute(self.req(kind, mode, self._payload(kind)))
-                    want = "mode_conflict" if running == "LIVE" else reverse_code.get(kind, "mode_conflict")
+                    want = reverse_code.get(kind, "mode_conflict")
                     self.assertEqual((r["status"], r["code"]), ("rejected", want))
                     if want == "mode_conflict":
                         self.assertEqual(r["detail"]["running"], running)

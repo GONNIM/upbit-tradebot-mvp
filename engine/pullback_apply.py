@@ -39,7 +39,7 @@ TAG = "[PULLBACK-APPLY]"
 MA_KEYS = ("ma60p", "ma200p", "pullbackP", "slopeLB", "maType")
 MARKET_KEYS = ("ticker", "interval")
 IMMEDIATE_KEYS = ("tp", "sl", "deadcross")
-ALL_KEYS = (*pbp.PULLBACK_KEYS, *pbp.OPTIONAL_KEYS)
+ALL_KEYS = (*pbp.PULLBACK_KEYS, *pbp.OPTIONAL_KEYS, *pbp.RATIO_KEYS)   # 1109: 투자 비율도 변경 기록에 남는다(hot)
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 APPLY_FAILED_TITLE = "🚨 [운영자] 새 전략 설정 적용 실패 — 이전 설정으로 되돌림"
@@ -393,8 +393,6 @@ def handle_apply(ctl, req) -> Dict[str, Any]:
     """신버전 「이 설정으로 동작」(지금 전략 PULLBACK) — payload {"saved_sha256"}."""
     g = ss._guard(ctl, req)
     if g is not None:
-        if g.get("code") == "live_not_supported":     # fix 1: 적용 전용 문구(T12 문구는 전환·복귀를 말함)
-            return _r("rejected", "apply_live_not_supported")
         return g
     user, mode, rid = req["user_id"], req["mode"], req.get("id")
     sha = (req.get("payload") or {}).get("saved_sha256")
@@ -412,6 +410,9 @@ def handle_apply(ctl, req) -> Dict[str, Any]:
     new, data, rej = read_saved(user, sha)
     if rej is not None:
         return rej
+    if mode == "LIVE" and new.get("invest_ratio_pct_live") is None:
+        # 1109 작업 C(Q7 ①): 실계좌는 투자 비율이 없는 저장본을 적용하지 않는다(다음 재시작에서 기동이 거부되어 손절이 멈추는 일을 막음)
+        return _r("rejected", "live_ratio_missing")
     snap = files_snapshot(user)                       # 이전 적용본·사본 바이트(apply_saved 전에)
     prev = _valid_or_none(snap["applied"])
     changed = diff(prev, new)
@@ -606,8 +607,6 @@ def handle_ops(ctl, req) -> Dict[str, Any]:
     → 활성 전략 PULLBACK 아님. 엔진이 돌면 엔진 제어 큐(OPS_KIND), 멈췄으면 적용본만(다음 기동이 읽음)."""
     g = ss._guard(ctl, req)
     if g is not None:
-        if g.get("code") == "live_not_supported":
-            return _r("rejected", "apply_live_not_supported")
         return g
     user, mode, rid = req["user_id"], req["mode"], req.get("id")
     keys = ops_keys_or_none((req.get("payload") or {}).get("keys"))

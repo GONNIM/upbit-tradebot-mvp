@@ -106,6 +106,12 @@
 
   // ---- 2차 T13: 「이 설정으로 동작」 (결정 D9) ----
   var SWITCH_CONFIRM = "지금 보유분이 있으면 기존 방식으로 판 뒤 바뀝니다. 전환할까요?";
+  // 1109: 실계좌는 예약이 없다 — 보유 중·미체결이 있으면 전환되지 않고, 미보유일 때만 바로 바뀐다
+  var SWITCH_CONFIRM_LIVE = "실계좌는 지금 보유 중이거나 미체결 주문이 있으면 전환되지 않습니다(예약도 없습니다). " +
+    "미보유일 때만 바로 바뀝니다. 전환할까요?";
+  function switchConfirmText(mode) {
+    return String(mode).toUpperCase() === "LIVE" ? SWITCH_CONFIRM_LIVE : SWITCH_CONFIRM;
+  }
   var START_CONFIRM = "엔진이 멈춰 있습니다. 엔진을 시작할까요?";
   var NO_RESPONSE_TEXT = "엔진이 응답하지 않습니다 — 잠시 뒤 결과를 다시 확인해 주세요";
   var POLL_STEP_MS = 2000;
@@ -185,6 +191,79 @@
     return JSON.stringify(snap);
   }
 
+  // ---- 1109 눌림목 실계좌 열기: 눌림목 전용 「투자 비율(%)」 칸 (저장 확인 창에만 — backtester.js 는 건드리지 않는다) ----
+  // 서버 규칙(v2/params_schema.valid_ratio)과 같다: 0.1~100, 소수 첫째 자리까지. 비우면 null(실계좌는 비율이 있어야 동작).
+  var RATIO_LABEL = "투자 비율 (%)";
+  var RATIO_RANGE_TEXT = "투자 비율은 0.1~100 사이, 소수 첫째 자리까지 입력해 주세요";
+  var ENGINE_FEE_RATE = 0.0005;     // config.MIN_FEE_RATIO 와 같은 값(엔진이 수수료 몫을 빼고 배분 기준을 정한다)
+  var MIN_ORDER_KRW = 5000;
+
+  function ratioParse(text) {
+    var t = String(text == null ? "" : text).trim();
+    if (t === "") return { ok: true, value: null };
+    if (!/^\d+(\.\d)?$/.test(t)) return { ok: false, text: RATIO_RANGE_TEXT };
+    var v = Number(t);
+    if (!(v >= 0.1 && v <= 100)) return { ok: false, text: RATIO_RANGE_TEXT };
+    return { ok: true, value: v };
+  }
+
+  function ratioHint(mode) {
+    return String(mode).toUpperCase() === "LIVE"
+      ? "새 거래 1회차 시작 때 가용 원화의 %"
+      : "새 거래 1회차 시작 때 운용자산의 % (비우면 100%)";
+  }
+
+  function ratioEmptyNote(mode) {
+    return String(mode).toUpperCase() === "LIVE"
+      ? "실계좌는 투자 비율을 먼저 입력해야 「이 설정으로 동작」이 됩니다." : "";
+  }
+
+  function _won(n) { return Math.floor(Number(n)).toLocaleString("ko-KR"); }
+
+  // 엔진(core/strategy_engine._pullback_new_trade_base)과 같은 식. 실계좌: floor(원화×비율÷100÷(1+수수료)), 모의: 운용자산×비율(없으면 100%).
+  // 1회 금액 = floor(기준 ÷ 분할 횟수(0 은 1회)). 실계좌에서 비율이 비었거나 원화를 모르면 null.
+  function ratioPreview(o) {
+    var live = String(o.mode).toUpperCase() === "LIVE";
+    var krw = Number(o.krw);
+    if (o.krw == null || !(krw > 0) || !Number.isFinite(krw)) return null;
+    var ratio = o.ratio;
+    if (live && (ratio == null)) return null;
+    var pct = ratio == null ? 100 : Number(ratio);
+    var base = live ? Math.floor(krw * pct / 100 / (1 + ENGINE_FEE_RATE)) : Math.floor(krw * pct / 100);
+    var eff = Math.max(1, Math.floor(Number(o.maxSplits) || 0));
+    var per = Math.floor(base / eff);
+    return { base: base, perBuy: per, splits: eff, pct: pct, belowMin: per < MIN_ORDER_KRW };
+  }
+
+  function ratioPreviewText(o) {
+    var p = ratioPreview(o);
+    if (!p) {
+      if (o.krw == null || !(Number(o.krw) > 0)) return "지금 원화를 읽지 못해 미리 보기를 계산하지 못했습니다";
+      return "";
+    }
+    var live = String(o.mode).toUpperCase() === "LIVE";
+    var s = "지금 " + (live ? "원화 " : "운용자산 ") + _won(o.krw) + "원 · 비율 " + p.pct + "% · 1회 금액 약 " +
+      _won(p.perBuy) + "원 (" + p.splits + "회 분할)";
+    if (p.belowMin) s += " — 1회 금액이 5,000원보다 작아 주문을 건너뜁니다";
+    return s;
+  }
+
+  // 저장 요청 본문: 비율 칸을 건드렸을 때만 investRatioPct(숫자 또는 null=지움)를 싣는다. 안 건드렸으면 기존 저장값이 남는다.
+  function bodyWithRatio(snap, ratioState) {
+    var out = {};
+    for (var k in snap) { if (Object.prototype.hasOwnProperty.call(snap, k)) out[k] = snap[k]; }
+    if (ratioState && ratioState.dirty) out.investRatioPct = ratioState.value == null ? null : ratioState.value;
+    return JSON.stringify(out);
+  }
+
+  // GET /v2/api/params/current 응답에서 입장 모드의 저장된 비율(없으면 null)
+  function savedRatio(current, mode) {
+    if (!current || !current.exists || current.broken || !current.params) return null;
+    var key = String(mode).toUpperCase() === "LIVE" ? "invest_ratio_pct_live" : "invest_ratio_pct_test";
+    var v = current.params[key];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  }
+
   function saveMessage(status, body) {
     body = body || {};
     if (status === 200 && body.ok) {
@@ -192,6 +271,7 @@
         " · 이력 번호 " + body.history_id +
         " · " + (body.ticker || "종목 미상") + " · " + intervalText(body.interval);
     }
+    if (status === 400 && body.error === "invest_ratio_pct") return RATIO_RANGE_TEXT;
     if (status === 400) return "입력값 확인: " + (body.field || "요청 형식");
     if (status === 401) return GUIDE_TEXT;
     if (status === 403) return "권한 없음";
@@ -256,7 +336,11 @@
     symbolWarning: symbolWarning, floorWarning: floorWarning, preloadAll: preloadAll,
     runPlan: runPlan, runButtonDisabled: runButtonDisabled, runResultText: runResultText,
     controlPostText: controlPostText, pollResult: pollResult,
-    SWITCH_CONFIRM: SWITCH_CONFIRM, START_CONFIRM: START_CONFIRM, NO_RESPONSE_TEXT: NO_RESPONSE_TEXT,
+    RATIO_LABEL: RATIO_LABEL, RATIO_RANGE_TEXT: RATIO_RANGE_TEXT, ratioParse: ratioParse, ratioHint: ratioHint,
+    ratioEmptyNote: ratioEmptyNote, ratioPreview: ratioPreview, ratioPreviewText: ratioPreviewText,
+    bodyWithRatio: bodyWithRatio, savedRatio: savedRatio,
+    SWITCH_CONFIRM: SWITCH_CONFIRM, SWITCH_CONFIRM_LIVE: SWITCH_CONFIRM_LIVE, switchConfirmText: switchConfirmText,
+    START_CONFIRM: START_CONFIRM, NO_RESPONSE_TEXT: NO_RESPONSE_TEXT,
   };
 
   if (typeof document === "undefined") return;   // node 시험용
@@ -267,6 +351,10 @@
   var gate = makeGate();
   // 2차 T13: 「이 설정으로 동작」 상태
   var plan = "disabled", running = false, ran = false, lastSave = null;
+  // 1109: 투자 비율 칸(저장 창 안에서 만든다) · 입장 모드 · 마지막으로 읽은 원화(미리 보기용)
+  var ratioInput = null, ratioHintBox = null, ratioPreviewBox = null, ratioErrBox = null;
+  var ratioState = { dirty: false, value: null };
+  var entryMode = "", lastKrw = null, lastNote = "";
 
   function setMsg(text) { msgBox.textContent = text; }
 
@@ -330,7 +418,71 @@
     return span;
   }
 
+  // ---- 1109: 투자 비율 칸 ----
+  function buildRatioField() {
+    var wrap = document.createElement("div");
+    wrap.id = "saveRatioWrap";
+    wrap.style.cssText = "margin:10px 0";
+    var lab = document.createElement("label");
+    lab.setAttribute("for", "saveRatio");
+    lab.style.cssText = "display:block;font-weight:bold;margin-bottom:4px";
+    lab.textContent = RATIO_LABEL;
+    ratioInput = document.createElement("input");
+    ratioInput.id = "saveRatio";
+    ratioInput.type = "number";
+    ratioInput.step = "0.1";
+    ratioInput.min = "0.1";
+    ratioInput.max = "100";
+    ratioInput.setAttribute("inputmode", "decimal");
+    ratioInput.style.cssText = "width:100%;box-sizing:border-box;padding:8px;font-size:16px;border:1px solid var(--line);" +
+      "border-radius:8px;background:var(--card);color:var(--fg)";
+    ratioHintBox = document.createElement("div");
+    ratioHintBox.className = "small";
+    ratioPreviewBox = document.createElement("div");
+    ratioPreviewBox.className = "small";
+    ratioPreviewBox.style.wordBreak = "break-word";
+    ratioErrBox = document.createElement("div");
+    ratioErrBox.className = "small";
+    ratioErrBox.style.cssText = "color:#dc2626;word-break:break-word";
+    wrap.appendChild(lab);
+    wrap.appendChild(ratioInput);
+    wrap.appendChild(ratioHintBox);
+    wrap.appendChild(ratioPreviewBox);
+    wrap.appendChild(ratioErrBox);
+    msgBox.parentNode.insertBefore(wrap, msgBox);
+    ratioInput.addEventListener("input", function () {
+      ratioState.dirty = true;
+      refreshRatio();
+    });
+  }
+
+  function currentMaxSplits() {
+    var p = snapshot && snapshot.params;
+    return p ? p.maxSplits : null;
+  }
+
+  // 입력 → 해석 + 안내·미리 보기·적용 단추 옆 안내(칸이 비면 실계좌 경고)
+  function refreshRatio() {
+    if (!ratioInput) return;
+    var parsed = ratioParse(ratioInput.value);
+    ratioErrBox.textContent = parsed.ok ? "" : parsed.text;
+    ratioState.value = parsed.ok ? parsed.value : null;
+    ratioHintBox.textContent = ratioHint(entryMode);
+    ratioPreviewBox.textContent = parsed.ok ? ratioPreviewText({
+      krw: lastKrw, ratio: parsed.value, maxSplits: currentMaxSplits(), mode: entryMode }) : "";
+    var note = parsed.ok && parsed.value == null ? ratioEmptyNote(entryMode) : "";
+    runNoteBox.textContent = runNote(snapshot ? snapshot.source : "") + (note ? " " + note : "");
+    lastNote = note;
+  }
+
   function render(status, assets, current, basic) {
+    entryMode = String(status.mode_entry || status.mode_engine || "").toUpperCase();
+    lastKrw = assets && assets.krw != null ? Number(assets.krw) : null;
+    if (ratioInput && !ratioState.dirty) {
+      var sv = savedRatio(current, entryMode);
+      ratioInput.value = sv == null ? "" : String(sv);
+    }
+    refreshRatio();
     infoBox.textContent = "";
     var rows = stateRows(status, assets, basic, status.ticker);
     for (var i = 0; i < rows.length; i++) addKv(rows[i][0], rows[i][1]);
@@ -360,6 +512,8 @@
     var g = gate.next();
     // 창을 여는 순간의 25개 값을 한 번 모은다(닫았다 다시 열면 새로 모음)
     snapshot = makeSnapshot(function (id) { return document.getElementById(id); });
+    ratioState = { dirty: false, value: null };          // 창을 열 때마다 저장된 값을 다시 읽는다
+    if (ratioInput) { ratioInput.value = ""; ratioErrBox.textContent = ""; ratioPreviewBox.textContent = ""; }
     dialog.hidden = false;
     testedBox.textContent = testedText(snapshot);
     runBtn.textContent = runBtnLabel(snapshot.source);
@@ -410,16 +564,19 @@
   function doSave() {
     if (saved && lastSave) return Promise.resolve(lastSave);
     if (saving || !preloaded || !hasTicker || saved || !snapshot) return Promise.resolve(null);
+    // 1109: 투자 비율 칸이 형식에 맞지 않으면 보내지 않는다(서버도 같은 규칙으로 400 을 돌려준다)
+    var rp = ratioInput ? ratioParse(ratioInput.value) : { ok: true, value: null };
+    if (!rp.ok) { setMsg(rp.text); return Promise.resolve(null); }
     saving = true;
     refreshButton();
     setMsg("저장 중…");
-    var status = 0;   // 보내는 본문은 창을 열 때 모은 스냅샷 그대로
+    var status = 0;   // 25개 값은 창을 열 때 모은 스냅샷 그대로(투자 비율은 칸을 건드렸을 때만 더한다)
     var out = null;
     return fetch("/v2/api/params/save", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
-      body: snapshotBody(snapshot),
+      body: bodyWithRatio(snapshot, { dirty: ratioState.dirty, value: rp.value }),
     }).then(function (r) {
       status = r.status;
       return r.json().catch(function () { return {}; });
@@ -427,6 +584,7 @@
       setMsg(saveMessage(status, body));
       if (status === 200 && body.ok) {
         saved = true;   // 창을 닫을 때까지 다시 저장하지 못하게 한다(이력 중복 방지)
+        ratioState.dirty = false;   // 입력한 비율은 저장됐다(창 안의 값은 그대로 보인다)
         lastSave = body;
         out = body;
         updateLastSaved(body);
@@ -486,7 +644,7 @@
     doSave().then(function (save) {
       if (!save || !save.saved_sha256) return null;
       if (plan === "switch") {
-        if (!window.confirm(SWITCH_CONFIRM)) { setMsg("저장만 했습니다. 전환하지 않았습니다."); return null; }
+        if (!window.confirm(switchConfirmText(entryMode))) { setMsg("저장만 했습니다. 전환하지 않았습니다."); return null; }
         return sendControl("switch", { saved_sha256: save.saved_sha256 });
       }
       if (plan === "ask_start") {
@@ -522,6 +680,7 @@
     runNoteBox = document.getElementById("saveRunNote");
     if (!openBtn || !dialog || !infoBox || !msgBox || !doBtn || !closeBtn ||
         !testedBox || !runBtn || !runNoteBox) return;
+    buildRatioField();
     openBtn.addEventListener("click", openDialog);
     closeBtn.addEventListener("click", closeDialog);
     doBtn.addEventListener("click", function () { doSave(); });

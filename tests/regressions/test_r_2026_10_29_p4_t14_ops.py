@@ -131,10 +131,11 @@ class TestOpsSettings(OpsCase):
         self.assertEqual([p for p in os.listdir(".") if p.endswith(".tmp")], [])
         pbp.validate(json.loads(a.read_bytes()))
 
-    def test_ops_live_rejected_no_touch(self):
+    def test_ops_live_request_on_test_marker_rejected_no_touch(self):
+        """1109: 실계좌 운용 설정도 활성 눌림목의 모드 표식이 TEST(없음)이면 mode_marker_mismatch — 적용본 무변경."""
         before = self.applied_bytes()
         r = self.ops(mode="LIVE")
-        self.assertEqual((r["status"], r["code"]), ("rejected", "apply_live_not_supported"))
+        self.assertEqual((r["status"], r["code"]), ("rejected", "mode_marker_mismatch"))
         self.assertEqual(self.applied_bytes(), before)
         self.assertEqual(self.params_rows(), [])
 
@@ -294,9 +295,10 @@ class TestInstallFixedTexts(unittest.TestCase):
     def test_fixed_files_unchanged_since_t12(self):
         """바이트 고정 8개는 T12 커밋과 같다. core/strategy_pullback.py 는 1029-09 부터 AST 비교
         (tests/regressions/test_r_2026_10_30_1029_09_off_hours_tp.TestPullbackRulesFixed, 기준 PULLBACK_RULES_BASE_COMMIT)."""
+        # 1109: 공용 파일 5개는 바이트 대신 EMA 경로 구문(AST) 비교로 바뀌었다 — tests/regressions/ema_path_compare.py 머리말
+        from tests.regressions import ema_path_compare as epc
         for rel in FIXED_FILES:
-            base = bc.git_show(rel, bc.FIXED_FILES_COMMIT)
-            self.assertEqual((ROOT / rel).read_text(encoding="utf-8"), base, rel)
+            epc.assert_unchanged(self, rel, bc.FIXED_FILES_COMMIT)
 
     def test_applied_writers_allowlist(self):
         """적용본을 쓰는 함수(apply_saved·apply_ops_keys)를 부르는 곳은 정해진 파일만."""
@@ -335,7 +337,7 @@ class TestInstallFixedTexts(unittest.TestCase):
 
     def test_investor_texts_have_no_internal_names(self):
         """이번에 쓰는 결과 문구(엔진 CODE_TEXT)에 내부 코드·표 이름이 없다."""
-        for code in ("apply_live_not_supported", "already_reserved", "apply_not_pullback", "params_missing",
+        for code in ("mode_marker_mismatch", "already_reserved", "apply_not_pullback", "params_missing",
                      "bad_request", "mode_conflict", "apply_failed"):
             text = cr.CODE_TEXT[code]
             self.assertIsNone(re.search(r"[A-Za-z_]{4,}", text.replace("LIVE", "").replace("TEST", "")), (code, text))

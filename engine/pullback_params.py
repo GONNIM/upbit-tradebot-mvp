@@ -52,6 +52,34 @@ OPTIONAL_KEYS = {
     "allow_sell_during_off_hours": True,
 }
 
+# 1109 작업 C: 눌림목 전용 「투자 비율(%)」 선택 키 2개(모의·실계좌 따로). 없으면 키 자체가 없다(None 은 없음과 같다).
+# 24키·거래 시간 4키(OPTIONAL_KEYS)와 따로 둔다 — 값은 0.1~100, 소수 첫째 자리까지. 엔진 cfg 에는 싣지 않고
+# 엔진이 새 거래 1회차마다 invest_ratio_for(user, mode) 로 직접 읽는다.
+RATIO_KEYS = ("invest_ratio_pct_live", "invest_ratio_pct_test")
+RATIO_MIN, RATIO_MAX = 0.1, 100.0
+
+
+def valid_ratio(v):
+    """None 이면 None. 0.1~100 의 소수 첫째 자리 이하 실수면 float. 그 밖은 ValueError."""
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError("ratio")
+    try:
+        f = float(v)
+    except (OverflowError, ValueError):
+        raise ValueError("ratio")
+    if not math.isfinite(f) or f < RATIO_MIN or f > RATIO_MAX:
+        raise ValueError("ratio")
+    if abs(f * 10 - round(f * 10)) > 1e-9:
+        raise ValueError("ratio")
+    return round(f, 1)
+
+
+def ratio_key(mode: str) -> str:
+    return "invest_ratio_pct_live" if mode == "LIVE" else "invest_ratio_pct_test"
+
+
 # v2/params_schema.py PARAM_FIELDS·SERVER_EXTRA_LIMITS·INTEGER_FIELDS 와 같은 값 (시험이 비교)
 RANGES = {
     "ma60p": (2, 500),
@@ -197,7 +225,7 @@ def validate(d: dict, *, user_id: str | None = None) -> dict:
     if not isinstance(d, dict):
         raise PullbackParamsError("type")
     d, dropped = _migrate_legacy(d)
-    allowed = set(PULLBACK_KEYS) | set(OPTIONAL_KEYS)
+    allowed = set(PULLBACK_KEYS) | set(OPTIONAL_KEYS) | set(RATIO_KEYS)
     for k in PULLBACK_KEYS:
         if k not in d:
             raise PullbackParamsError(k)
@@ -252,9 +280,19 @@ def validate(d: dict, *, user_id: str | None = None) -> dict:
             raise PullbackParamsError(k)
         out[k] = v
 
+    # 1109 작업 C: 투자 비율 선택 키(있을 때만 결과에 넣는다 — 없으면 옛 코드가 읽는 모양과 같다)
+    for k in RATIO_KEYS:
+        if k in d:
+            try:
+                r = valid_ratio(d[k])
+            except ValueError:
+                raise PullbackParamsError(k)
+            if r is not None:
+                out[k] = r
+
     _notify_legacy(user_id, dropped)
-    # 키 순서: 24키 -> 선택 4키
-    return {k: out[k] for k in (*PULLBACK_KEYS, *OPTIONAL_KEYS)}
+    # 키 순서: 24키 -> 선택 4키 -> (있으면) 투자 비율 키
+    return {k: out[k] for k in (*PULLBACK_KEYS, *OPTIONAL_KEYS, *(k for k in RATIO_KEYS if k in out))}
 
 
 def _reason_of(e: PullbackParamsError) -> str:
@@ -365,14 +403,31 @@ def _verify_applied(user_id: str, expected: bytes) -> dict:
     return validate(_parse_bytes(data))
 
 
-def check_saved_for_switch(user_id: str) -> str:
-    """전환·적용 요청용: 저장본이 0바이트·깨짐·검증 실패면 "saved_invalid". 통과하면 저장본 sha256."""
+def check_saved_for_switch(user_id: str, mode: str | None = None) -> str:
+    """전환·적용 요청용: 저장본이 0바이트·깨짐·검증 실패면 "saved_invalid". 통과하면 저장본 sha256.
+    1109 작업 C: mode=="LIVE" 이고 저장본에 invest_ratio_pct_live 가 없으면 PullbackParamsError("invest_ratio_pct_live")
+    (전환 요청이 live_ratio_missing 으로 거절). 기본 None 은 지금 동작(비율 검사 없음)."""
     try:
         data = _read_bytes(saved_path(user_id))
-        validate(_parse_bytes(data))
+        validated = validate(_parse_bytes(data))
     except PullbackParamsError:
         raise PullbackParamsError("saved_invalid")
+    if mode == "LIVE" and validated.get("invest_ratio_pct_live") is None:
+        raise PullbackParamsError("invest_ratio_pct_live")
     return hashlib.sha256(data).hexdigest()
+
+
+def invest_ratio_for(user_id: str, mode: str):
+    """엔진이 새 거래 1회차마다 읽는 투자 비율(%) — 적용본, 읽을 수 없으면 저장본. 없으면 None.
+    모드에 맞는 키만 읽는다(모의에 넣은 값이 실계좌에 새지 않는다)."""
+    key = ratio_key(mode)
+    for path in (applied_path(user_id), saved_path(user_id)):
+        try:
+            d = _load_valid(path)
+        except PullbackParamsError:
+            continue
+        return d.get(key)
+    return None
 
 
 def apply_saved(user_id: str, expected_sha: str) -> dict:
@@ -470,8 +525,15 @@ def required_bars(d: dict) -> int:
     return max(d["ma60p"], d["ma200p"], d["pullbackP"]) + d["slopeLB"] * 2 + 10
 
 
-def to_live_params(d: dict, capital_krw: float) -> LiveParams:
-    """validate 를 통과한 dict(선택 4키 포함)를 LiveParams 로. 실패는 PullbackParamsError."""
+def to_live_params(d: dict, capital_krw, *, mode: str | None = None) -> LiveParams:
+    """validate 를 통과한 dict(선택 4키 포함)를 LiveParams 로. 실패는 PullbackParamsError.
+    1109 작업 C: mode=="LIVE" 이면 (a) 투자 비율 없음 → PullbackParamsError("invest_ratio_pct_live"),
+    (b) capital_krw 를 검사·사용하지 않고 cash=MIN_CASH(엔진이 가용 원화로 배분 기준을 따로 정함 — users.virtual_krw 불필요).
+    mode 기본 None = 지금 동작(비율 검사·치환 없음 — 저장·적용 경로의 형식 시험용)."""
+    if mode == "LIVE":
+        if d.get("invest_ratio_pct_live") is None:
+            raise PullbackParamsError("invest_ratio_pct_live")
+        capital_krw = MIN_CASH
     if isinstance(capital_krw, bool) or not isinstance(capital_krw, (int, float)):
         raise PullbackParamsError("capital_krw")
     try:

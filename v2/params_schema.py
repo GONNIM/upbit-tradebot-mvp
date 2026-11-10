@@ -59,6 +59,32 @@ _UPBIT_SYMBOL_RE = re.compile(r"^KRW-[A-Z]{1,15}$")
 # 2차 T13: 저장 때 지우지 않고 보존하는 선택 4키(거래 시간 — engine/pullback_params.OPTIONAL_KEYS 와 같은 이름·형식)
 OPTIONAL_KEYS = ("enable_trading_hours", "trading_start_time", "trading_end_time", "allow_sell_during_off_hours")
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+# 1109 작업 C: 눌림목 전용 투자 비율(%) 선택 키 — engine/pullback_params.RATIO_KEYS 와 같은 이름(시험이 비교).
+# 요청의 최상위 선택 필드 investRatioPct 로 받아 입장 모드의 키에만 쓴다. 25칸(PARAM_FIELDS)에는 넣지 않는다.
+RATIO_KEYS = ("invest_ratio_pct_live", "invest_ratio_pct_test")
+RATIO_MIN, RATIO_MAX = 0.1, 100.0
+
+
+def ratio_key(mode):
+    return "invest_ratio_pct_live" if mode == "LIVE" else "invest_ratio_pct_test"
+
+
+def valid_ratio(v):
+    """None → None. 0.1~100, 소수 첫째 자리 이하의 수 → float. 그 밖은 ValueError("invest_ratio_pct")
+    (engine/pullback_params.valid_ratio 와 같은 규칙 — 시험이 같은 입력으로 비교)."""
+    if v is None:
+        return None
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        raise ValueError("invest_ratio_pct")
+    try:
+        f = float(v)
+    except (OverflowError, ValueError):
+        raise ValueError("invest_ratio_pct")
+    if not math.isfinite(f) or f < RATIO_MIN or f > RATIO_MAX or abs(f * 10 - round(f * 10)) > 1e-9:
+        raise ValueError("invest_ratio_pct")
+    return round(f, 1)
+
+
 _INTERVAL = {"1m": "minute1", "3m": "minute3", "5m": "minute5", "10m": "minute10", "15m": "minute15",
              "30m": "minute30", "1h": "minute60"}
 _YES_NO = {"yes": True, "no": False}
@@ -130,6 +156,14 @@ def keep_optional(file_dict, old):
                 out[k] = v
         elif isinstance(v, str) and _HHMM_RE.fullmatch(v):
             out[k] = v
+    for k in RATIO_KEYS:     # 1109 작업 C: 투자 비율(모의·실계좌 따로)도 저장 때 지우지 않고 보존(형식이 맞을 때만)
+        if k in old:
+            try:
+                r = valid_ratio(old[k])
+            except ValueError:
+                continue
+            if r is not None:
+                out[k] = r
     return out
 
 

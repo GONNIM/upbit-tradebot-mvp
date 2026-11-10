@@ -130,6 +130,11 @@ PULLBACK_SKIP_CAUSE: dict[str, str] = {
     "split_krw_unknown": "원화 잔고 조회 실패",
     "split_no_capital": "운용 금액 없음",
     "split_unconfirmed_bar": "봉 마감 확인 전",
+    # 1109 눌림목 실계좌 열기
+    "split_no_ratio": "투자 비율 없음",
+    "split_krw_timeout": "원화 잔고 조회 시간 초과",
+    "split_no_base": "이번 거래 배분 기준 없음",
+    "split_order_uncertain": "주문 결과 불확실",
 }
 
 # 지갑 대조(PULLBACK_SYNC) 사유 코드 → 화면 문구

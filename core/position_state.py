@@ -76,7 +76,7 @@ class PositionState:
         """내부 캐시 설정 (open_position, close_position에서 사용)"""
         self._has_position = value
 
-    def sync_from_wallet(self) -> bool:
+    def sync_from_wallet(self, *, wallet_qty: Optional[float] = None) -> bool:
         """
         ✅ 실제 지갑/DB 잔고로부터 포지션 상태 동기화
         ✅ Issue #17: metadata (hts_buy 플래그) 포함
@@ -98,7 +98,12 @@ class PositionState:
 
         try:
             # trader._coin_balance()는 test_mode에 따라 DB 또는 Upbit API 호출
-            actual_balance = float(self.trader._coin_balance(self.ticker))
+            # 1109 작업 D: wallet_qty 가 주어지면(눌림목 실계좌 — 봉 처음에 한 번 읽어 성공한 값) 다시 읽지 않는다.
+            #   기본 None 은 지금 동작(EMA·MACD 경로 무변경). 두 번째 읽기가 실패(0.0)해 has_position 이 뒤집히는 일을 막는다.
+            if wallet_qty is not None:
+                actual_balance = float(wallet_qty)
+            else:
+                actual_balance = float(self.trader._coin_balance(self.ticker))
             actual_has_position = actual_balance >= 1e-6
 
             # ✅ 내부 캐시 업데이트

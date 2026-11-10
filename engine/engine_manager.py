@@ -78,33 +78,39 @@ def _pullback_holding_hint(user_id: str) -> bool:
         return True
 
 
-def _pullback_boot_params(user_id: str):
+def _pullback_boot_params(user_id: str, mode: str = "TEST"):
     """2차 T5: PULLBACK 기동 설정. (LiveParams, 적용본 dict) 또는 거부 시 (None, None).
     - load_for_boot: 경우별 표 1~11 (사본 대체·없음 CRITICAL 은 로더가 보낸다)
     - to_live_params(cfg, 운용자산 users.virtual_krw): 실패(PullbackParamsError — 운용자산 없음 등)는
-      경우 9·10 과 같은 거부 + CRITICAL (T2 넘김 ③ — 잡지 않으면 거부 절차 없이 죽음)"""
+      경우 9·10 과 같은 거부 + CRITICAL (T2 넘김 ③ — 잡지 않으면 거부 절차 없이 죽음)
+    - 1109 작업 C: 실계좌(LIVE)는 users.virtual_krw 를 쓰지 않고(엔진이 가용 원화로 배분 기준을 따로 정함),
+      투자 비율이 없으면 기동 거부 + CRITICAL(「실계좌 투자 비율이 정해지지 않아 새 전략을 시작하지 않았습니다」)."""
     from engine import pullback_params as pbp
     holding = _pullback_holding_hint(user_id)
     cfg, source = pbp.load_for_boot(user_id, holding=holding)
     if cfg is None:
         return None, None
+    capital = None
+    if mode != "LIVE":
+        try:
+            from services.db import get_initial_krw
+            capital = get_initial_krw(user_id)
+        except Exception as e:
+            logger.error(f"[PULLBACK-PARAMS] 운용자산 조회 실패 | {type(e).__name__}")
+            capital = None
     try:
-        from services.db import get_initial_krw
-        capital = get_initial_krw(user_id)
-    except Exception as e:
-        logger.error(f"[PULLBACK-PARAMS] 운용자산 조회 실패 | {type(e).__name__}")
-        capital = None
-    try:
-        params = pbp.to_live_params(cfg, capital)
+        params = pbp.to_live_params(cfg, capital, mode=mode)
     except pbp.PullbackParamsError as e:
         logger.error(f"[PULLBACK-PARAMS] LiveParams 변환 실패 field={e.field} user={user_id} holding={holding}")
-        title = ("보유 중 새 전략 설정 변환 실패 — 운영자 확인 필요" if holding
-                 else "새 전략 설정을 엔진 값으로 바꾸지 못했습니다 — 운용자산·설정을 확인해 주세요")
-        pbp._notify_critical(
-            title,
-            f"PULLBACK 기동을 거부했습니다 (변환 실패: {e.field}, 설정 출처: {source}).",
-            f"pullback_live_params:{user_id}:{int(bool(holding))}",
-        )
+        if e.field == "invest_ratio_pct_live":
+            title = "실계좌 투자 비율이 정해지지 않아 새 전략을 시작하지 않았습니다"
+            body = ("신버전 백테스터의 「설정 저장 확인」 창에서 투자 비율(%)을 저장한 뒤 「이 설정으로 동작」을 눌러 주세요. "
+                    "보유 중이면 업비트 앱에서 직접 매도하실 수 있습니다.")
+        else:
+            title = ("보유 중 새 전략 설정 변환 실패 — 운영자 확인 필요" if holding
+                     else "새 전략 설정을 엔진 값으로 바꾸지 못했습니다 — 운용자산·설정을 확인해 주세요")
+            body = f"PULLBACK 기동을 거부했습니다 (변환 실패: {e.field}, 설정 출처: {source})."
+        pbp._notify_critical(title, body, f"pullback_live_params:{user_id}:{int(bool(holding))}")
         return None, None
     logger.info(f"[PULLBACK-PARAMS] 기동 설정 | source={source} ticker={params.ticker} interval={params.interval} "
                 f"cash={params.cash} order_ratio={params.order_ratio:.4f}")
@@ -652,23 +658,26 @@ class EngineManager:
             # (load_for_boot → to_live_params)로 읽고, 설정이 없거나 LiveParams 변환이 실패하면 trader 를 만들기
             # 전에 거부 + CRITICAL(로더·이 함수) + ERROR 로그. 거부 시 start_engine False·boot_resume 실패 판정은 T11.
             pullback_cfg = None
-            if strategy_type == "PULLBACK" and not test_mode:
-                # 검수 반영(10/28): LIVE 는 분할 체결 수량·평단 반영(T6) 전 거부 — 실제 키 trader 를 만들기 전에
-                from engine import pullback_params as _pbp
-                from engine.live_loop import PULLBACK_LIVE_REFUSE_MSG
-                msg = f"[PULLBACK-PARAMS] {PULLBACK_LIVE_REFUSE_MSG} → 기동 거부 | user_id={user_id}"
-                logger.error(msg)
-                insert_log(user_id, "ERROR", msg)
-                _pbp._notify_critical(
-                    f"새 전략 기동 거부 — {PULLBACK_LIVE_REFUSE_MSG}",
-                    ("새 전략은 아직 실계좌에서 시작하지 않습니다. 분할 체결 반영 작업이 끝난 뒤에 엽니다.\n"
-                     "지금 실계좌 매매는 시작되지 않았습니다. 운영자가 확인합니다.\n"
-                     "투자자님이 따로 하실 일은 없습니다."),
-                    f"pullback_live_refused:{user_id}",
-                )
-                return
             if strategy_type == "PULLBACK":
-                params, pullback_cfg = _pullback_boot_params(user_id)
+                # 1109 작업 A: 부팅 모드가 모드 표식과 같을 때만 기동(실제 키 trader 를 만들기 전에).
+                #   표식 없음 = TEST(모의 사용자 기동을 막지 않음), 표식 이상 + 실계좌 = 거부 + CRITICAL.
+                from engine import pullback_params as _pbp
+                from engine.active_mode import pullback_boot_allowed, PULLBACK_MODE_REFUSE_MSG
+                _allowed, _why_code = pullback_boot_allowed(user_id, "TEST" if test_mode else "LIVE", engine_is_pullback=True)
+                if not _allowed:
+                    msg = (f"[PULLBACK-PARAMS] {PULLBACK_MODE_REFUSE_MSG} → 기동 거부 | user_id={user_id} "
+                           f"mode={'TEST' if test_mode else 'LIVE'} code={_why_code}")
+                    logger.critical(msg)
+                    insert_log(user_id, "ERROR", msg)
+                    _pbp._notify_critical(
+                        f"새 전략 기동 거부 — {PULLBACK_MODE_REFUSE_MSG}",
+                        ("이 계정의 새 전략이 다른 모드(모의/실계좌)에서 켜졌거나 모드 표식을 읽지 못해 "
+                         "이 모드의 매매를 시작하지 않았습니다.\n"
+                         "보유 중이면 업비트 앱에서 직접 확인·매도하실 수 있습니다. 운영자가 확인합니다."),
+                        f"pullback_mode_refused:{user_id}",
+                    )
+                    return
+                params, pullback_cfg = _pullback_boot_params(user_id, "TEST" if test_mode else "LIVE")
                 if params is None:
                     msg = f"[PULLBACK-PARAMS] 새 전략 설정 없음·변환 실패 → 기동 거부 | user_id={user_id}"
                     logger.error(msg)

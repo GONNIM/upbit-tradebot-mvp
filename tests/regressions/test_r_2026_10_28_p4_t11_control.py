@@ -811,6 +811,7 @@ class TestPullbackForceBuy(T6Case):
         eng.strategy.trade_origin = "live"
         eng._pending_split = {"uuid": "L0", "round": 1, "per_buy": 600_000, "bar": eng.bar_count, "bar_ts": bar(0).ts,
                               "base_qty": 0.0, "base_cost": 0.0, "reason": "PULLBACK"}
+        eng._pullback_sizing_base = 3_000_000       # 1109: 실계좌는 1회차에서 정한 배분 기준이 있어야 2회차를 산다(다시 계산하지 않음)
         trader.coin = 10.0
         eng._on_limit_fill(uuid="L0", executed_price=60_000.0, executed_qty=10.0, executed_ts=bar(0).ts)
         ec.attach(eng, USER, threading.Event())
@@ -1128,6 +1129,8 @@ class TestReadyOrder(InTmpCwd):
 
 # ================================================================ PULLBACK LIVE 기동 거부 유지
 class TestLiveRefusalKept(InTmpCwd):
+    """1109: 「실계좌 늘 거부」는 「모드 표식과 부팅 모드가 다르면 거부」로 바뀌었다(표식 없음 = TEST → 실계좌 부팅 거부)."""
+
     def test_engine_manager_refuses_pullback_live_even_with_override(self):
         Path(f"{USER}_active_strategy.txt").write_text("EMA")
         em_cls = engine_manager.EngineManager
@@ -1142,7 +1145,7 @@ class TestLiveRefusalKept(InTmpCwd):
         self.assertNotIn("run", got)
         crit = [c for c in self.notify.call_args_list if c.args[0] == "CRITICAL"]
         self.assertTrue(crit)
-        self.assertIn(live_loop.PULLBACK_LIVE_REFUSE_MSG, crit[0].args[1])
+        self.assertIn(live_loop.PULLBACK_MODE_REFUSE_MSG, crit[0].args[1])
 
     def test_live_loop_refuses_pullback_live(self):
         params = pbp.to_live_params(cfg(), 1_000_000)
@@ -1243,7 +1246,9 @@ class TestEmaBaseline(unittest.TestCase):
 
     def test_strategy_engine_non_pullback_unchanged(self):
         rel = "core/strategy_engine.py"
-        skip = {self.STALE_CLOCK[rel]}
+        # 1109: _reconcile_position_with_wallet 는 선택 인자(wallet_qty, 기본 None = 옛 읽기)만 더했다 — EMA 호출 흔적은
+        # test_r_2026_11_09_ema_trace 가 따로 비교한다
+        skip = {self.STALE_CLOCK[rel], "_reconcile_position_with_wallet"}
         self.assertEqual(_funcs((ROOT / rel).read_text(encoding="utf-8"), skip), _funcs(self.base(rel), skip))
         self._stale_clock_same_as_fixed(rel)
 
@@ -1264,9 +1269,13 @@ class TestEmaBaseline(unittest.TestCase):
         self._stale_clock_same_as_fixed(rel)
 
     def test_untouched_ema_files_same_as_base(self):
-        for rel in ("engine/boot_resume.py", "services/trading_control.py", "core/trader.py",
-                    "core/strategy_incremental.py", "core/position_state.py"):
+        for rel in ("engine/boot_resume.py", "services/trading_control.py", "core/strategy_incremental.py"):
             self.assertEqual((ROOT / rel).read_text(encoding="utf-8"), self.base(rel), rel)
+        # 1109: core/trader.py·core/position_state.py 는 눌림목 실계좌용 선택 분기만 더했다 — 바이트 대신 EMA 경로 구문(AST) 비교
+        # (tests/regressions/ema_path_compare.py 머리말 · EMA 호출 흔적은 test_r_2026_11_09_ema_trace)
+        from tests.regressions import ema_path_compare as epc
+        for rel in ("core/trader.py", "core/position_state.py"):
+            self.assertEqual(epc.ema_path_diff(rel, self.base(rel), (ROOT / rel).read_text(encoding="utf-8")), [], rel)
 
     def test_order_reconciler_only_register_user_changed(self):
         """1029-12 (D4): order_reconciler.py 는 register_user(TEST 분기에서 unregister_user)만 일부러 고쳤다.

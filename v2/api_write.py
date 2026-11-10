@@ -60,6 +60,15 @@ class SaveHandler(ApiHandler):
         except ValueError as e:
             return self.send_json({"error": "invalid_param", "field": str(e)}, 400)
 
+        # 2-1. 1109 작업 C: 눌림목 전용 투자 비율(%) — 선택 필드. 없으면 기존 저장값 보존, null 이면 입장 모드 칸만 지움
+        ratio_given = isinstance(req, dict) and "investRatioPct" in req
+        ratio = None
+        if ratio_given:
+            try:
+                ratio = params_schema.valid_ratio(req.get("investRatioPct"))
+            except ValueError:
+                return self.send_json({"error": "invest_ratio_pct"}, 400)
+
         # 3. 엔진 종목
         ticker = self._engine_ticker(user)
         if ticker is None:
@@ -85,6 +94,12 @@ class SaveHandler(ApiHandler):
             file_dict = params_schema.keep_optional(file_dict, json.loads(old))
         except ValueError:
             pass
+        if ratio_given:      # 입장 모드의 키만 바꾼다(다른 모드 키는 keep_optional 이 보존한 값 그대로)
+            rkey = params_schema.ratio_key(self.current_user["mode"])
+            if ratio is None:
+                file_dict.pop(rkey, None)
+            else:
+                file_dict[rkey] = ratio
         new_text = json.dumps(file_dict, ensure_ascii=False, indent=2) + "\n"
         try:
             _write_in_place(path, new_text)
@@ -228,9 +243,7 @@ class ControlHandler(ApiHandler):
             if keys is None or set(payload) != {"keys"}:
                 return self.send_json({"error": "bad_request"}, 400)
             # fix 1 (PO 결정 2·3): 저장본 4키 맞춤은 새 전략 운용 중 + 그 모드 예약 없음일 때만. 아니면 요청도 쓰지 않는다.
-            # 실계좌(LIVE)는 엔진이 거절하므로 저장본만 바뀌지 않게 여기서 먼저 막는다.
-            if u["mode"] == "LIVE":
-                return self.send_json({"error": "live_not_supported"}, 409)
+            # 1109: 실계좌(LIVE)도 이제 열렸다 — 엔진이 모드 표식·모드 충돌을 판정한다(여기서 먼저 막지 않음).
             active, _mt = db.active_strategy(u["user_id"])
             if active != "PULLBACK":
                 return self.send_json({"error": "not_pullback"}, 409)

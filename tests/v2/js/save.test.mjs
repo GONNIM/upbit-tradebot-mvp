@@ -268,7 +268,7 @@ test("T13 업비트 + EMA → 이 설정으로 동작 활성, 누르면 전환 �
   assert.equal(S.SWITCH_CONFIRM, "지금 보유분이 있으면 기존 방식으로 판 뒤 바뀝니다. 전환할까요?");
   const src = fs.readFileSync(SAVE_JS, "utf8");
   const run = src.slice(src.indexOf("function doRun("));
-  const a = run.indexOf("window.confirm(SWITCH_CONFIRM)");
+  const a = run.indexOf("window.confirm(switchConfirmText(entryMode))");
   const b = run.indexOf('sendControl("switch"');
   assert.ok(a > 0 && a < b, "전환 확인 창이 전환 요청보다 먼저");
 });
@@ -332,6 +332,87 @@ test("T13 결과 문구: 엔진 message 그대로, 응답 없음 60초, 요청 �
     () => Promise.resolve(), "x", 2000, 60000);
   assert.equal(r2.status, "done");
   assert.equal(m, 3);
+});
+
+// ---- 1109 작업 C·F: 눌림목 전용 「투자 비율(%)」 칸 ----
+test("투자 비율 입력 해석: 비움·범위·소수 첫째 자리", () => {
+  const S = load();
+  assert.deepEqual({ ...S.ratioParse("") }, { ok: true, value: null });
+  assert.deepEqual({ ...S.ratioParse("  ") }, { ok: true, value: null });
+  assert.deepEqual({ ...S.ratioParse("10") }, { ok: true, value: 10 });
+  assert.deepEqual({ ...S.ratioParse("0.1") }, { ok: true, value: 0.1 });
+  assert.deepEqual({ ...S.ratioParse("100") }, { ok: true, value: 100 });
+  assert.deepEqual({ ...S.ratioParse("12.5") }, { ok: true, value: 12.5 });
+  for (const bad of ["0", "0.05", "100.1", "-1", "abc", "5.25", "NaN", "1e2", "10%"]) {
+    assert.equal(S.ratioParse(bad).ok, false, bad);
+    assert.equal(S.ratioParse(bad).text, S.RATIO_RANGE_TEXT, bad);
+  }
+  assert.equal(S.RATIO_RANGE_TEXT, "투자 비율은 0.1~100 사이, 소수 첫째 자리까지 입력해 주세요");
+});
+
+test("1회 금액 미리 보기: 실계좌 = floor(원화×비율÷100÷(1+수수료))÷분할 횟수, 저장 창 문구", () => {
+  const S = load();
+  // 엔진(core/strategy_engine._pullback_new_trade_base)과 같은 식: 1,000,000 × 10% ÷ 1.0005 = 99,950 → ÷5 = 19,990
+  const p = S.ratioPreview({ krw: 1000000, ratio: 10, maxSplits: 5, mode: "LIVE" });
+  assert.equal(p.perBuy, 19990);
+  assert.equal(p.base, 99950);
+  assert.equal(p.belowMin, false);
+  assert.equal(S.ratioPreviewText({ krw: 1000000, ratio: 10, maxSplits: 5, mode: "LIVE" }),
+    "지금 원화 1,000,000원 · 비율 10% · 1회 금액 약 19,990원 (5회 분할)");
+  // 비율 100 · 분할 1회: 수수료 몫을 빼서 주문이 나가는 금액
+  assert.equal(S.ratioPreview({ krw: 1000000, ratio: 100, maxSplits: 1, mode: "LIVE" }).perBuy, 999500);
+  // 분할 횟수 0(골든크로스만) 은 1회로 본다
+  assert.equal(S.ratioPreview({ krw: 1000000, ratio: 10, maxSplits: 0, mode: "LIVE" }).perBuy, 99950);
+  // 5,000원 미만 경고
+  const low = S.ratioPreview({ krw: 100000, ratio: 1, maxSplits: 5, mode: "LIVE" });
+  assert.equal(low.belowMin, true);
+  assert.match(S.ratioPreviewText({ krw: 100000, ratio: 1, maxSplits: 5, mode: "LIVE" }), /5,000원보다 작아 주문을 건너뜁니다/);
+  // 모의: 운용자산 × 비율(수수료 몫 없음), 비율이 비면 100%
+  assert.equal(S.ratioPreview({ krw: 3000000, ratio: 50, maxSplits: 5, mode: "TEST" }).perBuy, 300000);
+  assert.equal(S.ratioPreview({ krw: 3000000, ratio: null, maxSplits: 5, mode: "TEST" }).perBuy, 600000);
+  // 실계좌 비율 비움 / 원화 모름 → 계산하지 않음
+  assert.equal(S.ratioPreview({ krw: 1000000, ratio: null, maxSplits: 5, mode: "LIVE" }), null);
+  assert.equal(S.ratioPreviewText({ krw: null, ratio: 10, maxSplits: 5, mode: "LIVE" }), "지금 원화를 읽지 못해 미리 보기를 계산하지 못했습니다");
+});
+
+test("투자 비율 칸 안내·실계좌 빈 칸 경고 문구", () => {
+  const S = load();
+  assert.equal(S.RATIO_LABEL, "투자 비율 (%)");
+  assert.equal(S.ratioHint("LIVE"), "새 거래 1회차 시작 때 가용 원화의 %");
+  assert.equal(S.ratioHint("TEST"), "새 거래 1회차 시작 때 운용자산의 % (비우면 100%)");
+  assert.equal(S.ratioEmptyNote("LIVE"), "실계좌는 투자 비율을 먼저 입력해야 「이 설정으로 동작」이 됩니다.");
+  assert.equal(S.ratioEmptyNote("TEST"), "");
+  for (const t of [S.RATIO_LABEL, S.ratioHint("LIVE"), S.ratioEmptyNote("LIVE"), S.RATIO_RANGE_TEXT]) {
+    assert.doesNotMatch(t, /[a-z]+_[a-z_]+|PULLBACK|invest_ratio/, t);
+  }
+});
+
+test("저장 요청 본문: 칸을 건드리지 않으면 investRatioPct 없음(저장값 보존), 건드렸으면 숫자 또는 null", () => {
+  const S = load();
+  const snap = { params: { symbol: "KRW-X" }, source: "upbit" };
+  assert.equal(S.snapshotBody(snap), JSON.stringify(snap));                       // 기존 함수 그대로
+  assert.deepEqual(JSON.parse(S.bodyWithRatio(snap, { dirty: false, value: 10 })), snap);
+  assert.deepEqual(JSON.parse(S.bodyWithRatio(snap, { dirty: true, value: 12.5 })), { ...snap, investRatioPct: 12.5 });
+  assert.deepEqual(JSON.parse(S.bodyWithRatio(snap, { dirty: true, value: null })), { ...snap, investRatioPct: null });
+  assert.deepEqual(JSON.parse(S.bodyWithRatio(snap, null)), snap);
+});
+
+test("저장된 비율 읽기: 입장 모드의 키만", () => {
+  const S = load();
+  const cur = { exists: true, broken: false, params: { invest_ratio_pct_live: 8, invest_ratio_pct_test: 40 } };
+  assert.equal(S.savedRatio(cur, "LIVE"), 8);
+  assert.equal(S.savedRatio(cur, "TEST"), 40);
+  assert.equal(S.savedRatio({ exists: true, params: {} }, "LIVE"), null);
+  assert.equal(S.savedRatio({ exists: false, params: null }, "LIVE"), null);
+  assert.equal(S.savedRatio({ exists: true, broken: true, params: { invest_ratio_pct_live: 8 } }, "LIVE"), null);
+});
+
+test("저장 창 전환 확인 문구: 실계좌는 예약 전제 문장 없음(1109 지적 5)", () => {
+  const S = load();
+  assert.equal(S.switchConfirmText("TEST"), S.SWITCH_CONFIRM);
+  assert.equal(S.switchConfirmText("LIVE"), S.SWITCH_CONFIRM_LIVE);
+  assert.doesNotMatch(S.SWITCH_CONFIRM_LIVE, /판 뒤 바뀝니다/);
+  assert.match(S.SWITCH_CONFIRM_LIVE, /예약도 없습니다/);
 });
 
 test("T13 투자자 문구에 내부 코드 없음", () => {

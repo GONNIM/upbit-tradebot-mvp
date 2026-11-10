@@ -395,18 +395,19 @@ test("운용 탭 연결(T14 fix 1): 일시정지는 pause API · 전환/예약 �
     await d.loadOps();
     assert.equal(d.opsView.forceSell.enabled, true);
     assert.equal(d.opsView.forceBuy.enabled, false);
-    // 실계좌(LIVE) 입장: 전환·복귀·운용 설정 저장 닫힘 + 안내 한 줄, 강제 매도·엔진 정지는 그대로
+    // 실계좌(LIVE) 입장: 1109 부터 전환·복귀·운용 설정 저장 단추가 모의와 같은 조건으로 열림 + 안내 한 줄(보유 중이면 매도 뒤 다시)
     assert.equal(d.opsLiveNote, "");
+    const testView = { switch: d.opsView.switch.enabled, revert: d.opsView.revert.enabled,
+      opsSave: d.opsView.opsSave.enabled };
     ops = { ...ops, mode: "LIVE" };
     await d.loadOps();
-    assert.equal(d.opsView.switch.enabled, false);
-    assert.equal(d.opsView.revert.enabled, false);
-    assert.equal(d.opsView.opsSave.enabled, false);
+    assert.equal(d.opsView.switch.enabled, testView.switch);
+    assert.equal(d.opsView.revert.enabled, testView.revert);
+    assert.equal(d.opsView.opsSave.enabled, testView.opsSave);
     assert.equal(d.opsView.forceSell.enabled, true);
     assert.equal(d.opsView.stop.enabled, true);
-    assert.equal(d.opsLiveNote, "실계좌(LIVE)에서는 아직 할 수 없습니다");
-    await d.opsAct("switch");
-    assert.equal(posts.length, 0);
+    assert.equal(d.opsLiveNote,
+      "실계좌에서는 보유 중이거나 미체결 주문이 있으면 전환·복귀가 되지 않습니다 — 매도 뒤 다시 눌러 주세요");
   } finally {
     globalThis.setTimeout = realST;
   }

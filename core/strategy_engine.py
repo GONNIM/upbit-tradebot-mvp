@@ -43,6 +43,19 @@ PULLBACK_MIN_ORDER_KRW = 5000
 #   · 지갑·분할 상태 수량 차이 허용 비율(최소 단위 0.1% — 넘으면 지갑 우선 + desync=1)
 PULLBACK_FILL_WAIT_BARS = 3
 PULLBACK_SYNC_TOL = 0.001
+# ✅ 1109 눌림목 실계좌 열기(작업 C·D): 업비트 잔고 조회 시간 상한(초). pyupbit 요청에는 시간 상한이 없어 엔진 락 안에서
+#   끝없이 기다릴 수 있다. 이 상한은 **이번에 새로 만든 조회**(봉당 지갑 읽기·배분 기준 원화·강제 매수 지갑·부팅 지갑)에만 걸린다 —
+#   봉마다 도는 다른 무제한 조회(_record_invariant_snapshot·평단 조회·buy_market 안 잔고 재조회)는 그대로다(다음 작업).
+#   시간 초과는 「조회 실패」와 같이 주문 없이 건너뛴다. 부팅 지갑 읽기 재시도: 대기 4×30초 + 읽기 5회×최대 8초 = 최대 약 160초
+#   (엔진 준비 대기 180초 안이지만 150초 목표는 넘을 수 있다).
+PULLBACK_QUERY_TIMEOUT_S = 8.0
+PULLBACK_BOOT_WALLET_RETRIES = 4
+PULLBACK_BOOT_WALLET_RETRY_SEC = 30.0
+PULLBACK_WALLET_FAIL_ALERT_BARS = 3     # 지갑 읽기가 이만큼 봉 연속 실패하면 CRITICAL 1회
+
+
+class PullbackBootWalletUnknown(RuntimeError):
+    """1109 작업 D: 눌림목 실계좌 재시작 때 업비트 지갑을 끝내 읽지 못했고 저장된 평단도 없다 — 엔진을 시작하지 않는다."""
 # ✅ 2차 T8: PULLBACK 매도 평가 감사 trigger_key (EMA·MACD 의 이름과 같은 꼴)
 PULLBACK_SELL_TRIGGER_KEY = {"TP": "Take Profit", "SL": "Stop Loss", "DEADCROSS": "Dead Cross"}
 NO_ACTION_TEXT = "투자자님이 따로 하실 일은 없습니다."  # 2차 T8: 새 전략 텔레그램 끝맺음(할 일이 없을 때)
@@ -275,6 +288,10 @@ class StrategyEngine:
     _pb_sl_streak: int = 0
     _pb_pause_start = None                 # tz 있는 pd.Timestamp(KST) — 손절 신호 봉 시각
     _pb_pause_end = None                   # 시작 + slStreakCooldownHours
+    # ✅ 1109 (작업 D): 눌림목 실계좌 지갑 읽기 — 봉당 1회 캐시 (봉 시각, 값 또는 None=읽기 실패), 연속 실패 봉 수·알림 표식
+    _pb_wallet_cache = None
+    _pb_wallet_fail_bars: int = 0
+    _pb_wallet_fail_alerted: bool = False
 
     def __init__(
         self,
@@ -695,7 +712,7 @@ class StrategyEngine:
         except Exception as e:
             logger.error(f"[POSITION-SYNC] 외부 매도 기록 실패: {e}")
 
-    def _reconcile_position_with_wallet(self) -> Optional[str]:
+    def _reconcile_position_with_wallet(self, *, wallet_qty: Optional[float] = None) -> Optional[str]:
         """
         지갑 잔고 기반 PositionState 동기화
 
@@ -707,8 +724,12 @@ class StrategyEngine:
             그 외 None. 기존 호출부는 반환값을 쓰지 않는다 (동작 무변경).
         """
         try:
-            # 1. 실제 지갑 잔고 조회
-            actual_balance = float(self.trader._coin_balance(self.ticker))
+            # 1. 실제 지갑 잔고 조회 (1109 작업 D: wallet_qty 가 주어지면 눌림목 실계좌가 봉 처음에 한 번 읽은 성공 값 — 다시 읽지 않는다.
+            #    기본 None 은 지금 동작이라 EMA·MACD 경로는 그대로 _coin_balance 를 부른다)
+            if wallet_qty is not None:
+                actual_balance = float(wallet_qty)
+            else:
+                actual_balance = float(self.trader._coin_balance(self.ticker))
             has_coins_in_wallet = actual_balance >= 1e-6
 
             # 2. 메모리 상태
@@ -1185,14 +1206,14 @@ class StrategyEngine:
             return
 
         with self._execution_lock:
-            self._reconcile_position_with_wallet()
+            self._pullback_reconcile(bar)     # 1109 작업 D: 실계좌는 봉당 지갑 1회 읽기(실패 봉은 건너뜀)
             self._pullback_wallet_check(bar)  # ✅ 2차 T6: 지갑 ↔ 분할 상태 대조(체결 대기·desync·지갑 0)
 
         self.buffer.append(bar)
         self.bar_count += 1
 
         with self._execution_lock:
-            self.position.sync_from_wallet()
+            self._pullback_sync_position(bar)
             self._record_invariant_snapshot(context="pre_eval_confirmed")
             if bar.ts in self._evaluated_bar_ts:
                 logger.info(f"[ENGINE] 봉당 매매 판단 1회 규칙 적용 (PULLBACK) | ts={bar.ts}")
@@ -1220,12 +1241,12 @@ class StrategyEngine:
             if getattr(self.pullback_indicators, "state_polluted", False):
                 self._pullback_notify_polluted()
 
-            self.position.sync_from_wallet()
+            self._pullback_sync_position(bar)
             self._record_pullback_audit(bar, action)
 
             self._pullback_buy_placed = False
             self._pullback_pending_set = False
-            self.position.sync_from_wallet()
+            self._pullback_sync_position(bar)
             ind = self._pullback_ind_dict()
             _raised = True
             try:
@@ -1495,6 +1516,194 @@ class StrategyEngine:
             else:
                 logger.error("[PULLBACK-PAUSE] 매도 봉 시각 없음 → 연속 손절 셈 건너뜀")
 
+    # ------------------------------------------------------------------
+    # 1109 눌림목 실계좌 열기 — 작업 D: 지갑 읽기 실패는 청산이 아니다
+    # ------------------------------------------------------------------
+    def _pullback_is_live(self) -> bool:
+        return not getattr(self.trader, "test_mode", True)
+
+    def _pullback_read_wallet_checked(self):
+        """(수량, 성공 여부). 실계좌는 trader.coin_balance_checked(읽기 실패를 0.0 으로 돌려주지 않음). 그 함수가 없는 대역은
+        _coin_balance 를 성공으로 본다."""
+        checked = getattr(self.trader, "coin_balance_checked", None)
+        try:
+            if callable(checked):
+                qty, ok = checked(self.ticker)
+                return float(qty or 0.0), bool(ok)
+            return float(self.trader._coin_balance(self.ticker) or 0.0), True
+        except Exception as e:
+            logger.warning(f"[PULLBACK-SYNC] 지갑 조회 예외: {type(e).__name__}: {e}")
+            return 0.0, False
+
+    def _pullback_bar_wallet(self, bar) -> Optional[float]:
+        """눌림목 봉 처리의 지갑 수량. None = 읽기 실패(호출부는 그 봉의 대조·청산·동기화를 건너뛴다).
+        모의(TEST)는 지금처럼 DB 값을 그대로 읽는다. 실계좌는 봉당 1회만 읽어 같은 봉의 대조·동기화가 같은 값을 쓴다
+        (두 번째 읽기가 실패해 has_position 이 뒤집히는 일을 막음)."""
+        if not self._pullback_is_live():
+            try:
+                return float(self.trader._coin_balance(self.ticker) or 0.0)
+            except Exception as e:
+                logger.warning(f"[PULLBACK-SYNC] 지갑 조회 실패 → 대조 건너뜀: {e}")
+                return None
+        key = getattr(bar, "ts", None)
+        cache = self._pb_wallet_cache
+        if cache is not None and cache[0] == key:
+            return cache[1]
+        qty, ok = self._pullback_read_wallet_checked()
+        value = qty if ok else None
+        self._pb_wallet_cache = (key, value)
+        self._pullback_note_wallet_result(ok)
+        return value
+
+    def _pullback_note_wallet_result(self, ok: bool) -> None:
+        """봉 단위 연속 실패 셈(봉당 읽기 1회). 3봉 연속 실패면 CRITICAL 1회(성공하면 셈·표식 초기화)."""
+        if ok:
+            self._pb_wallet_fail_bars = 0
+            self._pb_wallet_fail_alerted = False
+            return
+        self._pb_wallet_fail_bars = int(self._pb_wallet_fail_bars or 0) + 1
+        if self._pb_wallet_fail_bars >= PULLBACK_WALLET_FAIL_ALERT_BARS and not self._pb_wallet_fail_alerted:
+            self._pb_wallet_fail_alerted = True
+            logger.critical(f"🚨 [PULLBACK-SYNC] 지갑 읽기 {self._pb_wallet_fail_bars}봉 연속 실패 | user={self.user_id}")
+            try:
+                from services.notifier import send as _notify, LEVEL_CRITICAL
+                _notify(
+                    LEVEL_CRITICAL,
+                    f"🚨 업비트 지갑을 읽지 못하고 있습니다 — {self.ticker}",
+                    ("지갑을 읽지 못해 새 전략이 보유 수량을 확인하지 못했습니다. "
+                     "매도 판정(익절·손절·데드크로스)은 메모리 수량으로 계속합니다. "
+                     "급하면 업비트 앱에서 직접 매도하실 수 있습니다."),
+                    dedupe_key=f"pullback_wallet_unknown:{self.user_id}:{self.ticker}",
+                    dedupe_ttl=3600,
+                )
+            except Exception:
+                pass
+
+    def _pullback_reconcile(self, bar) -> None:
+        """봉 처음 포지션-지갑 동기화. 실계좌는 봉당 읽은 값을 넘기고(읽기 실패 봉은 건너뜀), 모의는 지금 그대로."""
+        if not self._pullback_is_live():
+            self._reconcile_position_with_wallet()
+            return
+        w = self._pullback_bar_wallet(bar)
+        if w is None:
+            return
+        self._reconcile_position_with_wallet(wallet_qty=w)
+
+    def _pullback_sync_position(self, bar) -> None:
+        if not self._pullback_is_live():
+            self.position.sync_from_wallet()          # 모의는 지갑을 보지 않고 바로 돌아온다(P-1) — 지금 그대로
+            return
+        w = self._pullback_bar_wallet(bar)
+        if w is None:
+            return                                    # 읽기 실패 봉: has_position 을 뒤집지 않는다
+        self.position.sync_from_wallet(wallet_qty=w)
+
+    def _pullback_boot_wait(self, sec: float) -> bool:
+        """재시도 사이 기다림. 정지 요청이 오면 바로 True(재시도 중단)."""
+        ev = getattr(self, "_control_stop_event", None)
+        if ev is not None:
+            return bool(ev.wait(sec))
+        import time as _t
+        _t.sleep(sec)
+        return False
+
+    def _pullback_boot_wallet(self):
+        """재시작 복원용 지갑 읽기: 첫 시도 + (실패하면) PULLBACK_BOOT_WALLET_RETRIES 번 재시도. (수량, 성공). 엔진 락을 쥐지 않는다."""
+        qty, ok = self._pullback_read_wallet_checked()
+        tries = 0
+        while not ok and tries < PULLBACK_BOOT_WALLET_RETRIES:
+            tries += 1
+            logger.warning(f"[PULLBACK-RESTORE] 지갑 읽기 실패 → {PULLBACK_BOOT_WALLET_RETRY_SEC:.0f}초 뒤 재시도 "
+                           f"({tries}/{PULLBACK_BOOT_WALLET_RETRIES})")
+            if self._pullback_boot_wait(PULLBACK_BOOT_WALLET_RETRY_SEC):
+                break
+            qty, ok = self._pullback_read_wallet_checked()
+        return qty, ok
+
+    def _pullback_notify_boot_wallet(self, *, started: bool) -> None:
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            if started:
+                title = f"🚨 재시작 뒤 업비트 지갑을 읽지 못했습니다 — {self.ticker}"
+                body = ("저장해 둔 보유 수량·평단으로 새 전략을 시작했습니다. 추가 분할 매수는 멈추고 익절·손절·데드크로스 "
+                        "매도는 계속합니다. 지갑을 다시 읽으면 수량을 맞춥니다. 급하면 업비트 앱에서 직접 매도하실 수 있습니다.")
+            else:
+                title = f"🚨 새 전략이 보유 수량을 읽지 못해 시작하지 않았습니다 — {self.ticker}"
+                body = ("재시작 뒤 업비트 지갑을 끝내 읽지 못했고 저장된 평단도 없어 새 전략을 시작하지 않았습니다. "
+                        "업비트 앱에서 보유분을 확인해 주세요. 앱에서 직접 매도하실 수 있습니다. 운영자가 확인합니다.")
+            _notify(LEVEL_CRITICAL, title, body,
+                    dedupe_key=f"pullback_boot_wallet:{self.user_id}:{self.ticker}:{int(started)}", dedupe_ttl=3600)
+        except Exception:
+            pass
+
+    def _pullback_notify_no_base(self) -> None:
+        logger.critical(f"🚨 [PULLBACK-SPLIT] 실계좌 재시작인데 배분 기준(sizing_base)이 저장돼 있지 않음 → 추가 매수 멈춤 | "
+                        f"user={self.user_id}")
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            _notify(LEVEL_CRITICAL, f"🚨 새 전략 추가 매수를 멈췄습니다 — {self.ticker}",
+                    ("재시작 뒤 이번 거래의 배분 기준 금액을 찾지 못해 추가 분할 매수를 멈췄습니다(지금 잔액으로 다시 계산하지 않습니다). "
+                     "익절·손절·데드크로스 매도는 계속합니다. 거래가 끝나면 다음 거래부터 정상으로 돌아옵니다. 운영자가 확인합니다."),
+                    dedupe_key=f"pullback_no_base:{self.user_id}:{self.ticker}", dedupe_ttl=3600)
+        except Exception:
+            pass
+
+    # ---- 1109 작업 C: 새 거래 1회차 배분 기준
+    def _pullback_live_avail_krw(self, timeout_s: Optional[float] = None):
+        """실계좌 가용 원화(코인 평가액·묶인 원화 제외 — get_balance("KRW") 의 가용분). (값, None) 또는 (None, 건너뜀 코드).
+        시간 상한 PULLBACK_QUERY_TIMEOUT_S(데몬 스레드 + Event). 같은 엔진의 앞 조회가 아직 끝나지 않았으면 새 스레드를 만들지 않는다."""
+        from core.bounded_call import bounded_call
+        t = PULLBACK_QUERY_TIMEOUT_S if timeout_s is None else timeout_s
+        checked = getattr(self.trader, "krw_balance_checked", None)
+
+        def _pullback_read_krw():
+            if callable(checked):
+                return checked()
+            v = self.trader._krw_balance()
+            return v, bool(getattr(self.trader, "last_krw_balance_ok", True))
+
+        guard = self.__dict__.setdefault("_pb_krw_guard", {})
+        done, value, err = bounded_call(_pullback_read_krw, t, guard)
+        if not done:
+            return None, "split_krw_timeout"
+        if err is not None or not isinstance(value, tuple) or len(value) != 2:
+            return None, "split_krw_unknown"
+        avail, ok = value
+        if not ok:
+            return None, "split_krw_unknown"
+        return float(avail or 0.0), None
+
+    def _pullback_new_trade_base(self):
+        """새 거래 1회차의 배분 기준. (기준, None) 또는 (None, 건너뜀 코드).
+        실계좌: 비율 없음 → split_no_ratio. 기준 = floor(가용 원화 × 비율 ÷ 100 ÷ (1+수수료)) — 이 거래 동안 고정(복리 더하기 없음).
+        모의: users.virtual_krw(+복리) × (비율 있으면 비율/100, 없으면 100%)."""
+        from config import MIN_FEE_RATIO
+        import math
+        mode = self._pullback_mode()
+        try:
+            from engine.pullback_params import invest_ratio_for
+            ratio = invest_ratio_for(self.user_id, mode)
+        except Exception as e:
+            logger.warning(f"[PULLBACK-SPLIT] 투자 비율 읽기 실패: {type(e).__name__}")
+            ratio = None
+        if mode == "LIVE":
+            if ratio is None:
+                return None, "split_no_ratio"
+            if getattr(self.strategy, "cfg", {}).get("compounding"):
+                logger.info("[PULLBACK-SPLIT] 실계좌는 복리(이익 더하기)를 쓰지 않음 — 설정의 compounding 무시")
+            avail, code = self._pullback_live_avail_krw()
+            if code is not None:
+                return None, code
+            if avail <= 0:
+                return None, "split_no_capital"
+            return int(math.floor(avail * float(ratio) / 100.0 / (1 + MIN_FEE_RATIO))), None
+        base = self._pullback_read_sizing_base()
+        if base is None:
+            return None, "split_no_capital"
+        if ratio is not None:
+            base = base * float(ratio) / 100.0
+        return base, None
+
     def _pullback_wallet_check(self, bar: Bar) -> None:
         """
         봉마다(판정 전) 지갑 수량과 분할 상태 수량(_pb_qty) 대조.
@@ -1503,10 +1712,11 @@ class StrategyEngine:
           - 지갑 0 + 분할 보유 → 청산(앱 매도 등) — 분할 상태 초기화(손익 0: 앱 주문 손익은 넣지 않음, spec 3절).
           - 차이 > 0.1% → 지갑 우선, desync=1(바뀔 때 WARNING + 감사 1행). 추가 분할매수 멈춤, 매도는 계속(D11 b).
         """
-        try:
-            wallet = float(self.trader._coin_balance(self.ticker) or 0.0)
-        except Exception as e:
-            logger.warning(f"[PULLBACK-SYNC] 지갑 조회 실패 → 대조 건너뜀: {e}")
+        wallet = self._pullback_bar_wallet(bar)
+        if wallet is None:
+            # 1109 작업 D: 지갑을 읽지 못한 봉은 「청산」이 아니다 — 대조·청산·복원 초기화를 모두 건너뛰고
+            # 메모리 수량으로 매도 판정을 계속한다.
+            logger.warning("[PULLBACK-SYNC] 지갑 조회 실패 → 이 봉 대조·청산 건너뜀(메모리 수량으로 매도 판정 계속)")
             return
         sp = self._pending_split
         if sp is not None:
@@ -1525,9 +1735,32 @@ class StrategyEngine:
                     self.position.qty = wallet
                     if avg:
                         self.position.avg_price = float(avg)
-                self._pb_qty = wallet
-                if avg:
+                    self._pb_qty = wallet
+                    if avg:
+                        self._pb_cost = wallet * float(avg)
+                    elif sp.get("uncertain") and not self._pullback_desync:
+                        # 1109 작업 E: 불확실 주문 끝에 평단을 끝내 못 읽으면 수량·평단이 틀릴 수 있다 → 추가 매수 멈춤
+                        self._pullback_desync = True
+                        self._pullback_record_sync(
+                            wallet=wallet, state_qty=0.0, cls="wallet_more",
+                            note="불확실 주문 확인 끝 — 지갑에 코인이 있으나 업비트 평단을 읽지 못함: 추가 분할매수를 멈춤")
+                elif avg:
+                    # 1109 작업 E(Fable 권고 1): 불확실·체결 대기 끝에 보유가 없다고 보던 회차인데 지갑에 코인이 있다 → 체결된 것으로
+                    # 보고 포지션을 세운다(앱 매수로 오인해 추가 매수를 막지 않는다). 평단은 업비트 평단.
+                    from datetime import datetime as _dt
+                    self.position.apply_entry(qty=wallet, avg_price=float(avg), entry_bar=self.bar_count,
+                                              entry_ts=_dt.now(ZoneInfo("Asia/Seoul")), source="pullback_fill_wait")
+                    self._pb_qty = wallet
                     self._pb_cost = wallet * float(avg)
+                    self._pullback_persist()
+                else:
+                    # 평단을 못 읽으면 포지션을 세우지 않고 desync(추가 매수 멈춤)
+                    self._pb_qty = wallet
+                    if not self._pullback_desync:
+                        self._pullback_desync = True
+                        self._pullback_record_sync(
+                            wallet=wallet, state_qty=0.0, cls="wallet_more",
+                            note="체결 대기 끝 — 지갑에 코인이 있으나 업비트 평단을 읽지 못함: 추가 분할매수를 멈춤")
             return
         if wallet < 1e-6:
             if self._pb_qty > 0 or self._pullback_desync:
@@ -1575,6 +1808,7 @@ class StrategyEngine:
             logger.error(f"[PULLBACK-FILL] 분할 반영 실패 uuid={uuid}: {e}", exc_info=True)
             return
         self._pending_split = None
+        self._pb_wallet_cache = None      # 1109 작업 D: 체결 반영 뒤에는 이 봉의 지갑 캐시를 버린다(옛 값으로 되돌리지 않음)
         self.position.set_pending(False)
         self._pullback_set_pb_from_position()
         logger.info(
@@ -1645,13 +1879,30 @@ class StrategyEngine:
             res["reason"] = "flat"
             self.pullback_restore_result = res
             return res
-        try:
-            wallet = float(self.trader._coin_balance(self.ticker) or 0.0)
-        except Exception as e:
-            logger.error(f"[PULLBACK-RESTORE] 지갑 조회 실패 → 복원 안 함(매수는 POS_DESYNC 로 막힘): {e}")
-            res["reason"] = "wallet_unknown"
-            self.pullback_restore_result = res
-            return res
+        boot_wallet_unknown = False
+        if self._pullback_is_live():
+            # 1109 작업 D: 실계좌는 지갑 읽기 실패(0.0 이 아님)를 재시도한다. 끝내 못 읽으면 저장 수량·평단으로 시작
+            # (desync=1 + CRITICAL). 저장 평단이 없으면 시작하지 않는다(PullbackBootWalletUnknown). 저장 행은 지우지 않는다.
+            wallet, _w_ok = self._pullback_boot_wallet()
+            if not _w_ok:
+                _sq = float(row.get("qty") or 0.0)
+                _sa = float(row["avg_price"]) if row.get("avg_price") else 0.0
+                if not (_sq > 0 and _sa > 0):
+                    self._pullback_notify_boot_wallet(started=False)
+                    raise PullbackBootWalletUnknown("wallet_unknown_no_saved_avg")
+                wallet = _sq
+                boot_wallet_unknown = True
+                logger.critical(f"🚨 [PULLBACK-RESTORE] 지갑을 끝내 읽지 못함 → 저장 수량 {_sq:.8f}·평단 {_sa:.4f} 으로 시작 "
+                                f"(추가 분할매수 멈춤, 매도 판정은 계속)")
+                self._pullback_notify_boot_wallet(started=True)
+        else:
+            try:
+                wallet = float(self.trader._coin_balance(self.ticker) or 0.0)
+            except Exception as e:
+                logger.error(f"[PULLBACK-RESTORE] 지갑 조회 실패 → 복원 안 함(매수는 POS_DESYNC 로 막힘): {e}")
+                res["reason"] = "wallet_unknown"
+                self.pullback_restore_result = res
+                return res
         if wallet < 1e-6:
             logger.warning(f"[PULLBACK-RESTORE] 저장 회차 {row.get('entry_count')} 인데 지갑 0 → 분할 상태 초기화"
                            f"(꺼져 있는 동안 앱 매도 등)")
@@ -1680,7 +1931,11 @@ class StrategyEngine:
         self._pb_qty = wallet
         self._pb_cost = wallet * float(avg or 0.0)
         self._pullback_sizing_base = float(row["sizing_base_krw"]) if row.get("sizing_base_krw") else None
-        self._pullback_desync = bool(row.get("desync"))
+        self._pullback_desync = bool(row.get("desync")) or boot_wallet_unknown
+        # 1109 작업 C: 실계좌인데 저장된 배분 기준이 없으면 「지금 가용 원화로 다시 계산」하지 않고 추가 매수를 멈춘다
+        if self._pullback_is_live() and self._pullback_sizing_base is None and int(row.get("entry_count") or 0) >= 1:
+            self._pullback_desync = True
+            self._pullback_notify_no_base()
         if not match:
             if not self._pullback_desync:
                 self._pullback_record_sync(wallet=wallet, state_qty=db_qty, cls="restart_mismatch",
@@ -1877,7 +2132,16 @@ class StrategyEngine:
             body = (f"{head}\n업비트에서 원화 잔고 조회 실패로 이번 회차는 주문하지 않았습니다.\n"
                     f"다음 신호에서 다시 확인합니다. {NO_ACTION_TEXT}")
         elif code == "split_no_capital":
-            body = f"{head}\n운용 금액이 정해지지 않았습니다. 운영자가 확인합니다. {NO_ACTION_TEXT}"
+            body = f"{head}\n운용 금액(실계좌는 가용 원화)이 없습니다. 운영자가 확인합니다. {NO_ACTION_TEXT}"
+        elif code == "split_no_ratio":
+            body = (f"{head}\n실계좌 투자 비율이 정해지지 않았습니다. 신버전 백테스터의 설정 저장 창에서 투자 비율을 저장하고 "
+                    "「이 설정으로 동작」을 눌러 주세요.")
+        elif code == "split_krw_timeout":
+            body = (f"{head}\n업비트 원화 잔고 조회가 {PULLBACK_QUERY_TIMEOUT_S:.0f}초 안에 끝나지 않아 이번 회차는 주문하지 않았습니다.\n"
+                    f"다음 신호에서 다시 확인합니다. {NO_ACTION_TEXT}")
+        elif code == "split_no_base":
+            body = (f"{head}\n재시작 뒤 이번 거래의 배분 기준 금액을 찾지 못해 추가 매수를 하지 않습니다. "
+                    f"거래가 끝나면 다음 거래부터 정상입니다. {NO_ACTION_TEXT}")
         else:
             body = f"{head}\n봉 마감이 확인되지 않아 다음 마감 봉에서 다시 판단합니다. {NO_ACTION_TEXT}"
         return title, body
@@ -1989,7 +2253,16 @@ class StrategyEngine:
             # 수정 1회차: 봉 판정과 같은 지갑 대조를 먼저 — 강제 매도(엔진 밖 체결) 뒤 다음 봉 전이어도 옛 회차·옛 수량으로
             # 사지 않게. 지갑 0 이면 _pullback_wallet_check 가 분할 상태를 정리하고, 판정 회차는 여기서 0 으로 맞춘다
             # (봉 판정의 「실보유 없음 + 판정 회차」 정리와 같음 — 실시간 거래라 armed 해제).
-            self._reconcile_position_with_wallet()
+            if self._pullback_is_live():
+                # 1109 작업 D(V1): 강제 매수는 지난 봉 캐시를 쓰지 않고 그 자리에서 지갑을 새로 읽는다(같은 분 안의 강제 매도 →
+                # 강제 매수에서 옛 수량을 기준으로 합산하지 않게). 읽기 실패면 주문 없이 거절한다.
+                _fq, _fok = self._pullback_read_wallet_checked()
+                if not _fok:
+                    return {"status": "rejected", "code": "wallet_unknown", "detail": {}}
+                self._pb_wallet_cache = (bar.ts, _fq)
+                self._reconcile_position_with_wallet(wallet_qty=_fq)
+            else:
+                self._reconcile_position_with_wallet()
             self._pullback_wallet_check(bar)
             if not self.position.has_position and int(getattr(st, "entry_count", 0) or 0) > 0 \
                     and self._pending_split is None:
@@ -2053,6 +2326,31 @@ class StrategyEngine:
         logger.warning(f"[PULLBACK-FORCE] 강제 매수 주문 없음 | code={code} user={self.user_id}")
         return {"status": "rejected", "code": code, "detail": {"round": round_n}}
 
+    def _pullback_on_uncertain_buy(self, bar: Bar, indicators, round_n: int, per_buy: int, ctx: Dict[str, Any],
+                                   result: Dict[str, Any]) -> None:
+        """1109 작업 E: 불확실 주문 — CRITICAL 1회 + 감사 BUY_REJECTED 1행(「체결 여부 불명, 3봉 뒤 지갑 기준 맞춤」)."""
+        note = (f"주문 결과 불확실(status={result.get('status')}, {result.get('reason')}) — 체결 여부 불명, "
+                f"{PULLBACK_FILL_WAIT_BARS}봉 뒤 지갑 기준 맞춤 · 재주문 안 함 — {round_n}회차")
+        logger.critical(f"🚨 [PULLBACK-ORDER] {note} | per_buy={per_buy:,} user={self.user_id}")
+        try:
+            self._audit_buy_blocked(bar.ts, indicators, price=bar.close, code="split_order_uncertain", note=note,
+                                    extra={**ctx, "order_status": result.get("status")})
+        except Exception as e:
+            logger.error(f"[PULLBACK-ORDER] 불확실 주문 감사 기록 실패: {type(e).__name__}: {e}")
+        try:
+            from services.notifier import send as _notify, LEVEL_CRITICAL
+            _notify(
+                LEVEL_CRITICAL,
+                f"🚨 새 전략 {round_n}회차 매수 결과를 확인하지 못했습니다 — {self.ticker}",
+                ("업비트 응답이 불확실해 이미 체결됐는지 알 수 없습니다. 같은 회차를 두 번 사지 않도록 재주문하지 않았습니다.\n"
+                 f"{PULLBACK_FILL_WAIT_BARS}봉 뒤 업비트 지갑을 기준으로 보유 수량을 맞춥니다. "
+                 "급하면 업비트 앱에서 체결 내역을 확인해 주세요."),
+                dedupe_key=f"pullback_order_uncertain:{self.user_id}:{self.ticker}:{bar.ts.isoformat()}",
+                dedupe_ttl=3600,
+            )
+        except Exception:
+            pass
+
     def _execute_pullback_buy(self, bar: Bar, indicators: Dict[str, Any]) -> None:
         """
         PULLBACK 분할 매수 1회 (계획 T5 _execute_pullback_buy).
@@ -2070,14 +2368,37 @@ class StrategyEngine:
             "split_round": round_n,
             "pullback_round": int(getattr(st, "pullback_count", 0) or 0),
         }
+        if self._pending_split is not None:
+            # 1109 작업 E: 체결 대기(uuid 없는 불확실 주문 포함) 중에는 매수하지 않는다 — 같은 회차를 두 번 사지 않게 맨 앞에서 막음
+            logger.warning(f"[PULLBACK-SPLIT] 체결 대기 중 — 매수 안 함 | uuid={self._pending_split.get('uuid')} "
+                           f"{self._pending_split.get('round')}회차")
+            self._pullback_last_skip_code = "fill_pending"
+            return
         if not (getattr(bar, "is_closed", False) and getattr(bar, "is_confirmed", False)):
             self._pullback_skip(bar, indicators, code="split_unconfirmed_bar",
                                 note=f"확정 봉 아님 — 분할 매수는 확정 봉 마감에서만 — {round_n}회차 건너뜀", ctx=ctx)
             return
 
+        live = self._pullback_is_live()
         if round_n <= 1 and not holding:
-            self._pullback_sizing_base = self._pullback_read_sizing_base()
+            # 1109 작업 C: 새 거래 1회차 — 실계좌는 가용 원화 × 비율 ÷ (1+수수료), 모의는 운용자산 × 비율(없으면 100%)
+            self._pullback_sizing_base, _base_code = self._pullback_new_trade_base()
+            if _base_code is not None:
+                _base_notes = {
+                    "split_no_ratio": "실계좌 투자 비율이 정해지지 않음",
+                    "split_krw_unknown": "원화 잔고 조회 실패 — 업비트 응답 확인 필요",
+                    "split_krw_timeout": f"원화 잔고 조회 시간 초과({PULLBACK_QUERY_TIMEOUT_S:.0f}초)",
+                    "split_no_capital": ("가용 원화 0원" if live else "운용자산(users.virtual_krw) 없음"),
+                }
+                self._pullback_skip(bar, indicators, code=_base_code,
+                                    note=f"{_base_notes.get(_base_code, _base_code)} — {round_n}회차 건너뜀", ctx=ctx)
+                return
         elif self._pullback_sizing_base is None:
+            if live:
+                # 1109 작업 C: 실계좌는 「지금 잔액으로 다시 계산」하지 않는다 — 이번 거래의 추가 매수를 멈춘다
+                self._pullback_skip(bar, indicators, code="split_no_base",
+                                    note=f"이번 거래 배분 기준이 없음(재시작 등) — {round_n}회차 건너뜀", ctx=ctx)
+                return
             self._pullback_sizing_base = self._pullback_read_sizing_base()
             logger.warning(f"[PULLBACK-SPLIT] {round_n}회차인데 배분 기준 없음(재시작 등) → 지금 운용자산으로 고정 "
                            f"| base={self._pullback_sizing_base} (T6 분할 상태 복원 전 임시)")
@@ -2098,7 +2419,18 @@ class StrategyEngine:
                                 note=f"1회 매수 금액 {per_buy:,}원 < 최소 5,000원 — {round_n}회차 건너뜀", ctx=ctx)
             return
         _checked = getattr(self.trader, "krw_balance_checked", None)
-        if callable(_checked):
+        if live:
+            # 1109 작업 C: 실계좌 두 번째 잔고 조회도 시간 상한 안에서 — 실패·시간 초과는 주문 없이 건너뜀
+            avail, _avail_code = self._pullback_live_avail_krw()
+            if _avail_code is not None:
+                ctx["avail_krw"] = 0.0
+                self._pullback_skip(bar, indicators, code=_avail_code,
+                                    note=(f"원화 잔고 조회 "
+                                          f"{'시간 초과' if _avail_code == 'split_krw_timeout' else '실패'} — {round_n}회차 건너뜀"),
+                                    ctx=ctx)
+                return
+            _bal_ok = True
+        elif callable(_checked):
             # ✅ 2차 T6 (T5 넘김): 조회 성공 여부를 반환값으로 받는다(공유 표식 경합 없음)
             avail, _bal_ok = _checked()
             avail = float(avail or 0.0)
@@ -2148,6 +2480,20 @@ class StrategyEngine:
         _err_before = getattr(self.trader, "last_buy_error", None)
         result = self.trader.buy_market(bar.close, self.ticker, ts=bar.ts, meta=meta,
                                         krw_amount=per_buy, strict_amount=True)
+        if result and result.get("uncertain"):
+            # 1109 작업 E(M4): 주문 결과가 불확실(예외·시간 초과·5xx·비JSON·uuid 없음) — 이미 체결됐을 수 있어 재주문하지 않는다.
+            # 주문이 나갔다고 보고(회차 유지) uuid 없는 체결 대기를 세워 기존 3봉 대기 → 지갑 기준 맞춤으로 정리한다.
+            self._pullback_buy_placed = True
+            self._pullback_buy_fail_bar = None
+            self._pullback_buy_fail_ts = None
+            self._pending_split = {
+                "uuid": None, "round": round_n, "per_buy": per_buy, "bar": self.bar_count,
+                "bar_ts": bar.ts, "base_qty": base_qty, "base_cost": base_cost, "reason": meta["reason"],
+                "uncertain": True,
+            }
+            self._pullback_pending_set = False    # 봉 끝에서 pending 을 풀지 않는다(지갑 기준 맞춤이 푼다)
+            self._pullback_on_uncertain_buy(bar, indicators, round_n, per_buy, ctx, result)
+            return
         if not result:
             self.position.set_pending(False)
             self._pullback_buy_fail_bar = self.bar_count

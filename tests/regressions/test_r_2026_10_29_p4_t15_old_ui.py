@@ -973,8 +973,9 @@ class TestAutoResumeGate(unittest.TestCase):
 
 # ==================================================================== 사용자 결정 1029-11 A (나): 실계좌 + 새 전략 → 멈춤
 class TestLivePullbackStop(_Base):
-    STOP = ("새 전략은 모의 투자에서만 씁니다. 모의 투자로 들어오시거나 신버전에서 전략을 되돌려 주세요. "
-            "모의 엔진이 실행 중이면 모의 투자로 들어오세요.")
+    # 1109: 실계좌 눌림목은 신버전에서 운용 — 구버전 화면은 계속 멈추되 문구만 바뀌었다(D7)
+    STOP = ("실계좌 눌림목은 신버전에서 운용합니다. 이 구버전 화면은 새 전략 실계좌에서 멈춥니다. "
+            "신버전 대시보드로 들어와 주세요. 보유 중이면 업비트 앱에서 직접 매도하실 수 있습니다.")
 
     def test_live_pullback_stops_without_order_buttons(self):
         import logging
@@ -1257,7 +1258,12 @@ class TestFixedFiles(unittest.TestCase):
 
     def test_engine_manager_unchanged_since_fixed_commit(self):
         from tests.regressions.baseline_commits import FIXED_FILES_COMMIT
+        # 1109: 공용 파일(engine_manager·strategy_engine·live_loop)은 EMA 경로 구문(AST) 비교 — tests/regressions/ema_path_compare.py
+        from tests.regressions import ema_path_compare as epc
         for rel in self.TO_FIXED_COMMIT:
+            if rel in epc.LIVE_OPEN_FILES:
+                epc.assert_unchanged(self, rel, FIXED_FILES_COMMIT)
+                continue
             r = subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", FIXED_FILES_COMMIT, "--", rel])
             self.assertEqual(r.returncode, 0, f"{rel} 가 {FIXED_FILES_COMMIT} 와 다르다")
 

@@ -149,7 +149,12 @@ class EngineCase(unittest.TestCase):
             mock.patch.object(se.StrategyEngine, "_record_invariant_snapshot", lambda self, **k: None),
             mock.patch("services.notifier.send", self.notify),
             mock.patch("services.db.get_initial_krw", side_effect=lambda u: self.capital),
+            # 1109 작업 C: 실계좌 분할 매수는 투자 비율이 있어야 한다(모의는 없으면 100%). 시험 기본은 실계좌 30%(가용 원화 기준),
+            # 모의는 없음. 개별 시험은 self.ratios 를 바꿔 쓴다.
+            mock.patch("engine.pullback_params.invest_ratio_for",
+                       side_effect=lambda u, m: self.ratios.get(m)),
         ]
+        self.ratios = {"LIVE": 30.0, "TEST": None}
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
@@ -850,7 +855,8 @@ class TestNoActivePullbackWriter(unittest.TestCase):
 
 
 # ================================================================ T5 검수 반영 (10/28)
-LIVE_REFUSE_TEXT = "새 전략은 실계좌(LIVE)에서 아직 쓸 수 없습니다 (분할 체결 반영 작업 뒤 엽니다)"
+# 1109: 「실계좌 늘 거부」 문구는 「모드 표식 불일치 거부」 문구로 바뀌었다(표식 없음 = TEST → 실계좌 부팅 거부)
+LIVE_REFUSE_TEXT = "이 계정의 새 전략은 다른 모드(모의/실계좌)에서 켜졌거나 모드 표식을 읽지 못해 이 모드에서는 시작하지 않습니다"
 
 
 def run_one_close(case, *, verify_ok):

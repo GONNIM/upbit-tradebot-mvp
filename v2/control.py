@@ -27,6 +27,7 @@ KINDS = ("engine_start", "engine_stop", "switch", "revert", "cancel_reservation"
 EMPTY_PAYLOAD_KINDS = ("engine_start", "engine_stop", "force_buy", "force_sell", "cancel_reservation")
 MAX_PAYLOAD_BYTES = 4096
 MODES = ("TEST", "LIVE")
+ENGINE_FEE_RATE = 0.0005   # config.MIN_FEE_RATIO 와 같은 값(이 프로세스는 엔진 모듈을 import 하지 않는다)
 ID_RE = re.compile(r"^[0-9]{14}-[0-9a-f]{8}$")
 
 
@@ -283,8 +284,25 @@ def ops_info(user_id: str, mode: Optional[str]) -> dict:
                 base = float(cap["virtual_krw"]) if cap and cap.get("virtual_krw") is not None else None
             except (sqlite3.Error, TypeError, ValueError):
                 base = None
-            if base is not None and applied.get("compounding") is True:
-                base += float((st or {}).get("realized_pnl_krw") or 0.0)
+            # 1109 지적 2: 첫 회차 금액은 엔진 규칙과 같게 — 실계좌 = 가용 원화 × 비율 ÷ (1+수수료)(복리 없음, 비율 없으면 모름),
+            # 모의 = 운용자산 × 비율(없으면 100%) (+복리). 엔진: core/strategy_engine._pullback_new_trade_base
+            _rk = "invest_ratio_pct_live" if mode == "LIVE" else "invest_ratio_pct_test"
+            _ratio = (applied or {}).get(_rk)
+            _ratio = float(_ratio) if isinstance(_ratio, (int, float)) and not isinstance(_ratio, bool) else None
+            if mode == "LIVE":
+                avail = None            # 실계좌 가용 원화 = 계좌 표(accounts.virtual_krw, 묶인 원화는 따로 칸)
+                try:
+                    acc = _row(user_id, "SELECT virtual_krw FROM accounts WHERE user_id=? LIMIT 1", (user_id,))
+                    avail = float(acc["virtual_krw"]) if acc and acc.get("virtual_krw") is not None else None
+                except (sqlite3.Error, TypeError, ValueError):
+                    avail = None
+                base = (math.floor(avail * _ratio / 100.0 / (1 + ENGINE_FEE_RATE))
+                        if (avail is not None and avail > 0 and _ratio) else None)
+            elif base is not None:
+                if applied.get("compounding") is True:
+                    base += float((st or {}).get("realized_pnl_krw") or 0.0)
+                if _ratio:
+                    base = base * _ratio / 100.0
         if base and eff:
             out["per_buy"] = int(math.floor(float(base) / eff))
         if has_db and mode in MODES:

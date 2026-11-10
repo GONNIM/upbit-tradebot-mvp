@@ -173,8 +173,11 @@ class TestApplySplitEntry(unittest.TestCase):
                 tree = ast.parse(src)
                 fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name)
                 return ast.get_source_segment(src, fn)
-            for name in ("apply_entry", "open_position", "close_position", "sync_from_wallet", "__init__"):
+            # 1109: sync_from_wallet 는 선택 인자(wallet_qty, 기본 None = 옛 읽기)만 더했다 — 아래 호출 흔적 시험이 본다
+            for name in ("apply_entry", "open_position", "close_position", "__init__"):
                 self.assertEqual(body(new, name), body(old, name), name)
+            from tests.regressions import ema_path_compare as epc
+            self.assertEqual(epc.ema_path_diff("core/position_state.py", old, new), [])
         p = PositionState()
         t0 = datetime(2026, 10, 28, 10, 0, tzinfo=KST)
         p.highest_price, p.trailing_armed = 5.0, True
@@ -823,11 +826,12 @@ class TestHandover(T6Case):
         self.assertEqual(kc.call_count, 0)
 
     def test_live_refuse_kept(self):
-        """LIVE 기동 거부는 T6 에서 풀지 않는다(해제는 사용자 결정)."""
-        self.assertTrue(live_loop.PULLBACK_LIVE_REFUSE_MSG)
+        """1109: 「LIVE 늘 거부」는 풀렸다. 매매 루프는 모드 표식 불일치(표식 없음 = TEST)면 눌림목 실계좌를 거부한다."""
+        self.assertTrue(live_loop.PULLBACK_MODE_REFUSE_MSG)
         src = (ROOT / "engine/live_loop.py").read_text(encoding="utf-8")
-        self.assertIn('strategy_tag == "PULLBACK" and (pullback_cfg is None or RUN_MODE != "UPBIT_MATCH" '
-                      'or not test_mode)', src)
+        self.assertIn('strategy_tag == "PULLBACK" and (pullback_cfg is None or RUN_MODE != "UPBIT_MATCH"', src)
+        self.assertIn("not _pullback_mode_check(user_id, test_mode)[0]", src)
+        self.assertNotIn("or not test_mode)", src.split("def run_live_loop")[1][:4000])
 
 
 # ================================================================ 수정 1회차 (검수 반영)

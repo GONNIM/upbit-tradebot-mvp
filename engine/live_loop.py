@@ -289,7 +289,13 @@ def _pullback_warmup_gate(initial_df: pd.DataFrame, wu_action: str, required: in
     return initial_df
 
 
-PULLBACK_LIVE_REFUSE_MSG = "새 전략은 실계좌(LIVE)에서 아직 쓸 수 없습니다 (분할 체결 반영 작업 뒤 엽니다)"
+from engine.active_mode import PULLBACK_MODE_REFUSE_MSG  # noqa: E402  (1109 작업 A: 옛 PULLBACK_LIVE_REFUSE_MSG 대체)
+
+
+def _pullback_mode_check(user_id: str, test_mode: bool):
+    """1109 작업 A: 눌림목 부팅 모드가 모드 표식과 같은가 → (허용, 이유 코드). 엔진 관리자가 먼저 거부하지만 이중으로 본다."""
+    from engine.active_mode import pullback_boot_allowed
+    return pullback_boot_allowed(user_id, "TEST" if test_mode else "LIVE", engine_is_pullback=True)
 
 
 def _control_attach(engine, user_id: str, stop_event) -> None:
@@ -381,6 +387,11 @@ _PULLBACK_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "firs
                         "episode_idx", "trade_episode_idx", "trade_tp_pct")
 
 
+def _pullback_boot_wallet_unknown_cls():
+    from core.strategy_engine import PullbackBootWalletUnknown
+    return PullbackBootWalletUnknown
+
+
 def _pullback_restore_split_state(engine, user_id: str, warmup_df, candle_validator) -> None:
     """2차 T6: 기동(재시작·WO-12 재개) 때 pullback_state 에서 분할 회차·평단·배분 기준·쿨다운을 되살린다.
     실패해도 기동은 계속(복원 없으면 보유 시 전략 ⑥ POS_DESYNC 가 추가 매수를 막음) — ERROR + CRITICAL 1회."""
@@ -396,6 +407,21 @@ def _pullback_restore_split_state(engine, user_id: str, warmup_df, candle_valida
         logger.info(msg)
         log_to_file(msg, user_id)
         engine._pullback_restore_ok = True
+    except _pullback_boot_wallet_unknown_cls() as e:
+        # 1109 작업 D: 지갑을 끝내 읽지 못했고 저장된 평단도 없다 — 엔진을 시작하지 않는다(저장 행은 그대로, CRITICAL 은 엔진이 보냄).
+        engine._pullback_restore_ok = False
+        engine.fail_reason = "wallet_unknown"
+        _ev = getattr(engine, "_control_ready_event", None)
+        if _ev is not None:
+            _ev.fail_reason = "wallet_unknown"
+        logger.critical(f"[PULLBACK-RESTORE] 지갑을 읽지 못해 새 전략을 시작하지 않음 | {e}")
+        try:
+            engine._pullback_block_persist("restore_exception", kind="restore_exception", notify=False)
+        except Exception:
+            pass
+        _stop = getattr(engine, "_control_stop_event", None)
+        if _stop is not None:
+            _stop.set()
     except Exception as e:
         engine._pullback_restore_ok = False  # 2차 T11: 기동 준비 신호를 세우지 않는다(전환 성공 판정 실패)
         logger.error(f"[PULLBACK-RESTORE] 복원 예외 | {type(e).__name__}: {e}", exc_info=True)
@@ -1082,7 +1108,9 @@ def run_live_loop(
     # 먼저 거부 + CRITICAL, stop_event 를 켜서 엔진 관리 스레드가 정리(stopped·잠금 해제)하게 한다.
     # 검수 반영(10/28): LIVE(test_mode 아님)도 거부한다 — LIVE buy_market 은 qty=0.0 을 돌려주므로 2회차 이상 평단이
     # 1회차에 고정된다. 분할 체결 수량·평단 반영(T6) 전에는 실계좌에서 새 전략을 돌리지 않는다.
-    if strategy_tag == "PULLBACK" and (pullback_cfg is None or RUN_MODE != "UPBIT_MATCH" or not test_mode):
+    # 1109 작업 A: 실계좌(LIVE)도 이제 돈다 — 부팅 모드가 모드 표식과 다르면(엔진 관리자가 먼저 거부하지만 이중으로) 거부.
+    if strategy_tag == "PULLBACK" and (pullback_cfg is None or RUN_MODE != "UPBIT_MATCH"
+                                       or not _pullback_mode_check(user_id, test_mode)[0]):
         if pullback_cfg is None:
             _why = "pullback_cfg 없음(적용본 로더 미경유)"
             _why_text = "새 전략 설정을 읽지 못했습니다."
@@ -1090,8 +1118,8 @@ def run_live_loop(
             _why = f"RUN_MODE={RUN_MODE}"
             _why_text = "봇이 새 전략을 쓸 수 없는 운영 방식으로 돌고 있습니다."
         else:
-            _why = PULLBACK_LIVE_REFUSE_MSG
-            _why_text = PULLBACK_LIVE_REFUSE_MSG
+            _why = f"{PULLBACK_MODE_REFUSE_MSG} ({_pullback_mode_check(user_id, test_mode)[1]})"
+            _why_text = PULLBACK_MODE_REFUSE_MSG
         logger.error(f"[PULLBACK-PARAMS] 기동 거부 | {_why} | user_id={user_id}")
         # 2차 T11 (T8 넘김): 투자자용 문구 — 내부 표기(전략 코드·설정 변수)는 위 로그에만
         _pullback_critical(

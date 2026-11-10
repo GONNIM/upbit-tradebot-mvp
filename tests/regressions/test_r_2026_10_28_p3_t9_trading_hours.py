@@ -239,6 +239,8 @@ class TestBlocksOrdersOnly(EngineCase):
                 self.skipTest("git 원본 없음")
             now = (ROOT / rel).read_text(encoding="utf-8")
             skip = {stale_clock[rel]} if rel in stale_clock else set()
+            if rel == "core/strategy_engine.py":
+                skip = skip | {"_reconcile_position_with_wallet"}   # 1109: 선택 인자 wallet_qty(기본 None=옛 동작)만 더함
             self.assertEqual(funcs(now, skip), funcs(base, skip), rel)
             if rel in stale_clock:
                 fixed = _bc.git_show(rel, _bc.FIXED_FILES_COMMIT)

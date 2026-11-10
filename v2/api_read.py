@@ -48,6 +48,9 @@ SKIP_CAUSE_LABELS = {
     "split_krw_short": "원화 잔고 부족", "split_below_min": "최소 주문금액 미만",
     "split_krw_unknown": "원화 잔고 조회 실패", "split_no_capital": "운용 금액 없음",
     "split_unconfirmed_bar": "봉 마감 확인 전",
+    # 1109 눌림목 실계좌 열기
+    "split_no_ratio": "투자 비율 없음", "split_krw_timeout": "원화 잔고 조회 시간 초과",
+    "split_no_base": "이번 거래 배분 기준 없음", "split_order_uncertain": "주문 결과 불확실",
 }
 # 2차 T16: 감시 구간 밖 사유(checks.inactive_reason) — terminology._INACTIVE_LABEL 과 같은 뜻, 「60선·200선」 은 설정 기간으로 바꿔 씀
 # 1105-09 (Ver2 R2): 새 사유는 60선 기울기(ma60_*). 옛 감사 행의 200선 사유(slope_*)는 옛 문구 그대로 둔다

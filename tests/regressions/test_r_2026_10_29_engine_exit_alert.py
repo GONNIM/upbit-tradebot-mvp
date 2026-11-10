@@ -445,7 +445,7 @@ class TestS8PullbackRefusal(unittest.TestCase):
     def test_s8a_live_runner_refusal(self):
         with Rig(strategy="PULLBACK") as rig:
             self.assertTrue(rig.start(U, "LIVE"))
-            self._assert_only(rig, "pullback_live_refused:")
+            self._assert_only(rig, "pullback_mode_refused:")   # 1109: 실계좌 늘 거부 → 모드 표식 불일치 거부
             self.assertEqual(rig.runs, [])
 
     def test_s8b_live_loop_refusal_real_run_live_loop(self):

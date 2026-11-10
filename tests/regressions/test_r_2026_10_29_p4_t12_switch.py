@@ -116,11 +116,15 @@ class SwitchCase(EngineCase):
         # 지갑·미체결 매수(F8)·logs — 시험 값
         self.wallet, self.pending, self.logs = 0.0, False, []
         self.wallet_reads = 0
+        self.tickers_held = {}            # 1109 지적 1: 종목별 보유량(없으면 self.wallet 을 모든 종목에)
 
         def wallet(u, t, tr):
             self.wallet_reads += 1
+            if t in self.tickers_held:
+                return float(self.tickers_held[t])
             return self.wallet() if callable(self.wallet) else self.wallet
-        for name, fn in (("_wallet_qty", wallet), ("_pending_buy", lambda u, t: self.pending),
+        for name, fn in (("_wallet_qty", wallet),
+                         ("_pending_buy", lambda u, t: self.pending),
                          ("_insert_log", lambda u, lvl, msg: self.logs.append((lvl, msg)))):
             p = mock.patch.object(ss, name, side_effect=fn)
             p.start()
@@ -470,14 +474,16 @@ class TestSwitchRequest(SwitchCase):
         self.assertEqual(r["code"], "saved_invalid")
         self.assertEqual(self.mgr.calls, [])
 
-    def test_live_switch_rejected_without_engine_touch(self):
+    def test_live_switch_without_ratio_rejected_without_engine_touch(self):
+        # 1109: 옛 「실계좌는 늘 거절(live_not_supported)」이 없어졌다. 실계좌 전환은 저장본에 투자 비율이 없으면
+        # live_ratio_missing 으로 거절(엔진 무접촉). 복귀는 활성이 EMA 면 not_pullback.
         self.mgr.mode = "LIVE"
         r = self.switch(mode="LIVE")
-        self.assertEqual((r["status"], r["code"]), ("rejected", "live_not_supported"))
+        self.assertEqual((r["status"], r["code"]), ("rejected", "live_ratio_missing"))
         self.assertEqual(self.mgr.calls, [])
         self.assertEqual(self.rows(), [])
         self.assertEqual(self.active(), "EMA")
-        self.assertEqual(self.ctl.execute(self.req("revert", "LIVE"))["code"], "live_not_supported")
+        self.assertEqual(self.ctl.execute(self.req("revert", "LIVE"))["code"], "not_pullback")
         self.assertEqual(self.mgr.calls, [])
 
     def test_mode_conflict_rejected(self):
@@ -1053,15 +1059,13 @@ class TestFixRound1MonitorGuards(SwitchCase):
         self.assertTrue(self.eng.control_queue.empty())
         self.assertEqual([(x["state"], x["note"]) for x in self.rows()], [("RESERVED", None)])
 
-    def test_recover_skips_live_switching_row(self):
+    def test_recover_live_switching_row_changes_row_only(self):
+        """1109: 실계좌 처리 중 행의 기동 복구는 행 상태만 바꾸고 엔진 재시작·활성 파일 변경을 하지 않는다."""
         self.add_row(mode="LIVE", note=ss.NOTE_SWITCHING)
         eparams.save_active_strategy(USER, "PULLBACK")
         mon = ss.Monitor()
-        with self.assertLogs("engine.strategy_switch", "WARNING") as cm:
-            self.assertEqual([o[2] for o in mon.recover_all(self.ctl, [USER])], ["skipped"])
-            self.assertEqual(mon.recover_row(self.ctl, USER, self.rows()[0]), "skipped")
-        self.assertEqual(sum("처리 중 행(기동 복구)" in m for m in cm.output), 1)
-        self.assertEqual([(x["state"], x["note"]) for x in self.rows()], [("RESERVED", ss.NOTE_SWITCHING)])
+        self.assertEqual([o[2] for o in mon.recover_all(self.ctl, [USER])], ["failed"])
+        self.assertEqual([(x["state"], x["note"]) for x in self.rows()], [("FAILED", "boot_not_ready")])
         self.assertEqual(self.mgr.calls, [])
         self.assertEqual(self.active(), "PULLBACK")
 
@@ -1345,7 +1349,8 @@ class TestFixRound1Gaps(SwitchCase):
         """항목 8: 투자자에게 가는 새 문구에 내부 코드·이름(snake_case·표 이름·sha 등)이 없다."""
         texts = list(ss.TEXT.values()) + [ss.FAILED_TITLE, ss.ABORTED_TEXT, ss.SAVED_CHANGED_TEXT, ss.SELL_REJECT_TEXT,
                                           ss.RESERVATION_KEPT_TEXT, *ss._BLOCK_NOTES.values()]
-        t12_codes = ("reserved", "switch_failed", "live_not_supported", "already_reserved", "already_pullback",
+        t12_codes = ("reserved", "switch_failed", "live_not_flat", "live_ratio_missing", "wallet_unknown",
+                     "mode_marker_mismatch", "already_reserved", "already_pullback",
                      "not_pullback", "saved_invalid", "sha_mismatch", "choose_strategy", "no_reservation",
                      "reservation_unknown", "switch_table_missing")
         texts += [cr.CODE_TEXT[c] for c in t12_codes]

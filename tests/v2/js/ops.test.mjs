@@ -156,7 +156,7 @@ test("운용 설정 저장 단추: 새 전략 운용 중 + 예약 확인 가능 
   assert.equal(O.buttonStates({ ...base, strategy: "PULLBACK", opsLoaded: false }).opsSave.enabled, false);
   assert.equal(O.buttonStates({ ...base, strategy: "EMA" }).opsSave.enabled, false);
   // 서버 거절 문구(합니다체, 내부 코드 없음)
-  for (const [st, err] of [[409, "reserved"], [409, "not_pullback"], [409, "live_not_supported"], [503, "reservation_unknown"]]) {
+  for (const [st, err] of [[409, "reserved"], [409, "not_pullback"], [503, "reservation_unknown"]]) {
     const t = O.postErrorText(st, { error: err });
     assert.notEqual(t, O.CODE_TEXT.busy, err);
     assert.doesNotMatch(t, /[a-z_]{4,}/, t);
@@ -169,15 +169,32 @@ test("복귀 단추: 새 전략 운용 중이라도 예약 중이면 닫힘 (V08
   assert.equal(O.buttonStates({ ...base, strategy: "PULLBACK", reservation: { kind: "REVERT" } }).cancel.enabled, true);
 });
 
-test("실계좌(LIVE) 입장: 전환·복귀·운용 설정 저장 닫힘, 강제 매매·엔진 시작/정지는 그대로", () => {
-  const live = enabledSet({ strategy: "EMA", mode: "LIVE" });
-  assert.deepEqual(live, ["forceBuy", "pause", "stop"].sort());
-  assert.deepEqual(enabledSet({ strategy: "EMA", mode: "TEST" }), ["forceBuy", "pause", "stop", "switch"].sort());
-  assert.deepEqual(enabledSet({ strategy: "PULLBACK", mode: "live", holding: true, round: { entry: 1, max: 5 } }),
-    ["forceBuy", "forceSell", "pause", "stop"].sort());
-  assert.deepEqual(enabledSet({ strategy: "EMA", mode: "LIVE", engineRunning: false }), ["forceBuy", "pause", "start"].sort());
-  assert.equal(O.liveNote("LIVE"), "실계좌(LIVE)에서는 아직 할 수 없습니다");
+test("실계좌(LIVE) 입장: 1109 부터 전환·복귀·운용 설정 저장이 모의와 같이 열림 + 안내 한 줄", () => {
+  // 실계좌 거절은 엔진이 한다(보유 중이면 live_not_flat — 예약 없음). 화면 단추는 모의와 같은 조건.
+  for (const ctx of [{ strategy: "EMA" }, { strategy: "EMA", engineRunning: false },
+    { strategy: "PULLBACK", holding: true, round: { entry: 1, max: 5 } }]) {
+    assert.deepEqual(enabledSet({ ...ctx, mode: "LIVE" }), enabledSet({ ...ctx, mode: "TEST" }), JSON.stringify(ctx));
+  }
+  assert.deepEqual(enabledSet({ strategy: "EMA", mode: "LIVE" }), ["forceBuy", "pause", "stop", "switch"].sort());
+  assert.ok(O.buttonStates({ ...base, strategy: "PULLBACK", mode: "LIVE" }).opsSave.enabled);
+  assert.ok(O.buttonStates({ ...base, strategy: "PULLBACK", mode: "live" }).revert.enabled);
+  assert.equal(O.liveNote("LIVE"),
+    "실계좌에서는 보유 중이거나 미체결 주문이 있으면 전환·복귀가 되지 않습니다 — 매도 뒤 다시 눌러 주세요");
+  assert.doesNotMatch(O.liveNote("LIVE"), /아직 할 수 없습니다/);
   assert.equal(O.liveNote("TEST"), "");
+});
+
+test("실계좌 전환·복귀 확인 문구: 예약 전제 문장이 없고, 모의는 그대로", () => {
+  const target = { strategy: "EMA", ticker: "KRW-ZRO", interval: "minute3" };
+  const live = O.revertConfirmText(target, "LIVE");
+  assert.doesNotMatch(live, /판 뒤 바뀝니다/);
+  assert.match(live, /예약도 없습니다/);
+  assert.match(live, /미보유일 때만 바로 바뀝니다/);
+  assert.match(O.revertConfirmText(target, "TEST"), /판 뒤 바뀝니다/);
+  assert.match(O.revertConfirmText(target), /판 뒤 바뀝니다/);                 // 모드를 안 주면 지금과 같다
+  assert.doesNotMatch(O.switchConfirmText("LIVE"), /판 뒤 바뀝니다/);
+  assert.match(O.switchConfirmText("LIVE"), /예약도 없습니다/);
+  assert.equal(O.switchConfirmText("TEST"), O.CONFIRM.switch);
 });
 
 test("EMA·MACD 강제 매수 확인: 주문 방식은 매수 조건 설정을 따른다(시장가 단정 없음), PULLBACK 은 그대로", () => {

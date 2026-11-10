@@ -345,14 +345,12 @@ class TestRejects(T13Case):
         self.save_new(tp=4)
         self.assertEqual(self.apply()["code"], "source_not_upbit")
 
-    def test_live_rejected(self):
+    def test_live_request_on_test_marker_rejected(self):
+        """1109: 실계좌 적용 요청이라도 활성 눌림목의 모드 표식이 TEST(없음)이면 mode_marker_mismatch — 적용본 무변경."""
         before = self.applied_bytes()
         self.save_new(tp=4)
         r = self.apply(mode="LIVE")
-        self.assertEqual((r["status"], r["code"]), ("rejected", "apply_live_not_supported"))   # fix 1: 적용 전용 코드
-        t = cr.CODE_TEXT["apply_live_not_supported"]
-        self.assertEqual(t, "새 전략 설정 적용은 아직 실계좌(LIVE)에서 할 수 없습니다. 모의(TEST)에서만 할 수 있습니다.")
-        self.assertNotIn("전환", t)
+        self.assertEqual((r["status"], r["code"]), ("rejected", "mode_marker_mismatch"))
         self.assertUntouched(before)
 
     def test_mode_conflict(self):
@@ -397,7 +395,7 @@ class TestRejects(T13Case):
     def test_investor_texts_have_no_internal_names(self):
         import re as _re
         for c in ("holding_interval_change", "holding_splits_increase", "source_not_upbit", "apply_not_pullback",
-                  "invalid_ticker", "apply_failed", "apply_live_not_supported"):
+                  "invalid_ticker", "apply_failed", "live_ratio_missing", "mode_marker_mismatch"):
             t = cr.CODE_TEXT[c]
             self.assertIsNone(_re.search(r"[a-z]+_[a-z_]+|strategy_switch|PULLBACK|sha256|\bsha\b|pullback_state", t), t)
         self.assertEqual(cr.CODE_TEXT["holding_interval_change"],
@@ -654,11 +652,10 @@ class TestInstallAndFixed(unittest.TestCase):
 
     def test_fixed_files_unchanged_since_t12(self):
         """실계좌 EMA 경로 고정 8개는 T12 커밋과 바이트가 같다(적용본 감시를 live_loop 에 넣지 않음)."""
+        # 1109: 공용 파일 5개는 바이트 대신 EMA 경로 구문(AST) 비교로 바뀌었다 — tests/regressions/ema_path_compare.py 머리말
+        from tests.regressions import ema_path_compare as epc
         for rel in FIXED_FILES:
-            base = bc.git_show(rel, bc.FIXED_FILES_COMMIT)
-            if base is None:
-                self.skipTest("git 기준 원본 없음")
-            self.assertEqual((ROOT / rel).read_text(encoding="utf-8"), base, rel)
+            epc.assert_unchanged(self, rel, bc.FIXED_FILES_COMMIT)
 
     def test_no_applied_mtime_watch(self):
         """적용본은 요청·기동 때만 읽는다(감시 함수 없음)."""

@@ -183,6 +183,27 @@ def _call_upbit_order(side: str, market: str, **payload: Any) -> Dict[str, Any]:
     }
 
 
+def _upbit_order_uncertain(call: Dict[str, Any]) -> bool:
+    """1109 작업 E: 주문 응답이 불확실한가(주문이 접수됐는지 알 수 없다). 눌림목 시장가 매수(strict_amount)만 쓴다.
+    불확실 = 네트워크 예외·시간 초과(status None) · 5xx · JSON 아닌 응답 · uuid 없는 응답(2xx 포함).
+    확정 실패 = 업비트가 오류 이름을 준 4xx(주문이 접수되지 않음). 성공(ok)은 불확실이 아니다."""
+    if call.get("ok"):
+        return False
+    status = call.get("status")
+    if call.get("exception") or status is None:
+        return True
+    if isinstance(status, int) and status >= 500:
+        return True
+    body = call.get("body")
+    if not isinstance(body, dict):
+        return True                                   # JSON 아님(빈 문자열·HTML 등)
+    if 200 <= status < 300:
+        return True                                   # 2xx 인데 uuid 없음·오류 형식
+    if isinstance(body.get("error"), dict) and call.get("error_name"):
+        return False                                  # 오류 이름이 있는 4xx = 확정 실패
+    return not (400 <= status < 500)                  # 그 밖의 4xx 는 접수 안 됨으로 보되 모양 이상(3xx 등)은 불확실
+
+
 def _upbit_buy_market(market: str, krw: int) -> Dict[str, Any]:
     """시장가 매수(KRW 금액 기준). ord_type=price."""
     return _call_upbit_order("bid", market, price=str(krw), ord_type="price")
@@ -400,6 +421,44 @@ class UpbitTrader:
         except Exception as e:
             logger.error(f"[실거래] 코인 잔고 조회 실패: {e}")
             return 0.0
+
+    def coin_balance_checked(self, ticker: str, timeout: float = 8.0) -> tuple:
+        """
+        1109 눌림목 실계좌 열기(작업 D): PULLBACK 전용 — (코인 보유량, 조회 성공 여부).
+        기존 `_coin_balance` 는 읽기 실패 때 0.0 을 돌려주어 「지갑 0 = 청산」으로 오인되므로(EMA 공용이라 그대로 둠)
+        눌림목 실계좌 경로의 지갑 읽기는 이 함수를 쓴다.
+        - LIVE: get_balances() 성공 → (free+locked, True). 예외·None·리스트 아님·빈 목록(실계좌에는 원화 항목이 늘 있다 —
+          빈 목록은 비정상 응답) → (0.0, False). 원화는 있고 그 코인만 없으면 (0.0, True)(진짜 0).
+          timeout 초 안에 못 끝나면 (0.0, False). 같은 trader 의 이전 조회가 끝나지 않았으면 새로 묻지 않고 (0.0, False).
+        - TEST: DB 값 (값, True). DB 예외는 (0.0, False).
+        """
+        symbol = ticker.split("-")[-1].strip().upper() if ticker else ticker
+        if self.test_mode:
+            try:
+                return float(get_coin_balance(self.user_id, ticker) or 0.0), True
+            except Exception as e:
+                logger.error(f"[모의] 코인 잔고 조회 실패: {e}")
+                return 0.0, False
+        from core.bounded_call import bounded_call
+        guard = self.__dict__.setdefault("_coin_query_guard", {})
+        done, balances, err = bounded_call(self.upbit.get_balances, timeout, guard)
+        if not done:
+            logger.error(f"[실거래] 코인 잔고 조회 시간 초과(또는 앞 조회 진행 중) | timeout={timeout}s")
+            return 0.0, False
+        if err is not None:
+            logger.error(f"[실거래] 코인 잔고 조회 실패: {type(err).__name__}: {err}")
+            return 0.0, False
+        if not isinstance(balances, list) or not balances:
+            logger.error(f"[실거래] 코인 잔고 응답 이상(None·비목록·빈 목록) → 실패로 봄 | type={type(balances).__name__}")
+            return 0.0, False
+        try:
+            for b in balances:
+                if str(b.get("currency", "")).upper() == symbol:
+                    return float(b.get("balance", 0.0) or 0.0) + float(b.get("locked", 0.0) or 0.0), True
+        except Exception as e:
+            logger.error(f"[실거래] 코인 잔고 응답 해석 실패: {type(e).__name__}: {e}")
+            return 0.0, False
+        return 0.0, True
 
     # ---------------------------
     # 공통 감사 헬퍼
@@ -803,6 +862,23 @@ class UpbitTrader:
                 res = call["data"]
                 last_err = None
                 break
+
+            if strict_amount and _upbit_order_uncertain(call):
+                # ✅ 1109 눌림목 실계좌 열기(작업 E): 응답이 불확실하면 재주문하지 않는다(첫 주문이 이미 체결됐을 수 있음 —
+                #   재시도하면 같은 회차를 두 번 산다). 호출자(엔진)가 체결 대기로 세우고 3봉 뒤 지갑 기준으로 맞춘다.
+                #   EMA·MACD(strict_amount=False)는 이 분기를 타지 않는다 — 재시도 경로 무변경.
+                self.last_buy_error = (f"주문 결과 불확실(status={call['status']} "
+                                       f"{call['exception'] or call['error_name'] or 'no_uuid'}) — 재주문 안 함")
+                logger.critical(f"[BUY-LIVE] 시장가 매수 응답 불확실 → 재주문 없이 멈춤 | attempt #{attempt} "
+                                f"status={call['status']} exc={call['exception']} body_type={type(call['body']).__name__}")
+                try:
+                    insert_log(self.user_id, "ERROR",
+                               f"❌ 시장가 매수 응답 불확실(status={call['status']}) — 재주문하지 않음, 체결 여부는 지갑으로 확인")
+                except Exception:
+                    pass
+                return {"uncertain": True, "time": ts, "side": "BUY", "qty": 0.0, "price": float(price),
+                        "uuid": None, "used_krw": float(krw_to_use),
+                        "status": call["status"], "reason": call["exception"] or call["error_name"] or "no_uuid"}
 
             # 명시적 사유로 last_err 채우기
             if call["error_name"]:

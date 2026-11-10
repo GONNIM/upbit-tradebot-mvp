@@ -127,6 +127,20 @@ class OpsApiTest(base.ApiBase):
         self.conn.commit()
         self.assertEqual(self.get_json("/v2/api/ops")[1]["per_buy"], 700000)            # (3,000,000 + 500,000) / 5
 
+    def test_per_buy_first_round_follows_engine_rule_live_and_test_ratio(self):
+        """1109 지적 2: 첫 회차 금액 = 엔진 규칙. 실계좌 = 가용 원화(계좌 표) × 비율 ÷ (1+수수료) ÷ 분할 횟수(비율 없으면 모름),
+        모의 = 운용자산 × 비율(없으면 100%)."""
+        self.conn.execute("INSERT INTO accounts (user_id, virtual_krw) VALUES ('alice', 1000000)")
+        self.conn.commit()
+        self.pullback(applied={"invest_ratio_pct_live": 10.0, "invest_ratio_pct_test": 50.0})
+        live = self.get_json("/v2/api/ops", mode="LIVE")[1]
+        self.assertEqual(live["per_buy"], 19990)                   # floor(1,000,000 × 10% ÷ 1.0005)=99,950 ÷ 5
+        test = self.get_json("/v2/api/ops", mode="TEST")[1]
+        self.assertEqual(test["per_buy"], 300000)                  # 3,000,000 × 50% ÷ 5
+        self.pullback(applied={"invest_ratio_pct_test": None})
+        self.assertIsNone(self.get_json("/v2/api/ops", mode="LIVE")[1]["per_buy"])   # 실계좌 비율 없음 → 금액 표시 없음
+        self.assertEqual(self.get_json("/v2/api/ops", mode="TEST")[1]["per_buy"], 600000)   # 모의 비율 없음 = 100%
+
     def test_golden_only_max_is_one(self):
         self.pullback(applied={"maxSplits": 0, "buyOnGoldenCross": True})
         self.assertEqual(self.get_json("/v2/api/ops")[1]["round"], {"entry": 0, "max": 1})
@@ -242,13 +256,11 @@ class OpsApiTest(base.ApiBase):
         self.assertEqual((r.code, json.loads(r.body)["error"]), (503, "reservation_unknown"))
         self._no_request_saved_same(before)
 
-    def test_ops_settings_rejected_in_live(self):
-        """실계좌 입장은 엔진이 거절하므로 저장본도 바꾸지 않는다 (PO 결정 3)."""
+    def test_ops_settings_allowed_in_live(self):
+        """1109: 실계좌 입장의 운용 설정 저장도 열렸다 — 요청이 나가고(202) 엔진이 모드 표식·충돌을 판정한다."""
         self.pullback()
-        before = (self.root / "alice_latest_params_PULLBACK.json").read_bytes()
         r = self.post({"kind": "ops_settings", "payload": {"keys": KEYS}}, mode="LIVE")
-        self.assertEqual((r.code, json.loads(r.body)["error"]), (409, "live_not_supported"))
-        self._no_request_saved_same(before)
+        self.assertEqual(r.code, 202, r.body)
 
     def test_ops_settings_sell_off_changeable_1029_09(self):
         """1029-09: 「시간 밖에도 익절」 잠금 풂 — 적용본 값과 달라도 202, 요청·저장본에 바꾼 값. 형식(참/거짓)은 그대로 검사."""
