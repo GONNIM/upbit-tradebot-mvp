@@ -76,10 +76,12 @@ V2_READ_BASE_COMMIT = "4e86afb"
 #    (새 줄 수 상한은 여유가 없어 주석 한 줄만 바꿔도 시험이 깨진다).
 #    올린 이력: 8464b58 → c0559e3 (1105-09 Ver2 2단계 — R1~R6 으로 이 파일을 일부러 바꿈(60선 기울기·상승폭 제한·
 #    연속 손절 중단 표식·구간 TP). 막음 블록·로그 문구는 그대로, 줄 번호만 옮겨 감. ALLOWED_OLD_RANGES·NEW_LINES_CAP 함께 올림).
-#    1110-01 (커밋 전): 추적 손절로 이 파일을 일부러 바꿨다. 기준 커밋을 옮길 수 없어 시험이 지금 파일에서 1110-01 모양을
-#    정해진 규칙(test_r_2026_10_30_1029_09_off_hours_tp._Strip1110)으로 걷어 낸 뒤 기준과 비교한다. 줄 범위 상한(ALLOWED_OLD_RANGES·
-#    NEW_LINES_CAP)은 지웠다. 커밋 뒤 기준을 그 커밋으로 올리면 걷어 내기 규칙도 함께 지운다.
-PULLBACK_RULES_BASE_COMMIT = "c0559e3"
+#    c0559e3 → d329171 (1110-01 추적 손절 — 이 파일을 일부러 바꿈(TRAIL_KEYS·_fix_trade_trailing·trailing_advance·
+#    무장 중 TS_ARMED 매수 막음·추적 손절 분기). 커밋 전에는 시험이 1110-01 모양을 정해진 규칙(_Strip1110)으로 걷어 내고
+#    c0559e3 과 비교했다(그 상태 게이트 통과, d329171 커밋·배포 11/10). 기준을 올리며 걷어 내기 규칙을 지웠다.
+#    줄 범위 상한(ALLOWED_OLD_RANGES·NEW_LINES_CAP)은 되살리지 않음: 기준 = 지금 파일이라 AST 비교가 docstring 밖
+#    한 문장 차이도 잡고, 변이 시험이 그것을 확인한다. EXPECTED_*_IF 두 모양은 그대로).
+PULLBACK_RULES_BASE_COMMIT = "d329171"
 REVERT_OLD_CODE_COMMIT = "1747fcc"  # 서버 실행본(2차 배포 전) — 되돌리기 무해성 시험의 옛 코드
 
 
