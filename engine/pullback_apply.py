@@ -40,6 +40,7 @@ MA_KEYS = ("ma60p", "ma200p", "pullbackP", "slopeLB", "maType")
 MARKET_KEYS = ("ticker", "interval")
 IMMEDIATE_KEYS = ("tp", "sl", "deadcross")
 ALL_KEYS = (*pbp.PULLBACK_KEYS, *pbp.OPTIONAL_KEYS, *pbp.RATIO_KEYS)   # 1109: 투자 비율도 변경 기록에 남는다(hot)
+ALL_KEYS = (*ALL_KEYS, *pbp.TRAILING_KEYS)   # 1110-01: 추적 손절 3키도 변경 기록(hot — 진행 중 거래는 연 때 설정 그대로)
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 APPLY_FAILED_TITLE = "🚨 [운영자] 새 전략 설정 적용 실패 — 이전 설정으로 되돌림"

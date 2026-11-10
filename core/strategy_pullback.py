@@ -390,12 +390,21 @@ _SPLIT_DEFAULTS = {
     "episode_idx": 0,
     "trade_episode_idx": None,
     "trade_tp_pct": None,
+    # 1110-01: 추적 손절(트레일링 스톱). 거래를 열 때 설정을 고정(trade_ts_mode None = 이 거래는 끔 · 다음 거래부터 반영),
+    # 무장·최고 종가·고정 금액. 이름은 눌림목 대기(armed)와 겹치지 않게 ts_ 로 시작.
+    "trade_ts_mode": None,
+    "trade_ts_pct": None,
+    "ts_armed": False,
+    "ts_peak": None,
+    "ts_fixed": None,
 }
 _TS_KEYS = ("first_entry_ts", "last_ts")
+# 1110-01: 추적 손절 칸(거래 칸 — 재생이 실거래 중에 바꾸지 않는다)
+TRAIL_KEYS = ("trade_ts_mode", "trade_ts_pct", "ts_armed", "ts_peak", "ts_fixed")
 # 2차 T6: 실주문이 정한 거래 칸(재생이 실거래 중에 바꾸지 않는 칸 — live_loop._PULLBACK_TRADE_KEYS 와 같은 목록)
 SPLIT_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "first_entry_reason",
                     "pending_fill", "fill_n", "inv_sum", "trade_origin",
-                    "episode_idx", "trade_episode_idx", "trade_tp_pct")
+                    "episode_idx", "trade_episode_idx", "trade_tp_pct", *TRAIL_KEYS)
 
 
 def _to_ts(v):
@@ -496,6 +505,10 @@ class IncrementalPullbackStrategy:
             "trading_start_time": str(p.get("trading_start_time", "09:00")),
             "trading_end_time": str(p.get("trading_end_time", "02:00")),
             "allow_sell_during_off_hours": p.get("allow_sell_during_off_hours", True) is not False,
+            # 1110-01: 추적 손절 선택 3키(engine/pullback_params.TRAILING_KEYS). 없으면 꺼짐.
+            "ts_on": p.get("ts_on", False) is True,
+            "ts_mode": "fixed" if p.get("ts_mode") == "fixed" else "ratio",
+            "ts_pct": float(p.get("ts_pct", 50) or 50),
         }
         c = self.cfg
         if c["enable_trading_hours"]:
@@ -629,6 +642,35 @@ class IncrementalPullbackStrategy:
         self.trade_origin = None
         self.trade_episode_idx = None   # 1105-09: 구간 순번(episode_idx)은 남긴다(Ver2 closePosition)
         self.trade_tp_pct = None
+        for k in TRAIL_KEYS:            # 1110-01: 추적 손절 칸도 청산 때 초기화
+            setattr(self, k, _SPLIT_DEFAULTS[k])
+
+    def _fix_trade_trailing(self) -> None:
+        """1110-01: 새 거래를 열 때 추적 손절 설정을 이 거래에 고정한다(보유 중 설정 변경은 다음 거래부터)."""
+        c = self.cfg
+        self.trade_ts_mode = c["ts_mode"] if c["ts_on"] else None
+        self.trade_ts_pct = c["ts_pct"] if c["ts_on"] else None
+        self.ts_armed, self.ts_peak, self.ts_fixed = False, None, None
+
+    def trailing_advance(self, close: float, avg: float, tp_pct: float) -> bool:
+        """1110-01: 구버전 TrailingStopFilter(advance_state·evaluate)와 같은 식으로 종가 하나를 넣는다. 팔 때 True.
+        무장 = 종가 수익률 ≥ 이 거래 TP%(무장 순간 최고가 = 종가, 고정폭이면 고정 금액 = (종가 − 평단) × 폭%),
+        무장 뒤 최고가 = 종가 최댓값, 비율 = (최고 − 종가)/(최고 − 평단) ≥ 폭%, 고정폭 = 종가 ≤ 최고 − 고정 금액.
+        재시작 따라잡기(엔진)도 이 함수로 무장·최고가만 전진시킨다(반환값은 쓰지 않음)."""
+        mode, pct = self.trade_ts_mode, float(self.trade_ts_pct) / 100
+        close, avg = float(close), float(avg)
+        if not self.ts_armed:
+            if not ((close - avg) / avg >= tp_pct / 100):
+                return False
+            self.ts_armed, self.ts_peak = True, close
+            self.ts_fixed = (close - avg) * pct if mode == "fixed" else None
+        if close > self.ts_peak:
+            self.ts_peak = close
+        if mode == "fixed":
+            return close <= self.ts_peak - self.ts_fixed
+        max_profit = self.ts_peak - avg
+        drop = (self.ts_peak - close) / max_profit if max_profit > 0 else 0
+        return drop >= pct
 
     def _off_hours(self, bar_ts) -> bool:
         """2차 T9: 이 봉의 판정 시각이 거래 시간 밖인지. 판정 시각 = 봉 마감(봉 시작 + 봉 단위) KST —
@@ -675,7 +717,7 @@ class IncrementalPullbackStrategy:
         return max(c["episodeTpFloorPct"], c["tp"] * (1 - c["episodeTpDecayPct"] / 100) ** (int(idx) - cap))
 
     _UNDO_KEYS = ("entry_count", "pullback_count", "first_entry_reason", "trade_origin", "pending_fill",
-                  "episode_idx", "trade_episode_idx", "trade_tp_pct")
+                  "episode_idx", "trade_episode_idx", "trade_tp_pct", *TRAIL_KEYS)
 
     def _save_buy_undo(self, live: bool) -> None:
         """BUY 신호가 회차를 올리기 직전 값(실시간만). 체결 대기 처리(순서 0)는 이미 끝난 뒤라 그 값은 유지된다."""
@@ -766,10 +808,21 @@ class IncrementalPullbackStrategy:
         elif holding and avg is not None and (
                 (self.first_entry_ts is not None and bar.ts > self.first_entry_ts)
                 or (live and position is not None and self.first_entry_ts is None)):
-            if bar.high >= tp_price:
-                signal = ("SELL", "TP")
+            if self.trade_ts_mode is None:
+                if bar.high >= tp_price:
+                    signal = ("SELL", "TP")
+                elif bar.low <= sl_price:
+                    signal = ("SELL", "SL")
+            # 1110-01: 이 거래가 추적 손절 켬으로 열렸으면 손절(저가) → 추적 손절(종가). 익절가에서는 팔지 않고 무장만.
+            # 시간 밖에도 판다(㉡ — 아래 시간 밖 막음은 익절(TP)만 본다).
             elif bar.low <= sl_price:
                 signal = ("SELL", "SL")
+            elif self.trailing_advance(float(bar.close), avg, tp_pct):
+                signal = ("SELL", "TRAILING_STOP")
+        if holding and self.ts_armed:
+            # 1110-01 ㉢: 추적 손절 무장 중(이 봉에서 막 무장한 경우 포함)에는 추가 매수를 하지 않는다 — 눌림목 대기 armed 도
+            # 그대로(백테스터 `if(tsArmed) continue` 와 같음)
+            buy_block.append("TS_ARMED")
 
         # 2차 T9 (결정 D5·13-7 가): 거래 시간 밖이면 매수 신호를 막는다. 지표·prev_golden 은 위에서 이미
         # 갱신했고, armed 는 원본 규칙대로 켜고 끈다(막힌 매수 봉에서는 armed 유지). 회차는 늘리지 않는다.
@@ -808,6 +861,7 @@ class IncrementalPullbackStrategy:
             self.first_entry_reason = "GOLDEN"
             self.trade_episode_idx = None   # 1105-09: 골든크로스 1차로 연 거래는 순번 없음 · 설정 tp
             self.trade_tp_pct = c["tp"]
+            self._fix_trade_trailing()      # 1110-01: 이 거래의 추적 손절 설정 고정
             self.trade_origin = origin
             self.pending_fill = True
             self.armed = False
@@ -833,6 +887,7 @@ class IncrementalPullbackStrategy:
                         self.episode_idx += 1
                         self.trade_episode_idx = self.episode_idx
                         self.trade_tp_pct = self.episode_tp(self.episode_idx)
+                        self._fix_trade_trailing()      # 1110-01: 이 거래의 추적 손절 설정 고정
                     self.entry_count += 1
                     self.pullback_count += 1
                     if live:
@@ -869,6 +924,9 @@ class IncrementalPullbackStrategy:
             "pause_end": _kst_iso(self.pause_end) if (paused and self.pause_end is not None) else None,
             "gap200_pct": gap200,
             "gc_gap_blocked": bool(gc_gap_counted and signal is None and not buy_block and not off),
+            # 1110-01: 추적 손절(이 거래 설정·무장·최고 종가·고정 금액). 청산 봉은 정리 전 값이 아니라 정리 뒤 값.
+            "ts_mode": self.trade_ts_mode, "ts_pct": self.trade_ts_pct,
+            "ts_armed": self.ts_armed, "ts_peak": self.ts_peak, "ts_fixed": self.ts_fixed,
         }
         if live and ev["gc_gap_blocked"]:
             logger.info(f"[PULLBACK] gc_gap_blocked | 상승폭 {gap200:.3f}% ≥ {c['gcMaxGapPct']}% "
@@ -979,6 +1037,12 @@ class IncrementalPullbackStrategy:
             "pause_end": ev.get("pause_end"),
             "gap200_pct": ev.get("gap200_pct"),
             "gc_gap_blocked": _b("gc_gap_blocked"),
+            # 1110-01: 추적 손절
+            "ts_mode": ev.get("ts_mode"),
+            "ts_pct": ev.get("ts_pct"),
+            "ts_armed": _b("ts_armed"),
+            "ts_peak": ev.get("ts_peak"),
+            "ts_fixed": ev.get("ts_fixed"),
         }
         if ev.get("note"):
             checks["note"] = ev["note"]

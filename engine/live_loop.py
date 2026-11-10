@@ -384,7 +384,9 @@ def _pullback_mark_polluted(engine, user_id: str, why: str) -> None:
 _PULLBACK_TRADE_KEYS = ("entry_count", "pullback_count", "first_entry_ts", "first_entry_reason",
                         "pending_fill", "fill_n", "inv_sum", "trade_origin",
                         # 1105-09 (Ver2 2-3): 구간 순번·이 거래 순번·이번 거래 TP% (strategy_pullback.SPLIT_TRADE_KEYS 와 같음)
-                        "episode_idx", "trade_episode_idx", "trade_tp_pct")
+                        "episode_idx", "trade_episode_idx", "trade_tp_pct",
+                        # 1110-01: 추적 손절 칸(strategy_pullback.TRAIL_KEYS) — 실보유 중 재생이 무장·최고가를 덮지 않게
+                        "trade_ts_mode", "trade_ts_pct", "ts_armed", "ts_peak", "ts_fixed")
 
 
 def _pullback_boot_wallet_unknown_cls():

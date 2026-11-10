@@ -40,6 +40,7 @@ FAILED_KEY_LABELS = {
     "PENDING_FILL": "체결 대기", "STATE_POLLUTED": "지표 확인 필요 — 매수 멈춤",
     # 1105-09 (Ver2 R4·R3, 2-6)
     "SL_PAUSE": "연속 손절로 매수 중단 중", "GC_GAP": "상승폭 제한 — 1차 매수 건너뜀",
+    "TS_ARMED": "추적 손절 대기 — 추가 매수 멈춤",   # 1110-01
     "TENTATIVE": "잠정 봉(판정 안 함)", "UNCONFIRMED": "확정 전 봉(판정 안 함)",
     "DUPLICATE": "이미 본 봉(판정 안 함)", "OFF_HOURS": "거래 시간 밖 — 주문 막음",
 }

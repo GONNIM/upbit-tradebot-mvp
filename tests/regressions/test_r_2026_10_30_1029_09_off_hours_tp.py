@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import ast
 import re
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -334,12 +333,89 @@ def check_excluded_ifs(now_src: str) -> list:
     return diffs
 
 
+# 1110-01 (사용자 결정 「㉠ 한 묶음 · ㉡ 늘 팜 · ㉢ 막음」): 추적 손절을 이 파일에 일부러 더했다. 커밋 전이라 기준 커밋을 옮길 수
+# 없으므로, 지금 파일에서 「1110-01 이 더한 모양」만 정해진 규칙으로 걷어 낸 뒤 기준(c0559e3)과 AST 를 비교한다.
+# 걷어 내는 것(이 밖의 차이는 모두 실패):
+#   모듈: TRAIL_KEYS 대입문 · SPLIT_TRADE_KEYS/_UNDO_KEYS 안의 *TRAIL_KEYS · dict 의 추적 손절 키(TS_DICT_KEYS)
+#   클래스: 새 메서드 _fix_trade_trailing · trailing_advance
+#   _reset_trade: `for k in TRAIL_KEYS:` 문 · _step: `if holding and self.ts_armed: buy_block.append("TS_ARMED")` 문 ·
+#   `self._fix_trade_trailing()` 호출문 · `if self.trade_ts_mode is None: <원래 TP/SL> elif …` → <원래 TP/SL>
+# 추적 손절 식 자체(trailing_advance)는 TrailingStopFilter 대조 시험·백테스터 일치 시험(test_r_2026_11_10_trailing·
+# test_r_2026_10_28_p3_t10_parity ts_ratio·ts_fixed)이 본다.
+TS_DICT_KEYS = {"trade_ts_mode", "trade_ts_pct", "ts_armed", "ts_peak", "ts_fixed", "ts_on", "ts_mode", "ts_pct"}
+TS_NEW_METHODS = {"_fix_trade_trailing", "trailing_advance"}
+
+
+def _is_name(n, name):
+    return isinstance(n, ast.Name) and n.id == name
+
+
+class _Strip1110(ast.NodeTransformer):
+    def visit_Assign(self, node):
+        if len(node.targets) == 1 and (_is_name(node.targets[0], "TRAIL_KEYS") or _is_name(node.targets[0], "ts_wait")):
+            return None
+        return self.generic_visit(node)
+
+    def visit_FunctionDef(self, node):
+        if node.name in TS_NEW_METHODS:
+            return None
+        return self.generic_visit(node)
+
+    def visit_For(self, node):
+        if _is_name(node.iter, "TRAIL_KEYS"):
+            return None
+        return self.generic_visit(node)
+
+    def visit_Expr(self, node):
+        c = node.value
+        if (isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute) and c.func.attr == "_fix_trade_trailing"
+                and _is_name(c.func.value, "self") and not c.args):
+            return None
+        return self.generic_visit(node)
+
+    def visit_If(self, node):
+        t = node.test
+        if (isinstance(t, ast.Compare) and isinstance(t.left, ast.Attribute) and t.left.attr == "trade_ts_mode"
+                and _is_name(t.left.value, "self") and len(t.ops) == 1 and isinstance(t.ops[0], ast.Is)
+                and isinstance(t.comparators[0], ast.Constant) and t.comparators[0].value is None):
+            return [self.visit(s) for s in node.body]
+        # `if holding and self.ts_armed: buy_block.append("TS_ARMED")` (㉢) → 지움
+        if (isinstance(t, ast.BoolOp) and isinstance(t.op, ast.And) and len(t.values) == 2
+                and _is_name(t.values[0], "holding") and isinstance(t.values[1], ast.Attribute)
+                and t.values[1].attr == "ts_armed" and _is_name(t.values[1].value, "self")
+                and not node.orelse and len(node.body) == 1 and isinstance(node.body[0], ast.Expr)
+                and ast.unparse(node.body[0]) == "buy_block.append('TS_ARMED')"):
+            return None
+        return self.generic_visit(node)
+
+    def visit_Tuple(self, node):
+        self.generic_visit(node)
+        node.elts = [e for e in node.elts
+                     if not (isinstance(e, ast.Starred) and _is_name(e.value, "TRAIL_KEYS"))
+                     and not (isinstance(e, ast.Tuple) and e.elts and isinstance(e.elts[0], ast.Constant)
+                              and e.elts[0].value == "TS_ARMED")]
+        return node
+
+    def visit_Dict(self, node):
+        self.generic_visit(node)
+        keep = [(k, v) for k, v in zip(node.keys, node.values)
+                if not (isinstance(k, ast.Constant) and k.value in TS_DICT_KEYS)]
+        node.keys = [k for k, _ in keep]
+        node.values = [v for _, v in keep]
+        return node
+
+
+def strip_1110(src: str) -> str:
+    """지금 파일 원문 → 1110-01 이 더한 모양을 걷어 낸 원문(ast.unparse). 기준 원문과 AST 비교에 쓴다."""
+    return ast.unparse(_Strip1110().visit(ast.parse(src)))
+
+
 def compare_pullback_ast(base_src: str, now_src: str) -> list:
-    """다른 점 목록(비면 같음). (1) 모듈 전체(docstring 제외, _step 몸통만 Pass) (2) _step 은 시간 밖 막음 If·
-    [PULLBACK-HOURS] 로그 If 를 뺀 문장 목록 — 각 1개씩 있어야 함 (3) 뺀 두 If 는 기대 모양 그대로(check_excluded_ifs)."""
+    """다른 점 목록(비면 같음). (0) 1110-01 이 더한 모양을 걷어 낸다(strip_1110) (1) 모듈 전체(docstring 제외, _step 몸통만 Pass)
+    (2) _step 은 시간 밖 막음 If·[PULLBACK-HOURS] 로그 If 를 뺀 문장 목록 — 각 1개씩 있어야 함 (3) 뺀 두 If 는 기대 모양 그대로."""
     diffs = list(check_excluded_ifs(now_src))
     trees = []
-    for src in (base_src, now_src):
+    for src in (base_src, strip_1110(now_src)):
         t = _strip_docstrings(ast.parse(src))
         step = _step_node(t)
         body = list(step.body)
@@ -357,11 +433,7 @@ def compare_pullback_ast(base_src: str, now_src: str) -> list:
     return diffs
 
 
-# 기준(c0559e3) 파일의 줄 번호 — 바뀌어도 되는 곳: 막음 블록 주석·If(774-784), 로그 문구(877), audit_view 주석(926)
-# 1105-09: 기준을 8464b58(724-731·800·842, 상한 6·2·1) → c0559e3 으로 올림(Ver2 2단계가 이 파일을 일부러 바꿈).
-# 새 기준과의 diff 는 비어 있으므로 상한은 지금 실제 값 0 — 여유 없음(주석 한 줄만 바꿔도 시험이 깨진다).
-ALLOWED_OLD_RANGES = ((774, 784), (877, 877), (926, 926))
-NEW_LINES_CAP = {(774, 784): 0, (877, 877): 0, (926, 926): 0}
+# (옛 줄 범위 상한 ALLOWED_OLD_RANGES·NEW_LINES_CAP 은 1110-01 에서 걷어 내기 비교로 바꿔 지웠다 — 아래 클래스 주석)
 
 
 class TestPullbackRulesFixed(unittest.TestCase):
@@ -374,25 +446,13 @@ class TestPullbackRulesFixed(unittest.TestCase):
         now = (ROOT / PULLBACK_REL).read_text(encoding="utf-8")
         self.assertEqual(compare_pullback_ast(self.base_src(), now), [])
 
-    def test_git_diff_hunks_inside_allowed_lines(self):
-        out = subprocess.run(["git", "-C", str(ROOT), "diff", "-U0", bc.PULLBACK_RULES_BASE_COMMIT, "--", PULLBACK_REL],
-                             capture_output=True, check=True, text=True).stdout
-        hunks = re.findall(r"^@@ -(\d+)(?:,(\d+))? \+\d+(?:,(\d+))? @@", out, re.M)
-        bad = []
-        new_lines = {w: 0 for w in ALLOWED_OLD_RANGES}
-        for start, count, new_count in hunks:
-            a = int(start)
-            n = 1 if count == "" else int(count)
-            lo, hi = (a, a) if n == 0 else (a, a + n - 1)       # n == 0: a 줄 뒤에 넣음
-            win = [w for w in ALLOWED_OLD_RANGES if w[0] <= lo and hi <= w[1]]
-            if not win:
-                bad.append((lo, hi))
-                continue
-            new_lines[win[0]] += 1 if new_count == "" else int(new_count)
-        self.assertEqual(bad, [], out)
-        # verifier 지적 1-2: 새 쪽 줄 수 상한(지금 실제 값, 여유 없음) — 막음 블록 6·로그 2·audit_view 주석 1
-        over = {w: n for w, n in new_lines.items() if n > NEW_LINES_CAP[w]}
-        self.assertEqual(over, {}, out)
+    # 1110-01: 옛 「git diff 줄 범위」 시험(ALLOWED_OLD_RANGES·NEW_LINES_CAP)은 추적 손절로 이 파일의 여러 줄을 일부러 바꿔
+    # 쓸 수 없게 됐다. 대신 (가) 걷어 내기 규칙이 기준 원문에서는 아무것도 지우지 않음 (나) 지금 파일 − 1110-01 = 기준(위 시험)
+    # (다) 변이 시험(아래)으로 고정한다. 커밋 뒤 기준 커밋을 올리면 이 걷어 내기도 함께 지운다(baseline_commits 6) 규칙).
+    def test_strip_1110_removes_nothing_from_base(self):
+        base = self.base_src()
+        self.assertEqual(ast.dump(_strip_docstrings(ast.parse(strip_1110(base)))),
+                         ast.dump(_strip_docstrings(ast.parse(base))))
 
     def test_ast_guard_catches_mutations(self):
         """변이 2건(Fable 막음 1): 모듈 수준 _SPLIT_DEFAULTS 값, 같은 이름 __init__ 중 PullbackSnapshotRing.__init__ 한 줄."""
@@ -412,6 +472,13 @@ class TestPullbackRulesFixed(unittest.TestCase):
             "block_if_cond": ('if signal == ("SELL", "TP") and off and not',
                               'if signal == ("SELL", "TP") and off and live and not'),
             "log_if_cond": ("        if blocked is not None and live:\n", "        if blocked is not None:\n"),
+            # 1110-01: 걷어 내는 If 의 몸통(추적 손절 꺼짐 = 원래 TP/SL)·buy_block 의 다른 원소·새 메서드 밖 줄은 그대로 잡힌다
+            "ts_off_tp_body": ("                if bar.high >= tp_price:\n", "                if bar.high > tp_price:\n"),
+            "buy_block_other": ('("STATE_POLLUTED", polluted)', '("STATE_POLLUTED", desync)'),
+            "ts_block_if_extra": ('            buy_block.append("TS_ARMED")\n',
+                                  '            buy_block.append("TS_ARMED"); self.armed = False\n'),
+            "reset_trade_other": ("        self.trade_tp_pct = None\n        for k in TRAIL_KEYS:",
+                                  "        self.trade_tp_pct = 0\n        for k in TRAIL_KEYS:"),
         }
         for name, (old, new) in muts.items():
             with self.subTest(name):

@@ -17,17 +17,17 @@ test("원본 스크립트 sha 같음", () => {
   assert.equal(scriptSha256(), cfgs.meta.original_script_sha256);
 });
 
-test("조합 13개·세트 3개", () => {
+test("조합 15개·세트 3개 (1110-01: 추적 손절 2조합)", () => {
   assert.deepStrictEqual(Object.keys(cfgs.cfgs), [
     "base", "golden_no", "golden_only", "pb_lt_splits", "slope_drop",
     "deadcross_no", "compounding_yes", "sma", "splits_full_armed",
-    "gc_gap", "sl_streak", "episode_cap", "min_slope",
+    "gc_gap", "sl_streak", "episode_cap", "min_slope", "ts_ratio", "ts_fixed",
   ]);
   assert.deepStrictEqual(cfgs.meta.fixtures, ["upbit_a", "upbit_b", "upbit_c"]);
 });
 
 for (const f of cfgs.meta.fixtures) {
-  test(`기준값 고정 파일과 같음 — ${f} 13조합`, async () => {
+  test(`기준값 고정 파일과 같음 — ${f} 15조합`, async () => {
     const fx = JSON.parse(fs.readFileSync(path.join(PB_DIR, `${f}.json`), "utf8"));
     for (const c of Object.keys(cfgs.cfgs)) {
       const p = expectedPath(f, c);

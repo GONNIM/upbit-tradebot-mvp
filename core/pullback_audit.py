@@ -48,7 +48,7 @@ def pullback_sell_reject_text(ticker: str, reason, qty, label: str, err_summary)
     from services.terminology import PULLBACK_REASON_LABEL   # 매도 사유 화면 용어는 한 곳(terminology)에만
     code = error_code_of(err_summary)
     _r = str(reason or "").upper()
-    what = PULLBACK_REASON_LABEL.get(_r, "매도") if _r in ("TP", "SL", "DEADCROSS") else "매도"
+    what = PULLBACK_REASON_LABEL.get(_r, "매도") if _r in ("TP", "SL", "DEADCROSS", "TRAILING_STOP") else "매도"
     if code == "insufficient_funds_ask":
         todo = ("할 일: 업비트 앱에서 외부 미체결 매도 주문을 확인해 주세요. "
                 "앱에서 직접 넣은 매도 주문이 수량을 묶고 있으면 봇 매도가 거절됩니다.")

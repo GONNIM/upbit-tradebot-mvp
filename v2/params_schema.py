@@ -85,6 +85,46 @@ def valid_ratio(v):
     return round(f, 1)
 
 
+# 1110-01: 추적 손절 선택 3키 — engine/pullback_params.TRAILING_KEYS·valid_trailing 과 같은 이름·규칙(시험이 비교).
+# 요청의 최상위 선택 필드 trailing({ts_on, ts_mode, ts_pct})로 받는다. 꺼짐이면 파일에 키를 쓰지 않는다(되돌리기 쉬움).
+TRAILING_KEYS = ("ts_on", "ts_mode", "ts_pct")
+TS_MODES = ("ratio", "fixed")
+TS_PCT_MIN, TS_PCT_MAX = 1.0, 100.0
+
+
+def valid_trailing(d):
+    """d(dict) 안의 3키 → 정규화 dict, 셋 다 없으면 None. 틀리거나 일부만 있으면 ValueError("trailing")."""
+    if not isinstance(d, dict):
+        raise ValueError("trailing")
+    if not any(k in d for k in TRAILING_KEYS):
+        return None
+    if not all(k in d for k in TRAILING_KEYS):
+        raise ValueError("trailing")
+    on, mode, pct = d["ts_on"], d["ts_mode"], d["ts_pct"]
+    if not isinstance(on, bool) or not isinstance(mode, str) or mode not in TS_MODES:
+        raise ValueError("trailing")
+    if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+        raise ValueError("trailing")
+    try:
+        f = float(pct)
+    except (OverflowError, ValueError):
+        raise ValueError("trailing")
+    if not math.isfinite(f) or f < TS_PCT_MIN or f > TS_PCT_MAX or abs(f * 10 - round(f * 10)) > 1e-9:
+        raise ValueError("trailing")
+    return {"ts_on": on, "ts_mode": mode, "ts_pct": round(f, 1)}
+
+
+def apply_trailing(file_dict, ts):
+    """1110-01: 요청의 추적 손절 값(ts = valid_trailing 결과 또는 None)을 파일 dict 에 반영.
+    켬이면 3키를 쓰고, 끔·None 이면 3키를 지운다."""
+    out = dict(file_dict)
+    for k in TRAILING_KEYS:
+        out.pop(k, None)
+    if ts is not None and ts["ts_on"]:
+        out.update(ts)
+    return out
+
+
 _INTERVAL = {"1m": "minute1", "3m": "minute3", "5m": "minute5", "10m": "minute10", "15m": "minute15",
              "30m": "minute30", "1h": "minute60"}
 _YES_NO = {"yes": True, "no": False}
@@ -164,6 +204,12 @@ def keep_optional(file_dict, old):
                 continue
             if r is not None:
                 out[k] = r
+    try:                     # 1110-01: 요청에 trailing 이 없을 때(옛 화면) 추적 손절 3키도 지우지 않는다(형식이 맞을 때만)
+        ts = valid_trailing(old)
+    except ValueError:
+        ts = None
+    if ts is not None and ts["ts_on"]:
+        out.update(ts)
     return out
 
 

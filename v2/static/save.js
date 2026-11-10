@@ -62,7 +62,26 @@
   // 창을 열 때 25개 값을 한 번 모은 스냅샷. 저장 POST 는 이 스냅샷을 그대로 보낸다.
   function makeSnapshot(getById) {
     var ds = getById("dataSource");
-    return { params: collectParams(getById), source: ds && ds.value === "upbit" ? "upbit" : "binance" };
+    var snap = { params: collectParams(getById), source: ds && ds.value === "upbit" ? "upbit" : "binance" };
+    var ts = collectTrailing(getById);
+    if (ts) snap.trailing = ts;
+    return snap;
+  }
+
+  // 1110-01: 백테스터의 추적 손절 3칸(trailingStop·trailingMode·trailingPct) → 서버 선택 필드 trailing.
+  // 칸이 없는 화면이면 null(요청에 싣지 않음 → 서버는 기존 저장값 보존). 값 검증은 서버(params_schema.valid_trailing).
+  function collectTrailing(getById) {
+    var on = getById("trailingStop"), mode = getById("trailingMode"), pct = getById("trailingPct");
+    if (!on || !mode || !pct) return null;
+    return { ts_on: on.value === "yes", ts_mode: String(mode.value), ts_pct: pct.value === "" ? null : Number(pct.value) };
+  }
+
+  // 「추적 손절: 끔」 / 「추적 손절: 켬 · 비율 50% (다음 거래부터)」
+  function trailingText(snap) {
+    var t = snap && snap.trailing;
+    if (!t) return "";
+    if (!t.ts_on) return "추적 손절: 끔 (익절가에서 매도)";
+    return "추적 손절: 켬 · " + (t.ts_mode === "fixed" ? "고정폭 " : "비율 ") + t.ts_pct + "% (다음 거래부터 적용)";
   }
 
   // ---- 확인 창 문구 (그림 5-가·5-나) ----
@@ -272,6 +291,7 @@
         " · " + (body.ticker || "종목 미상") + " · " + intervalText(body.interval);
     }
     if (status === 400 && body.error === "invest_ratio_pct") return RATIO_RANGE_TEXT;
+    if (status === 400 && body.field === "trailing") return "추적 손절 폭은 1~100 사이, 소수 첫째 자리까지 입력해 주세요";   // 1110-01
     if (status === 400) return "입력값 확인: " + (body.field || "요청 형식");
     if (status === 401) return GUIDE_TEXT;
     if (status === 403) return "권한 없음";
@@ -330,6 +350,7 @@
     SRC_INTERVAL: SRC_INTERVAL, srcToInterval: srcToInterval, srcText: srcText,
     intervalWarning: intervalWarning, saveButtonDisabled: saveButtonDisabled, lastSavedText: lastSavedText, makeGate: makeGate,
     makeSnapshot: makeSnapshot, snapshotBody: snapshotBody, intervalText: intervalText,
+    collectTrailing: collectTrailing, trailingText: trailingText,
     collectParams: collectParams, saveMessage: saveMessage, engineLabel: engineLabel,
     NUMBER_IDS: NUMBER_IDS, TEXT_IDS: TEXT_IDS, GUIDE_TEXT: GUIDE_TEXT,
     testedText: testedText, stateRows: stateRows, runBtnLabel: runBtnLabel, runNote: runNote,
@@ -515,7 +536,8 @@
     ratioState = { dirty: false, value: null };          // 창을 열 때마다 저장된 값을 다시 읽는다
     if (ratioInput) { ratioInput.value = ""; ratioErrBox.textContent = ""; ratioPreviewBox.textContent = ""; }
     dialog.hidden = false;
-    testedBox.textContent = testedText(snapshot);
+    var _tt = trailingText(snapshot);   // 1110-01: 저장될 추적 손절 설정도 함께 보인다
+    testedBox.textContent = testedText(snapshot) + (_tt ? " · " + _tt : "");
     runBtn.textContent = runBtnLabel(snapshot.source);
     runNoteBox.textContent = runNote(snapshot.source);
     infoBox.textContent = "";

@@ -1,5 +1,5 @@
 """
-2차 T10: 새 전략(PULLBACK) 원본 일치 시험 — 업비트 확정 봉 3세트 × 조합 13개 = 39건.
+2차 T10: 새 전략(PULLBACK) 원본 일치 시험 — 업비트 확정 봉 3세트 × 조합 15개 = 45건 (1110-01: 추적 손절 2조합 추가).
 
 1105-09 (Ver2 2단계) 고친 까닭: 엔진이 Ver2 규칙(R1~R7)을 따르게 되어 기준 원본을 옛 백테스터에서 Ver2 인라인
 스크립트 + 정해진 차이 2곳(tests/v2/js/fixtures/ver2_patches.json)으로 바꿨다. 기준값 39개를 다시 만들었고
@@ -48,7 +48,8 @@ PB_DIR = ROOT / "tests" / "fixtures" / "pullback"
 FIXTURES = ("upbit_a", "upbit_b", "upbit_c")
 CFG_NAMES = ("base", "golden_no", "golden_only", "pb_lt_splits", "slope_drop",
              "deadcross_no", "compounding_yes", "sma", "splits_full_armed",
-             "gc_gap", "sl_streak", "episode_cap", "min_slope")   # 1105-09: 새 규칙 4조합
+             "gc_gap", "sl_streak", "episode_cap", "min_slope",   # 1105-09: 새 규칙 4조합
+             "ts_ratio", "ts_fixed")   # 1110-01: 추적 손절(비율 50% · 고정폭 30%)
 
 _cache: dict = {}
 
@@ -81,6 +82,10 @@ def py_params(js: dict, fixture: dict) -> dict:
                             "buyOnGoldenCross", "maxSplits", "maxPullbackBuys", "tp", "sl", "capital", "fee")}
     p["deadcross"] = js["deadcross"] == "yes"
     p["compounding"] = js["compounding"] == "yes"
+    if js.get("trailingStop") == "yes":   # 1110-01: 백테스터 3칸 → 적용본 선택 3키(engine/pullback_params.TRAILING_KEYS)
+        p["ts_on"] = True
+        p["ts_mode"] = js["trailingMode"]
+        p["ts_pct"] = float(js["trailingPct"])
     p["ticker"] = meta["market"]
     p["interval"] = f"minute{int(meta['unit_min'])}"
     return p
@@ -195,7 +200,8 @@ def run_strategy(params: dict, bars: list, *, st=None, fill=None, start: int = 0
 
 def expected_lists(exp: dict):
     buys = [(x["signal_bar_t"], x["fill_bar_t"], x["round"], x["trigger"]) for x in exp["buys"]]
-    sells = [(x["bar_t"], x["type"], x["entries"]) for x in exp["sells"]]
+    # 1110-01: 백테스터 청산 종류 "TS" = 엔진 매도 사유 "TRAILING_STOP"(화면 낱말 「추적 손절」)
+    sells = [(x["bar_t"], "TRAILING_STOP" if x["type"] == "TS" else x["type"], x["entries"]) for x in exp["sells"]]
     return buys, sells
 
 
@@ -220,7 +226,7 @@ class _Quiet:
 
 
 class TestParity(unittest.TestCase):
-    """test_parity_<fixture>_<cfg> 39개 (아래에서 만든다)."""
+    """test_parity_<fixture>_<cfg> 45개 (아래에서 만든다)."""
 
     def check(self, fixture: str, cfg: str):
         fx = load_fixture(fixture)
@@ -249,7 +255,7 @@ for _f in FIXTURES:
 
 
 class TestFixtures(unittest.TestCase):
-    def test_cfgs_thirteen_and_fixtures_three(self):   # 1105-09: 9 → 13 조합
+    def test_cfgs_fifteen_and_fixtures_three(self):   # 1105-09: 9 → 13 조합 · 1110-01: 13 → 15
         cfgs = load_cfgs()
         self.assertEqual(tuple(cfgs["cfgs"]), CFG_NAMES)
         self.assertEqual(tuple(cfgs["meta"]["fixtures"]), FIXTURES)
@@ -258,7 +264,7 @@ class TestFixtures(unittest.TestCase):
                 self.assertTrue((PB_DIR / "expected" / f"{f}__{c}.json").is_file(), (f, c))
 
     def test_event_counts_base(self):
-        """각 경우 사건 수: base 세 세트 모두 GOLDEN ≥ 1, PULLBACK ≥ 1, 매도 ≥ 1. 39건 모두 매수·매도 ≥ 1."""
+        """각 경우 사건 수: base 세 세트 모두 GOLDEN ≥ 1, PULLBACK ≥ 1, 매도 ≥ 1. 45건 모두 매수·매도 ≥ 1."""
         for f in FIXTURES:
             exp = load_expected(f, "base")
             trig = [b["trigger"] for b in exp["buys"]]
@@ -274,7 +280,7 @@ class TestFixtures(unittest.TestCase):
             self.assertNotIn("PULLBACK", [b["trigger"] for b in load_expected(f, "golden_only")["buys"]], f)
 
     def test_expected_script_sha_matches_cfgs(self):
-        """고정 파일 39개가 cfgs.json 의 원본 스크립트 sha 로 만들어졌다(원본 sha 자체는 node 시험이 본다)."""
+        """고정 파일 45개가 cfgs.json 의 원본 스크립트 sha 로 만들어졌다(원본 sha 자체는 node 시험이 본다)."""
         sha = load_cfgs()["meta"]["original_script_sha256"]
         self.assertRegex(sha, r"^[0-9a-f]{64}$")
         for f in FIXTURES:

@@ -158,7 +158,8 @@ class TestEvalAudit(T8EngineCase):
 
     def test_sell_trigger_key_mapping(self):
         self.assertEqual(se.PULLBACK_SELL_TRIGGER_KEY, {"TP": "Take Profit", "SL": "Stop Loss",
-                                                        "DEADCROSS": "Dead Cross"})
+                                                        "DEADCROSS": "Dead Cross",
+                                                        "TRAILING_STOP": "Trailing Stop"})   # 1110-01
 
     def test_warmup_audit_failed_key(self):
         self.make()

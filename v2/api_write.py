@@ -69,6 +69,17 @@ class SaveHandler(ApiHandler):
             except ValueError:
                 return self.send_json({"error": "invest_ratio_pct"}, 400)
 
+        # 2-2. 1110-01: 추적 손절 — 선택 필드 trailing({ts_on, ts_mode, ts_pct}). 없으면 기존 저장값 보존, 끔이면 3키를 지움
+        trailing_given = isinstance(req, dict) and "trailing" in req
+        trailing = None
+        if trailing_given:
+            try:
+                trailing = params_schema.valid_trailing(req.get("trailing"))
+            except ValueError:
+                return self.send_json({"error": "invalid_param", "field": "trailing"}, 400)
+            if trailing is None:
+                return self.send_json({"error": "invalid_param", "field": "trailing"}, 400)
+
         # 3. 엔진 종목
         ticker = self._engine_ticker(user)
         if ticker is None:
@@ -100,6 +111,8 @@ class SaveHandler(ApiHandler):
                 file_dict.pop(rkey, None)
             else:
                 file_dict[rkey] = ratio
+        if trailing_given:   # 1110-01: 시험한 추적 손절 설정 그대로(끔이면 키 없음)
+            file_dict = params_schema.apply_trailing(file_dict, trailing)
         new_text = json.dumps(file_dict, ensure_ascii=False, indent=2) + "\n"
         try:
             _write_in_place(path, new_text)

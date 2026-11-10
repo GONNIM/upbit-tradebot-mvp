@@ -80,6 +80,38 @@ def ratio_key(mode: str) -> str:
     return "invest_ratio_pct_live" if mode == "LIVE" else "invest_ratio_pct_test"
 
 
+# 1110-01: 추적 손절(트레일링 스톱) 선택 3키. 24키·거래 시간 4키·투자 비율 키와 따로 둔다(운용 설정 4키 저장과 무관).
+# 키가 없으면 꺼짐이고 결과에도 넣지 않는다(옛 코드가 읽는 모양과 같음). 셋은 함께 있어야 한다.
+# ts_on = 참/거짓, ts_mode = "ratio"(최고 수익 중 잃는 비율) | "fixed"(무장 때 수익 × 폭% 고정 금액), ts_pct = 1~100(소수 첫째 자리).
+TRAILING_KEYS = ("ts_on", "ts_mode", "ts_pct")
+TS_MODES = ("ratio", "fixed")
+TS_PCT_MIN, TS_PCT_MAX = 1.0, 100.0
+
+
+def valid_trailing(d: dict):
+    """d 안의 추적 손절 3키 → 정규화 dict, 셋 다 없으면 None. 하나라도 틀리거나 일부만 있으면 ValueError(키 이름)."""
+    present = [k for k in TRAILING_KEYS if k in d]
+    if not present:
+        return None
+    for k in TRAILING_KEYS:
+        if k not in d:
+            raise ValueError(k)
+    on, mode, pct = d["ts_on"], d["ts_mode"], d["ts_pct"]
+    if not isinstance(on, bool):
+        raise ValueError("ts_on")
+    if not isinstance(mode, str) or mode not in TS_MODES:
+        raise ValueError("ts_mode")
+    if isinstance(pct, bool) or not isinstance(pct, (int, float)):
+        raise ValueError("ts_pct")
+    try:
+        f = float(pct)
+    except (OverflowError, ValueError):
+        raise ValueError("ts_pct")
+    if not math.isfinite(f) or f < TS_PCT_MIN or f > TS_PCT_MAX or abs(f * 10 - round(f * 10)) > 1e-9:
+        raise ValueError("ts_pct")
+    return {"ts_on": on, "ts_mode": mode, "ts_pct": round(f, 1)}
+
+
 # v2/params_schema.py PARAM_FIELDS·SERVER_EXTRA_LIMITS·INTEGER_FIELDS 와 같은 값 (시험이 비교)
 RANGES = {
     "ma60p": (2, 500),
@@ -225,7 +257,7 @@ def validate(d: dict, *, user_id: str | None = None) -> dict:
     if not isinstance(d, dict):
         raise PullbackParamsError("type")
     d, dropped = _migrate_legacy(d)
-    allowed = set(PULLBACK_KEYS) | set(OPTIONAL_KEYS) | set(RATIO_KEYS)
+    allowed = set(PULLBACK_KEYS) | set(OPTIONAL_KEYS) | set(RATIO_KEYS) | set(TRAILING_KEYS)
     for k in PULLBACK_KEYS:
         if k not in d:
             raise PullbackParamsError(k)
@@ -290,9 +322,18 @@ def validate(d: dict, *, user_id: str | None = None) -> dict:
             if r is not None:
                 out[k] = r
 
+    # 1110-01: 추적 손절 3키(있을 때만 결과에 넣는다)
+    try:
+        ts = valid_trailing(d)
+    except ValueError as e:
+        raise PullbackParamsError(str(e))
+    if ts is not None:
+        out.update(ts)
+
     _notify_legacy(user_id, dropped)
-    # 키 순서: 24키 -> 선택 4키 -> (있으면) 투자 비율 키
-    return {k: out[k] for k in (*PULLBACK_KEYS, *OPTIONAL_KEYS, *(k for k in RATIO_KEYS if k in out))}
+    # 키 순서: 24키 -> 선택 4키 -> (있으면) 투자 비율 키 -> (있으면) 추적 손절 3키
+    return {k: out[k] for k in (*PULLBACK_KEYS, *OPTIONAL_KEYS, *(k for k in RATIO_KEYS if k in out),
+                                *(k for k in TRAILING_KEYS if k in out))}
 
 
 def _reason_of(e: PullbackParamsError) -> str:

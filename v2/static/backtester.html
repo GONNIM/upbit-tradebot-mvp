@@ -114,7 +114,7 @@ td:first-child,th:first-child{text-align:left}
 </div>
 
 <details id="btMore" class="bt-more">
-<summary><span class="bt-closed">설정 17개 더 보기</span><span class="bt-open">설정 17개 접기</span></summary>
+<summary><span class="bt-closed">설정 20개 더 보기</span><span class="bt-open">설정 20개 접기</span></summary>
 <div class="bt-grid">
 <label>이동평균 방식
 <select id="maType"><option value="ema" selected>지수이동평균(EMA)</option><option value="sma">단순이동평균(SMA)</option></select></label>
@@ -138,6 +138,11 @@ td:first-child,th:first-child{text-align:left}
 <select id="deadcross"><option value="yes">예</option><option value="no" selected>아니오</option></select></label>
 <label>복리 모드(수익 재투자)
 <select id="compounding"><option value="no" selected>아니오(고정 원금)</option><option value="yes">예(매 거래 시작 시점 자본으로 재계산)</option></select></label>
+<label>추적 손절(트레일링 스톱)
+<select id="trailingStop"><option value="no" selected>끔</option><option value="yes">켬</option></select></label>
+<label>추적 손절 방식
+<select id="trailingMode"><option value="ratio" selected>비율</option><option value="fixed">고정폭</option></select></label>
+<label>추적 손절 폭 %(1~100)<input id="trailingPct" type="number" value="50" min="1" max="100" step="0.1"></label>
 </div>
 </details>
 

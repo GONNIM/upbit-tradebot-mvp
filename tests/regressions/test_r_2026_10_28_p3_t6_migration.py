@@ -33,8 +33,11 @@ EXPECTED_COLUMNS = [
     "params_sha256", "last_bar_ts", "updated_at",
     # 1105-09 (Ver2 2-3): 연속 손절 중단(엔진 칸 3)·구간 순번·이 거래 순번·이번 거래 TP%(전략 칸 3) — _ensure_column 으로 뒤에 붙음
     "sl_streak", "pause_start_ts", "pause_end_ts", "episode_idx", "trade_episode_idx", "trade_tp_pct",
+    # 1110-01: 추적 손절(이 거래 방식·폭, 무장·최고 종가·고정 금액) — _ensure_column 으로 뒤에 붙음
+    "trade_ts_mode", "trade_ts_pct", "ts_armed", "ts_peak", "ts_fixed",
 ]
 OLD_COLUMNS = EXPECTED_COLUMNS[:24]   # 1105-09 전 표(옛 DB)
+V2_COLUMNS = EXPECTED_COLUMNS[:30]    # 1110-01 전 표(1105-09 배포본 DB)
 
 
 class _TmpDb(unittest.TestCase):
@@ -141,6 +144,29 @@ class TestPullbackStateMigration(_TmpDb):
         row = self.q("SELECT entry_count, ticker, sl_streak, pause_start_ts, pause_end_ts, episode_idx, "
                      "trade_episode_idx, trade_tp_pct FROM pullback_state")
         self.assertEqual(row, [(2, "KRW-JTO", 0, None, None, 0, None, None)])
+        self.assertEqual(self.q("PRAGMA integrity_check")[0][0], "ok")
+
+    def test_1110_table_gets_trailing_columns_rows_kept(self):
+        """1110-01: 1110-01 전 모양(30칸, 보유 행 1개) → ensure 2회 → 35칸, 행 값 그대로, 새 칸은 기본값
+        (ts_armed 0, 나머지 NULL = 이 거래는 추적 손절 끔)."""
+        self.idb.initialize_db(U)
+        self.idb.ensure_all_schemas(U)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            for c in EXPECTED_COLUMNS[30:]:
+                conn.execute(f"ALTER TABLE pullback_state DROP COLUMN {c}")
+            conn.execute("INSERT INTO pullback_state(user_id, mode, ticker, interval, entry_count, qty, trade_tp_pct, "
+                         "updated_at) VALUES (?, 'LIVE', 'KRW-JTO', 'minute3', 2, 5.5, 1.0, '2026-11-10T10:00:00+09:00')", (U,))
+            conn.commit()
+        finally:
+            conn.close()
+        self.assertEqual([r[1] for r in self.q("PRAGMA table_info(pullback_state)")], V2_COLUMNS)
+        self.idb.ensure_all_schemas(U)
+        self.idb.ensure_all_schemas(U)
+        self.assertEqual([r[1] for r in self.q("PRAGMA table_info(pullback_state)")], EXPECTED_COLUMNS)
+        row = self.q("SELECT entry_count, qty, trade_tp_pct, trade_ts_mode, trade_ts_pct, ts_armed, ts_peak, ts_fixed "
+                     "FROM pullback_state")
+        self.assertEqual(row, [(2, 5.5, 1.0, None, None, 0, None, None)])
         self.assertEqual(self.q("PRAGMA integrity_check")[0][0], "ok")
 
     def test_mode_check_constraint(self):

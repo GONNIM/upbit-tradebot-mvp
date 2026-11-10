@@ -1,8 +1,8 @@
 {
  "meta": {
-  "note": "2차 T10 일치 시험 조합. 1105-09 Ver2 2단계: base 에서 minSlope·slopeDrop 를 빼고 새 8키(Ver2 화면 기본값)를 넣음 (deadcross 는 기존 조합 뜻을 지키려고 base \"yes\" 유지), slope_drop 은 ma60SlopeDrop 로 바꿈, 새 규칙 조합 gc_gap(R3)·sl_streak(R4)·episode_cap(R5)·min_slope(R2) 추가. 모양은 Ver2 run() 680-698행과 같음",
-  "original": "docs/new-version/MA_GC_Pullback_Backtester_2611051030(Ver2).html 인라인 스크립트 + 정해진 차이 2곳 (tests/v2/js/fixtures/ver2_patches.json)",
-  "original_script_sha256": "00557219a1328b60ea2f7da1e92d5940db24d163fed30772c740ba3652ffef7d",
+  "note": "2차 T10 일치 시험 조합. 1105-09 Ver2 2단계: base 에서 minSlope·slopeDrop 를 빼고 새 8키(Ver2 화면 기본값)를 넣음 (deadcross 는 기존 조합 뜻을 지키려고 base \"yes\" 유지), slope_drop 은 ma60SlopeDrop 로 바꿈, 새 규칙 조합 gc_gap(R3)·sl_streak(R4)·episode_cap(R5)·min_slope(R2) 추가. 모양은 Ver2 run() 680-698행과 같음 · 1110-01: 추적 손절 조합 ts_ratio(비율 50%)·ts_fixed(고정폭 30%) 추가, 원본 sha 는 차이 1110-01 을 넣은 스크립트",
+  "original": "docs/new-version/MA_GC_Pullback_Backtester_2611051030(Ver2).html 인라인 스크립트 + 정해진 차이(1105-06 두 곳 · 1110-01 추적 손절, tests/v2/js/fixtures/ver2_patches.json)",
+  "original_script_sha256": "e6e96aa09f41b2eec45c59eb6a05e11445495492b8dd22ae2961bcd7f23e0bb4",
   "fixtures": [
    "upbit_a",
    "upbit_b",
@@ -73,6 +73,16 @@
   },
   "min_slope": {
    "ma60MinSlope": 0.02
+  },
+  "ts_ratio": {
+   "trailingStop": "yes",
+   "trailingMode": "ratio",
+   "trailingPct": 50
+  },
+  "ts_fixed": {
+   "trailingStop": "yes",
+   "trailingMode": "fixed",
+   "trailingPct": 30
   }
  }
 }

@@ -1045,7 +1045,11 @@ def ensure_pullback_tables(user_id: str):
     #   ADD COLUMN 만 한다. 되돌리기(코드 revert) 때 옛 코드는 이 칸을 읽지도 쓰지도 않는다(SELECT 칸 목록을 정해 씀).
     for _col, _ddl in (("sl_streak", "INTEGER NOT NULL DEFAULT 0"), ("pause_start_ts", "TEXT"),
                        ("pause_end_ts", "TEXT"), ("episode_idx", "INTEGER NOT NULL DEFAULT 0"),
-                       ("trade_episode_idx", "INTEGER"), ("trade_tp_pct", "REAL")):
+                       ("trade_episode_idx", "INTEGER"), ("trade_tp_pct", "REAL"),
+                       # ✅ 1110-01 (⚠ 칸 추가): 추적 손절 — 이 거래 설정(방식·폭, NULL = 끔)·무장·최고 종가·고정 금액.
+                       #   ADD COLUMN 만 한다(기본 NULL·0). 옛 코드는 SELECT 칸 목록을 정해 쓰므로 이 칸을 읽지도 쓰지도 않는다.
+                       ("trade_ts_mode", "TEXT"), ("trade_ts_pct", "REAL"), ("ts_armed", "INTEGER NOT NULL DEFAULT 0"),
+                       ("ts_peak", "REAL"), ("ts_fixed", "REAL")):
         _ensure_column(conn, "pullback_state", _col, _ddl)
     # ✅ 2차 T12 (2026-10-29, X1·결정 13-1): 전략 전환·복귀·예약 기록 strategy_switch 신설 (⚠ 스키마 변경).
     #   - 손익 집계 밖(audit_trades 에 넣지 않음). 예약 조회는 (user_id, mode, kind IN SWITCH/REVERT, state RESERVED).

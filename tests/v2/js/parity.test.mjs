@@ -24,11 +24,12 @@ test("Ver2 기준 파일이 바뀌지 않았다", () => {
   assert.ok(origScript.trimEnd().endsWith("attachSteppers();"), "스크립트 끝 줄");
 });
 
-test("script = Ver2 원문 + 정해진 차이 2곳 (바이트 동일)", () => {
-  assert.equal(PATCHES.patches.length, 2);
+test("script = Ver2 원문 + 정해진 차이(1105-06 두 곳 · 1110-01 추적 손절) (바이트 동일)", () => {
+  assert.equal(PATCHES.patches.filter((p) => !p.why.includes("1110-01")).length, 2);
+  assert.equal(PATCHES.patches.filter((p) => p.why.includes("1110-01")).length, 8);
   for (const p of PATCHES.patches) {
     assert.equal(countOf(origScript, p.find), 1, p.why);
-    assert.ok(p.replace.includes("기준 파일과 다름 — 1105-06"), "차이 자리 주석");
+    assert.ok(/기준 파일과 다름 — 1105-06|기준 파일과 다름 — 1110-01/.test(p.replace), "차이 자리 주석");
   }
   const port = fs.readFileSync(PORT_JS);
   assert.equal(sha(port), sha(Buffer.from(patchedScript(), "utf8")));
@@ -42,11 +43,14 @@ test("defaults identical to Ver2", () => {
   assert.equal(ids.filter((i) => o[i].tag === "select").length, 7);
   assert.equal(ids.length, 41);
   for (const id of ids) assert.deepStrictEqual(p[id], o[id], id);
+  // 1110-01: 원문에 없는 칸은 추적 손절 3칸뿐
+  assert.deepStrictEqual(Object.keys(p).filter((i) => i !== "dataSource" && !(i in o)).sort(),
+    ["trailingMode", "trailingPct", "trailingStop"]);
   // 옛 200선 기울기 칸은 없다 (1105-06 결정 ②)
   assert.equal(p.minSlope, undefined);
   assert.equal(p.slopeDrop, undefined);
   assert.equal(p.dataSource.tag, "select");
-  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 41);
+  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 44);
   const portHtml = fs.readFileSync(PORT_HTML, "utf8");
   // R7 폐기(결정 1026-23 2 가): 업비트 출처는 서버 경로. select 는 숨겨 값만 맞춘다.
   assert.match(portHtml, /<select id="dataSource" hidden>/);

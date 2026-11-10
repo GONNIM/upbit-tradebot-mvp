@@ -30,12 +30,14 @@ _COLS = (
     "params_sha256", "last_bar_ts", "updated_at",
     # 1105-09 (Ver2 2-3)
     "sl_streak", "pause_start_ts", "pause_end_ts", "episode_idx", "trade_episode_idx", "trade_tp_pct",
+    # 1110-01 (추적 손절)
+    "trade_ts_mode", "trade_ts_pct", "ts_armed", "ts_peak", "ts_fixed",
 )
 _INT_COLS = ("entry_count", "pullback_count", "fill_n", "sl_streak", "episode_idx")
 _OPT_INT_COLS = ("trade_episode_idx",)
-_BOOL_COLS = ("armed", "pending_fill", "desync")
+_BOOL_COLS = ("armed", "pending_fill", "desync", "ts_armed")
 _REAL_COLS = ("inv_sum", "realized_pnl_krw", "qty", "cost_krw")
-_OPT_REAL_COLS = ("sizing_base_krw", "avg_price", "trade_tp_pct")
+_OPT_REAL_COLS = ("sizing_base_krw", "avg_price", "trade_tp_pct", "trade_ts_pct", "ts_peak", "ts_fixed")
 
 
 def now_kst_iso() -> str:
@@ -115,7 +117,7 @@ def _row_values(user_id: str, mode: str, state: dict) -> dict:
         out[c] = None if v is None else int(v)
     pg = state.get("prev_golden")
     out["prev_golden"] = None if pg is None else (1 if pg else 0)
-    for c in ("first_entry_reason", "trade_origin", "params_sha256"):
+    for c in ("first_entry_reason", "trade_origin", "params_sha256", "trade_ts_mode"):
         v = state.get(c)
         out[c] = None if v is None else str(v)
     for c in _TS_COLS:
@@ -205,6 +207,7 @@ def reset_after_exit(user_id: str, mode: str, realized_pnl: float = 0.0) -> bool
             f"UPDATE {TABLE} SET entry_count=0, pullback_count=0, first_entry_ts=NULL, first_entry_reason=NULL, "
             f"armed=0, trade_origin=NULL, pending_fill=0, fill_n=0, inv_sum=0, sizing_base_krw=NULL, "
             f"qty=0, cost_krw=0, avg_price=NULL, desync=0, trade_episode_idx=NULL, trade_tp_pct=NULL, "
+            f"trade_ts_mode=NULL, trade_ts_pct=NULL, ts_armed=0, ts_peak=NULL, ts_fixed=NULL, "   # 1110-01
             f"realized_pnl_krw=realized_pnl_krw + ?, updated_at=? "
             f"WHERE user_id=? AND mode=?",
             (pnl, now_kst_iso(), user_id, m),

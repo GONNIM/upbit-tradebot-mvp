@@ -424,7 +424,7 @@ test("backtester.html: 칸 이름 글자 — 짝 칸 이름·단위·크기·봉
   assert.match(HTML, /#btMore\[open\] \.bt-closed,#btMore:not\(\[open\]\) \.bt-open\{display:none\}/);
 });
 
-test("backtester.html: 출처 토글·접힘 17개·카드·자세한 결과 (1105-09 Ver2)", () => {
+test("backtester.html: 출처 토글·접힘 20개·카드·자세한 결과 (1105-09 Ver2 · 1110-01 추적 손절 3칸)", () => {
   assert.match(HTML, /데이터 출처/);
   assert.match(HTML, /업비트 \(KRW\)/);
   assert.match(HTML, /바이낸스/);
@@ -435,11 +435,12 @@ test("backtester.html: 출처 토글·접힘 17개·카드·자세한 결과 (11
     assert.ok(HTML.includes(t), t);
   }
   // 1106-03: 「… 그 밖의 입력 17개(접힘)」 → 접혔을 때 「설정 17개 더 보기」, 펼쳤을 때 「설정 17개 접기」
-  assert.match(HTML, /<summary><span class="bt-closed">설정 17개 더 보기<\/span><span class="bt-open">설정 17개 접기<\/span><\/summary>/);
+  // 1110-01: 추적 손절 3칸(trailingStop·trailingMode·trailingPct)을 더해 20개
+  assert.match(HTML, /<summary><span class="bt-closed">설정 20개 더 보기<\/span><span class="bt-open">설정 20개 접기<\/span><\/summary>/);
   const m = /<details id="btMore"[^>]*>([\s\S]*?)<\/details>/.exec(HTML);
   assert.ok(m, "btMore");
   const inner = [...m[1].matchAll(/<(?:input|select)\b[^>]*\sid="([^"]+)"/g)].map((x) => x[1]).sort();
-  assert.deepEqual(inner, ["buyOnGoldenCross", "capital", "deadcross", "compounding", "fee", "maType", "maxPullbackBuys", "pullbackP", "slopeLB", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours", "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct"].sort());
+  assert.deepEqual(inner, ["buyOnGoldenCross", "capital", "deadcross", "compounding", "fee", "maType", "maxPullbackBuys", "pullbackP", "slopeLB", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours", "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct", "trailingStop", "trailingMode", "trailingPct"].sort());
   assert.match(HTML, /데이터 가져오기 \+ 백테스트/);
   assert.match(HTML, /id="btNote"[^>]*hidden/);
   assert.match(HTML, /다른 화면으로 가도 서버가 계속 받아 둡니다/);
@@ -461,9 +462,14 @@ test("backtester.html: 출처 토글·접힘 17개·카드·자세한 결과 (11
   assert.ok(HTML.indexOf("전략 로직 설명") > HTML.indexOf('<details id="btDetail"'));
 });
 
-test("backtester.html: 입력 41개 id 가 모두 있고 기본값 그대로 (1105-09 Ver2)", () => {
+test("backtester.html: 입력 41개 id 가 모두 있고 기본값 그대로 (1105-09 Ver2) + 추적 손절 3칸 (1110-01)", () => {
   const p = parseDefaults(HTML);
-  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 41);
+  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 44);
+  assert.equal(p.trailingStop.value, "no");     // 기본 꺼짐
+  assert.deepStrictEqual(p.trailingStop.options, ["no", "yes"]);
+  assert.equal(p.trailingMode.value, "ratio");
+  assert.deepStrictEqual(p.trailingMode.options, ["ratio", "fixed"]);
+  assert.equal(p.trailingPct.value, "50");
   assert.equal(p.symbol.value, "JTOUSDT");
   assert.equal(p.src.value, "3m");
   assert.equal(p.days.value, "30");

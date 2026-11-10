@@ -57,7 +57,31 @@ PULLBACK_WALLET_FAIL_ALERT_BARS = 3     # 지갑 읽기가 이만큼 봉 연속 
 class PullbackBootWalletUnknown(RuntimeError):
     """1109 작업 D: 눌림목 실계좌 재시작 때 업비트 지갑을 끝내 읽지 못했고 저장된 평단도 없다 — 엔진을 시작하지 않는다."""
 # ✅ 2차 T8: PULLBACK 매도 평가 감사 trigger_key (EMA·MACD 의 이름과 같은 꼴)
-PULLBACK_SELL_TRIGGER_KEY = {"TP": "Take Profit", "SL": "Stop Loss", "DEADCROSS": "Dead Cross"}
+PULLBACK_SELL_TRIGGER_KEY = {"TP": "Take Profit", "SL": "Stop Loss", "DEADCROSS": "Dead Cross",
+                             "TRAILING_STOP": "Trailing Stop"}   # 1110-01
+
+
+def _pullback_trail_keys() -> tuple:
+    """1110-01: 추적 손절 칸 이름(core/strategy_pullback.TRAIL_KEYS — 분할 상태 표 칸과 같은 이름)."""
+    from core.strategy_pullback import TRAIL_KEYS
+    return TRAIL_KEYS
+
+
+def _pullback_trail_saved(row: dict) -> dict:
+    """1110-01: pullback_state 행 → 추적 손절 칸(형식이 틀리거나 비면 이 거래는 끔 · 무장 없음)."""
+    mode = row.get("trade_ts_mode")
+    pct = row.get("trade_ts_pct")
+    off = {"trade_ts_mode": None, "trade_ts_pct": None, "ts_armed": False, "ts_peak": None, "ts_fixed": None}
+    if mode not in ("ratio", "fixed") or pct is None:
+        return off
+    armed = bool(row.get("ts_armed"))
+    peak = row.get("ts_peak")
+    fixed = row.get("ts_fixed")
+    if armed and (peak is None or (mode == "fixed" and fixed is None)):
+        armed, peak, fixed = False, None, None   # 무장 값이 깨졌으면 무장 전으로(다음 봉에 종가로 다시 무장 판정)
+    return {"trade_ts_mode": mode, "trade_ts_pct": float(pct), "ts_armed": armed,
+            "ts_peak": (float(peak) if (armed and peak is not None) else None),
+            "ts_fixed": (float(fixed) if (armed and mode == "fixed" and fixed is not None) else None)}
 NO_ACTION_TEXT = "투자자님이 따로 하실 일은 없습니다."  # 2차 T8: 새 전략 텔레그램 끝맺음(할 일이 없을 때)
 
 
@@ -1297,6 +1321,8 @@ class StrategyEngine:
             "pause_start_ts": self._pb_pause_start, "pause_end_ts": self._pb_pause_end,
             "episode_idx": ex.get("episode_idx", 0), "trade_episode_idx": ex.get("trade_episode_idx"),
             "trade_tp_pct": ex.get("trade_tp_pct"),
+            # 1110-01: 추적 손절(이 거래 설정·무장·최고 종가·고정 금액)
+            **{k: ex.get(k) for k in _pullback_trail_keys()},
         }
 
     # ---- 1105-09 (Ver2 R4): 연속 손절 매수 중단 — 엔진 칸
@@ -1952,6 +1978,8 @@ class StrategyEngine:
             "trade_episode_idx": (int(row["trade_episode_idx"]) if row.get("trade_episode_idx") is not None
                                   else None),
             "trade_tp_pct": (float(row["trade_tp_pct"]) if row.get("trade_tp_pct") is not None else None),
+            # 1110-01: 추적 손절 — 칸이 없거나(옛 행) 비면 이 거래는 끔
+            **_pullback_trail_saved(row),
         }
         if row.get("prev_golden") is not None:
             saved["prev_golden"] = bool(row["prev_golden"])
@@ -1989,6 +2017,7 @@ class StrategyEngine:
         else:
             cur.update({k: saved[k] for k in _sp.SPLIT_TRADE_KEYS})  # 재생 뒤: 거래 칸만 DB 값(armed 는 재생 결과)
         st.restore_split_state(cur)
+        self._pullback_trail_catchup(st, series, last_saved, st_last, avg, wallet, validator, res)
         if ring is not None and getattr(st, "last_ts", None) is not None:
             ring.amend_last_split(st.last_ts, st)
         res["restored"] = True
@@ -2001,6 +2030,34 @@ class StrategyEngine:
         self.pullback_restore_result = res
         self._pullback_persist()
         return res
+
+    @staticmethod
+    def _pullback_trail_catchup(st, series, last_saved, st_last, avg, wallet, validator, res) -> None:
+        """1110-01 (Fable 권고 2): 재시작 때 꺼져 있던 동안의 확정 봉 종가로 추적 손절 무장·최고가만 전진시킨다
+        (구버전 core/trailing_restore 와 같은 뜻 — 매도 판정은 다음 실시간 봉이 한다). 저장 봉(last_saved) 뒤 ~ 워밍업 끝(st_last),
+        첫 체결 봉 뒤 봉만, 평단은 지갑 평단. 이 거래가 끔으로 열렸거나 자료가 없으면 아무것도 하지 않는다."""
+        from core import strategy_pullback as _sp
+        res["trail_catchup"] = 0
+        if getattr(st, "trade_ts_mode", None) is None or not (wallet and float(wallet) > 0):
+            return
+        if series is None or last_saved is None or st_last is None or not avg or float(avg) <= 0:
+            return
+        first = getattr(st, "first_entry_ts", None)
+        tp = st.trade_tp_pct if st.trade_tp_pct is not None else st.cfg["tp"]
+        rows = series[(series.index > last_saved) & (series.index <= st_last)]
+        n = 0
+        try:
+            for ts, r in _sp.iter_valid_rows(rows, validator, tag="[PULLBACK-TRAIL-RESTORE]"):
+                if first is not None and not (ts > first):
+                    continue
+                st.trailing_advance(float(r["close"]), float(avg), float(tp))
+                n += 1
+        except Exception as e:
+            logger.warning(f"[PULLBACK-TRAIL-RESTORE] 따라잡기 실패 → 저장 값 그대로 | {type(e).__name__}: {e}")
+            return
+        res["trail_catchup"] = n
+        logger.info(f"[PULLBACK-TRAIL-RESTORE] 꺼져 있던 동안 {n}봉 종가로 추적 손절 전진 | 방식={st.trade_ts_mode} "
+                    f"폭={st.trade_ts_pct}% 무장={st.ts_armed} 최고={st.ts_peak} 고정={st.ts_fixed} 평단={avg}")
 
     def _pullback_ind_dict(self) -> Dict[str, Any]:
         """감사·이벤트용 지표 dict (EMA 칸은 비움)."""

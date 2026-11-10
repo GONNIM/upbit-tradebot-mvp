@@ -1,7 +1,10 @@
 {
   "source": "docs/new-version/MA_GC_Pullback_Backtester_2611051030(Ver2).html",
-  "script_lines": [168, 1212],
-  "note": "기준 파일(Ver2) 인라인 스크립트에 정해진 차이 2곳만 적용한 것이 v2/static/backtester.js 다 (1105-06 · plan.md 1절). find 는 원문에 정확히 1번 나와야 한다.",
+  "script_lines": [
+    168,
+    1212
+  ],
+  "note": "기준 파일(Ver2) 인라인 스크립트에 정해진 차이(1105-06 두 곳 · 1110-01 추적 손절)만 적용한 것이 v2/static/backtester.js 다 (1105-06 · plan.md 1절 · 1110-01). find 는 원문에 정확히 1번 나와야 한다.",
   "patches": [
     {
       "why": "1105-06 Q3 ② — 새 거래를 연 눌림목 매수만 구간 순번에 셈",
@@ -12,6 +15,46 @@
       "why": "1105-06 결정 ③ — 실제로 살 수 있었던 골든크로스만 상승폭 건너뜀 횟수에 셈",
       "find": "      if(g!=null && g>=cfg.gcMaxGapPct){ gcGapOk=false; gcGapBlocked++; }\n",
       "replace": "      if(g!=null && g>=cfg.gcMaxGapPct){ gcGapOk=false; if(active && !streakPaused && entryCount<effMaxSplits && (cfg.compounding!==\"yes\" || sizingBase>0) && i+1<bars.length) gcGapBlocked++; } // 기준 파일과 다름 — 1105-06 결정 ③: 실제로 살 수 있었던 골든크로스만 셈\n"
+    },
+    {
+      "why": "1110-01 추적 손절 상태 칸",
+      "find": "  let episodePullbackCount=0; // (신규) 지금 골든크로스 구간(데드크로스 없이 이어진 구간) 안에서 누적된 눌림목 돌파 체결 횟수\n",
+      "replace": "  let episodePullbackCount=0; // (신규) 지금 골든크로스 구간(데드크로스 없이 이어진 구간) 안에서 누적된 눌림목 돌파 체결 횟수\n  let tsArmed=false,tsPeak=null,tsFixed=null; // 기준 파일과 다름 — 1110-01: 추적 손절(트레일링 스톱) 무장·최고 종가·고정 금액\n"
+    },
+    {
+      "why": "1110-01 청산 때 추적 손절 상태 초기화",
+      "find": "    pullbackArmed=false;\n    // (신규) 연속 SL 자동 매수 중단",
+      "replace": "    pullbackArmed=false;\n    tsArmed=false;tsPeak=null;tsFixed=null; // 기준 파일과 다름 — 1110-01: 청산 때 추적 손절 상태 초기화\n    // (신규) 연속 SL 자동 매수 중단"
+    },
+    {
+      "why": "1110-01 추적 손절 판정(켜짐이면 손절(저가) → 추적 손절(종가), 익절가는 무장 기준)",
+      "find": "      if(b.h>=tpPrice){ closePosition(i,tpPrice,\"TP\"); continue; }\n      if(b.l<=slPrice){ closePosition(i,slPrice,\"SL\"); continue; }\n",
+      "replace": "      if(cfg.trailingStop!==\"yes\"){ // 기준 파일과 다름 — 1110-01: 추적 손절 꺼짐이면 원래 규칙 그대로\n      if(b.h>=tpPrice){ closePosition(i,tpPrice,\"TP\"); continue; }\n      if(b.l<=slPrice){ closePosition(i,slPrice,\"SL\"); continue; }\n      }else{ // 기준 파일과 다름 — 1110-01: 켜짐 — 손절(저가) 먼저, 그다음 추적 손절(종가). 구버전 EMA 와 같은 식\n        if(b.l<=slPrice){ closePosition(i,slPrice,\"SL\"); continue; }\n        const tsPct=cfg.trailingPct/100, tpPctNow=(currentTradeTpPct!=null?currentTradeTpPct:cfg.tp)/100;\n        if(!tsArmed && (b.c-avg)/avg>=tpPctNow){ tsArmed=true; tsPeak=b.c; tsFixed=cfg.trailingMode===\"fixed\"?(b.c-avg)*tsPct:null; }\n        if(tsArmed){\n          if(b.c>tsPeak) tsPeak=b.c;\n          const tsHit=cfg.trailingMode===\"fixed\" ? b.c<=tsPeak-tsFixed : ((tsPeak-avg)>0?(tsPeak-b.c)/(tsPeak-avg):0)>=tsPct;\n          if(tsHit){ closePosition(i,b.c,\"TS\"); continue; }\n        }\n      }\n"
+    },
+    {
+      "why": "1110-01 ㉢ 무장 중 추가 매수 안 함",
+      "find": "    const pullbackCapped = pullbackEntryCount>=cfg.maxPullbackBuys;\n",
+      "replace": "    if(tsArmed) continue; // 기준 파일과 다름 — 1110-01 ㉢: 추적 손절 무장 중에는 추가 매수 안 함(눌림목 대기 상태도 그대로)\n    const pullbackCapped = pullbackEntryCount>=cfg.maxPullbackBuys;\n"
+    },
+    {
+      "why": "1110-01 통계 추적 손절 청산 수",
+      "find": "    deadcross:t.filter(x=>x.exitType===\"DEADCROSS\").length,\n",
+      "replace": "    deadcross:t.filter(x=>x.exitType===\"DEADCROSS\").length,\n    ts:t.filter(x=>x.exitType===\"TS\").length, // 기준 파일과 다름 — 1110-01\n"
+    },
+    {
+      "why": "1110-01 결과 표 추적 손절 행(켜짐일 때만)",
+      "find": "    [\"데드크로스 강제청산\",s.deadcross],\n",
+      "replace": "    [\"데드크로스 강제청산\",s.deadcross],\n    ...(cfg.trailingStop===\"yes\"?[[\"추적 손절 청산\",s.ts]]:[]), // 기준 파일과 다름 — 1110-01\n"
+    },
+    {
+      "why": "1110-01 청산 색·이름",
+      "find": "  if(type===\"DEADCROSS\") return \"데드크로스 청산\";\n",
+      "replace": "  if(type===\"DEADCROSS\") return \"데드크로스 청산\";\n  if(type===\"TS\") return \"추적 손절\"; // 기준 파일과 다름 — 1110-01\n"
+    },
+    {
+      "why": "1110-01 설정 3칸 읽기",
+      "find": "    compounding:$(\"compounding\").value\n  };\n",
+      "replace": "    compounding:$(\"compounding\").value,\n    // 기준 파일과 다름 — 1110-01: 추적 손절 3칸(없으면 꺼짐)\n    trailingStop:$(\"trailingStop\")?$(\"trailingStop\").value:\"no\",\n    trailingMode:$(\"trailingMode\")?$(\"trailingMode\").value:\"ratio\",\n    trailingPct:$(\"trailingPct\")?+$(\"trailingPct\").value:50\n  };\n"
     }
   ]
 }

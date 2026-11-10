@@ -185,6 +185,7 @@ function simulate(bars,maTrend,ma200,slope60,maPullback,cfg){
   let prevGolden=false; // 직전 봉이 골든크로스 상태였는지(이번 봉에서 "막 골든크로스로 전환"됐는지 판정용)
   let consecutiveSl=0,pauseUntil=null,pauseTriggers=0; // (신규) 연속 SL 자동 매수 중단용 상태
   let episodePullbackCount=0; // (신규) 지금 골든크로스 구간(데드크로스 없이 이어진 구간) 안에서 누적된 눌림목 돌파 체결 횟수
+  let tsArmed=false,tsPeak=null,tsFixed=null; // 기준 파일과 다름 — 1110-01: 추적 손절(트레일링 스톱) 무장·최고 종가·고정 금액
 
   function updateDD(){
     if(equity>peak) peak=equity;
@@ -223,6 +224,7 @@ function simulate(bars,maTrend,ma200,slope60,maPullback,cfg){
     firstEntrySlope60=null;firstEntryGap200=null;
     currentTradeTpPct=null;firstEntryEpisodeIdx=null;
     pullbackArmed=false;
+    tsArmed=false;tsPeak=null;tsFixed=null; // 기준 파일과 다름 — 1110-01: 청산 때 추적 손절 상태 초기화
     // (신규) 연속 SL 자동 매수 중단: SL이 아닌 청산(TP/DEADCROSS)이 나오면 연속 카운트를 리셋하고,
     // SL이면 카운트를 올려 임계값에 도달하는 순간 중단 시작 시각을 기록합니다.
     if(type==="SL"){
@@ -258,8 +260,19 @@ function simulate(bars,maTrend,ma200,slope60,maPullback,cfg){
       const avg=cost/qty;
       const tpPrice=avg*(1+(currentTradeTpPct!=null?currentTradeTpPct:cfg.tp)/100);
       const slPrice=avg*(1-cfg.sl/100);
+      if(cfg.trailingStop!=="yes"){ // 기준 파일과 다름 — 1110-01: 추적 손절 꺼짐이면 원래 규칙 그대로
       if(b.h>=tpPrice){ closePosition(i,tpPrice,"TP"); continue; }
       if(b.l<=slPrice){ closePosition(i,slPrice,"SL"); continue; }
+      }else{ // 기준 파일과 다름 — 1110-01: 켜짐 — 손절(저가) 먼저, 그다음 추적 손절(종가). 구버전 EMA 와 같은 식
+        if(b.l<=slPrice){ closePosition(i,slPrice,"SL"); continue; }
+        const tsPct=cfg.trailingPct/100, tpPctNow=(currentTradeTpPct!=null?currentTradeTpPct:cfg.tp)/100;
+        if(!tsArmed && (b.c-avg)/avg>=tpPctNow){ tsArmed=true; tsPeak=b.c; tsFixed=cfg.trailingMode==="fixed"?(b.c-avg)*tsPct:null; }
+        if(tsArmed){
+          if(b.c>tsPeak) tsPeak=b.c;
+          const tsHit=cfg.trailingMode==="fixed" ? b.c<=tsPeak-tsFixed : ((tsPeak-avg)>0?(tsPeak-b.c)/(tsPeak-avg):0)>=tsPct;
+          if(tsHit){ closePosition(i,b.c,"TS"); continue; }
+        }
+      }
     }
 
     const sizingBase=cfg.compounding==="yes"?equity:cfg.capital;
@@ -294,6 +307,7 @@ function simulate(bars,maTrend,ma200,slope60,maPullback,cfg){
     // 포지션 보유 중에는 equity가 realize 전까지 변하지 않으므로, 같은 거래의 2차 이후 분할도 동일 기준으로 계산됨.
     // goldenOnlyMode(분할매수 최대 횟수=0 + 골든크로스 시 1차 매수=예)에서는 눌림목 추가매수를 완전히 차단합니다.
     // 눌림목 매수는 전체 분할 한도(effMaxSplits)와 별개로, 눌림목 전용 횟수 한도(maxPullbackBuys)도 함께 적용됩니다.
+    if(tsArmed) continue; // 기준 파일과 다름 — 1110-01 ㉢: 추적 손절 무장 중에는 추가 매수 안 함(눌림목 대기 상태도 그대로)
     const pullbackCapped = pullbackEntryCount>=cfg.maxPullbackBuys;
     if(!goldenOnlyMode && !pullbackCapped && !streakPaused && active && entryCount<effMaxSplits && (cfg.compounding!=="yes" || sizingBase>0)){
       if(maPullback[i]!=null && b.l<maPullback[i]) pullbackArmed=true;
@@ -362,6 +376,7 @@ function stats(res,cfg){
     tp:t.filter(x=>x.exitType==="TP").length,
     sl:t.filter(x=>x.exitType==="SL").length,
     deadcross:t.filter(x=>x.exitType==="DEADCROSS").length,
+    ts:t.filter(x=>x.exitType==="TS").length, // 기준 파일과 다름 — 1110-01
     maxSplit:t.reduce((m,x)=>Math.max(m,x.entries),0),
     avgSplit:t.length?t.reduce((s,x)=>s+x.entries,0)/t.length:0,
     goldenStart:t.filter(x=>x.firstEntryTrigger==="GOLDEN").length,
@@ -387,6 +402,7 @@ function render(res,cfg,bars){
     ["TP 청산",s.tp],
     ["SL 청산",s.sl],
     ["데드크로스 강제청산",s.deadcross],
+    ...(cfg.trailingStop==="yes"?[["추적 손절 청산",s.ts]]:[]), // 기준 파일과 다름 — 1110-01
     ["최대 분할 도달",s.maxSplit],
     ["평균 분할 횟수",fmt(s.avgSplit)],
     ["골든크로스 즉시진입으로 시작한 거래",s.goldenStart],
@@ -529,7 +545,11 @@ async function run(){
     tp:+$("tp").value, sl:+$("sl").value,
     capital:+$("capital").value, fee:+$("fee").value,
     deadcross:$("deadcross").value,
-    compounding:$("compounding").value
+    compounding:$("compounding").value,
+    // 기준 파일과 다름 — 1110-01: 추적 손절 3칸(없으면 꺼짐)
+    trailingStop:$("trailingStop")?$("trailingStop").value:"no",
+    trailingMode:$("trailingMode")?$("trailingMode").value:"ratio",
+    trailingPct:$("trailingPct")?+$("trailingPct").value:50
   };
   try{
     const forceRefresh=$("forceRefresh").checked;
@@ -699,6 +719,7 @@ function exitLabel(type){
   if(type==="TP") return "익절";
   if(type==="SL") return "손절";
   if(type==="DEADCROSS") return "데드크로스 청산";
+  if(type==="TS") return "추적 손절"; // 기준 파일과 다름 — 1110-01
   return type;
 }
 
