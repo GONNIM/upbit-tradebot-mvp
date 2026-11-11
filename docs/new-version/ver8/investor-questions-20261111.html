@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>고도화 백테스터(Ver8) 반영 전 확인 질문 (2026-11-11)</title>
+<style>
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Regular.ttf");font-weight:400}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Bold.ttf");font-weight:700}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-ExtraBold.ttf");font-weight:800}
+@page{size:A4;margin:12mm 14mm 12mm 14mm}
+*{box-sizing:border-box}
+body{font-family:"NG",sans-serif;font-size:9.6pt;line-height:1.55;color:#1a1a1a;margin:0}
+h1{font-size:15pt;margin:0 0 3px;font-weight:800}
+.meta{color:#555;font-size:9pt;margin-bottom:9px;border-bottom:2px solid #1a1a1a;padding-bottom:6px}
+h2{font-size:11pt;margin:11px 0 4px;padding:2px 0 2px 8px;border-left:5px solid #2563eb;font-weight:800;break-after:avoid}
+p{margin:4px 0}
+b{font-weight:700}
+.box{background:#f4f6f8;border-radius:6px;padding:7px 11px;margin:6px 0}
+.ex{background:#fffbeb;border:1px solid #f3d27a;border-radius:6px;padding:7px 11px;margin:6px 0}
+.opt{border:1px solid #c9d2dc;border-radius:6px;padding:5px 11px;margin:4px 0}
+.opt b.n{display:inline-block;min-width:20px}
+.ans{background:#ecfdf3;border:1px solid #86d7a5;border-radius:6px;padding:7px 11px;margin:10px 0 6px;font-weight:700}
+ul{margin:3px 0;padding-left:18px}
+li{margin:2px 0}
+</style>
+</head>
+<body>
+
+<h1>고도화 백테스터(Ver8) 반영 전 확인 질문</h1>
+<div class="meta">2026년 11월 11일</div>
+
+<p>투자자님, 보내 주신 고도화 자료를 잘 받았습니다.</p>
+<div class="box">받은 파일: <b>MA_GC_Pullback_Backtester_2611111144(Ver8).html</b>, 설명 그림 2개(60선 최소 기울기 · 60선 기울기 둔화 허용치), 수익률 화면 1장</div>
+<p>파일을 지금 쓰는 Ver2 와 한 줄씩 비교했습니다. <b>현물 매매 규칙은 Ver2 와 똑같습니다.</b> 그래서 지금 봇의 매매 방식은 바꿀 것이 없습니다. 설명 그림 2개의 두 필터도 이미 봇에 들어가 있습니다. 새로 생긴 것은 아래 세 가지입니다.</p>
+<ul>
+<li><b>선물 백테스트(롱+숏)</b> — 바이낸스 선물 시세로 오를 때는 롱, 내릴 때는 숏을 합니다(방식 A·B·C, 펀딩비 반영).</li>
+<li><b>여러 값 비교 확장</b> — 「60선 기울기 둔화 허용치」 축과 값별 분석표가 추가됐습니다.</li>
+<li><b>차트 개선</b> — 전체화면, 끌어서 이동, 표시 밀도 조절이 추가됐습니다.</li>
+</ul>
+
+<h2>질문 1. 어디까지 반영할까요?</h2>
+<p>Ver8 의 숏은 <b>바이낸스 선물</b> 기준입니다. 지금 봇이 연결된 업비트 계좌는 <b>현물 매매만</b> 합니다. 그래서 <b>Ver8 과 같은 방식의 숏은 지금 계좌로는 할 수 없습니다.</b> Ver8 과 같은 방식으로 하려면 바이낸스 선물 계좌를 새로 연결해야 하고, 거래소·자금(USDT)·이용 조건을 먼저 검토해야 합니다. 업비트에도 코인을 빌려서 파는 「코인빌리기」가 있지만, 이용 기간(최대 30일)·수수료·자격 요건 등 방식과 조건이 달라 따로 검토해야 합니다.</p>
+<div class="opt"><b class="n">①</b> 대시보드 백테스터에만 넣습니다. 실제 매매는 지금처럼 업비트 현물로 합니다.</div>
+<div class="opt"><b class="n">②</b> ①에 더해, 숏 실제 매매도 원합니다. (먼저 검토 결과를 따로 알려 드립니다.)</div>
+<div class="opt"><b class="n">③</b> 세 가지 가운데 일부만 넣습니다. (넣을 것을 적어 주세요.)</div>
+
+<h2>질문 2. 수익률 화면은 어떤 조건으로 낸 결과인가요?</h2>
+<p>보내 주신 화면의 1위 조합은 익절 4%, 손절 5%, 분할 1회, 기울기 0, 둔화 허용치 0.05 이고, 32회 거래에 수익률 50.85% 입니다. 다만 화면에 <b>종목, 기간(며칠), 봉 단위, 현물인지 선물인지</b>가 보이지 않습니다. 선물이었다면 방식(A·B·C)도 알려 주세요. 이 조건을 알아야 같은 결과를 다시 내 볼 수 있습니다(현물이면 업비트 시세로도 비교합니다).</p>
+<div class="ex">참고 — 한 기간에서 1위인 조합은 다른 기간에서는 결과가 달라질 수 있습니다. Ver8 안내문에도 같은 주의가 적혀 있습니다.</div>
+
+<h2>질문 3. 백테스터 기본값도 Ver8 값으로 바꿀까요?</h2>
+<p>Ver8 은 처음 열 때의 기본값이 바뀌었습니다(분할 5→1회, 익절 1→3%, 손절 1.5→3%). 실제 매매 설정은 투자자님이 설정 저장 화면에서 직접 정하시므로, 이 질문은 <b>백테스터를 처음 열 때 보이는 값</b>만 정합니다.</p>
+<div class="opt"><b class="n">①</b> Ver8 기본값으로 바꿉니다.</div>
+<div class="opt"><b class="n">②</b> 지금 기본값(Ver2)을 그대로 둡니다.</div>
+
+<div class="ans">답은 「1번 ①, 2번 KRW-JTO·30일·1분봉·현물, 3번 ①」처럼 보내 주시면 됩니다.</div>
+<p>답을 받으면 같은 설정의 결과를 먼저 다시 내 보고 알려 드리겠습니다. 대시보드에 반영하기 전에는 바뀌는 점을 다시 안내드리겠습니다.</p>
+
+</body>
+</html>

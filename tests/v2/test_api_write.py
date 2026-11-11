@@ -16,7 +16,7 @@ from tests.v2 import test_api_read as base
 
 ROOT = Path(__file__).resolve().parents[2]
 # 1105-09 (Ver2): 화면 입력 기준을 옛 백테스터에서 Ver2 기준 파일로 바꿨다(19 → 25칸, 파일 18 → 24키)
-ORIG_HTML = ROOT / "docs" / "new-version" / "MA_GC_Pullback_Backtester_2611051030(Ver2).html"
+ORIG_HTML = ROOT / "docs" / "new-version" / "ver2" / "MA_GC_Pullback_Backtester_2611051030(Ver2).html"
 SAVE_URL = "/v2/api/params/save"
 CURRENT_URL = "/v2/api/params/current"
 

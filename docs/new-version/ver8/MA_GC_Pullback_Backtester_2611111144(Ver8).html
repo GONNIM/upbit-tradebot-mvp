@@ -1,0 +1,1881 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MA60·MA200 골든크로스 눌림목 분할매수 백테스터</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:Arial,sans-serif;max-width:1250px;margin:20px auto;padding:0 16px;color:#222}
+h1{margin-bottom:6px;font-size:1.4em}.note{background:#f4f6f8;padding:12px;border-radius:8px;line-height:1.55}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(150px,1fr));gap:10px}
+.grid-2{display:grid;grid-template-columns:repeat(2,minmax(150px,1fr));gap:10px}
+label{display:flex;flex-direction:column;font-size:13px;gap:4px}
+input,select,button{padding:8px;font-size:14px;width:100%}
+button{cursor:pointer;width:auto}.actions{margin:14px 0;display:flex;gap:8px;flex-wrap:wrap}
+#status{white-space:pre-wrap;background:#111;color:#ddd;padding:10px;border-radius:8px;min-height:42px}
+table{border-collapse:collapse;width:100%;min-width:100%;margin-top:12px}th,td{border:1px solid #ddd;padding:7px;text-align:right;white-space:nowrap}th{background:#f1f1f1}
+td:first-child,th:first-child{text-align:left}.small{font-size:12px;color:#666}
+.highlight{background:#fff8dc;font-weight:bold}
+.section{margin-top:26px;padding:16px;border:1px solid #ccc;border-radius:10px;background:#fafafa}
+#summary,#depth,#weekly,#monthly,#sweepResult{overflow-x:auto}
+#summary table,#depth table,#weekly table,#monthly table,#sweepResult table{width:max-content;min-width:100%}
+/* 숫자 입력 ± 버튼(모바일은 브라우저 기본 상하 화살표가 안 나오므로 직접 제공) */
+.stepper{display:flex;gap:4px;align-items:stretch}
+.stepper input{flex:1;min-width:0}
+.stepper .stepBtn{display:none;width:44px;flex:0 0 44px;padding:0;font-size:20px;font-weight:bold;border:1px solid #bbb;border-radius:6px;background:#eef1f4;color:#222;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.stepper .stepBtn:active{background:#d6dbe0}
+@media (hover:none),(pointer:coarse),(max-width:640px){
+  .stepper .stepBtn{display:block}
+}
+/* 차트 전체화면: 화면 전체를 덮는 레이어(브라우저 전체화면 API가 없는 iPhone 등에서도 동작) */
+#chartBox.fs{position:fixed;left:0;top:0;right:0;bottom:0;z-index:9999;background:#0b1220;padding:6px;display:flex;flex-direction:column;gap:4px}
+#chartBox.fs .chartBar{margin:0;flex-direction:row;flex-wrap:wrap;gap:6px}
+#chartBox.fs .chartBar button{width:auto;padding:6px 10px;font-size:14px}
+#chartBox.fs #chartWrap{flex:1 1 0;min-height:0;margin-top:0}
+#chartBox.fs #chartInfo{border-radius:6px;font-size:12px;min-height:0}
+#chartBox.fs #chartLegend{display:none}
+#chartBox.fs #chartCanvas{touch-action:none}
+body.chart-fs{overflow:hidden}
+/* 모바일(갤럭시 S22 등 ~360~412px 폭) 대응 */
+@media (max-width:640px){
+  body{padding:0 12px;margin:12px auto}
+  .grid,.grid-2{grid-template-columns:repeat(2,1fr)}
+  input,select,button{font-size:16px;padding:10px} /* 16px: 일부 모바일 브라우저의 입력창 자동 확대 방지 */
+  table{font-size:13px}
+  th,td{padding:6px}
+}
+@media (max-width:420px){
+  .grid,.grid-2{grid-template-columns:1fr}
+  .actions{flex-direction:column}
+  .actions button{width:100%}
+}
+</style>
+</head>
+<body>
+<h1>MA60·MA200 골든크로스 눌림목 분할매수 백테스터</h1>
+
+<details class="note">
+<summary style="cursor:pointer;font-weight:bold">전략 로직 설명 (클릭하여 펼치기/접기)</summary>
+<div style="margin-top:8px">
+① 선택한 봉(1분/3분/5분/10분/15분/30분/60분) 기준, 선택한 이동평균 방식(EMA/SMA)으로 계산한 MA60이 MA200 위에 있는 동안(골든크로스 상태)만 매매를 감시합니다. (10분봉은 바이낸스가 제공하지 않아 5분봉 2개를 합성합니다.)
+② <b>G/C 매수제한 상승폭</b> — 0(기본)=제한 없음. 예를 들어 3%를 선택하면, 골든크로스 시점 봉의 종가가 장기선(MA200)보다 3% 이상 위에 있을 때 골든크로스 즉시진입(1회차)을 하지 않습니다(이미 급등한 뒤의 추격매수 방지). 이 경우 1회차는 눌림목 재돌파 조건을 기다립니다. (200선 기울기 필터는 이번 버전에서 제거되었습니다.)
+③ 감시 중 캔들 저가가 "눌림목 재진입 기준 MA"(기본값=MA60과 동일 기간, 원하면 20 등으로 따로 설정 가능) 아래로 한 번 내려갔다가(눌림) 이후 캔들 종가가 그 기준선을 다시 상향 돌파하면, 다음 캔들 시가에 분할매수 1회(수수료 포함)가 체결됩니다. 골든크로스 판정(①)은 이 설정과 무관하게 항상 MA60 vs MA200으로 고정됩니다.
+④ 같은 방식으로 눌림→재돌파가 반복될 때마다 설정한 최대 분할 횟수까지 추가 매수합니다(분할마다 새로운 눌림이 필요).
+⑤ 평단가 기준 TP%에 도달하면 익절, SL%에 도달하면 손절하며 포지션이 전량 청산됩니다. 복리 모드를 "예"로 켜면 각 거래 시작 시점의 누적 equity를 기준으로 분할 배분금액을 다시 계산합니다(기본값 "아니오"는 항상 초기자본 기준 고정 배분).
+⑥ 청산 후에도 골든크로스·기울기 조건이 유지되면 즉시 다시 감시를 이어가며, 데드크로스(MA60&lt;MA200) 발생 시 보유 포지션은 옵션에 따라 강제청산됩니다.
+⑦ <b>(신규) 골든크로스 시 1차 매수 자동 진입</b> — "골든크로스 시 1차 매수"를 "예"로 켜면, 눌림목을 기다리지 않고 골든크로스가 막 발생한(또는 조회 구간 시작 시점에 이미 골든크로스 상태인) 바로 다음 캔들 시가에 분할 1회차 매수가 즉시 체결됩니다. 이후 2회차부터는 기존과 동일하게 눌림→재돌파 조건으로 체결됩니다(예: 분할매수 3회 설정 시 1회=골든크로스 즉시진입, 2·3회=눌림목 재돌파). "아니오"로 끄면 1회차도 기존처럼 눌림목 재돌파를 기다립니다. <b>분할매수 최대 횟수를 0으로 설정하면</b>("골든크로스 시 1차 매수"=예일 때만 의미가 있음) 눌림목 추가매수를 아예 쓰지 않고 골든크로스 즉시진입 1회만으로 거래가 끝나는 모드가 됩니다(그 이후엔 TP/SL/데드크로스로만 청산). "골든크로스 시 1차 매수"=아니오 상태에서 0으로 두면 매수 자체가 발생하지 않습니다.
+⑧ <b>(신규) 눌림목 매수 최대 횟수</b> — "분할매수 최대 횟수"와는 별개로, 눌림목 재돌파로 체결되는 매수만 따로 최대 1~5회까지로 제한합니다(골든크로스 즉시진입 1회는 이 한도에 포함되지 않습니다). 예를 들어 분할매수 최대 횟수=5, 눌림목 매수 최대 횟수=3이면: 골든크로스 즉시진입(1회, 해당 시) + 눌림목 재돌파 최대 3회까지만 체결되고 나머지 분할 슬롯은 쓰이지 않습니다.
+⑨ <b>60선 기울기 필터</b> — MA60 자체의 기울기(같은 lookback 사용)가 "60선 최소 기울기 %" 미달이거나(평평~하락), "60선 기울기 둔화 허용치"를 초과해 꺾이면 골든크로스·눌림목 매수를 모두 막습니다. MA60이 MA200 위에 있어도(골든크로스 상태) MA60 자체가 옆으로 눕는(눌림목이 반복되며 손절이 잦아지는) 구간을 걸러내기 위한 필터입니다. 기본값은 최소 기울기 0%, 둔화 0=미사용이며, 둔화 허용치를 0으로 두면 그 조건은 검사하지 않습니다.
+⑩ <b>(신규) 연속 손절(SL) 자동 매수 중단</b> — "연속 SL 중단 임계값"을 1 이상으로 설정하면, 같은 포지션 흐름에서 SL이 연속으로(그 사이 TP·데드크로스청산 없이) 설정한 횟수만큼 발생하는 순간부터 "중단 지속시간(시간)" 동안 골든크로스·눌림목 매수를 모두 멈춥니다(이미 들고 있던 포지션의 TP/SL/데드크로스 청산 감시는 계속됩니다). 지속시간이 지나면 연속 SL 횟수가 0으로 초기화되고 다시 정상적으로 매수를 감시합니다. 0으로 두면 이 기능은 꺼집니다. 특정 구간(장세)에서 SL이 몰리는 패턴을 데이터로 직접 겪은 뒤 바로 멈추는, 지표가 아닌 "실제 성과 기반" 안전장치입니다.
+⑪ <b>(신규) 거래로그 CSV의 기울기 기록</b> — "거래로그 CSV" 다운로드에 각 거래의 최초 진입 시점 기준 60선 기울기(entryMa60SlopePct)와 장기선 대비 이격도(entryGapToMa200Pct) 값이 함께 기록됩니다. exitType(TP/SL/DEADCROSS)과 이 값들을 엑셀 등에서 비교하면, 실제로 기울기가 낮았던 진입이 SL로 끝나는 비율이 높은지 등을 직접 데이터로 검증할 수 있습니다.
+⑫ <b>(신규) 구간 내 눌림목 돌파 횟수 제한 + 초과분 TP 체감</b> — "구간"은 데드크로스 없이 이어지는 하나의 골든크로스 지속 구간을 말하며(거래 1건이 아니라 그 구간에서 발생한 모든 거래를 통틀어 셉니다), "구간 내 눌림목 돌파 횟수"를 예를 들어 2로 설정하면 그 구간에서 1·2번째 눌림목 돌파 진입은 평소와 똑같이 기본 TP%로 체결됩니다. 3번째 돌파부터는 막지는 않되, "구간 초과 시 TP 감소율"(기본 50%)만큼 TP를 단계적으로 줄여서 체결합니다 — 예: 기본 TP 2.5%, 감소율 50%일 때 3번째=1.25%(2.5×0.5), 4번째=0.625%(2.5×0.25), 5번째=0.3125%(2.5×0.125)로 계속 절반씩 줄어듭니다. 단, "구간 초과 TP 하한 %"(기본 0.3%) 밑으로는 더 줄어들지 않습니다 — 돌파가 수십 회 반복되면 지수적으로 줄어든 TP가 왕복 수수료보다도 작아져서 체결될 때마다 사실상 손실이 확정되는 문제가 있어 하한을 두었습니다. SL%는 그대로 유지됩니다. 골든크로스 즉시진입(1회차)은 "돌파"가 아니므로 이 횟수에 포함되지 않고 항상 기본 TP를 씁니다. 눌림목 돌파 횟수를 0(기본값)으로 두면 이 기능은 꺼져 있고 항상 기본 TP%만 사용합니다(기존 동작과 동일). 거래로그 CSV에는 각 거래가 그 구간의 몇 번째 눌림목 돌파였는지(episodeBreakoutIndex, 골든크로스 진입이면 빈 값)와 실제 적용된 TP%(tpUsedPct)가 함께 기록됩니다.
+⑬ <b>데이터 재활용</b> — 한 번 받아온 데이터는 같은 심볼·원본 봉이면 계속 재사용합니다(조회 기간을 줄이면 받아둔 데이터에서 잘라 씀). 심볼·원본 봉이 바뀌거나 더 긴 기간을 요청하면 자동으로 새로 받고, 최신 데이터가 필요하면 "캐시 무시하고 새로 가져오기"를 체크하세요(1회 적용 후 자동 해제).
+⑭ <b>(신규) 선물 백테스트(롱+숏)</b> — "선물 백테스트(롱+숏)" 버튼은 바이낸스 USDⓈ-M 선물 시세(fapi)로 롱과 숏을 모두 매매합니다(레버리지 1배, 강제청산 미모델링). 숏은 롱 로직을 그대로 뒤집습니다: 데드크로스(MA60&lt;MA200) 상태 + 60선 기울기가 설정값 이상으로 <b>하락</b> 중일 때만 감시하고, 데드크로스 즉시진입(1회차) 또는 고가가 눌림목 기준 MA 위로 올라갔다가(반등) 종가가 다시 아래로 내려오면 다음 봉 시가에 숏 분할진입합니다. 숏 TP는 평단 대비 TP%만큼 하락, SL은 SL%만큼 상승이며, 분할 횟수·눌림목 매수 횟수·G/C 상승폭 제한(숏은 장기선 아래 이격)·구간 TP 체감·연속 SL 중단·수수료는 모두 롱과 같은 설정을 씁니다.
+<b>방식 A(대칭 미러)</b>: 골든크로스 구간은 롱, 데드크로스 구간은 숏만 진입합니다. "데드크로스 발생시 강제청산"=예이면 추세가 뒤집힐 때 보유 포지션을 그 봉 종가에 청산하고(추세반전 청산), 같은 봉에서 반대 방향 진입 조건도 바로 확인합니다.
+<b>방식 B(엄격한 교대)</b>: 첫 거래는 방식 A 조건으로 시작하고, 이후로는 청산(TP/SL)될 때마다 추세와 무관하게 다음 봉 시가에 반대 방향으로 1회차를 즉시 진입합니다(롱→숏→롱→숏…). 추가 분할은 그 방향의 눌림목(숏은 반등) 신호로 들어갑니다. 연속 SL 중단 중에는 반전 진입도 멈췄다가, 중단이 끝나면 다음 순서 방향으로 바로 들어갑니다.
+<b>방식 C(크로스 추종)</b>: 골든크로스가 나면 다음 봉 시가에 롱을 잡아 데드크로스까지 보유하고, 데드크로스가 난 봉 종가에 롱을 청산하면서 다음 봉 시가에 숏을 잡아 다음 골든크로스까지 보유합니다(항상 한 방향 보유). 분할 없이 1회에 기준 자본 전액(복리=아니오면 초기자본)으로 진입하며, TP·눌림목·60선 기울기·상승폭 제한·구간 TP 체감·연속 SL 중단은 쓰지 않습니다. "방식 C 손절"=예이면 SL %에 닿을 때 손절하고, 그 뒤에는 같은 방향으로 다시 들어가지 않고 다음(반대) 크로스까지 쉽니다.
+<b>펀딩비</b>: "예"이면 바이낸스 실제 펀딩비 기록(보통 8시간마다)을 받아, 펀딩 시각에 보유 중인 수량 × 마크가격 × 펀딩비율만큼 롱은 내고(비율이 +일 때) 숏은 받습니다(−일 때는 반대). 거래로그 CSV의 fundingFee(+받음/−냄)에 거래별로 기록되고 손익·수익률에 포함됩니다.
+분할마다 동일 비중(1→1)으로 매수합니다. 5분봉 등 OHLC 기반이므로 틱 단위 체결 순서는 재현하지 않으며, 증거금/가용 현금 제약은 모델링하지 않습니다(그리드 자본 배분 방식과 동일).
+전체 순손익은 조회한 기간 전체를 이어서 계산한 누적 결과이며, 조회 기간(일)을 바꾸면 MA 웜업 시작점과 포지션 이월 상태가 함께 달라져 같은 날짜라도 매매 시점이 달라질 수 있습니다 — 아래 "주간 성과" / "월간 성과" 표(한국시간 기준)와 CSV로 언제 얼마를 투자해서 얼마를 벌었는지 나눠서 확인하세요.
+</div>
+</details>
+
+<div class="grid">
+<label>심볼<input id="symbol" value="JTOUSDT"></label>
+<label>이동평균 방식
+<select id="maType"><option value="ema" selected>지수이동평균(EMA)</option><option value="sma">단순이동평균(SMA)</option></select></label>
+<label>원본 봉
+<select id="src"><option value="1m">1분</option><option value="3m" selected>3분</option><option value="5m">5분</option><option value="10m">10분(5분봉 합성)</option><option value="15m">15분</option><option value="30m">30분</option><option value="1h">60분</option></select></label>
+<label>조회 기간(일)<input id="days" type="number" value="30" min="5" max="365"></label>
+<label>MA60 기간(봉, 골든크로스 판정용)<input id="ma60p" type="number" value="60" min="2" max="500"></label>
+<label>MA200 기간(봉, 골든크로스 판정용)<input id="ma200p" type="number" value="200" min="10" max="1000"></label>
+<label>눌림목 재진입 기준 MA 기간(봉)<input id="pullbackP" type="number" value="60" min="2" max="500"></label>
+<label>60선 기울기 lookback(봉)<input id="slopeLB" type="number" value="20" min="1" max="500"></label>
+<label>G/C 매수제한 상승폭(장기선 대비)
+<select id="gcMaxGapPct"><option value="0" selected>0 = 무제한</option><option value="0.5">0.5% 이상 시 제한</option><option value="1">1.0% 이상 시 제한</option><option value="1.5">1.5% 이상 시 제한</option><option value="2">2.0% 이상 시 제한</option><option value="2.5">2.5% 이상 시 제한</option><option value="3">3.0% 이상 시 제한</option><option value="3.5">3.5% 이상 시 제한</option><option value="4">4.0% 이상 시 제한</option><option value="4.5">4.5% 이상 시 제한</option><option value="5">5.0% 이상 시 제한</option></select></label>
+<label>60선 최소 기울기 %(평평하면 매수 중단)<input id="ma60MinSlope" type="number" value="0" step="0.05"></label>
+<label>60선 기울기 둔화 허용치 %p (0=미사용)<input id="ma60SlopeDrop" type="number" value="0" step="0.05" min="0"></label>
+<label>연속 SL 중단 임계값(0=비활성, 신규)<input id="slStreakPause" type="number" value="0" min="0" max="20"></label>
+<label>연속 SL 중단 지속시간(시간)<input id="slStreakCooldownHours" type="number" value="6" min="0" step="0.5"></label>
+<label>구간 내 눌림목 돌파 횟수(0=무제한, 신규)<input id="episodePullbackCap" type="number" value="0" min="0" max="20"></label>
+<label>구간 초과 시 TP 감소율 %(순번마다 누적 적용)<input id="episodeTpDecayPct" type="number" value="50" min="0" max="99" step="5"></label>
+<label>구간 초과 TP 하한 %(수수료보다 작아지지 않게)<input id="episodeTpFloorPct" type="number" value="0.3" min="0" step="0.05"></label>
+<label>골든크로스 시 1차 매수
+<select id="buyOnGoldenCross"><option value="yes" selected>예(즉시 1회차 진입)</option><option value="no">아니오(눌림목 대기)</option></select></label>
+<label>분할매수 최대 횟수(0~10, 0="골든크로스 1차 매수"=예일 때 골든크로스 1회만 허용)<input id="maxSplits" type="number" value="1" min="0" max="10"></label>
+<label>눌림목 매수 최대 횟수(1~5)<input id="maxPullbackBuys" type="number" value="5" min="1" max="5"></label>
+<label>TP %<input id="tp" type="number" value="3" step="0.1"></label>
+<label>SL %<input id="sl" type="number" value="3" step="0.1"></label>
+<label>초기자본 USDT<input id="capital" type="number" value="10000" step="100"></label>
+<label>1회 매매 수수료 %<input id="fee" type="number" value="0.05" step="0.01"></label>
+<label>데드크로스 발생시 강제청산
+<select id="deadcross"><option value="yes">예</option><option value="no" selected>아니오</option></select></label>
+<label>복리 모드(수익 재투자)
+<select id="compounding"><option value="no" selected>아니오(고정 원금)</option><option value="yes">예(매 거래 시작 시점 자본으로 재계산)</option></select></label>
+<label>선물 방식(선물 백테스트 전용)
+<select id="futMode"><option value="A" selected>A: 대칭 미러(상승=롱, 하락=숏)</option><option value="B">B: 엄격한 교대(청산 즉시 반대 방향 진입)</option><option value="C">C: 크로스 추종(골든=롱 보유, 데드=숏 보유)</option></select></label>
+<label>방식 C 손절(SL)
+<select id="cUseSl"><option value="no" selected>아니오(크로스로만 청산)</option><option value="yes">예(SL % 적용, 손절 후 다음 크로스까지 대기)</option></select></label>
+<label>선물 펀딩비 반영
+<select id="useFunding"><option value="yes" selected>예(바이낸스 실제 펀딩비)</option><option value="no">아니오</option></select></label>
+</div>
+
+<div class="actions">
+<button onclick="run()">데이터 가져오기 + 백테스트</button>
+<button onclick="runFutures()" style="background:#1e293b;color:#fff;border:1px solid #1e293b;border-radius:4px">선물 백테스트(롱+숏)</button>
+<label style="flex-direction:row;align-items:center;gap:6px;width:auto"><input type="checkbox" id="forceRefresh" style="width:auto">캐시 무시하고 새로 가져오기</label>
+<button onclick="downloadTrades()">거래로그 CSV</button>
+<button onclick="downloadWeekly()">주간 결과 CSV</button>
+<button onclick="downloadMonthly()">월간 결과 CSV</button>
+</div>
+<div id="status">준비되었습니다.</div>
+<div id="summary"></div>
+<div id="depth"></div>
+<div id="weekly"></div>
+<div id="monthly"></div>
+
+<div class="section">
+<h2 style="margin-top:0">파라미터 최적화 (그리드 서치)</h2>
+<p class="small" id="sweepHint">먼저 위에서 "데이터 가져오기 + 백테스트"를 한 번 실행해야 그 데이터로 스윕할 수 있습니다.</p>
+<div class="grid">
+<label>TP % 시작<input id="sw_tpFrom" type="number" value="1" step="0.1"></label>
+<label>TP % 끝<input id="sw_tpTo" type="number" value="4" step="0.1"></label>
+<label>TP % 간격<input id="sw_tpStep" type="number" value="0.5" step="0.1" min="0.1"></label>
+<label>SL % 시작<input id="sw_slFrom" type="number" value="1" step="0.1"></label>
+<label>SL % 끝<input id="sw_slTo" type="number" value="5" step="0.1"></label>
+<label>SL % 간격<input id="sw_slStep" type="number" value="0.5" step="0.1" min="0.1"></label>
+<label>분할횟수 시작<input id="sw_spFrom" type="number" value="1" step="1" min="1" max="10"></label>
+<label>분할횟수 끝<input id="sw_spTo" type="number" value="1" step="1" min="1" max="10"></label>
+<label>분할횟수 간격<input id="sw_spStep" type="number" value="1" step="1" min="1"></label>
+<label>60선 최소 기울기 % 시작(신규)<input id="sw_ma60From" type="number" value="0" step="0.05"></label>
+<label>60선 최소 기울기 % 끝(시작=끝이면 로직 설정값 사용, 다르면 값별 분석표)<input id="sw_ma60To" type="number" value="1" step="0.05"></label>
+<label>60선 최소 기울기 % 간격<input id="sw_ma60Step" type="number" value="0.1" step="0.05" min="0.01"></label>
+<label>60선 기울기 둔화 허용치 %p 시작(시작=끝이면 로직 설정값 사용)<input id="sw_dropFrom" type="number" value="0" step="0.05" min="0"></label>
+<label>60선 기울기 둔화 허용치 %p 끝(시작=끝이면 로직 설정값 사용, 다르면 값별 분석표)<input id="sw_dropTo" type="number" value="0.4" step="0.05" min="0"></label>
+<label>60선 기울기 둔화 허용치 %p 간격<input id="sw_dropStep" type="number" value="0.1" step="0.05" min="0.01"></label>
+<label>정렬 기준
+<select id="sw_metric"><option value="ret" selected>수익률(높은순)</option><option value="mdd">MDD(낮은순)</option><option value="pf">Profit Factor(높은순)</option><option value="avg">거래당 평균손익(높은순)</option></select></label>
+</div>
+<div class="actions">
+<button onclick="runSweep()">파라미터 스윕 실행</button>
+<button onclick="downloadSweep()">스윕 결과 CSV</button>
+</div>
+<div id="sweepStatus" class="small"></div>
+<div id="sweepResult"></div>
+<p class="small">스윕은 방금 조회한 데이터와 나머지 설정(이동평균 방식·기간, G/C 매수제한 상승폭, 초기자본, 수수료, 데드크로스, 복리 모드 등)을 그대로 두고 TP%·SL%·분할횟수·<b>60선 최소 기울기 %</b>·<b>(신규) 60선 기울기 둔화 허용치 %p</b>를 격자로 바꿔가며 같은 데이터에 대해 반복 백테스트합니다. "60선 최소 기울기 % 시작/끝"을 같은 값(기본값)으로 두면 위쪽 설정값 그대로 1가지만 쓰고, 범위를 넓히면(예: 시작 -0.2 ~ 끝 0.6) "60일선 기울기 최적값이 얼마인지" 바로 이 표로 비교할 수 있습니다. <b>여기서 1등으로 나온 조합은 이번에 조회한 기간에서만 최적이라는 뜻입니다.</b> 다른 종목·다른 기간에서도 비슷하게 잘 나오는지 반드시 별도로 확인하세요(과최적화 주의 — 60선 기울기처럼 세밀한 값일수록 특정 구간에만 맞춰 과최적화되기 쉽습니다). 조합 수가 많으면 계산에 시간이 걸릴 수 있습니다(최대 5000개 조합, 진행률이 표시됩니다). 결과표에는 항상 60선 기울기 열이 나오고, 기울기 범위를 넓히면 "60선 기울기 값별 분석" 표가 함께 나와 어느 기울기 값이 꾸준히 좋은지 비교할 수 있습니다.</p>
+</div>
+
+<div class="section">
+<h2 style="margin-top:0">차트 (캔들 + 이동평균 + 매수/매도 표시)</h2>
+<p class="small" id="chartHint">먼저 위에서 "데이터 가져오기 + 백테스트"를 실행하면 자동으로 아래에 그려집니다.</p>
+<div class="grid-2">
+<label>표시할 봉 수(백테스트 직후 = 전체)<input id="chart_barCount" type="number" value="1500" min="30" max="200000" step="100"></label>
+<label>&nbsp;<button onclick="chartViewStart=null;renderChart()">차트 다시 그리기</button></label>
+<label style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="chart_showLabels" checked style="width:auto" onchange="renderChart()">매수/매도 마커 옆 시간·가격 표시(YYMMDD_HHMM, 마커가 많으면 확대 시 표시)</label>
+</div>
+<div id="chartBox">
+<div class="actions chartBar">
+<button onclick="zoomChart(1/1.25)">확대 +</button>
+<button onclick="zoomChart(1.25)">축소 −</button>
+<button onclick="showAllBars()">전체 봉 보기</button>
+<button id="fsBtn" onclick="setChartFs(!chartFs)" style="background:#1e293b;color:#fff;border:1px solid #1e293b;border-radius:4px">⛶ 전체화면</button>
+</div>
+<div id="chartWrap" style="overflow:hidden;border:1px solid #333;border-radius:8px;background:#0b1220;margin-top:8px">
+<div id="chartInner" style="position:relative;display:block">
+<canvas id="chartCanvas" style="display:block;touch-action:pan-y;cursor:crosshair"></canvas>
+<canvas id="chartOverlay" style="position:absolute;top:0;left:0;pointer-events:none"></canvas>
+</div>
+</div>
+<div id="chartInfo" class="small" style="background:#111;color:#ddd;padding:8px;border-radius:0 0 8px 8px;min-height:20px">PC: 마우스를 올리면 그 봉의 정보와 흰색 세로선이 표시됩니다. 휠 = 커서 위치 기준 확대/축소, 드래그 = 좌우 이동. 모바일: 탭 = 정보 표시, 한 손가락 좌우 드래그 = 이동, 두 손가락(핀치) = 확대/축소. "⛶ 전체화면"으로 크게 볼 수 있습니다(가로로 돌리면 더 넓게 보입니다).</div>
+<div id="chartLegend" class="small" style="margin-top:6px;line-height:1.8"></div>
+</div>
+</div>
+
+<script>
+let tradeRows=[], weeklyRows=[], monthlyRows=[], sweepRows=[], sweepSlopeRows=[], sweepDropRows=[], sweepGridRows=[];
+let lastBars=null, lastMaTrend=null, lastMa200=null, lastSlope60=null, lastMaPullback=null, lastCfgBase=null, lastResults=null;
+let dataCache=null; // {symbol,interval,days,bars,fetchedAt} — 같은 심볼·원본 봉이면 재조회 없이 재사용(기간이 짧아지면 잘라서 사용)
+let sweepRunning=false;
+let chartState=null;
+let chartViewStart=null; // 휠 줌으로 특정 시점(커서 위치)에 고정해서 본 경우의 시작 인덱스. null이면 항상 최신 봉 기준(전체 화면).
+const $=id=>document.getElementById(id);
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+function fmt(n,d=3){
+  return Number(n).toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d});
+}
+
+// 한 번의 klines 요청을 여러 미러/엔드포인트로 순서대로 시도하고, 요청수 제한(429/418) 등 일시적 오류는
+// 자동으로 잠시 대기 후 재시도합니다. 모든 시도가 실패하면 "마지막으로 무엇을 시도했는지"를 알 수 있는
+// 구체적인 에러 메시지를 던져서, 화면에 뜨는 "Failed to fetch"만으로는 알 수 없는 원인 파악을 돕습니다.
+const FAPI="https://fapi.binance.com"; // 바이낸스 USDⓈ-M 선물 공개 API
+async function fetchOneKlinesPage(symbol, interval, cursor, end, market="spot"){
+  const endpoints= market==="futures" ? [FAPI+"/fapi/v1/klines"] : [
+    "https://data-api.binance.vision/api/v3/klines",
+    "https://api.binance.com/api/v3/klines",
+    "https://api1.binance.com/api/v3/klines"
+  ];
+  const qs="?symbol="+encodeURIComponent(symbol)+"&interval="+interval+
+    "&startTime="+cursor+"&endTime="+end+"&limit="+(market==="futures"?1500:1000);
+  let lastErr=null;
+  for(const base of endpoints){
+    for(let attempt=0; attempt<3; attempt++){
+      try{
+        const r=await fetch(base+qs);
+        if(r.status===429 || r.status===418){
+          // 요청수 제한(레이트리밋)에 걸림 — 짧게 쉬었다가 같은 엔드포인트로 재시도
+          const retryAfter=Number(r.headers.get("Retry-After"))||0;
+          await sleep(Math.max(1500,retryAfter*1000)*(attempt+1));
+          lastErr=new Error(base+" 요청수 제한(HTTP "+r.status+")");
+          continue;
+        }
+        if(!r.ok){ lastErr=new Error(base+" 응답 오류(HTTP "+r.status+")"); break; } // 4xx/5xx(제한 외)는 이 엔드포인트를 더 재시도하지 않고 다음 엔드포인트로
+        return await r.json();
+      }catch(e){
+        // fetch 자체가 실패(네트워크 끊김, CORS, 방화벽/VPN 차단, DNS 실패 등) — 브라우저 콘솔에는 보통
+        // "TypeError: Failed to fetch"로만 표시되어 원인을 구분하기 어려우므로, 어느 주소에서 실패했는지를 남깁니다.
+        lastErr=new Error(base+" 연결 실패(네트워크/방화벽/VPN/CORS 등 — 원본 메시지: "+e.message+")");
+        if(attempt<2) await sleep(800*(attempt+1));
+      }
+    }
+  }
+  throw lastErr||new Error("알 수 없는 오류");
+}
+
+const INTERVAL_MS={"1m":60000,"3m":180000,"5m":300000,"10m":600000,"15m":900000,"30m":1800000,"1h":3600000};
+async function fetchKlinesRaw(symbol, interval, days, market="spot"){
+  const msPer=INTERVAL_MS[interval]||300000;
+  const end=Date.now(), start=end-days*86400000;
+  let cursor=start,out=[],req=0;
+
+  while(cursor<end){
+    const data=await fetchOneKlinesPage(symbol,interval,cursor,end,market);
+    if(!Array.isArray(data)||!data.length)break;
+    for(const x of data)out.push({t:+x[0],o:+x[1],h:+x[2],l:+x[3],c:+x[4]});
+    const next=+data[data.length-1][0]+msPer;
+    if(next<=cursor)break;
+    cursor=next;req++;
+    $("status").textContent=`${market==="futures"?"선물 ":""}데이터 수집 중... ${req}회 / ${out.length.toLocaleString()}개 봉`;
+    await sleep(200);
+  }
+  return [...new Map(out.map(x=>[x.t,x])).values()].sort((a,b)=>a.t-b.t);
+}
+
+// 바이낸스는 10분봉을 제공하지 않으므로 5분봉 2개를 실제 시계 기준 10분 경계(0,10,20...분)로 묶어 합성합니다.
+// 아직 2번째 5분봉이 없는 마지막 그룹(미완성)은 버립니다.
+function aggregateBars(bars, groupMs, sourceMs){
+  const map=new Map();
+  for(const b of bars){
+    const key=Math.floor(b.t/groupMs)*groupMs;
+    if(!map.has(key)) map.set(key,[]);
+    map.get(key).push(b);
+  }
+  const expected=Math.round(groupMs/sourceMs);
+  const out=[];
+  for(const k of [...map.keys()].sort((a,b)=>a-b)){
+    const g=map.get(k).sort((a,b)=>a.t-b.t);
+    if(g.length<expected) continue;
+    out.push({t:k,o:g[0].o,h:Math.max(...g.map(x=>x.h)),l:Math.min(...g.map(x=>x.l)),c:g[g.length-1].c});
+  }
+  return out;
+}
+
+async function fetchKlines(symbol, interval, days, market="spot"){
+  if(interval==="10m") return aggregateBars(await fetchKlinesRaw(symbol,"5m",days,market),600000,300000);
+  return fetchKlinesRaw(symbol,interval,days,market);
+}
+
+// 같은 심볼·원본 봉으로 이미 받아둔 데이터가 요청 기간을 덮으면 재조회 없이 재사용합니다.
+// 현물(spot)과 선물(futures) 데이터는 가격이 서로 달라서 캐시를 따로 둡니다.
+let futCache=null; // 선물용 캐시 {symbol,interval,days,bars,fetchedAt,fundings}
+async function getBars(symbol, interval, days, forceRefresh, market="spot"){
+  const cache= market==="futures" ? futCache : dataCache;
+  if(!forceRefresh && cache && cache.symbol===symbol && cache.interval===interval && cache.days>=days){
+    const cutoff=cache.fetchedAt-days*86400000;
+    const bars=cache.days===days?cache.bars:cache.bars.filter(b=>b.t>=cutoff);
+    return {bars,cached:true,ageMin:(Date.now()-cache.fetchedAt)/60000,cache};
+  }
+  const bars=await fetchKlines(symbol,interval,days,market);
+  const entry={symbol,interval,days,bars,fetchedAt:Date.now()};
+  if(market==="futures") futCache=entry; else dataCache=entry;
+  return {bars,cached:false,ageMin:0,cache:entry};
+}
+
+// 바이낸스 선물 펀딩비 기록(/fapi/v1/fundingRate, 1회 최대 1000건)을 기간 전체에 걸쳐 받아옵니다.
+async function fetchFundingRates(symbol, fromMs, toMs){
+  const out=[]; let cursor=fromMs;
+  while(cursor<=toMs){
+    const url=FAPI+"/fapi/v1/fundingRate?symbol="+encodeURIComponent(symbol)+"&startTime="+cursor+"&endTime="+toMs+"&limit=1000";
+    let data=null,lastErr=null;
+    for(let attempt=0; attempt<3; attempt++){
+      try{
+        const r=await fetch(url);
+        if(r.status===429||r.status===418){ await sleep(1500*(attempt+1)); lastErr=new Error("펀딩비 요청수 제한(HTTP "+r.status+")"); continue; }
+        if(!r.ok){ lastErr=new Error("펀딩비 응답 오류(HTTP "+r.status+")"); break; }
+        data=await r.json(); break;
+      }catch(e){
+        lastErr=new Error(FAPI+" 펀딩비 조회 연결 실패(네트워크/방화벽/VPN/CORS 등 — 원본 메시지: "+e.message+")");
+        if(attempt<2) await sleep(800*(attempt+1));
+      }
+    }
+    if(data==null) throw lastErr||new Error("펀딩비 조회 실패");
+    if(!Array.isArray(data)||!data.length) break;
+    for(const x of data) out.push({t:+x.fundingTime,r:+x.fundingRate,mark:+x.markPrice||0});
+    const next=+data[data.length-1].fundingTime+1;
+    if(next<=cursor || data.length<1000) break;
+    cursor=next;
+    await sleep(250);
+  }
+  return [...new Map(out.map(x=>[x.t,x])).values()].sort((a,b)=>a.t-b.t);
+}
+
+function computeSMA(bars,period){
+  const out=new Array(bars.length).fill(null);
+  let sum=0;
+  for(let i=0;i<bars.length;i++){
+    sum+=bars[i].c;
+    if(i>=period) sum-=bars[i-period].c;
+    if(i>=period-1) out[i]=sum/period;
+  }
+  return out;
+}
+
+// EMA: 첫 period개 종가의 단순평균으로 시드를 만든 뒤(index period-1),
+// 이후 매 봉마다 k=2/(period+1) 가중치로 재귀 계산. SMA와 동일하게 첫 period-1개는 null.
+function computeEMA(bars,period){
+  const out=new Array(bars.length).fill(null);
+  if(bars.length<period) return out;
+  const k=2/(period+1);
+  let sum=0;
+  for(let i=0;i<period;i++) sum+=bars[i].c;
+  let prev=sum/period;
+  out[period-1]=prev;
+  for(let i=period;i<bars.length;i++){
+    prev=bars[i].c*k+prev*(1-k);
+    out[i]=prev;
+  }
+  return out;
+}
+
+function computeMA(bars,period,type){
+  return type==="sma" ? computeSMA(bars,period) : computeEMA(bars,period);
+}
+
+function computeSlope(ma,lookback){
+  const out=new Array(ma.length).fill(null);
+  for(let i=0;i<ma.length;i++){
+    const j=i-lookback;
+    if(j>=0 && ma[j]!=null && ma[i]!=null && ma[j]!==0){
+      out[i]=(ma[i]-ma[j])/Math.abs(ma[j])*100;
+    }
+  }
+  return out;
+}
+
+function isFilterActive(i,maTrend,ma200,slope60,cfg){
+  if(maTrend[i]==null||ma200[i]==null) return false;
+  if(!(maTrend[i]>ma200[i])) return false;             // 골든크로스 상태(MA60 vs MA200, 고정)
+  // 60선 기울기 필터: MA60이 MA200 위에 있어도(골든크로스) MA60 자체가 평평/하락이면 매수 감시를 끔
+  if(slope60[i]==null) return false;
+  if(slope60[i]<cfg.ma60MinSlope) return false;
+  if(cfg.ma60SlopeDrop>0){
+    const j2=i-cfg.slopeLB;
+    if(j2>=0 && slope60[j2]!=null){
+      if((slope60[j2]-slope60[i])>cfg.ma60SlopeDrop) return false;
+    }
+  }
+  return true;
+}
+
+/*
+  분할마다 동일 비중(1→1)으로 매수합니다. 자본은 분할 횟수(sumW=maxSplits)로 균등 배분되므로
+  모든 분할이 체결되면 총 투입액은 기준 자본(sizingBase)과 같아집니다(그리드 자본 배분 방식과 동일).
+*/
+function simulate(bars,maTrend,ma200,slope60,maPullback,cfg){
+  // 분할매수 최대 횟수가 0이면서 "골든크로스 시 1차 매수"가 켜져 있으면, 골든크로스 즉시진입 1회만
+  // 허용하고 눌림목 추가매수는 전부 차단하는 특수 모드입니다(실제 분할 수는 내부적으로 1로 취급).
+  const goldenOnlyMode = cfg.buyOnGoldenCross && cfg.maxSplits===0;
+  const effMaxSplits = goldenOnlyMode ? 1 : cfg.maxSplits;
+  const weights=Array.from({length:effMaxSplits},()=>1);
+  const sumW=weights.reduce((a,b)=>a+b,0);
+
+  let equity=cfg.capital, peak=equity, maxDD=0;
+  const trades=[];
+  const entries=[]; // 분할매수 1회 체결마다 기록 (주간/월간 투자금액·투자횟수 집계용)
+  const depth=Array.from({length:effMaxSplits},()=>({n:0,w:0,pnl:0}));
+
+  let qty=0,cost=0,entryFees=0,entryCount=0,firstEntryTime=null,firstEntryTrigger=null,pullbackEntryCount=0;
+  let firstEntrySlope60=null,firstEntryGap200=null; // 최초 진입 시점의 60선 기울기% / 장기선 대비 이격도%(거래로그 CSV 기록용)
+  let gcGapBlocked=0; // G/C 매수제한 상승폭 때문에 골든크로스 즉시진입을 건너뛴 횟수
+  const gapPct=i=>(ma200[i]!=null&&ma200[i]!==0)?(bars[i].c-ma200[i])/ma200[i]*100:null;
+  let currentTradeTpPct=null,firstEntryEpisodeIdx=null; // (신규) 이번 거래에 실제 적용되는 TP%와, 진입 시점의 "구간 내 눌림목 돌파 순번"
+  let pullbackArmed=false;
+  let prevGolden=false; // 직전 봉이 골든크로스 상태였는지(이번 봉에서 "막 골든크로스로 전환"됐는지 판정용)
+  let consecutiveSl=0,pauseUntil=null,pauseTriggers=0; // (신규) 연속 SL 자동 매수 중단용 상태
+  let episodePullbackCount=0; // (신규) 지금 골든크로스 구간(데드크로스 없이 이어진 구간) 안에서 누적된 눌림목 돌파 체결 횟수
+
+  function updateDD(){
+    if(equity>peak) peak=equity;
+    if(peak>0) maxDD=Math.max(maxDD,(peak-equity)/peak*100);
+  }
+
+  function closePosition(i,price,type){
+    const gross=qty*price;
+    const exitFee=gross*cfg.fee/100;
+    const pnl=gross-cost-entryFees-exitFee;
+    equity+=pnl;
+    updateDD();
+    trades.push({
+      exitType:type,
+      entries:entryCount,
+      firstEntryTrigger:firstEntryTrigger,
+      entryMa60SlopePct:firstEntrySlope60,
+      entryGapToMa200Pct:firstEntryGap200,
+      episodeBreakoutIndex:firstEntryEpisodeIdx,
+      tpUsedPct:currentTradeTpPct,
+      avg:cost/qty,
+      exit:price,
+      entryTime:new Date(firstEntryTime).toISOString(),
+      exitTime:new Date(bars[i].t).toISOString(),
+      holdHours:(bars[i].t-firstEntryTime)/3600000,
+      pnl:pnl,
+      returnPct:cost?pnl/cost*100:0,
+      fees:entryFees+exitFee
+    });
+    for(let k=0;k<entryCount;k++){
+      depth[k].n++;
+      if(pnl>0)depth[k].w++;
+      depth[k].pnl+=pnl;
+    }
+    qty=0;cost=0;entryFees=0;entryCount=0;firstEntryTime=null;firstEntryTrigger=null;pullbackEntryCount=0;
+    firstEntrySlope60=null;firstEntryGap200=null;
+    currentTradeTpPct=null;firstEntryEpisodeIdx=null;
+    pullbackArmed=false;
+    // (신규) 연속 SL 자동 매수 중단: SL이 아닌 청산(TP/DEADCROSS)이 나오면 연속 카운트를 리셋하고,
+    // SL이면 카운트를 올려 임계값에 도달하는 순간 중단 시작 시각을 기록합니다.
+    if(type==="SL"){
+      consecutiveSl++;
+      if(cfg.slStreakPause>0 && consecutiveSl>=cfg.slStreakPause && pauseUntil==null){
+        pauseUntil=bars[i].t+cfg.slStreakCooldownHours*3600000;
+        pauseTriggers++;
+      }
+    }else{
+      consecutiveSl=0;
+    }
+  }
+
+  for(let i=0;i<bars.length;i++){
+    const b=bars[i];
+    if(pauseUntil!=null && b.t>=pauseUntil){ pauseUntil=null; consecutiveSl=0; } // 중단 지속시간 만료 -> 연속 SL 카운트 리셋 후 재개
+    const streakPaused = pauseUntil!=null;
+    const active=isFilterActive(i,maTrend,ma200,slope60,cfg);
+    const wasGolden=prevGolden;
+    const golden=maTrend[i]!=null&&ma200[i]!=null&&maTrend[i]>ma200[i];
+    prevGolden=golden; // continue로 빠지는 경로가 있어도 누락 없이 항상 갱신
+    const justCrossedGolden=golden && !wasGolden;
+    if(justCrossedGolden) episodePullbackCount=0; // (신규) 새 골든크로스 구간 시작 -> 구간 내 눌림목 돌파 카운트 리셋
+
+    // 데드크로스 발생 시 강제청산
+    if(qty>0 && cfg.deadcross==="yes" && maTrend[i]!=null && ma200[i]!=null && !(maTrend[i]>ma200[i])){
+      closePosition(i,b.c,"DEADCROSS");
+      continue;
+    }
+
+    // TP / SL 체크 (진입 당일 봉은 평가하지 않음 — 그리드 백테스터와 동일 규칙)
+    if(qty>0 && firstEntryTime!=null && b.t>firstEntryTime){
+      const avg=cost/qty;
+      const tpPrice=avg*(1+(currentTradeTpPct!=null?currentTradeTpPct:cfg.tp)/100);
+      const slPrice=avg*(1-cfg.sl/100);
+      if(b.h>=tpPrice){ closePosition(i,tpPrice,"TP"); continue; }
+      if(b.l<=slPrice){ closePosition(i,slPrice,"SL"); continue; }
+    }
+
+    const sizingBase=cfg.compounding==="yes"?equity:cfg.capital;
+
+    // (신규) 골든크로스 시 1차 매수: 눌림목을 기다리지 않고, 골든크로스로 막 전환된(또는 조회 시작 시점에
+    // 이미 골든크로스인) 바로 다음 캔들 시가에 1회차 분할매수를 즉시 체결합니다. 포지션이 없을 때만(entryCount===0) 적용되며,
+    // 체결 후에는 같은 봉에서 눌림목 조건을 다시 평가하지 않고 다음 봉으로 넘어갑니다(2회차부터는 기존 눌림목 재돌파 로직 사용).
+    // G/C 매수제한 상승폭: 골든크로스 봉 종가가 장기선(MA200)보다 설정% 이상 위면 즉시진입을 건너뜀(0=무제한)
+    let gcGapOk=true;
+    if(cfg.gcMaxGapPct>0 && cfg.buyOnGoldenCross && justCrossedGolden && entryCount===0){
+      const g=gapPct(i);
+      if(g!=null && g>=cfg.gcMaxGapPct){ gcGapOk=false; gcGapBlocked++; }
+    }
+    if(cfg.buyOnGoldenCross && justCrossedGolden && gcGapOk && entryCount===0 && active && !streakPaused && entryCount<effMaxSplits &&
+       (cfg.compounding!=="yes" || sizingBase>0) && i+1<bars.length){
+      const nb=bars[i+1];
+      const notional=(sizingBase/sumW)*weights[entryCount];
+      const px=nb.o;
+      const q=notional/px;
+      const fee=notional*cfg.fee/100;
+      qty+=q; cost+=notional; entryFees+=fee;
+      firstEntryTrigger="GOLDEN";
+      entryCount++;
+      entries.push({time:nb.t,splitIndex:entryCount,price:px,qty:q,notional:notional,trigger:"GOLDEN"});
+      if(firstEntryTime===null){ firstEntryTime=nb.t; firstEntrySlope60=slope60[i]; firstEntryGap200=gapPct(i); currentTradeTpPct=cfg.tp; }
+      pullbackArmed=false;
+      continue;
+    }
+
+    // 눌림목 → 재돌파 → 분할매수 (기준선은 maPullback: 기본 MA60이지만 별도 설정 가능)
+    // 복리 모드: 새 거래(entryCount===0)가 시작되는 시점의 equity를 배분 기준 자본으로 사용.
+    // 포지션 보유 중에는 equity가 realize 전까지 변하지 않으므로, 같은 거래의 2차 이후 분할도 동일 기준으로 계산됨.
+    // goldenOnlyMode(분할매수 최대 횟수=0 + 골든크로스 시 1차 매수=예)에서는 눌림목 추가매수를 완전히 차단합니다.
+    // 눌림목 매수는 전체 분할 한도(effMaxSplits)와 별개로, 눌림목 전용 횟수 한도(maxPullbackBuys)도 함께 적용됩니다.
+    const pullbackCapped = pullbackEntryCount>=cfg.maxPullbackBuys;
+    if(!goldenOnlyMode && !pullbackCapped && !streakPaused && active && entryCount<effMaxSplits && (cfg.compounding!=="yes" || sizingBase>0)){
+      if(maPullback[i]!=null && b.l<maPullback[i]) pullbackArmed=true;
+      if(pullbackArmed && maPullback[i]!=null && b.c>maPullback[i] && i+1<bars.length){
+        const nb=bars[i+1];
+        const notional=(sizingBase/sumW)*weights[entryCount];
+        const px=nb.o;
+        const q=notional/px;
+        const fee=notional*cfg.fee/100;
+        qty+=q; cost+=notional; entryFees+=fee;
+        episodePullbackCount++; // (신규) 구간 내 눌림목 돌파 누적 횟수(트레이드 경계와 무관하게 계속 누적)
+        if(entryCount===0) firstEntryTrigger="PULLBACK";
+        entryCount++; pullbackEntryCount++;
+        entries.push({time:nb.t,splitIndex:entryCount,price:px,qty:q,notional:notional,trigger:"PULLBACK"});
+        if(firstEntryTime===null){
+          firstEntryTime=nb.t; firstEntrySlope60=slope60[i]; firstEntryGap200=gapPct(i);
+          firstEntryEpisodeIdx=episodePullbackCount;
+          // (신규) "구간 내 눌림목 돌파 횟수" 설정을 초과한 순번의 재진입은 TP를 설정한 비율만큼 단계적으로 줄입니다
+          // (예: 상한 2회, 감소율 50%일 때 3번째=TP*0.5, 4번째=TP*0.25, ...). 0(기본값)이면 이 기능은 꺼져 있고 항상 기본 TP를 씁니다.
+          // 하한(episodeTpFloorPct)을 반드시 적용합니다 — 돌파가 수십 회 이어지면 지수적으로 감소한 TP가 수수료보다도
+          // 작아져서(예: TP 0.0006%인데 왕복 수수료는 0.1%) 체결될 때마다 사실상 손실이 확정되는 상태가 되므로,
+          // 아무리 돌파 횟수가 많아져도 TP가 이 값 밑으로는 더 줄어들지 않게 막아줍니다.
+          if(cfg.episodePullbackCap>0 && episodePullbackCount>cfg.episodePullbackCap){
+            const excess=episodePullbackCount-cfg.episodePullbackCap;
+            currentTradeTpPct=Math.max(cfg.episodeTpFloorPct,cfg.tp*Math.pow(1-cfg.episodeTpDecayPct/100,excess));
+          }else{
+            currentTradeTpPct=cfg.tp;
+          }
+        }
+        pullbackArmed=false;
+      }
+    }else if(!active || goldenOnlyMode || pullbackCapped || streakPaused){
+      pullbackArmed=false;
+    }
+  }
+
+  let mark=null;
+  if(qty>0){
+    const last=bars[bars.length-1];
+    const gross=qty*last.c;
+    const exitFee=gross*cfg.fee/100;
+    const unrealized=gross-cost-entryFees-exitFee;
+    mark={
+      avg:cost/qty,
+      mark:last.c,
+      entries:entryCount,
+      holdHours:firstEntryTime!=null?(last.t-firstEntryTime)/3600000:0,
+      unrealizedPnl:unrealized,
+      unrealizedReturnPct:cost?unrealized/cost*100:0
+    };
+  }
+
+  return {trades,equity,maxDD,depth,mark,entries,pauseTriggers,gcGapBlocked};
+}
+
+function stats(res,cfg){
+  const t=res.trades;
+  const wins=t.filter(x=>x.pnl>0),loss=t.filter(x=>x.pnl<0);
+  const gw=wins.reduce((s,x)=>s+x.pnl,0),gl=-loss.reduce((s,x)=>s+x.pnl,0);
+  return {
+    trades:t.length,wins:wins.length,losses:loss.length,
+    winRate:t.length?wins.length/t.length*100:0,
+    net:res.equity-cfg.capital,ret:(res.equity/cfg.capital-1)*100,
+    avg:t.length?(res.equity-cfg.capital)/t.length:0,
+    pf:gl?gw/gl:(gw?Infinity:0),mdd:res.maxDD,
+    tp:t.filter(x=>x.exitType==="TP").length,
+    sl:t.filter(x=>x.exitType==="SL").length,
+    deadcross:t.filter(x=>x.exitType==="DEADCROSS").length,
+    maxSplit:t.reduce((m,x)=>Math.max(m,x.entries),0),
+    avgSplit:t.length?t.reduce((s,x)=>s+x.entries,0)/t.length:0,
+    goldenStart:t.filter(x=>x.firstEntryTrigger==="GOLDEN").length,
+    pullbackStart:t.filter(x=>x.firstEntryTrigger==="PULLBACK").length,
+    pullbackFills:res.entries.filter(e=>e.trigger==="PULLBACK").length,
+    slStreakPauses:res.pauseTriggers||0,
+    gcGapBlocked:res.gcGapBlocked||0,
+    mark:res.mark
+  };
+}
+
+function render(res,cfg,bars){
+  const s=stats(res,cfg);
+  const rows=[
+    ["데이터 봉 수",bars.length.toLocaleString()],
+    ["완료 거래",s.trades],
+    ["승률",fmt(s.winRate)+"%"],
+    ["순손익 (USDT)",fmt(s.net)],
+    ["수익률",fmt(s.ret)+"%"],
+    ["평균 거래손익",fmt(s.avg)],
+    ["Profit Factor",isFinite(s.pf)?fmt(s.pf):"∞"],
+    ["MDD",fmt(s.mdd)+"%"],
+    ["TP 청산",s.tp],
+    ["SL 청산",s.sl],
+    ["데드크로스 강제청산",s.deadcross],
+    ["최대 분할 도달",s.maxSplit],
+    ["평균 분할 횟수",fmt(s.avgSplit)],
+    ["골든크로스 즉시진입으로 시작한 거래",s.goldenStart],
+    ["눌림목 재돌파로 시작한 거래",s.pullbackStart],
+    ["눌림목 매수 체결 횟수(전체, 캡="+cfg.maxPullbackBuys+")",s.pullbackFills],
+    ["연속 SL 중단 발생 횟수(임계값="+cfg.slStreakPause+")",s.slStreakPauses],
+    ["G/C 상승폭 제한으로 건너뛴 즉시진입("+(cfg.gcMaxGapPct>0?cfg.gcMaxGapPct+"% 이상":"무제한")+")",s.gcGapBlocked]
+  ];
+  let h="<h2>백테스트 결과</h2><table><tr><th>항목</th><th>동일수량 분할(1→1)</th></tr>";
+  rows.forEach(r=>h+=`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`);
+  h+="</table>";
+
+  function markText(m){
+    if(!m)return "없음";
+    return `미청산 1건 / 분할 ${m.entries}회 / 평균 ${fmt(m.avg)} / 현재가 ${fmt(m.mark)} / 미실현 ${fmt(m.unrealizedPnl)} USDT / 보유 ${fmt(m.holdHours)}시간`;
+  }
+  h+=`<p class="note"><b>MARK(미청산)</b> — ${markText(s.mark)}<br>
+  MARK는 완료 거래·실현손익·수익률에 포함하지 않습니다.</p>`;
+  $("summary").innerHTML=h;
+
+  let d="<h2>분할 단계별 누적 통계</h2><table><tr><th>최소 도달 단계</th><th>거래수</th><th>승률</th><th>손익</th></tr>";
+  const effMaxSplitsForTable=(cfg.buyOnGoldenCross && cfg.maxSplits===0)?1:cfg.maxSplits;
+  for(let i=0;i<effMaxSplitsForTable;i++){
+    const a=res.depth[i];
+    if(a.n)d+=`<tr><td>${i+1}차 분할</td><td>${a.n}</td><td>${a.n?fmt(a.w/a.n*100):"0.0"}%</td><td>${fmt(a.pnl)}</td></tr>`;
+  }
+  d+="</table>";
+  $("depth").innerHTML=d;
+  $("status").textContent=`완료: ${bars.length.toLocaleString()}개 봉. MA=${cfg.maType==="sma"?"SMA":"EMA"}, 골든크로스 즉시진입=${cfg.buyOnGoldenCross?"예":"아니오"}, 데드크로스 강제청산=${cfg.deadcross==="yes"?"예":"아니오"}, 복리=${cfg.compounding==="yes"?"예":"아니오"}.`;
+}
+
+// ---- 한국시간(KST=UTC+9) 기준 주간/월간 집계 ----
+// 트릭: utcMs에 9시간을 더한 뒤 UTC getter로 읽으면 KST 달력상의 연/월/일이 그대로 나온다.
+const KST_OFFSET=9*3600000;
+function kstParts(utcMs){
+  const d=new Date(utcMs+KST_OFFSET);
+  return {y:d.getUTCFullYear(),mo:d.getUTCMonth(),da:d.getUTCDate(),isoDow:(d.getUTCDay()===0?7:d.getUTCDay())};
+}
+function kstWeekStartUtc(utcMs){
+  const p=kstParts(utcMs);
+  const mondayShifted=Date.UTC(p.y,p.mo,p.da)-(p.isoDow-1)*86400000;
+  return mondayShifted-KST_OFFSET;
+}
+function kstMonthStartUtc(utcMs){
+  const p=kstParts(utcMs);
+  return Date.UTC(p.y,p.mo,1)-KST_OFFSET;
+}
+function kstDateLabel(utcMs){
+  const p=kstParts(utcMs);
+  return `${p.y}-${String(p.mo+1).padStart(2,"0")}-${String(p.da).padStart(2,"0")}`;
+}
+function kstMonthLabel(utcMs){
+  const p=kstParts(utcMs);
+  return `${p.y}-${String(p.mo+1).padStart(2,"0")}`;
+}
+// CSV 등 사람이 읽는 타임스탬프용 — 한국시간(KST) "YYYY-MM-DD HH:MM:SS"
+function kstStamp(utcMs){
+  const d=new Date(utcMs+KST_OFFSET);
+  const p=n=>String(n).padStart(2,"0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+}
+
+// entries(분할매수 체결 시각 기준)로 투자횟수·투자금액을, trades(청산 시각 기준)로 손익을 같은 기간 버킷에 모은다.
+function aggregateByPeriod(entries,trades,keyFn){
+  const map=new Map();
+  const get=k=>{ if(!map.has(k)) map.set(k,{investCount:0,investAmount:0,pnl:0}); return map.get(k); };
+  for(const e of entries){ const b=get(keyFn(e.time)); b.investCount++; b.investAmount+=e.notional; }
+  for(const t of trades){ const b=get(keyFn(new Date(t.exitTime).getTime())); b.pnl+=t.pnl; }
+  return map;
+}
+// returnPct는 그 기간 손익이 "초기자본" 대비 전체 수익률에 기여한 비율입니다(그 기간 투자금액이 아님).
+// 이렇게 해야 모든 기간의 returnPct를 합치면 상단 요약의 전체 수익률과 정확히 일치합니다.
+function withReturn(d,baseCapital){ return {...d, returnPct: baseCapital? d.pnl/baseCapital*100 : 0}; }
+
+function buildTimeframeRows(res,keyFn,labelFn,endLabelFn,baseCapital){
+  const map=aggregateByPeriod(res.entries,res.trades,keyFn);
+  const keys=[...map.keys()].sort((a,b)=>a-b);
+  return keys.map(k=>({
+    periodStart:k,
+    periodLabel:labelFn(k),
+    periodEndLabel:endLabelFn?endLabelFn(k):null,
+    ...withReturn(map.get(k),baseCapital)
+  }));
+}
+
+function periodRowHtml(label,d,highlight,showInvest){
+  const cls=highlight?" class=\"highlight\"":"";
+  const ret=d.returnPct===null?"-":fmt(d.returnPct,2)+"%";
+  if(showInvest){
+    return `<tr${cls}><td>${label}</td><td>${d.investCount}</td><td>${fmt(d.investAmount)}</td><td>${fmt(d.pnl)}</td><td>${ret}</td></tr>`;
+  }
+  return `<tr${cls}><td>${label}</td><td>${fmt(d.pnl)}</td><td>${ret}</td></tr>`;
+}
+function sumRows(rows,baseCapital){
+  const t={investCount:0,investAmount:0,pnl:0};
+  rows.forEach(d=>{ t.investCount+=d.investCount; t.investAmount+=d.investAmount; t.pnl+=d.pnl; });
+  return withReturn(t,baseCapital);
+}
+
+function renderWeekly(rows,baseCapital){
+  if(!rows.length){ $("weekly").innerHTML="<h2>주간 성과 (한국시간, 월~일)</h2><p class=\"small\">표시할 거래가 없습니다.</p>"; return; }
+  let h="<h2>주간 성과 (한국시간, 월~일)</h2><table><tr><th>주</th><th>투자횟수</th><th>투자금액</th><th>수익금액</th><th>수익률</th></tr>";
+  rows.forEach(r=>{
+    const label=`${r.periodLabel} ~ ${r.periodEndLabel}`;
+    h+=periodRowHtml(label,r,false,true);
+  });
+  h+=periodRowHtml("합계",sumRows(rows,baseCapital),true,true);
+  h+="</table><p class=\"small\">투자금액=그 주에 새로 체결된 분할매수 원금 합계, 수익금액=그 주에 청산(TP/SL/DEADCROSS)된 거래의 손익 합계. <b>수익률=그 주 수익금액÷초기자본×100</b>(그 주 투자금액이 아닌 전체 초기자본 기준 — 이렇게 해야 모든 주의 수익률을 더하면 상단 요약의 전체 수익률과 정확히 일치합니다). 포지션이 여러 주에 걸쳐 있다가 나중에 청산되면 그 주는 투자금액 없이 수익금액·수익률만 잡힐 수 있습니다(미청산 MARK 제외).</p>";
+  $("weekly").innerHTML=h;
+}
+
+function renderMonthly(rows,baseCapital){
+  if(!rows.length){ $("monthly").innerHTML="<h2>월간 성과 (한국시간)</h2><p class=\"small\">표시할 거래가 없습니다.</p>"; return; }
+  let h="<h2>월간 성과 (한국시간)</h2><table><tr><th>월</th><th>순수익금</th><th>수익률</th></tr>";
+  rows.forEach(r=>{
+    h+=periodRowHtml(r.periodLabel,r,false,false);
+  });
+  h+=periodRowHtml("합계",sumRows(rows,baseCapital),true,false);
+  h+="</table><p class=\"small\">순수익금=그 달에 청산된 거래의 손익 합계. <b>수익률=그 달 순수익금÷초기자본×100</b>(전체 초기자본 기준 — 모든 달의 수익률을 더하면 상단 요약의 전체 수익률과 정확히 일치합니다).</p>";
+  $("monthly").innerHTML=h;
+}
+
+// 화면의 설정값을 읽어 백테스트 설정 객체로 만듭니다(현물·선물 백테스트 공통).
+function readCfg(){
+  return {
+    maType:$("maType").value,
+    ma60p:+$("ma60p").value, ma200p:+$("ma200p").value,
+    pullbackP:+$("pullbackP").value||+$("ma60p").value,
+    slopeLB:+$("slopeLB").value,
+    gcMaxGapPct:Math.max(0,+$("gcMaxGapPct").value||0),
+    ma60MinSlope:+$("ma60MinSlope").value, ma60SlopeDrop:+$("ma60SlopeDrop").value,
+    slStreakPause:Math.max(0,Math.round(+$("slStreakPause").value||0)),
+    slStreakCooldownHours:Math.max(0,+$("slStreakCooldownHours").value||0),
+    episodePullbackCap:Math.max(0,Math.round(+$("episodePullbackCap").value||0)),
+    episodeTpDecayPct:Math.max(0,Math.min(99,+$("episodeTpDecayPct").value||0)),
+    episodeTpFloorPct:Math.max(0,+$("episodeTpFloorPct").value||0),
+    buyOnGoldenCross:$("buyOnGoldenCross").value==="yes",
+    maxSplits:Math.max(0,Math.min(10,+$("maxSplits").value)),
+    maxPullbackBuys:Math.max(1,Math.min(5,+$("maxPullbackBuys").value||5)),
+    tp:+$("tp").value, sl:+$("sl").value,
+    capital:+$("capital").value, fee:+$("fee").value,
+    deadcross:$("deadcross").value,
+    compounding:$("compounding").value,
+    futMode:["A","B","C"].includes($("futMode").value)?$("futMode").value:"A",
+    cUseSl:$("cUseSl").value==="yes",
+    useFunding:$("useFunding").value==="yes"
+  };
+}
+
+async function run(){
+  tradeRows=[];weeklyRows=[];monthlyRows=[];$("summary").innerHTML="";$("depth").innerHTML="";$("weekly").innerHTML="";$("monthly").innerHTML="";
+  const cfg=readCfg();
+  try{
+    const forceRefresh=$("forceRefresh").checked;
+    const got=await getBars($("symbol").value.trim().toUpperCase(),$("src").value,+$("days").value,forceRefresh);
+    if(forceRefresh) $("forceRefresh").checked=false; // 강제 새로고침은 1회만 적용
+    const bars=got.bars;
+    const needBars=Math.max(cfg.ma200p,cfg.pullbackP)+10;
+    if(bars.length<needBars)throw new Error(`가져온 데이터가 너무 적습니다. 최소 ${needBars}개 봉이 필요합니다(조회 기간을 늘려주세요).`);
+
+    const ma60=computeMA(bars,cfg.ma60p,cfg.maType);       // 골든크로스 판정용(MA60 vs MA200)
+    const ma200=computeMA(bars,cfg.ma200p,cfg.maType);
+    const maPullback=computeMA(bars,cfg.pullbackP,cfg.maType); // 눌림목 재진입 기준선(20/60 등 선택)
+    const slope60=computeSlope(ma60,cfg.slopeLB); // 60선 자체 기울기
+
+    const res=simulate(bars,ma60,ma200,slope60,maPullback,cfg);
+    // 거래로그 CSV는 내부 계산(ISO/UTC 기준 시각)과 별개로, 차트·주간/월간표와 동일한 한국시간(KST)으로 보이도록 변환해서 내보냅니다.
+    tradeRows=res.trades.map(t=>({
+      ...t,
+      entryMa60SlopePct:t.entryMa60SlopePct!=null?+t.entryMa60SlopePct.toFixed(4):null,
+      entryGapToMa200Pct:t.entryGapToMa200Pct!=null?+t.entryGapToMa200Pct.toFixed(4):null,
+      tpUsedPct:t.tpUsedPct!=null?+t.tpUsedPct.toFixed(4):null,
+      entryTime:kstStamp(new Date(t.entryTime).getTime())+" KST",
+      exitTime:kstStamp(new Date(t.exitTime).getTime())+" KST"
+    }));
+    render(res,cfg,bars);
+    $("status").textContent+=got.cached
+      ? ` [데이터 재사용: ${got.ageMin.toFixed(1)}분 전에 받아온 데이터, 재조회 없음]`
+      : ` [바이낸스에서 새로 조회함]`;
+
+    const weekly=buildTimeframeRows(res,kstWeekStartUtc,kstDateLabel,k=>kstDateLabel(k+6*86400000),cfg.capital);
+    renderWeekly(weekly,cfg.capital);
+    weeklyRows=weekly.map(r=>({
+      period:`${r.periodLabel} ~ ${r.periodEndLabel}`,
+      investCount:r.investCount,investAmount:r.investAmount,pnl:r.pnl,returnPct:r.returnPct
+    }));
+
+    const monthly=buildTimeframeRows(res,kstMonthStartUtc,kstMonthLabel,undefined,cfg.capital);
+    renderMonthly(monthly,cfg.capital);
+    monthlyRows=monthly.map(r=>({period:r.periodLabel,pnl:r.pnl,returnPct:r.returnPct}));
+
+    // 파라미터 스윕이 재사용할 수 있도록 이번 실행의 원본 데이터/이동평균/설정을 캐시
+    lastBars=bars; lastMaTrend=ma60; lastMa200=ma200; lastSlope60=slope60; lastMaPullback=maPullback;
+    lastCfgBase={...cfg};
+    lastResults=res;
+    lastMode="spot"; lastFundings=[];
+    $("sweepHint").textContent=`이번 조회 데이터(${bars.length.toLocaleString()}개 봉, 현물) 기준으로 스윕 가능합니다.`;
+    chartViewStart=null; $("chart_barCount").value=bars.length; // 새 백테스트 결과는 항상 전체 봉을 화면 폭에 맞춰 표시
+    try{ renderChart(); }catch(chartErr){ $("chartHint").textContent="차트 렌더링 오류: "+chartErr.message; }
+  }catch(e){$("status").textContent="오류: "+e.message;}
+}
+
+// =====================================================================================
+// 선물 백테스트(롱+숏). 롱 쪽은 현물 simulate()와 같은 규칙이고, 숏은 그 규칙을 위아래로 뒤집은 것입니다.
+// 손익 = 방향×(청산금액 − 진입원금) − 진입·청산 수수료 + 펀딩비(+받음/−냄). 레버리지 1배(증거금=진입원금).
+// =====================================================================================
+let lastMode="spot", lastFundings=[];
+
+function simulateFutures(bars,ma60,ma200,slope60,maPullback,fundings,cfg){
+  const modeB = cfg.futMode==="B";
+  const modeC = cfg.futMode==="C"; // 크로스 추종: 골든=롱 보유, 데드=숏 보유(1회 전액 진입)
+  const goldenOnlyMode = cfg.buyOnGoldenCross && cfg.maxSplits===0;
+  const effMaxSplits = goldenOnlyMode ? 1 : cfg.maxSplits;
+  const sumW = effMaxSplits; // 분할마다 동일 비중
+
+  let equity=cfg.capital, peak=equity, maxDD=0;
+  const trades=[], entries=[];
+  const depth=Array.from({length:Math.max(1,effMaxSplits)},()=>({n:0,w:0,pnl:0}));
+
+  // 현재 포지션 상태 (side: 1=롱, -1=숏, 0=없음)
+  let side=0,qty=0,cost=0,entryFees=0,fundingAcc=0,entryCount=0,pullbackEntryCount=0,lots=[];
+  let firstEntryTime=null,firstEntryTrigger=null,firstEntrySlope60=null,firstEntryGap200=null,currentTradeTpPct=null,firstEntryEpisodeIdx=null;
+  const armed={"1":false,"-1":false};          // 방향별 눌림(숏은 반등) 감지 상태
+  const episodeCount={"1":0,"-1":0};           // 방향별 "구간 내 눌림목 돌파" 누적 횟수
+  const gapBlocked={"1":0,"-1":0};             // 상승폭(숏은 하락폭) 제한으로 건너뛴 즉시진입
+  let prevState=0;                             // 직전 봉 추세 상태(1=골든, -1=데드, 0=판단불가)
+  let consecutiveSl=0,pauseUntil=null,pauseTriggers=0;
+  let nextFlipSide=0;                          // 방식 B: 다음에 즉시 진입할 방향
+  let fi=0,fundingEvents=0;
+
+  const gapPct=i=>(ma200[i]!=null&&ma200[i]!==0)?(bars[i].c-ma200[i])/ma200[i]*100:null;
+  const trendState=i=>(ma60[i]==null||ma200[i]==null)?0:(ma60[i]>ma200[i]?1:(ma60[i]<ma200[i]?-1:0));
+  // 60선 기울기 필터: 롱은 기울기 ≥ 설정값, 숏은 (−기울기) ≥ 설정값. 둔화 허용치도 방향을 뒤집어 적용
+  function slopeOk(i,s){
+    if(slope60[i]==null) return false;
+    const v=s*slope60[i];
+    if(v<cfg.ma60MinSlope) return false;
+    if(cfg.ma60SlopeDrop>0){
+      const j=i-cfg.slopeLB;
+      if(j>=0 && slope60[j]!=null && (s*slope60[j]-v)>cfg.ma60SlopeDrop) return false;
+    }
+    return true;
+  }
+  const activeSide=(i,s)=>trendState(i)===s && slopeOk(i,s);
+
+  function updateDD(){
+    if(equity>peak) peak=equity;
+    if(peak>0) maxDD=Math.max(maxDD,(peak-equity)/peak*100);
+  }
+
+  function openSplit(i,s,trigger,sizingBase,fullSize){
+    const nb=bars[i+1];
+    const notional=fullSize?sizingBase:sizingBase/sumW; // 방식 C는 분할 없이 전액
+    const px=nb.o, q=notional/px, fee=notional*cfg.fee/100;
+    if(side===0) side=s;
+    qty+=q; cost+=notional; entryFees+=fee; lots.push({t:nb.t,q});
+    entryCount++;
+    entries.push({time:nb.t,splitIndex:entryCount,price:px,qty:q,notional,trigger,side:s});
+    if(firstEntryTime===null){
+      firstEntryTime=nb.t; firstEntryTrigger=trigger; firstEntrySlope60=slope60[i]; firstEntryGap200=gapPct(i);
+      currentTradeTpPct=cfg.tp; firstEntryEpisodeIdx=null;
+    }
+  }
+
+  function closePosition(i,price,type){
+    const exitValue=qty*price;
+    const exitFee=exitValue*cfg.fee/100;
+    const gross=side*(exitValue-cost);
+    const pnl=gross-entryFees-exitFee+fundingAcc;
+    equity+=pnl;
+    updateDD();
+    trades.push({
+      side:side===1?"LONG":"SHORT",
+      exitType:type,
+      entries:entryCount,
+      firstEntryTrigger,
+      entryMa60SlopePct:firstEntrySlope60,
+      entryGapToMa200Pct:firstEntryGap200,
+      episodeBreakoutIndex:firstEntryEpisodeIdx,
+      tpUsedPct:currentTradeTpPct,
+      avg:cost/qty,
+      exit:price,
+      entryTime:new Date(firstEntryTime).toISOString(),
+      exitTime:new Date(bars[i].t).toISOString(),
+      holdHours:(bars[i].t-firstEntryTime)/3600000,
+      grossPnl:gross,
+      fees:entryFees+exitFee,
+      fundingFee:fundingAcc,
+      pnl,
+      returnPct:cost?pnl/cost*100:0
+    });
+    for(let k=0;k<entryCount;k++){ depth[k].n++; if(pnl>0)depth[k].w++; depth[k].pnl+=pnl; }
+    const closedSide=side;
+    side=0;qty=0;cost=0;entryFees=0;fundingAcc=0;entryCount=0;pullbackEntryCount=0;lots=[];
+    firstEntryTime=null;firstEntryTrigger=null;firstEntrySlope60=null;firstEntryGap200=null;currentTradeTpPct=null;firstEntryEpisodeIdx=null;
+    armed["1"]=false; armed["-1"]=false;
+    if(type==="SL"){
+      consecutiveSl++;
+      if(!modeC && cfg.slStreakPause>0 && consecutiveSl>=cfg.slStreakPause && pauseUntil==null){
+        pauseUntil=bars[i].t+cfg.slStreakCooldownHours*3600000;
+        pauseTriggers++;
+      }
+    }else{
+      consecutiveSl=0;
+    }
+    if(modeB) nextFlipSide=-closedSide; // 방식 B: 다음 거래는 무조건 반대 방향
+  }
+
+  // 방식 B: 청산 직후(같은 봉 처리 중) 다음 봉 시가에 반대 방향 1회차 진입
+  function tryFlip(i){
+    if(!modeB || nextFlipSide===0 || side!==0 || pauseUntil!=null || i+1>=bars.length || effMaxSplits<1) return;
+    const sizingBase=cfg.compounding==="yes"?equity:cfg.capital;
+    if(cfg.compounding==="yes" && sizingBase<=0) return;
+    openSplit(i,nextFlipSide,"FLIP",sizingBase);
+    nextFlipSide=0;
+  }
+
+  for(let i=0;i<bars.length;i++){
+    const b=bars[i];
+    if(pauseUntil!=null && b.t>=pauseUntil){ pauseUntil=null; consecutiveSl=0; }
+
+    // 펀딩비 정산: 펀딩 시각에 보유 중이던 수량(그 시각 이전에 체결된 분할)만 대상
+    while(fi<fundings.length && fundings[fi].t<=b.t){
+      const f=fundings[fi++];
+      if(!cfg.useFunding || side===0) continue;
+      let held=0; for(const L of lots) if(L.t<f.t) held+=L.q;
+      if(held<=0) continue;
+      const mark=f.mark>0?f.mark:b.o;
+      fundingAcc+=-side*held*mark*f.r; // 비율 +: 롱이 내고 숏이 받음
+      fundingEvents++;
+    }
+
+    const st=trendState(i);
+    const justCross={"1":st===1&&prevState!==1,"-1":st===-1&&prevState!==-1};
+    prevState=st;
+    if(justCross["1"]) episodeCount["1"]=0;
+    if(justCross["-1"]) episodeCount["-1"]=0;
+
+    // ---- 방식 C: 크로스 추종 ----
+    if(modeC){
+      // 반대 크로스가 난 봉의 종가에 청산 → 같은 봉에서 다음 봉 시가 반대 방향 진입
+      if(side!==0 && st!==0 && st!==side){
+        closePosition(i,b.c,"CROSS");
+      }else if(side!==0 && cfg.cUseSl && firstEntryTime!=null && b.t>firstEntryTime){
+        const avg=cost/qty;
+        const slPrice=side===1?avg*(1-cfg.sl/100):avg*(1+cfg.sl/100);
+        if(side===1?b.l<=slPrice:b.h>=slPrice){ closePosition(i,slPrice,"SL"); continue; } // 손절 후에는 다음 크로스까지 대기
+      }
+      if(side===0 && st!==0 && justCross[st] && i+1<bars.length){
+        const sizingBase=cfg.compounding==="yes"?equity:cfg.capital;
+        if(cfg.compounding!=="yes" || sizingBase>0) openSplit(i,st,st===1?"GOLDEN":"DEAD",sizingBase,true);
+      }
+      continue;
+    }
+
+    // 방식 A: 추세 반전 시 강제청산(옵션). 같은 봉에서 반대 방향 진입 조건은 아래에서 계속 확인합니다.
+    if(!modeB && side!==0 && cfg.deadcross==="yes" && ma60[i]!=null && ma200[i]!=null && st!==side){
+      closePosition(i,b.c,"REVERSAL");
+    }
+
+    // TP / SL (진입한 봉은 평가하지 않음 — 현물과 동일 규칙, 같은 봉에서 둘 다 닿으면 TP 우선)
+    if(side!==0 && firstEntryTime!=null && b.t>firstEntryTime){
+      const avg=cost/qty;
+      const tpP=currentTradeTpPct!=null?currentTradeTpPct:cfg.tp;
+      if(side===1){
+        const tpPrice=avg*(1+tpP/100), slPrice=avg*(1-cfg.sl/100);
+        if(b.h>=tpPrice){ closePosition(i,tpPrice,"TP"); tryFlip(i); continue; }
+        if(b.l<=slPrice){ closePosition(i,slPrice,"SL"); tryFlip(i); continue; }
+      }else{
+        const tpPrice=avg*(1-tpP/100), slPrice=avg*(1+cfg.sl/100);
+        if(b.l<=tpPrice){ closePosition(i,tpPrice,"TP"); tryFlip(i); continue; }
+        if(b.h>=slPrice){ closePosition(i,slPrice,"SL"); tryFlip(i); continue; }
+      }
+    }
+
+    const paused=pauseUntil!=null;
+    const sizingBase=cfg.compounding==="yes"?equity:cfg.capital;
+    const sizingOk=cfg.compounding!=="yes" || sizingBase>0;
+
+    // 방식 B: 연속 SL 중단 등으로 미뤄진 반대 방향 진입 — 중단이 끝나면 바로 진입(다른 신호는 보지 않음)
+    if(modeB && side===0 && nextFlipSide!==0){
+      if(!paused && sizingOk) tryFlip(i);
+      continue;
+    }
+
+    // 크로스 즉시진입(롱=골든크로스, 숏=데드크로스). 상승폭 제한은 숏에서는 장기선 아래 이격으로 적용
+    if(side===0){
+      let entered=false;
+      for(const s of [1,-1]){
+        if(!(cfg.buyOnGoldenCross && justCross[s])) continue;
+        let gapOk=true;
+        if(cfg.gcMaxGapPct>0){
+          const g=gapPct(i);
+          if(g!=null && s*g>=cfg.gcMaxGapPct){ gapOk=false; gapBlocked[s]++; }
+        }
+        if(gapOk && activeSide(i,s) && !paused && effMaxSplits>0 && sizingOk && i+1<bars.length){
+          openSplit(i,s,s===1?"GOLDEN":"DEAD",sizingBase);
+          armed["1"]=false; armed["-1"]=false;
+          entered=true; break;
+        }
+      }
+      if(entered) continue;
+    }
+
+    // 눌림목(숏은 반등) → 재돌파(숏은 재이탈) → 분할진입
+    // 방식 B에서 이미 포지션이 있으면 추세 필터 없이 그 방향의 눌림목 신호로만 추가 분할
+    const sides= side!==0 ? [side] : [1,-1];
+    for(const s of sides){
+      const capped=pullbackEntryCount>=cfg.maxPullbackBuys;
+      const act=(modeB && side!==0) ? true : activeSide(i,s);
+      if(!goldenOnlyMode && !capped && !paused && act && entryCount<effMaxSplits && sizingOk){
+        if(maPullback[i]!=null && (s===1 ? b.l<maPullback[i] : b.h>maPullback[i])) armed[s]=true;
+        if(armed[s] && maPullback[i]!=null && (s===1 ? b.c>maPullback[i] : b.c<maPullback[i]) && i+1<bars.length){
+          const wasFlat=side===0;
+          openSplit(i,s,"PULLBACK",sizingBase);
+          episodeCount[s]++; pullbackEntryCount++;
+          if(wasFlat){
+            firstEntryEpisodeIdx=episodeCount[s];
+            if(cfg.episodePullbackCap>0 && episodeCount[s]>cfg.episodePullbackCap){
+              const excess=episodeCount[s]-cfg.episodePullbackCap;
+              currentTradeTpPct=Math.max(cfg.episodeTpFloorPct,cfg.tp*Math.pow(1-cfg.episodeTpDecayPct/100,excess));
+            }
+          }
+          armed[s]=false;
+          break; // 같은 봉에서 두 방향 동시 진입 방지
+        }
+      }else if(!act || goldenOnlyMode || capped || paused){
+        armed[s]=false;
+      }
+    }
+  }
+
+  let mark=null;
+  if(side!==0){
+    const last=bars[bars.length-1];
+    const ev=qty*last.c, ef=ev*cfg.fee/100;
+    const unrealized=side*(ev-cost)-entryFees-ef+fundingAcc;
+    mark={side,avg:cost/qty,mark:last.c,entries:entryCount,
+      holdHours:firstEntryTime!=null?(last.t-firstEntryTime)/3600000:0,
+      unrealizedPnl:unrealized,unrealizedReturnPct:cost?unrealized/cost*100:0,funding:fundingAcc};
+  }
+  return {trades,equity,maxDD,depth,mark,entries,pauseTriggers,
+    gcGapBlocked:gapBlocked["1"]+gapBlocked["-1"],gapBlockedLong:gapBlocked["1"],gapBlockedShort:gapBlocked["-1"],
+    fundingEvents,futures:true,futMode:cfg.futMode};
+}
+
+function sideStats(t,capital){
+  const wins=t.filter(x=>x.pnl>0),loss=t.filter(x=>x.pnl<0);
+  const gw=wins.reduce((s,x)=>s+x.pnl,0),gl=-loss.reduce((s,x)=>s+x.pnl,0);
+  const net=t.reduce((s,x)=>s+x.pnl,0);
+  return {
+    n:t.length, winRate:t.length?wins.length/t.length*100:0, net, ret:capital?net/capital*100:0,
+    pf:gl?gw/gl:(gw?Infinity:0),
+    tp:t.filter(x=>x.exitType==="TP").length, sl:t.filter(x=>x.exitType==="SL").length,
+    rev:t.filter(x=>x.exitType==="REVERSAL"||x.exitType==="CROSS").length,
+    gross:t.reduce((s,x)=>s+x.grossPnl,0), fees:t.reduce((s,x)=>s+x.fees,0), funding:t.reduce((s,x)=>s+x.fundingFee,0)
+  };
+}
+
+function renderFutures(res,cfg,bars,fundingCount){
+  const s=stats(res,cfg);
+  const L=sideStats(res.trades.filter(x=>x.side==="LONG"),cfg.capital);
+  const S=sideStats(res.trades.filter(x=>x.side==="SHORT"),cfg.capital);
+  const A=sideStats(res.trades,cfg.capital);
+  const pf=x=>isFinite(x.pf)?fmt(x.pf):"∞";
+  const rows=[
+    ["완료 거래",L.n,S.n,A.n],
+    ["승률",fmt(L.winRate)+"%",fmt(S.winRate)+"%",fmt(A.winRate)+"%"],
+    ["순손익 (USDT, 수수료·펀딩 반영)",fmt(L.net),fmt(S.net),fmt(A.net)],
+    ["수익률 (초기자본 대비)",fmt(L.ret)+"%",fmt(S.ret)+"%",fmt(A.ret)+"%"],
+    ["Profit Factor",pf(L),pf(S),pf(A)],
+    ["TP 청산",L.tp,S.tp,A.tp],
+    ["SL 청산",L.sl,S.sl,A.sl],
+    [cfg.futMode==="C"?"크로스 반전 청산":"추세반전 강제청산",L.rev,S.rev,A.rev],
+    ["가격 손익(수수료·펀딩 전)",fmt(L.gross),fmt(S.gross),fmt(A.gross)],
+    ["수수료 합계",fmt(-L.fees),fmt(-S.fees),fmt(-A.fees)],
+    ["펀딩비 합계(+받음/−냄)",fmt(L.funding),fmt(S.funding),fmt(A.funding)]
+  ];
+  const modeName={A:"A(대칭 미러)",B:"B(엄격한 교대)",C:"C(크로스 추종, 손절 "+(cfg.cUseSl?"SL "+cfg.sl+"%":"없음")+")"}[cfg.futMode];
+  let h=`<h2>선물 백테스트 결과 — 방식 ${modeName}</h2>`;
+  h+="<table><tr><th>항목</th><th>롱</th><th>숏</th><th>합계</th></tr>";
+  rows.forEach(r=>h+=`<tr${r[0].startsWith("수익률")?' class="highlight"':""}><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td>${r[3]}</td></tr>`);
+  h+="</table>";
+  const startCnt=t=>res.trades.filter(x=>x.firstEntryTrigger===t).length;
+  const rows2=[
+    ["데이터 봉 수(선물)",bars.length.toLocaleString()],
+    ["MDD",fmt(s.mdd)+"%"],
+    ["평균 거래손익",fmt(s.avg)],
+    ["최대 분할 도달",s.maxSplit],
+    ["평균 분할 횟수",fmt(s.avgSplit)],
+    ["골든크로스 즉시진입으로 시작(롱)",startCnt("GOLDEN")],
+    ["데드크로스 즉시진입으로 시작(숏)",startCnt("DEAD")],
+    ["눌림목/반등 재돌파로 시작",startCnt("PULLBACK")],
+    ["반대 방향 즉시반전으로 시작(방식 B)",startCnt("FLIP")],
+    ["눌림목 분할 체결 횟수(전체)",res.entries.filter(e=>e.trigger==="PULLBACK").length],
+    ["상승폭 제한으로 건너뛴 즉시진입(롱 / 숏, "+(cfg.gcMaxGapPct>0?cfg.gcMaxGapPct+"% 이상":"무제한")+")",res.gapBlockedLong+" / "+res.gapBlockedShort],
+    ["연속 SL 중단 발생 횟수(임계값="+cfg.slStreakPause+")",s.slStreakPauses],
+    ["펀딩비 반영",cfg.useFunding?`예 (펀딩 기록 ${fundingCount}건 중 보유 중 정산 ${res.fundingEvents}회)`:"아니오"]
+  ];
+  h+="<table><tr><th>항목</th><th>값</th></tr>";
+  rows2.forEach(r=>h+=`<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`);
+  h+="</table>";
+  const m=s.mark;
+  const markTxt=m?`미청산 ${m.side===1?"롱":"숏"} 1건 / 분할 ${m.entries}회 / 평균 ${fmt(m.avg)} / 현재가 ${fmt(m.mark)} / 미실현 ${fmt(m.unrealizedPnl)} USDT(펀딩 ${fmt(m.funding)} 포함) / 보유 ${fmt(m.holdHours)}시간`:"없음";
+  h+=`<p class="note"><b>MARK(미청산)</b> — ${markTxt}<br>MARK는 완료 거래·실현손익·수익률에 포함하지 않습니다. 레버리지 1배 기준이며 강제청산(청산가)은 계산하지 않습니다.</p>`;
+  $("summary").innerHTML=h;
+
+  let d="<h2>분할 단계별 누적 통계(롱+숏)</h2><table><tr><th>최소 도달 단계</th><th>거래수</th><th>승률</th><th>손익</th></tr>";
+  res.depth.forEach((a,i)=>{ if(a.n) d+=`<tr><td>${i+1}차 분할</td><td>${a.n}</td><td>${fmt(a.w/a.n*100)}%</td><td>${fmt(a.pnl)}</td></tr>`; });
+  d+="</table>";
+  $("depth").innerHTML=d;
+  $("status").textContent=cfg.futMode==="C"
+    ? `선물 완료: ${bars.length.toLocaleString()}개 봉. 방식 C(크로스 추종, 1회 전액 진입), MA=${cfg.maType==="sma"?"SMA":"EMA"}, 손절=${cfg.cUseSl?"SL "+cfg.sl+"%":"없음"}, 펀딩비=${cfg.useFunding?"반영":"미반영"}, 복리=${cfg.compounding==="yes"?"예":"아니오"}.`
+    : `선물 완료: ${bars.length.toLocaleString()}개 봉. 방식 ${cfg.futMode}, MA=${cfg.maType==="sma"?"SMA":"EMA"}, 크로스 즉시진입=${cfg.buyOnGoldenCross?"예":"아니오"}, 추세반전 강제청산=${cfg.futMode==="B"?"해당없음(방식 B)":(cfg.deadcross==="yes"?"예":"아니오")}, 펀딩비=${cfg.useFunding?"반영":"미반영"}, 복리=${cfg.compounding==="yes"?"예":"아니오"}.`;
+}
+
+async function runFutures(){
+  tradeRows=[];weeklyRows=[];monthlyRows=[];$("summary").innerHTML="";$("depth").innerHTML="";$("weekly").innerHTML="";$("monthly").innerHTML="";
+  const cfg=readCfg();
+  try{
+    const symbol=$("symbol").value.trim().toUpperCase();
+    const interval=$("src").value;
+    const forceRefresh=$("forceRefresh").checked;
+    let got;
+    try{
+      got=await getBars(symbol,interval,+$("days").value,forceRefresh,"futures");
+    }catch(e){
+      throw new Error(e.message+" — 선물 심볼명이 현물과 다를 수 있습니다(예: PEPEUSDT → 1000PEPEUSDT). 바이낸스 선물에 상장된 심볼인지 확인하세요.");
+    }
+    if(forceRefresh) $("forceRefresh").checked=false;
+    const bars=got.bars;
+    const needBars=Math.max(cfg.ma200p,cfg.pullbackP)+10;
+    if(bars.length<needBars) throw new Error(`가져온 선물 데이터가 너무 적습니다. 최소 ${needBars}개 봉이 필요합니다(조회 기간을 늘리거나 선물 상장 여부를 확인하세요).`);
+
+    // 펀딩비: 선물 캐시에 한 번 받아두고 재사용(캐시가 새로 만들어지면 다시 받음)
+    let fundings=[];
+    if(cfg.useFunding){
+      const c=got.cache;
+      if(!c.fundings){
+        $("status").textContent="펀딩비 기록 조회 중...";
+        c.fundings=await fetchFundingRates(symbol,c.bars[0].t,c.fetchedAt);
+      }
+      const endT=bars[bars.length-1].t+(INTERVAL_MS[interval]||0);
+      fundings=c.fundings.filter(f=>f.t>=bars[0].t && f.t<endT);
+    }
+
+    const ma60=computeMA(bars,cfg.ma60p,cfg.maType);
+    const ma200=computeMA(bars,cfg.ma200p,cfg.maType);
+    const maPullback=computeMA(bars,cfg.pullbackP,cfg.maType);
+    const slope60=computeSlope(ma60,cfg.slopeLB);
+
+    const res=simulateFutures(bars,ma60,ma200,slope60,maPullback,fundings,cfg);
+    tradeRows=res.trades.map(t=>({
+      ...t,
+      entryMa60SlopePct:t.entryMa60SlopePct!=null?+t.entryMa60SlopePct.toFixed(4):null,
+      entryGapToMa200Pct:t.entryGapToMa200Pct!=null?+t.entryGapToMa200Pct.toFixed(4):null,
+      tpUsedPct:t.tpUsedPct!=null?+t.tpUsedPct.toFixed(4):null,
+      grossPnl:+t.grossPnl.toFixed(6), fees:+t.fees.toFixed(6), fundingFee:+t.fundingFee.toFixed(6),
+      entryTime:kstStamp(new Date(t.entryTime).getTime())+" KST",
+      exitTime:kstStamp(new Date(t.exitTime).getTime())+" KST"
+    }));
+    renderFutures(res,cfg,bars,fundings.length);
+    $("status").textContent+=got.cached
+      ? ` [선물 데이터 재사용: ${got.ageMin.toFixed(1)}분 전에 받아온 데이터, 재조회 없음]`
+      : ` [바이낸스 선물에서 새로 조회함]`;
+
+    const weekly=buildTimeframeRows(res,kstWeekStartUtc,kstDateLabel,k=>kstDateLabel(k+6*86400000),cfg.capital);
+    renderWeekly(weekly,cfg.capital);
+    weeklyRows=weekly.map(r=>({period:`${r.periodLabel} ~ ${r.periodEndLabel}`,investCount:r.investCount,investAmount:r.investAmount,pnl:r.pnl,returnPct:r.returnPct}));
+    const monthly=buildTimeframeRows(res,kstMonthStartUtc,kstMonthLabel,undefined,cfg.capital);
+    renderMonthly(monthly,cfg.capital);
+    monthlyRows=monthly.map(r=>({period:r.periodLabel,pnl:r.pnl,returnPct:r.returnPct}));
+
+    lastBars=bars; lastMaTrend=ma60; lastMa200=ma200; lastSlope60=slope60; lastMaPullback=maPullback;
+    lastCfgBase={...cfg}; lastResults=res; lastMode="futures"; lastFundings=fundings;
+    $("sweepHint").textContent=`이번 조회 데이터(${bars.length.toLocaleString()}개 봉, 선물·방식 ${cfg.futMode}) 기준으로 스윕 가능합니다. 스윕도 선물(롱+숏)로 계산됩니다.`;
+    chartViewStart=null; $("chart_barCount").value=bars.length; // 전체 봉 표시
+    try{ renderChart(); }catch(chartErr){ $("chartHint").textContent="차트 렌더링 오류: "+chartErr.message; }
+  }catch(e){$("status").textContent="오류: "+e.message;}
+}
+
+function csv(rows){
+  if(!rows.length)return "";
+  const keys=[...new Set(rows.flatMap(r=>Object.keys(r)))];
+  return [keys.join(","),...rows.map(r=>keys.map(k=>`"${String(r[k]??"").replaceAll('"','""')}"`).join(","))].join("\n");
+}
+function dl(name,text){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob(["﻿"+text],{type:"text/csv;charset=utf-8"}));
+  a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+const csvPrefix=()=>lastMode==="futures"?"ma_gc_futures":"ma_gc_pullback"; // 선물 결과는 파일명으로 구분
+function downloadTrades(){dl(csvPrefix()+"_trades.csv",csv(tradeRows))}
+function downloadWeekly(){dl(csvPrefix()+"_weekly.csv",csv(weeklyRows))}
+function downloadMonthly(){dl(csvPrefix()+"_monthly.csv",csv(monthlyRows))}
+function downloadSweep(){dl(csvPrefix()+"_sweep.csv",csv(sweepRows)); if(sweepSlopeRows.length) setTimeout(()=>dl(csvPrefix()+"_sweep_by_slope.csv",csv(sweepSlopeRows)),400); if(sweepDropRows.length) setTimeout(()=>dl(csvPrefix()+"_sweep_by_slope_drop.csv",csv(sweepDropRows)),800); if(sweepGridRows.length) setTimeout(()=>dl(csvPrefix()+"_sweep_slope_x_drop.csv",csv(sweepGridRows)),1200);}
+
+function frange(from,to,step){
+  const out=[];
+  if(!(step>0)||!(to>=from)) return out;
+  for(let v=from; v<=to+1e-9; v=+(v+step).toFixed(6)) out.push(+v.toFixed(6));
+  return out;
+}
+
+async function runSweep(){
+  if(sweepRunning) return;
+  sweepRows=[]; sweepSlopeRows=[]; sweepDropRows=[]; sweepGridRows=[]; $("sweepResult").innerHTML=""; $("sweepStatus").textContent="";
+  if(!lastBars){
+    $("sweepStatus").textContent="먼저 \"데이터 가져오기 + 백테스트\"를 실행하세요.";
+    return;
+  }
+  const tpList=frange(+$("sw_tpFrom").value,+$("sw_tpTo").value,+$("sw_tpStep").value);
+  const slList=frange(+$("sw_slFrom").value,+$("sw_slTo").value,+$("sw_slStep").value);
+  const spList=[]; {
+    const a=+$("sw_spFrom").value,b=+$("sw_spTo").value,st=Math.max(1,Math.round(+$("sw_spStep").value)||1);
+    for(let v=a; v<=b; v+=st) spList.push(Math.max(1,Math.min(10,Math.round(v))));
+  }
+  // (신규) 60선 최소 기울기 % 스윕 범위. 시작=끝(기본값)이면 현재 설정값 1가지만 쓰므로 기존 스윕 동작/조합수는 그대로 유지됩니다.
+  // 60선 최소 기울기·둔화 허용치는 "시작 = 끝"이면 스윕하지 않고 위쪽 로직 설정값을 그대로 씁니다.
+  // (이전 버전은 이때 스윕 칸의 값(기본 0)으로 덮어써서, 로직 설정에 0.1을 넣어도 스윕은 0으로 계산되던 버그가 있었습니다)
+  const rangeOrBase=(fromId,toId,stepId,baseVal,clamp0)=>{
+    const a=+$(fromId).value, b=+$(toId).value;
+    if(a===b) return {list:[baseVal],fromBase:true};
+    return {list:frange(clamp0?Math.max(0,a):a,clamp0?Math.max(0,b):b,+$(stepId).value),fromBase:false};
+  };
+  const slopeR=rangeOrBase("sw_ma60From","sw_ma60To","sw_ma60Step",lastCfgBase.ma60MinSlope,false);
+  const dropR=rangeOrBase("sw_dropFrom","sw_dropTo","sw_dropStep",lastCfgBase.ma60SlopeDrop,true);
+  const ma60List=slopeR.list;
+  // (신규) 60선 기울기 둔화 허용치 %p 스윕 범위(0=미사용). 시작=끝이면 그 값 1가지만 사용
+  const dropList=dropR.list;
+  if(!tpList.length||!slList.length||!spList.length||!ma60List.length||!dropList.length){
+    $("sweepStatus").textContent="TP/SL/분할횟수/60선 기울기/둔화 허용치 범위를 확인하세요(시작 ≤ 끝, 간격 > 0).";
+    return;
+  }
+  const total=tpList.length*slList.length*spList.length*ma60List.length*dropList.length;
+  const MAX_COMBOS=5000;
+  if(total>MAX_COMBOS){
+    $("sweepStatus").textContent=`조합이 ${total}개로 너무 많습니다. 범위나 간격을 조정해 ${MAX_COMBOS}개 이하로 줄여주세요.`;
+    return;
+  }
+
+  const metric=$("sw_metric").value;
+  const results=[];
+  const combos=[];
+  for(const tp of tpList) for(const sl of slList) for(const maxSplits of spList) for(const ma60MinSlope of ma60List) for(const ma60SlopeDrop of dropList)
+    combos.push({tp,sl,maxSplits,ma60MinSlope,ma60SlopeDrop});
+  sweepRunning=true;
+  try{
+    for(let ci=0; ci<combos.length; ci++){
+      const c=combos[ci];
+      const cfg2={...lastCfgBase,...c};
+      const res=lastMode==="futures"
+        ? simulateFutures(lastBars,lastMaTrend,lastMa200,lastSlope60,lastMaPullback,lastFundings,cfg2)
+        : simulate(lastBars,lastMaTrend,lastMa200,lastSlope60,lastMaPullback,cfg2);
+      const s=stats(res,cfg2);
+      results.push({...c,trades:s.trades,winRate:s.winRate,net:s.net,ret:s.ret,mdd:s.mdd,pf:s.pf,avg:s.avg});
+      if(ci%20===19){ // 화면이 멈추지 않도록 주기적으로 양보 + 진행률 표시
+        $("sweepStatus").textContent=`스윕 진행 중... ${ci+1} / ${total}`;
+        await sleep(0);
+      }
+    }
+  }finally{ sweepRunning=false; }
+
+  function score(r){
+    switch(metric){
+      case "mdd": return r.mdd;
+      case "pf": return -(isFinite(r.pf)?r.pf:1e9);
+      case "avg": return -r.avg;
+      default: return -r.ret;
+    }
+  }
+  results.sort((a,b)=>score(a)-score(b));
+  sweepRows=results.map(r=>({tp:r.tp,sl:r.sl,maxSplits:r.maxSplits,ma60MinSlope:r.ma60MinSlope,ma60SlopeDrop:r.ma60SlopeDrop,trades:r.trades,winRate:r.winRate,net:r.net,returnPct:r.ret,mdd:r.mdd,pf:isFinite(r.pf)?r.pf:"Infinity",avgPerTrade:r.avg}));
+
+  const multiSlope = ma60List.length>1, multiDrop = dropList.length>1;
+  const top=results.slice(0,20);
+  const dropTxt=v=>v>0?fmt(v,2):"0(미사용)";
+  // 상위 조합 표: 60선 최소 기울기·둔화 허용치 열은 항상 표시
+  let h=`<h3 style="margin:10px 0 0">상위 ${top.length}개 조합</h3><table><tr><th>TP%</th><th>SL%</th><th>분할</th><th>60선 기울기%</th><th>둔화 허용치%p</th><th>거래수</th><th>승률</th><th>순손익</th><th>수익률</th><th>MDD</th><th>PF</th><th>거래당 평균손익</th></tr>`;
+  top.forEach((r,idx)=>{
+    h+=`<tr${idx===0?' class="highlight"':""}><td>${fmt(r.tp,2)}</td><td>${fmt(r.sl,2)}</td><td>${r.maxSplits}</td><td>${fmt(r.ma60MinSlope,2)}</td><td>${dropTxt(r.ma60SlopeDrop)}</td><td>${r.trades}</td><td>${fmt(r.winRate,1)}%</td><td>${fmt(r.net)}</td><td>${fmt(r.ret)}%</td><td>${fmt(r.mdd)}%</td><td>${isFinite(r.pf)?fmt(r.pf):"∞"}</td><td>${fmt(r.avg)}</td></tr>`;
+  });
+  h+="</table>";
+
+  // 값별 분석: 한 파라미터 값을 고정하고, 나머지 조합 전체가 평균적으로 어땠는지 비교합니다.
+  // 한 조합만 튀게 좋은 값보다 평균·중앙값·수익 조합 비율이 꾸준히 높은 값이 다른 기간에도 버틸 가능성이 큽니다.
+  function analyzeBy(key,list){
+    const out=[];
+    for(const v of list){
+      const g=results.filter(r=>Math.abs(r[key]-v)<1e-9);
+      if(!g.length) continue;
+      const best=g.reduce((a,b)=>score(b)<score(a)?b:a);
+      const avg=k=>g.reduce((s,r)=>s+r[k],0)/g.length;
+      const sorted=g.map(r=>r.ret).sort((a,b)=>a-b);
+      const median=sorted.length%2?sorted[(sorted.length-1)/2]:(sorted[sorted.length/2-1]+sorted[sorted.length/2])/2;
+      out.push({value:v,n:g.length,avgRet:avg("ret"),medRet:median,bestRet:best.ret,worstRet:sorted[0],
+        profitable:g.filter(r=>r.ret>0).length/g.length*100,avgTrades:avg("trades"),avgWin:avg("winRate"),avgMdd:avg("mdd"),best});
+    }
+    return out;
+  }
+  function analysisTable(title,rows,valFmt,others){
+    const maxAvg=Math.max(...rows.map(x=>x.avgRet)), maxBest=Math.max(...rows.map(x=>x.bestRet));
+    let t=`<h3 style="margin:16px 0 0">${title} 값별 분석 (각 값마다 ${others} ${rows[0].n}개 조합 전체 통계)</h3>`;
+    t+=`<table><tr><th>${title}</th><th>평균 수익률</th><th>중앙값 수익률</th><th>최고 수익률</th><th>최저 수익률</th><th>수익 조합 비율</th><th>평균 거래수</th><th>평균 승률</th><th>평균 MDD</th><th>최고 조합(TP/SL/분할/기울기/둔화)</th></tr>`;
+    rows.forEach(x=>{
+      t+=`<tr${x.avgRet===maxAvg?' class="highlight"':""}><td>${valFmt(x.value)}</td><td>${fmt(x.avgRet,2)}%</td><td>${fmt(x.medRet,2)}%</td><td${x.bestRet===maxBest?' style="font-weight:bold"':""}>${fmt(x.bestRet,2)}%</td><td>${fmt(x.worstRet,2)}%</td><td>${fmt(x.profitable,1)}%</td><td>${fmt(x.avgTrades,1)}</td><td>${fmt(x.avgWin,1)}%</td><td>${fmt(x.avgMdd,2)}%</td><td>${fmt(x.best.tp,2)} / ${fmt(x.best.sl,2)} / ${x.best.maxSplits} / ${fmt(x.best.ma60MinSlope,2)} / ${dropTxt(x.best.ma60SlopeDrop)}</td></tr>`;
+    });
+    return t+"</table>";
+  }
+  const toCsv=(rows,key)=>rows.map(x=>({[key]:x.value,combos:x.n,avgReturnPct:x.avgRet,medianReturnPct:x.medRet,bestReturnPct:x.bestRet,worstReturnPct:x.worstRet,profitableComboPct:x.profitable,avgTrades:x.avgTrades,avgWinRate:x.avgWin,avgMdd:x.avgMdd,bestTp:x.best.tp,bestSl:x.best.sl,bestSplits:x.best.maxSplits,bestMa60MinSlope:x.best.ma60MinSlope,bestMa60SlopeDrop:x.best.ma60SlopeDrop}));
+  if(multiSlope){
+    const rows=analyzeBy("ma60MinSlope",ma60List);
+    h+=analysisTable("60선 기울기%",rows,v=>fmt(v,2),multiDrop?"TP·SL·분할·둔화 허용치":"TP·SL·분할");
+    sweepSlopeRows=toCsv(rows,"ma60MinSlope");
+  }
+  if(multiDrop){
+    const rows=analyzeBy("ma60SlopeDrop",dropList);
+    h+=analysisTable("둔화 허용치%p",rows,dropTxt,multiSlope?"TP·SL·분할·60선 기울기":"TP·SL·분할");
+    sweepDropRows=toCsv(rows,"ma60SlopeDrop");
+  }
+  // (신규) 60선 기울기 × 둔화 허용치 2차원 히트맵: 두 값의 궁합을 한눈에 보고 "주변까지 고르게 좋은" 안정 구간을 찾기 위한 표
+  if(multiSlope && multiDrop){
+    const cells=new Map(); let mn=0,mx=0;
+    const key=(a,b)=>a.toFixed(6)+"|"+b.toFixed(6);
+    for(const sv of ma60List) for(const dv of dropList){
+      const g=results.filter(r=>Math.abs(r.ma60MinSlope-sv)<1e-9 && Math.abs(r.ma60SlopeDrop-dv)<1e-9);
+      if(!g.length) continue;
+      const best=g.reduce((a,b)=>score(b)<score(a)?b:a);
+      const c={slope:sv,drop:dv,n:g.length,avgRet:g.reduce((t,r)=>t+r.ret,0)/g.length,bestRet:best.ret,best,
+        prof:g.filter(r=>r.ret>0).length/g.length*100,avgTrades:g.reduce((t,r)=>t+r.trades,0)/g.length,avgMdd:g.reduce((t,r)=>t+r.mdd,0)/g.length};
+      cells.set(key(sv,dv),c); mn=Math.min(mn,c.avgRet); mx=Math.max(mx,c.avgRet);
+    }
+    // 안정성 점수: 자기 칸 + 위아래좌우 대각선 이웃 칸의 평균 수익률 평균(한 칸만 튀는 값 걸러내기)
+    ma60List.forEach((sv,i)=>dropList.forEach((dv,j)=>{
+      const c=cells.get(key(sv,dv)); if(!c) return;
+      const nb=[];
+      for(let di=-1;di<=1;di++) for(let dj=-1;dj<=1;dj++){
+        const s2=ma60List[i+di], d2=dropList[j+dj];
+        if(s2===undefined||d2===undefined) continue;
+        const c2=cells.get(key(s2,d2)); if(c2) nb.push(c2.avgRet);
+      }
+      c.stable=nb.reduce((t,v)=>t+v,0)/nb.length;
+    }));
+    const all=[...cells.values()];
+    const bestAvg=all.reduce((a,b)=>b.avgRet>a.avgRet?b:a);
+    const bestStable=all.reduce((a,b)=>b.stable>a.stable?b:a);
+    const bestSingle=all.reduce((a,b)=>b.bestRet>a.bestRet?b:a);
+    const bg=v=>v>=0?`rgba(34,197,94,${(0.10+0.55*(mx>0?v/mx:0)).toFixed(2)})`:`rgba(239,68,68,${(0.10+0.55*(mn<0?v/mn:0)).toFixed(2)})`;
+    h+=`<h3 style="margin:16px 0 0">60선 기울기 × 둔화 허용치 히트맵 (칸마다 TP·SL·분할 ${all[0].n}개 조합 통계)</h3>`;
+    h+=`<p class="small" style="margin:4px 0">큰 숫자 = 그 칸 조합들의 평균 수익률(초록=수익, 빨강=손실, 진할수록 큼). 작은 글씨 = 최고 수익률 / 수익 조합 비율 / 평균 거래수. 굵은 테두리 = 평균 수익률 1위, 점선 테두리 = 주변 칸까지 고르게 좋은 안정 구간 1위, ★ = 단일 조합 최고 수익률.</p>`;
+    h+=`<table class="heat"><tr><th>60선 기울기% ↓ / 둔화 허용치%p →</th>${dropList.map(d=>`<th style="text-align:center">${dropTxt(d)}</th>`).join("")}</tr>`;
+    for(const sv of ma60List){
+      h+=`<tr><th style="text-align:center">${fmt(sv,2)}</th>`;
+      for(const dv of dropList){
+        const c=cells.get(key(sv,dv));
+        if(!c){ h+="<td>-</td>"; continue; }
+        const border=c===bestAvg?"outline:3px solid #111;outline-offset:-3px;":(c===bestStable?"outline:2px dashed #111;outline-offset:-3px;":"");
+        h+=`<td style="text-align:center;white-space:normal;line-height:1.35;background:${bg(c.avgRet)};${border}" title="최고 조합 TP ${fmt(c.best.tp,2)} / SL ${fmt(c.best.sl,2)} / 분할 ${c.best.maxSplits} · 평균 MDD ${fmt(c.avgMdd,2)}%"><b style="font-size:14px">${fmt(c.avgRet,2)}%</b>${c===bestSingle?" ★":""}<br><span style="font-size:11px;color:#333">최고 ${fmt(c.bestRet,1)}% · 수익 ${fmt(c.prof,0)}% · 거래 ${fmt(c.avgTrades,0)}</span></td>`;
+      }
+      h+="</tr>";
+    }
+    h+="</table>";
+    // 해석 도우미: 1위가 범위 끝에 있으면 범위 밖에 더 좋은 값이 있을 수 있음을 알림
+    const edge=c=>{ const w=[]; if(c.slope===ma60List[0]) w.push("60선 기울기 최소값"); if(c.slope===ma60List[ma60List.length-1]) w.push("60선 기울기 최대값"); if(c.drop===dropList[0]) w.push("둔화 허용치 최소값"); if(c.drop===dropList[dropList.length-1]) w.push("둔화 허용치 최대값"); return w; };
+    const ew=edge(bestAvg);
+    h+=`<p class="note" style="margin-top:8px">평균 수익률 1위: <b>기울기 ${fmt(bestAvg.slope,2)}% · 둔화 ${dropTxt(bestAvg.drop)}</b> (평균 ${fmt(bestAvg.avgRet,2)}%, 수익 조합 ${fmt(bestAvg.prof,0)}%, 평균 거래 ${fmt(bestAvg.avgTrades,0)}회)<br>
+      안정 구간 1위(주변 칸 포함 평균): <b>기울기 ${fmt(bestStable.slope,2)}% · 둔화 ${dropTxt(bestStable.drop)}</b> (주변 평균 ${fmt(bestStable.stable,2)}%)<br>
+      단일 조합 최고: 기울기 ${fmt(bestSingle.slope,2)}% · 둔화 ${dropTxt(bestSingle.drop)} · TP ${fmt(bestSingle.best.tp,2)} / SL ${fmt(bestSingle.best.sl,2)} / 분할 ${bestSingle.best.maxSplits} = ${fmt(bestSingle.bestRet,2)}%
+      ${ew.length?`<br><b style="color:#b45309">주의:</b> 평균 1위가 스윕 범위의 끝(${ew.join(", ")})에 있습니다. 범위 밖에 더 좋은 값이 있을 수 있으니 그 방향으로 범위를 넓혀 다시 돌려보세요.`:""}
+      ${bestAvg.avgTrades<30?`<br><b style="color:#b45309">주의:</b> 1위 칸의 평균 거래수가 ${fmt(bestAvg.avgTrades,0)}회로 적습니다. 거래가 적으면 우연일 가능성이 커지니 조회 기간을 늘리거나 다른 종목으로도 확인하세요.`:""}</p>`;
+    sweepGridRows=all.map(c=>({ma60MinSlope:c.slope,ma60SlopeDrop:c.drop,combos:c.n,avgReturnPct:c.avgRet,neighborAvgReturnPct:c.stable,bestReturnPct:c.bestRet,profitableComboPct:c.prof,avgTrades:c.avgTrades,avgMdd:c.avgMdd,bestTp:c.best.tp,bestSl:c.best.sl,bestSplits:c.best.maxSplits}));
+  }
+  if(multiSlope||multiDrop){
+    h+=`<p class="small">노란 줄 = 평균 수익률이 가장 높은 값(나머지 조합 전체가 고르게 좋았던 값). 굵은 글씨 = 단일 조합 최고 수익률. 두 값이 다르면 최고 수익률 쪽은 특정 조합에만 맞춰진 값일 수 있으니 평균·중앙값·수익 조합 비율을 함께 보고 고르세요. 값을 올릴수록 평균 거래수가 줄어드는지도 확인하세요(거래가 너무 적으면 결과를 믿기 어렵습니다). 둔화 허용치는 0이 "미사용"이고, 값이 작을수록 조금만 꺾여도 매수를 막는 강한 필터입니다.</p>`;
+  }
+  $("sweepResult").innerHTML=h;
+  const notes=[];
+  if(multiSlope) notes.push(`60선 기울기 ${ma60List.length}개 값`);
+  if(multiDrop) notes.push(`둔화 허용치 ${dropList.length}개 값`);
+  const baseNotes=[];
+  if(slopeR.fromBase) baseNotes.push(`60선 최소 기울기 = 로직 설정값 ${fmt(lastCfgBase.ma60MinSlope,2)}% 고정`);
+  if(dropR.fromBase) baseNotes.push(`둔화 허용치 = 로직 설정값 ${lastCfgBase.ma60SlopeDrop>0?fmt(lastCfgBase.ma60SlopeDrop,2)+"%p":"0(미사용)"} 고정`);
+  $("sweepStatus").textContent=(lastMode==="futures"?`[선물 롱+숏, 방식 ${lastCfgBase.futMode}] `:"[현물] ")+(baseNotes.length?`[${baseNotes.join(", ")}] `:"")+`총 ${total}개 조합 중 상위 ${top.length}개 표시 (정렬: ${$("sw_metric").selectedOptions[0].textContent}).`+(notes.length?` ${notes.join(", ")}별 분석표가 아래에 추가됐습니다.`:` 값별로 비교하려면 "60선 최소 기울기 % 끝" 또는 "둔화 허용치 %p 끝"을 시작보다 크게 설정하세요.`);
+}
+
+// ---- 차트: 캔들 + MA + 매수/매도 마커 (외부 라이브러리 없이 canvas로 직접 렌더링) ----
+function fmtDate(ms){
+  const d=new Date(ms+9*3600000); // KST(UTC+9)로 보정 후 UTC getter로 읽는 트릭
+  const p=n=>String(n).padStart(2,"0");
+  return `${d.getUTCFullYear()}-${p(d.getUTCMonth()+1)}-${p(d.getUTCDate())} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} KST`;
+}
+
+// 차트 마커 라벨용: 한국시간 "YYMMDD_HHMM" (예: 261105_2307)
+function fmtShortStamp(ms){
+  const d=new Date(ms+9*3600000);
+  const p=n=>String(n).padStart(2,"0");
+  return `${String(d.getUTCFullYear()).slice(2)}${p(d.getUTCMonth()+1)}${p(d.getUTCDate())}_${p(d.getUTCHours())}${p(d.getUTCMinutes())}`;
+}
+// 가격 크기에 맞춰 소수 자릿수 자동 조절
+function fmtPx(p){
+  const a=Math.abs(p);
+  const d=a>=1000?2:a>=100?3:a>=1?4:a>=0.01?5:8;
+  return Number(p).toFixed(d);
+}
+
+function exitColor(type){
+  if(type==="SL") return "#38bdf8"; // 손절: 하늘색
+  if(type==="DEADCROSS"||type==="REVERSAL"||type==="CROSS") return "#f59e0b"; // 데드크로스/추세반전 강제청산: 주황색
+  return "#22c55e"; // 익절(TP): 녹색
+}
+function exitLabel(type){
+  if(type==="TP") return "익절";
+  if(type==="SL") return "손절";
+  if(type==="DEADCROSS") return "데드크로스 청산";
+  if(type==="REVERSAL") return "추세반전 청산";
+  if(type==="CROSS") return "크로스 청산";
+  return type;
+}
+
+// factor<1: 확대(표시 봉 수 감소), factor>1: 축소(표시 봉 수 증가). 휠·핀치·버튼이 모두 이 함수를 공유합니다.
+function zoomChart(factor){
+  // 버튼 확대/축소: 지금 보고 있는 화면의 가운데 시점을 기준으로 확대/축소합니다.
+  if(!lastBars) return;
+  const n=lastBars.length;
+  const cur=chartState?chartState.bars.length:Math.max(30,Math.min(n,Math.round(+$("chart_barCount").value)||n));
+  const center=chartState?chartState.start+cur/2:n-cur/2;
+  const next=Math.max(30,Math.min(n,Math.round(cur*factor)));
+  if(next===cur) return;
+  chartViewStart=Math.max(0,Math.min(n-next,Math.round(center-next/2)));
+  $("chart_barCount").value=next; renderChart();
+}
+
+// 마우스 휠 전용: 커서가 가리키는 시점(시간대)을 그대로 유지한 채 그 주변만 확대/축소합니다(세부 구간 확인용).
+// factor<1=확대(봉 수 감소), factor>1=축소(봉 수 증가).
+function zoomChartAtCursor(factor,clientX){
+  if(!lastBars || !chartState) return;
+  const n=lastBars.length;
+  const canvas=$("chartCanvas");
+  const rect=canvas.getBoundingClientRect();
+  const mx=clientX-rect.left;
+  const curBarCount=chartState.bars.length;
+  const hoverLocalIdx=Math.max(0,Math.min(curBarCount-1,Math.floor(mx/chartState.barW)));
+  const globalHoverIdx=chartState.start+hoverLocalIdx; // 전체 데이터 기준 인덱스
+  const frac=curBarCount>1?hoverLocalIdx/(curBarCount-1):0.5; // 현재 화면에서 커서가 위치한 상대 위치(0=왼쪽 끝,1=오른쪽 끝)
+  const newBarCount=Math.max(30,Math.min(n,Math.round(curBarCount*factor)));
+  let newStart=Math.round(globalHoverIdx-frac*(newBarCount-1));
+  newStart=Math.max(0,Math.min(Math.max(0,n-newBarCount),newStart));
+  if(newBarCount===curBarCount && newStart===chartState.start) return; // 더 이상 변화 없음(배율 한계 등)
+  chartViewStart=newStart;
+  $("chart_barCount").value=newBarCount;
+  renderChart();
+}
+
+// ---- 차트 보조: 좌우 이동 / 렌더 예약 / 전체 봉 보기 / 전체화면 ----
+let chartFs=false, renderPending=false;
+function scheduleRender(){
+  if(renderPending) return;
+  renderPending=true;
+  requestAnimationFrame(()=>{ renderPending=false; try{ renderChart(); }catch(e){ $("chartHint").textContent="차트 렌더링 오류: "+e.message; } });
+}
+function panChartTo(start){
+  if(!lastBars||!chartState) return;
+  const cnt=chartState.bars.length, n=lastBars.length;
+  const st=Math.max(0,Math.min(n-cnt,start));
+  if(st===chartState.start) return;
+  chartViewStart=st; scheduleRender();
+}
+function showAllBars(){
+  if(!lastBars) return;
+  chartViewStart=null; $("chart_barCount").value=lastBars.length; renderChart();
+}
+// 전체화면: 차트 영역을 화면 전체로 키웁니다. 지원 브라우저(안드로이드 크롬, PC)는 브라우저 전체화면까지 함께 켜고,
+// 지원하지 않는 iPhone 사파리 등은 화면을 덮는 레이어로만 동작합니다. Esc·뒤로가기·닫기 버튼으로 빠져나옵니다.
+function setChartFs(on,fromEvent){
+  if(on===chartFs) return;
+  chartFs=on;
+  const box=$("chartBox");
+  box.classList.toggle("fs",on);
+  document.body.classList.toggle("chart-fs",on);
+  $("fsBtn").textContent=on?"✕ 전체화면 닫기":"⛶ 전체화면";
+  if(!fromEvent){
+    try{
+      if(on && box.requestFullscreen && !document.fullscreenElement){
+        box.requestFullscreen().then(()=>{ try{ screen.orientation.lock("landscape").catch(()=>{}); }catch(e){} }).catch(()=>{});
+      }else if(!on && document.fullscreenElement){
+        document.exitFullscreen().catch(()=>{});
+      }
+    }catch(e){}
+  }
+  if(!on){ try{ screen.orientation.unlock(); }catch(e){} }
+  setTimeout(()=>{ if(lastBars) renderChart(); },80);
+}
+document.addEventListener("fullscreenchange",()=>{
+  if(!document.fullscreenElement && chartFs) setChartFs(false,true); // Esc/뒤로가기로 브라우저 전체화면이 풀리면 같이 닫기
+  else if(lastBars) setTimeout(renderChart,80);
+});
+document.addEventListener("keydown",ev=>{ if(ev.key==="Escape" && chartFs) setChartFs(false); });
+let resizeTimer=null;
+window.addEventListener("resize",()=>{ clearTimeout(resizeTimer); resizeTimer=setTimeout(()=>{ if(lastBars) renderChart(); },150); });
+
+function renderChart(){
+  if(!lastBars || !lastResults){
+    $("chartHint").textContent="먼저 \"데이터 가져오기 + 백테스트\"를 실행하세요.";
+    return;
+  }
+  const res = lastResults;
+  const n=lastBars.length;
+  const barCount=Math.max(30,Math.min(n,Math.round(+$("chart_barCount").value)||1500));
+
+  // chartViewStart가 설정돼 있으면(휠로 특정 시점을 확대해 둔 상태) 그 위치를 유지하고,
+  // 아니면 기존처럼 항상 최신 봉 기준(오른쪽 끝)으로 표시합니다.
+  const start = chartViewStart!=null
+    ? Math.max(0,Math.min(Math.max(0,n-barCount),chartViewStart))
+    : Math.max(0,n-barCount);
+  const end=Math.min(n,start+barCount);
+  const bars=lastBars.slice(start,end);
+  const maTrend=lastMaTrend.slice(start,end);
+  const ma200=lastMa200.slice(start,end);
+  const maPullback=lastMaPullback.slice(start,end);
+  const samePullback = lastCfgBase.pullbackP===lastCfgBase.ma60p;
+
+  const canvas=$("chartCanvas");
+  const dpr=window.devicePixelRatio||1;
+  // 표시할 봉 전체를 차트 영역 폭에 맞춰 그립니다(가로 스크롤 없음). 확대하면 봉이 넓어지고, 드래그로 좌우 이동합니다.
+  const wrap=$("chartWrap");
+  const showLabelsOpt=!$("chart_showLabels") || $("chart_showLabels").checked;
+  const width=Math.max(120,Math.floor(wrap.clientWidth)-2);
+  const height=chartFs ? Math.max(180,Math.floor(wrap.clientHeight)-2) : (window.innerWidth<640?340:440);
+  const RIGHT_PAD=showLabelsOpt?70:10; // 최근 봉 마커 라벨이 오른쪽 끝에서 잘리지 않도록 여백
+  const barW=Math.max(0.01,(width-RIGHT_PAD)/bars.length);
+  // 캔들 봉 수가 많아지면 canvas 실제 픽셀 폭(bars.length*barW*dpr)이 브라우저의 캔버스 최대 크기(크롬 기준 약
+  // 3만2천~6만5천대 px, 디스플레이 배율(dpr)이 곱해지면 더 빨리 한계에 도달)를 넘어서 버려 아예 빈 화면이 됩니다.
+  // (1~3만봉 조회 시 10000/20000개 표시가 안 되던 원인이 바로 이것입니다.) 안전하게 16000 실제픽셀로 상한을 두고,
+  // 그 안에 들어오도록 봉 1개당 폭(barW)을 자동으로 줄여서 — 봉이 가늘어질 뿐 — 항상 차트가 그려지게 합니다.
+  canvas.width=Math.round(width*dpr);
+  canvas.height=Math.round(height*dpr);
+  canvas.style.width=width+"px";
+  canvas.style.height=height+"px";
+  const ctx=canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle="#0b1220";
+  ctx.fillRect(0,0,width,height);
+
+  // 마우스오버 시 세로 크로스헤어를 그릴 전용 오버레이 캔버스(메인 캔버스와 크기를 맞추고, 매번 비워서 시작).
+  // 마우스를 움직일 때마다 전체 차트를 다시 그리지 않고 이 레이어만 지웠다가 선 하나만 그리면 되므로 가볍습니다.
+  const overlay=$("chartOverlay");
+  overlay.width=canvas.width; overlay.height=canvas.height;
+  overlay.style.width=width+"px"; overlay.style.height=height+"px";
+  const octx=overlay.getContext("2d");
+  octx.setTransform(1,0,0,1,0,0);
+  octx.clearRect(0,0,overlay.width,overlay.height);
+
+  let lo=Infinity,hi=-Infinity;
+  bars.forEach(b=>{ if(b.l<lo)lo=b.l; if(b.h>hi)hi=b.h; });
+  [maTrend,ma200,maPullback].forEach(arr=>arr.forEach(v=>{ if(v!=null){ if(v<lo)lo=v; if(v>hi)hi=v; } }));
+  if(!isFinite(lo)||!isFinite(hi)||lo===hi){ lo=(lo||0)-1; hi=(hi||1)+1; }
+  // 위아래 여백(px): 맨 위/아래 봉의 마커·라벨(2줄)이 화면 밖으로 밀려 겹치지 않도록 확보
+  const padPx=showLabelsOpt?Math.min(48,height*0.14):Math.min(24,height*0.07);
+  const yOf=p=>height-padPx-((p-lo)/(hi-lo))*(height-2*padPx);
+  const xOf=i=>i*barW+barW/2;
+
+  // 캔들 (국내 관행: 빨강=상승, 파랑=하락)
+  bars.forEach((b,i)=>{
+    const up=b.c>=b.o;
+    ctx.strokeStyle=up?"#e05252":"#4d82e0";
+    ctx.fillStyle=ctx.strokeStyle;
+    const cx=xOf(i);
+    ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(cx,yOf(b.h)); ctx.lineTo(cx,yOf(b.l)); ctx.stroke();
+    if(barW>=1.5){
+      const yO=yOf(b.o), yC=yOf(b.c);
+      const top=Math.min(yO,yC), h=Math.max(1,Math.abs(yC-yO));
+      ctx.fillRect(cx-barW*0.35,top,barW*0.7,h);
+    }
+  });
+
+  function drawLine(arr,color){
+    ctx.strokeStyle=color; ctx.lineWidth=1.4; ctx.beginPath();
+    let started=false;
+    arr.forEach((v,i)=>{
+      if(v==null){ started=false; return; }
+      const px=xOf(i), py=yOf(v);
+      if(!started){ ctx.moveTo(px,py); started=true; } else ctx.lineTo(px,py);
+    });
+    ctx.stroke();
+  }
+  drawLine(ma200,"#f2f2f2");
+  drawLine(maTrend,"#2dd4bf");
+  if(!samePullback) drawLine(maPullback,"#f5c518");
+
+  // 시각-로컬인덱스 매핑 (매수/매도 마커 위치 찾기용)
+  const idxByTime=new Map();
+  bars.forEach((b,i)=>idxByTime.set(b.t,i));
+
+  function triangleUp(cx,cy,size,color){
+    ctx.fillStyle=color;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx-size,cy+size*1.6); ctx.lineTo(cx+size,cy+size*1.6); ctx.closePath(); ctx.fill();
+  }
+  function triangleDown(cx,cy,size,color){
+    ctx.fillStyle=color;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx-size,cy-size*1.6); ctx.lineTo(cx+size,cy-size*1.6); ctx.closePath(); ctx.fill();
+  }
+
+  // 마커: 봉 아래 ▲(롱 진입, 숏 청산) / 봉 위 ▼(숏 진입, 롱 청산). 현물 결과는 기존과 동일하게 표시됩니다.
+  const isFut=!!res.futures;
+  const MK=barW>=4?6.4:4.2;
+  const belowAtIdx=new Map(), aboveAtIdx=new Map(), infoAtIdx=new Map();
+  const pushTo=(map,idx,item)=>map.set(idx,(map.get(idx)||[]).concat([item]));
+  res.entries.forEach(e=>{
+    const idx=idxByTime.get(e.time);
+    if(idx==null) return;
+    const s=e.side||1;
+    const c=entryColors(e.trigger,s);
+    const name=isFut?(s===1?"롱진입":"숏진입"):"매수";
+    const item={color:c.label,t1:name+" "+fmtShortStamp(e.time),t2:"@"+fmtPx(e.price)};
+    if(s===1){ triangleUp(xOf(idx),yOf(bars[idx].l)+14,MK,c.mark); pushTo(belowAtIdx,idx,item); }
+    else{ triangleDown(xOf(idx),yOf(bars[idx].h)-14,MK,c.mark); pushTo(aboveAtIdx,idx,item); }
+    pushTo(infoAtIdx,idx,name+"@"+fmt(e.price)+triggerText(e.trigger));
+  });
+  res.trades.forEach(tr=>{
+    const et=new Date(tr.exitTime).getTime();
+    const idx=idxByTime.get(et);
+    if(idx==null) return;
+    const short=tr.side==="SHORT";
+    const col=exitColor(tr.exitType);
+    const name=(isFut?(short?"숏 ":"롱 "):"")+exitLabel(tr.exitType);
+    const item={color:col,t1:name+" "+fmtShortStamp(et),t2:"@"+fmtPx(tr.exit)};
+    if(short){ triangleUp(xOf(idx),yOf(bars[idx].l)+14,MK,col); pushTo(belowAtIdx,idx,item); }
+    else{ triangleDown(xOf(idx),yOf(bars[idx].h)-14,MK,col); pushTo(aboveAtIdx,idx,item); }
+    pushTo(infoAtIdx,idx,name+"@"+fmt(tr.exit));
+  });
+  // 마커 옆 라벨: 시간(YYMMDD_HHMM, KST) + 체결가격. 같은 봉에 여러 건이면 아래(매수)/위(매도)로 쌓아서 표시
+  const markerCount=[...belowAtIdx.values(),...aboveAtIdx.values()].reduce((a,v)=>a+v.length,0);
+  const LABEL_LIMIT=Math.max(40,Math.round(width/9)); // 화면 폭 9px당 라벨 1개까지
+  const labelsHiddenByDensity=showLabelsOpt && markerCount>LABEL_LIMIT;
+  const showLabels=showLabelsOpt && !labelsHiddenByDensity;
+  if(showLabels){
+    ctx.font="10px Arial, sans-serif";
+    ctx.textBaseline="middle";
+    ctx.lineJoin="round";
+    const lineH=11;
+    const clampY=y=>Math.max(7,Math.min(height-7,y));
+    function label(x,y,text,color){
+      ctx.lineWidth=3; ctx.strokeStyle="rgba(11,18,32,0.9)"; ctx.strokeText(text,x,y);
+      ctx.fillStyle=color; ctx.fillText(text,x,y);
+    }
+    // 겹침 방지: 이미 그린 라벨 박스와 겹치면 매수는 아래로, 매도는 위로 한 칸씩 밀어서 그립니다
+    const placed=[];
+    const blockH=lineH*2+2;
+    // 원래 방향으로 밀다가 화면 위/아래 끝을 벗어나면 반대 방향으로 자리를 찾습니다(화면 끝에서 라벨끼리 겹치는 것 방지)
+    function place(x,y0,dir,w){
+      const fits=(y,d)=>{ const top=d>0?y-lineH/2:y-lineH*1.5; return top>=1 && top+blockH<=height-1; };
+      const free=(y,d)=>{ const top=d>0?y-lineH/2:y-lineH*1.5, bot=top+blockH; return !placed.some(r=>x<r.x2 && x+w>r.x1 && top<r.y2 && bot>r.y1); };
+      for(const sgn of [1,-1]){
+        let y=sgn===1?y0:y0-dir*(blockH+28);
+        for(let guard=0; guard<40; guard++){
+          if(!fits(y,dir)) break;
+          if(free(y,dir)){ const top=dir>0?y-lineH/2:y-lineH*1.5; placed.push({x1:x,x2:x+w,y1:top,y2:top+blockH}); return y; }
+          y+=sgn*dir*blockH;
+        }
+      }
+      return y0;
+    }
+    [...belowAtIdx.keys()].sort((a,b)=>a-b).forEach(idx=>{
+      const x=xOf(idx)+8;
+      let y=yOf(bars[idx].l)+14+5;
+      belowAtIdx.get(idx).forEach(it=>{
+        const w=Math.max(ctx.measureText(it.t1).width,ctx.measureText(it.t2).width)+4;
+        const yy=place(x,y,1,w);
+        label(x,clampY(yy),it.t1,it.color);
+        label(x,clampY(yy+lineH),it.t2,it.color);
+        y=yy+blockH;
+      });
+    });
+    [...aboveAtIdx.keys()].sort((a,b)=>a-b).forEach(idx=>{
+      const x=xOf(idx)+8;
+      let y=yOf(bars[idx].h)-14-5;
+      aboveAtIdx.get(idx).forEach(it=>{
+        const w=Math.max(ctx.measureText(it.t1).width,ctx.measureText(it.t2).width)+4;
+        const yy=place(x,y,-1,w);
+        label(x,clampY(yy-lineH),it.t1,it.color);
+        label(x,clampY(yy),it.t2,it.color);
+        y=yy-blockH;
+      });
+    });
+    ctx.textBaseline="alphabetic";
+  }
+
+  if(res.mark){
+    const idx=bars.length-1;
+    ctx.fillStyle="#9ca3af";
+    ctx.beginPath(); ctx.arc(xOf(idx),yOf(bars[idx].c),4,0,Math.PI*2); ctx.fill();
+  }
+
+  chartState={bars,maTrend,ma200,maPullback,barW,infoAtIdx,samePullback,start};
+
+  function showInfoAtClientX(clientX){
+    if(!chartState) return;
+    const rect=canvas.getBoundingClientRect();
+    const mx=clientX-rect.left;
+    const idx=Math.max(0,Math.min(chartState.bars.length-1,Math.floor(mx/chartState.barW)));
+    const b=chartState.bars[idx];
+    let txt=`${fmtDate(b.t)} | O ${fmt(b.o)} H ${fmt(b.h)} L ${fmt(b.l)} C ${fmt(b.c)} | MA200 ${chartState.ma200[idx]!=null?fmt(chartState.ma200[idx]):"-"} / MA(추세) ${chartState.maTrend[idx]!=null?fmt(chartState.maTrend[idx]):"-"}`;
+    if(!chartState.samePullback) txt+=` / MA(눌림목) ${chartState.maPullback[idx]!=null?fmt(chartState.maPullback[idx]):"-"}`;
+    const info=chartState.infoAtIdx.get(idx);
+    if(info) txt+=` | ${info.join(", ")}`;
+    $("chartInfo").textContent=txt;
+
+    // 세로 크로스헤어: 지금 가리키고 있는 봉이 어느 것인지 한눈에 보이도록 흰색 세로선을 그립니다.
+    // 전체 차트를 다시 그리는 대신, 위에서 준비해 둔 오버레이 캔버스만 지웠다가 선 하나만 그려서 가볍게 처리합니다.
+    const overlay=$("chartOverlay");
+    const octx=overlay.getContext("2d");
+    octx.setTransform(1,0,0,1,0,0);
+    octx.clearRect(0,0,overlay.width,overlay.height);
+    octx.setTransform(dpr,0,0,dpr,0,0);
+    const cx=xOf(idx);
+    octx.strokeStyle="rgba(255,255,255,0.75)";
+    octx.lineWidth=1;
+    octx.beginPath(); octx.moveTo(cx,0); octx.lineTo(cx,height); octx.stroke();
+  }
+  function clearCrosshair(){
+    const overlay=$("chartOverlay");
+    const octx=overlay.getContext("2d");
+    octx.setTransform(1,0,0,1,0,0);
+    octx.clearRect(0,0,overlay.width,overlay.height);
+  }
+  chartState.showInfo=showInfoAtClientX;
+  chartState.clearCrosshair=clearCrosshair;
+
+  // 이벤트는 캔버스당 한 번만 바인딩(렌더링마다 새로 붙이면 한 번 조작에 여러 번 적용됨).
+  // 핸들러는 매번 최신 chartState를 참조합니다.
+  if(!canvas._bound){
+    canvas._bound=true;
+    const touchDist=t=>Math.hypot(t[0].clientX-t[1].clientX,t[0].clientY-t[1].clientY);
+    // 마우스: 이동=정보, 드래그=좌우 이동, 휠=커서 기준 확대/축소
+    let drag=null;
+    canvas.addEventListener("mousedown",ev=>{ if(!chartState) return; drag={x:ev.clientX,start:chartState.start}; ev.preventDefault(); });
+    window.addEventListener("mousemove",ev=>{
+      if(drag){ panChartTo(drag.start-Math.round((ev.clientX-drag.x)/chartState.barW)); return; }
+    });
+    window.addEventListener("mouseup",()=>{ drag=null; });
+    canvas.addEventListener("mousemove",ev=>{ if(!drag && chartState) chartState.showInfo(ev.clientX); });
+    canvas.addEventListener("mouseleave",()=>{ if(chartState) chartState.clearCrosshair(); });
+    canvas.addEventListener("wheel",ev=>{
+      if(!lastBars) return;
+      ev.preventDefault();
+      zoomChartAtCursor(ev.deltaY<0?(1/1.2):1.2,ev.clientX);
+    },{passive:false});
+    // 터치: 탭=정보, 한 손가락 좌우 드래그=이동, 두 손가락 핀치=확대/축소(손가락 가운데 시점 기준)
+    let t1=null,pinch=null;
+    canvas.addEventListener("touchstart",ev=>{
+      if(!chartState) return;
+      if(ev.touches.length===2){
+        const rect=canvas.getBoundingClientRect();
+        const midX=(ev.touches[0].clientX+ev.touches[1].clientX)/2-rect.left;
+        const local=Math.max(0,Math.min(chartState.bars.length-1,midX/chartState.barW));
+        pinch={d:touchDist(ev.touches),count:chartState.bars.length,center:chartState.start+local,frac:local/Math.max(1,chartState.bars.length-1)};
+        t1=null;
+      }else if(ev.touches.length===1){
+        t1={x:ev.touches[0].clientX,y:ev.touches[0].clientY,start:chartState.start,mode:null};
+        chartState.showInfo(ev.touches[0].clientX);
+      }
+    },{passive:true});
+    canvas.addEventListener("touchmove",ev=>{
+      if(!chartState||!lastBars) return;
+      if(ev.touches.length===2 && pinch){
+        ev.preventDefault();
+        const d=touchDist(ev.touches); if(d<=0) return;
+        const n=lastBars.length;
+        const cnt=Math.max(30,Math.min(n,Math.round(pinch.count*pinch.d/d)));
+        const st=Math.max(0,Math.min(n-cnt,Math.round(pinch.center-pinch.frac*(cnt-1))));
+        if(cnt!==chartState.bars.length || st!==chartState.start){ $("chart_barCount").value=cnt; chartViewStart=st; scheduleRender(); }
+      }else if(ev.touches.length===1 && t1){
+        const dx=ev.touches[0].clientX-t1.x, dy=ev.touches[0].clientY-t1.y;
+        if(!t1.mode && (Math.abs(dx)>8||Math.abs(dy)>8)) t1.mode=Math.abs(dx)>Math.abs(dy)?"pan":"scroll";
+        if(t1.mode==="pan"){
+          ev.preventDefault();
+          panChartTo(t1.start-Math.round(dx/chartState.barW));
+        }else if(!t1.mode || chartFs){
+          chartState.showInfo(ev.touches[0].clientX);
+        }
+      }
+    },{passive:false});
+    canvas.addEventListener("touchend",ev=>{ if(ev.touches.length<2) pinch=null; if(ev.touches.length===0) t1=null; },{passive:true});
+  }
+
+  const zoomed=bars.length<n;
+  const labelNote=labelsHiddenByDensity?` · 화면에 마커가 ${markerCount}개라 시간·가격 라벨은 숨김(확대하면 표시)`:"";
+  $("chartHint").textContent=`${zoomed?"확대 중: ":"전체 "}${bars.length.toLocaleString()}개 봉 표시 (전체 ${n.toLocaleString()}개 중, ${fmtDate(bars[0].t)} ~ ${fmtDate(bars[bars.length-1].t)})${labelNote}. ${zoomed?"드래그로 좌우 이동, ":""}휠/핀치/버튼으로 확대·축소.`;
+  $("chartLegend").innerHTML=`<span style="color:#e05252">■</span> 상승캔들 &nbsp; <span style="color:#4d82e0">■</span> 하락캔들 &nbsp;
+  <span style="color:#f2f2f2">━</span> MA200 &nbsp; <span style="color:#2dd4bf">━</span> MA(추세/골든크로스) &nbsp;
+  ${samePullback?"":'<span style="color:#f5c518">━</span> MA(눌림목 기준) &nbsp;'}
+  ${isFut?`<span style="color:#facc15">▲</span> 롱진입(눌림목) &nbsp;
+  <span style="color:#ec4899">▲</span> 롱진입(골든크로스) &nbsp;
+  <span style="color:#c084fc">▼</span> 숏진입(반등 재이탈) &nbsp;
+  <span style="color:#7c3aed">▼</span> 숏진입(데드크로스) &nbsp;
+  <span style="color:#ffffff">▲▼</span> 반대 방향 즉시반전(방식 B) &nbsp;
+  <span style="color:#22c55e">▼▲</span> 익절(롱▼ / 숏▲) &nbsp;
+  <span style="color:#38bdf8">▼▲</span> 손절(롱▼ / 숏▲) &nbsp;
+  <span style="color:#f59e0b">▼▲</span> 추세반전·크로스 청산 &nbsp;`
+  :`<span style="color:#facc15">▲</span> 매수(눌림목 재돌파) &nbsp;
+  <span style="color:#ec4899">▲</span> 매수(골든크로스 즉시진입) &nbsp;
+  <span style="color:#22c55e">▼</span> 익절 &nbsp;
+  <span style="color:#38bdf8">▼</span> 손절 &nbsp;
+  <span style="color:#f59e0b">▼</span> 데드크로스 강제청산 &nbsp;`}
+  <span style="color:#9ca3af">●</span> 미청산(MARK)`;
+}
+
+// 진입 마커 색상(mark=삼각형, label=옆 글자). 롱=기존 색 그대로, 숏=보라 계열, 방식 B 반전진입=흰색
+function entryColors(trigger,side){
+  if(trigger==="FLIP") return {mark:"#ffffff",label:"#e5e7eb"};
+  if(side===-1) return trigger==="DEAD"?{mark:"#7c3aed",label:"#ddd6fe"}:{mark:"#c084fc",label:"#e9d5ff"};
+  return trigger==="GOLDEN"?{mark:"#ec4899",label:"#f9a8d4"}:{mark:"#facc15",label:"#fde68a"};
+}
+function triggerText(t){
+  return t==="GOLDEN"?"(골든크로스)":t==="DEAD"?"(데드크로스)":t==="FLIP"?"(즉시반전)":"";
+}
+
+// ---- 모바일용 숫자 입력 −/+ 버튼 ----
+// 모바일 브라우저는 type=number의 상하 화살표(스피너)를 보여주지 않으므로, 모든 숫자 입력칸 양옆에 −/+ 버튼을 붙입니다
+// (PC에서는 CSS로 숨겨져 기본 스피너를 그대로 씀). input을 DOM상 첫 번째로 두고 CSS order로 −를 왼쪽에 배치해서,
+// 라벨 글자를 눌러도 −버튼이 눌리지 않고 입력칸에 포커스가 가도록 했습니다. 길게 누르면 연속으로 증감됩니다.
+function stepDecimals(s){ const t=String(s); return t.includes(".")?t.split(".")[1].length:0; }
+function applyStep(inp,dir){
+  const step=parseFloat(inp.step)>0?parseFloat(inp.step):1;
+  const dec=Math.max(stepDecimals(inp.step||"1"),stepDecimals(inp.value||"0"));
+  let v=(parseFloat(inp.value)||0)+dir*step;
+  if(inp.min!=="" && v<parseFloat(inp.min)) v=parseFloat(inp.min);
+  if(inp.max!=="" && v>parseFloat(inp.max)) v=parseFloat(inp.max);
+  inp.value=+v.toFixed(Math.min(dec,8));
+  inp.dispatchEvent(new Event("input",{bubbles:true}));
+  inp.dispatchEvent(new Event("change",{bubbles:true}));
+}
+function attachSteppers(){
+  document.querySelectorAll('input[type="number"]').forEach(inp=>{
+    if(inp.parentElement && inp.parentElement.classList.contains("stepper")) return;
+    const wrap=document.createElement("div");
+    wrap.className="stepper";
+    inp.parentNode.insertBefore(wrap,inp);
+    wrap.appendChild(inp);
+    inp.style.order="1";
+    [["−",-1,"0"],["+",1,"2"]].forEach(([txt,dir,ord])=>{
+      const b=document.createElement("button");
+      b.type="button"; b.className="stepBtn"; b.textContent=txt; b.style.order=ord;
+      b.setAttribute("aria-label",dir<0?"감소":"증가");
+      let holdT=null, repT=null;
+      const stop=()=>{ clearTimeout(holdT); clearInterval(repT); holdT=repT=null; };
+      b.addEventListener("pointerdown",ev=>{
+        ev.preventDefault(); applyStep(inp,dir);
+        holdT=setTimeout(()=>{ repT=setInterval(()=>applyStep(inp,dir),90); },450);
+      });
+      ["pointerup","pointerleave","pointercancel"].forEach(t=>b.addEventListener(t,stop));
+      b.addEventListener("click",ev=>ev.preventDefault()); // pointerdown에서 이미 처리
+      b.addEventListener("contextmenu",ev=>ev.preventDefault());
+      wrap.appendChild(b);
+    });
+  });
+}
+attachSteppers();
+</script>
+
+</body>
+</html>
