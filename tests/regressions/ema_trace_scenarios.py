@@ -46,10 +46,24 @@ def _trader_trace(responses, krw_values=None):
         rec["notify"].append([level, title])
         return True
 
+    # time.sleep 은 모듈 전체에서 바뀐다. 앞 시험이 남긴 Streamlit 파일 감시 스레드(polling_path_watcher 의 0.2초 대기)가
+    # 이 사이에 부른 대기가 기록에 섞여 push 게이트가 가끔 실패했다(1111-02, Fable docs/fable/2026-11-11-push-flaky-1.md).
+    # 다른 스레드의 대기는 기록하지 않고 실제로 기다리게 두고, buy_market 을 부른 스레드의 대기만 흔적으로 남긴다.
+    import threading
+    import time as _real_time
+    real_sleep = _real_time.sleep
+    caller = threading.get_ident()
+
+    def fake_sleep(s):
+        if threading.get_ident() == caller:
+            rec["sleeps"].append(s)
+        else:
+            real_sleep(s)
+
     ps = [mock.patch("core.trader.pyupbit.Upbit"), mock.patch("core.trader._upbit_buy_market", side_effect=fake_buy),
           mock.patch("core.trader.insert_order", side_effect=fake_order),
           mock.patch("core.trader.insert_log", side_effect=fake_log),
-          mock.patch("core.trader._time.sleep", side_effect=lambda s: rec["sleeps"].append(s)),
+          mock.patch("core.trader._time.sleep", side_effect=fake_sleep),
           mock.patch("services.notifier.send", side_effect=fake_send),
           mock.patch.object(T.UpbitTrader, "_get_settings_history_id", return_value=None),
           mock.patch("engine.reconciler_singleton.get_reconciler", return_value=mock.MagicMock())]
