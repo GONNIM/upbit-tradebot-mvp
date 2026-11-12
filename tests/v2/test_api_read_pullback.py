@@ -6,6 +6,7 @@
 """
 import importlib.util
 import json
+import re
 import sqlite3
 import sys
 import types
@@ -46,6 +47,19 @@ def _no_clock(body):
     if isinstance(body, dict) and isinstance(body.get("engine"), dict) and "ago_sec" in body["engine"]:
         body = dict(body)
         body["engine"] = {k: v for k, v in body["engine"].items() if k != "ago_sec"}
+    return body
+
+
+# 1112-01: 로그 글 안 시각이 「HH:MM」 → 「YYMMDD:HH:MM」 으로 바뀐 것만 기준 커밋 모양으로 되돌려 비교한다.
+# 기준 커밋(V2_READ_BASE_COMMIT)은 올리지 않았다 — 이 한 가지 의도한 변경 밖의 글자는 그대로 같아야 한다.
+_STAMP_RE = re.compile(r"\b\d{6}:(\d\d:\d\d)\b")
+
+
+def _old_time_shape(body):
+    if isinstance(body, dict) and isinstance(body.get("rows"), list):
+        body = dict(body)
+        body["rows"] = [dict(r, text=_STAMP_RE.sub(r"\1", r["text"]))
+                        if isinstance(r, dict) and isinstance(r.get("text"), str) else r for r in body["rows"]]
     return body
 
 
@@ -162,7 +176,7 @@ class TestEmaUnchangedVsBase(PbBase):
                 self.assertEqual(old[0], 200, p)
                 self.assertEqual(_drawn(new[1]["markers"]), _drawn(old[1]["markers"]), (mode, p))
                 continue
-            self.assertEqual((new[0], _no_clock(new[1])), (old[0], _no_clock(old[1])), (mode, p))
+            self.assertEqual((new[0], _old_time_shape(_no_clock(new[1]))), (old[0], _no_clock(old[1])), (mode, p))
 
     def test_no_new_tables_same_as_base(self):
         c = self.make_live_db()
@@ -327,7 +341,7 @@ class TestPullbackLogs(PbBase):
         self.pb_eval("audit_buy_eval", "2026-10-30 10:41:00", ["WAIT_PULLBACK"], round=2, armed=1, active=1)
         self.pb_eval("audit_buy_eval", "2026-10-30 10:42:00", ["WAIT_PULLBACK"], round=2, armed=1, active=1)
         t = self.audit_texts()
-        self.assertEqual(t[0], "매수 대기 — 눌림 상태, 3회차 준비 (2회, 10:41~10:42)")
+        self.assertEqual(t[0], "매수 대기 — 눌림 상태, 3회차 준비 (2회, 261030:10:41~261030:10:42)")   # 1112-01
         self.assertEqual(t[1], "매수 대기 — 눌림 대기, 3회차 준비")
 
     def test_logs_not_active_uses_ma_periods(self):
@@ -577,7 +591,7 @@ class TestVer2Display(PbBase):
                      pause_end="2026-10-30T16:42:00+09:00", streak_paused=1)
         self.pb_eval("audit_buy_eval", "2026-10-30 10:44:00", ["GC_GAP"], round=0, active=1, gap200_pct=1.2)
         texts = self.audit_texts()
-        self.assertIn("매수 대기 — 연속 손절로 매수 중단 중(16:42 까지)", texts)
+        self.assertIn("매수 대기 — 연속 손절로 매수 중단 중(261030:16:42 까지)", texts)   # 1112-01
         self.assertIn("매수 대기 — 상승폭 제한 — 1차 매수 건너뜀", texts)
         s = self.get_json("/v2/api/signals?limit=2")[1]["signals"]
         pe = {x["pb"]["state"]: x["pb"]["pause_end"] for x in s}

@@ -45,8 +45,20 @@
     return "판단 불가" + ago;
   }
 
+  // 화면 시각 표기(1112-01): kst_time.js 의 kstStamp 사본. 백테스터 화면(backtester.html)은 kst_time.js 를
+  // 읽지 않아 사본을 둔다 — 시험(time.test.mjs)이 두 함수 글자가 그대로 같은지 본다. 고칠 때는 둘 다 고친다.
+  function kstStamp(v) {
+    var t = v instanceof Date ? v.getTime() : (typeof v === "number" ? v : (typeof v === "string" && v ? Date.parse(v) : NaN));
+    if (!Number.isFinite(t)) return null;
+    var d = new Date(t + 9 * 3600 * 1000);
+    var p = function (n) { return String(n).padStart(2, "0"); };
+    return p(d.getUTCFullYear() % 100) + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + ":" +
+      p(d.getUTCHours()) + ":" + p(d.getUTCMinutes());
+  }
+
+  // 「YYMMDD:HH:MM」, 해석 못 하면 원문 그대로(옛 표기와 같은 빈 값 규칙)
   function fmtTime(s) {
-    return String(s).slice(0, 19).replace("T", " ");
+    return kstStamp(String(s)) || String(s);
   }
 
   // interval("minute60") → "60분 (minute60)", 모르는 값은 그대로

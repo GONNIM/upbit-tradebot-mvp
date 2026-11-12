@@ -6,6 +6,7 @@
 <title>신버전 대시보드</title>
 <link rel="stylesheet" href="/v2/static/style.css">
 <link rel="stylesheet" href="/v2/static/basic.css">
+<script src="/v2/static/kst_time.js"></script>
 <script src="/v2/static/ops.js"></script>
 <script src="/v2/static/app.js"></script>
 <script src="/v2/static/vendor/lightweight-charts-4.2.0.standalone.production.js"></script>
@@ -79,9 +80,9 @@
     <section class="card">
       <h2>최근 거래</h2>
       <table class="mt" x-show="tradeRows.length > 0">
-        <tr><th>시각</th><th>구분</th><th>사유</th><th class="r">금액</th></tr>
+        <tr><th class="tt">시각</th><th>구분</th><th>사유</th><th class="r">금액</th></tr>
         <template x-for="t in tradeRows" :key="t.id">
-          <tr><td x-text="t.time"></td><td :class="t.kindCls" x-text="t.kind"></td><td x-text="t.reason"></td><td class="r" x-text="t.amount"></td></tr>
+          <tr><td class="tt" x-text="t.time"></td><td :class="t.kindCls" x-text="t.kind"></td><td x-text="t.reason"></td><td class="r" x-text="t.amount"></td></tr>
         </template>
       </table>
       <p class="empty" x-show="tradeRows.length === 0">거래 기록이 없습니다</p>

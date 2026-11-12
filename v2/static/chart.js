@@ -1,4 +1,6 @@
 // v2 차트 도우미 (ES 모듈). 모듈 최상위에서 브라우저 전역을 쓰지 않는다 (node 시험이 import 한다).
+// 화면 시각 표기 한 곳(1112-01): kst_time.js 가 globalThis.kstStamp 를 올린다(「YYMMDD:HH:MM」 KST).
+import "./kst_time.js";
 
 // toIso 가 있으면 그 시각 이전 200봉(업비트 to= 는 해당 시각 미포함)
 export function upbitCandlesUrl(market, unitMin, toIso) {
@@ -178,9 +180,13 @@ export function kstMdHm(sec) {
   const d = new Date((sec + 9 * 3600) * 1000);
   return _p2(d.getUTCMonth() + 1) + "-" + _p2(d.getUTCDate()) + " " + kstHm(sec);
 }
-// tickMarkType: 0 연, 1 월, 2 일, 3 시각, 4 초 포함 시각
+// tickMarkType: 0 연, 1 월, 2 일, 3 시각, 4 초 포함 시각 — 시간축 눈금은 1112-01 범위 밖(그대로)
 export function kstTick(sec, tickMarkType) {
   return tickMarkType >= 3 ? kstHm(sec) : kstMdHm(sec).slice(0, 5);
+}
+// 십자선(손가락으로 짚은 봉) 시각 글: 「YYMMDD:HH:MM」(1112-01). 해석 못 하면 원문
+export function crosshairTime(t) {
+  return (typeof t === "number" && globalThis.kstStamp(t * 1000)) || String(t);
 }
 
 // 이동평균 선 계산(순수 함수): {기간: 값 배열(앞쪽은 null)}
@@ -239,11 +245,6 @@ export function toChartCandles(candles) {
 
 export function pad2(n) { return String(n).padStart(2, "0"); }
 
-// KST(UTC+9) 시각 문자열 HH:MM:SS
-export function kstTime(date) {
-  const d = new Date(date.getTime() + 9 * 3600 * 1000);
-  return pad2(d.getUTCHours()) + ":" + pad2(d.getUTCMinutes()) + ":" + pad2(d.getUTCSeconds());
-}
 
 // 차트 생성. el: 컨테이너. 반환: {ok, chart, update(candles, markers, periods, unitSec), destroy()}
 export function createChartView(el) {
@@ -255,7 +256,7 @@ export function createChartView(el) {
   const chart = LW.createChart(el, {
     autoSize: true,
     layout: { background: { color: "#ffffff" }, textColor: "#333" },
-    localization: { timeFormatter: (t) => (typeof t === "number" ? kstMdHm(t) : String(t)) },
+    localization: { timeFormatter: crosshairTime },
     timeScale: {
       timeVisible: true, secondsVisible: false,
       tickMarkFormatter: (t, type) => (typeof t === "number" ? kstTick(t, type) : String(t)),

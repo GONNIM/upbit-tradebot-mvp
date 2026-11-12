@@ -170,6 +170,16 @@ def parse_ts(s: str) -> datetime:
     return dt
 
 
+def kst_stamp(dt: Optional[datetime]) -> str:
+    """화면 글 안 시각 표기 한 곳(1112-01): 「YYMMDD:HH:MM」 KST(v2/static/kst_time.js 의 kstStamp 와 같은 모양).
+    값이 없으면 「—」. 시각대 없는 값은 KST 로 본다(parse_ts 와 같음)."""
+    if dt is None:
+        return "—"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=KST)
+    return dt.astimezone(KST).strftime("%y%m%d:%H:%M")
+
+
 def insert_history(user_id: str, params_json: str, note: Optional[str]) -> int:
     conn = open_v2hist(user_id)
     try:

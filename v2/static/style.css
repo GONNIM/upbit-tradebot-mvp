@@ -80,7 +80,9 @@ dt { color: var(--gray); } dd { margin: 0; text-align: right; word-break: break-
 .seg-b:last-child { border-radius: 0 8px 8px 0; border-left: 0; }
 .seg-b:not(:first-child):not(:last-child) { border-left: 0; }
 .seg-b.on { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; font-weight: bold; }
-.mt .lt { width: 3.6em; white-space: nowrap; color: var(--gray); }
+/* 1112-01: 시각 열 「YYMMDD:HH:MM」(12자) — 412px 휴대폰에서도 한 줄. 숫자 폭 고정 */
+.mt .lt { width: 7.4em; white-space: nowrap; color: var(--gray); font-variant-numeric: tabular-nums; }
+.mt .tt { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mt .lx { word-break: break-word; }
 .mt .lx.buy { color: var(--bad); } .mt .lx.sell { color: var(--blue); } .mt .lx.muted { color: var(--gray); }
 .mt .lx.err { color: var(--bad); } .mt .lx.warn { color: var(--warn); margin: 0; }

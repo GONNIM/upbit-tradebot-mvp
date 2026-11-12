@@ -713,7 +713,8 @@ def _price_text(v) -> str:
 
 
 def _hhmm(dt: Optional[datetime]) -> str:
-    return dt.astimezone(db.KST).strftime("%H:%M") if dt else "—"
+    # 1112-01: 이름은 옛 그대로, 모양은 화면 공용 「YYMMDD:HH:MM」(db.kst_stamp 한 곳)
+    return db.kst_stamp(dt)
 
 
 def _with_note(head: str, note) -> str:

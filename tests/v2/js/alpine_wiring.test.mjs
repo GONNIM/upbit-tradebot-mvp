@@ -44,6 +44,7 @@ const RealAlpine = globalThis.Alpine;
 // app.js 는 Alpine.data("dash", factory) 로 등록한다 — 등록만 가로챈다.
 let dashFactory = null;
 globalThis.Alpine = { data(name, f) { if (name === "dash") dashFactory = f; } };
+vm.runInThisContext(fs.readFileSync(path.join(STATIC, "kst_time.js"), "utf8"));   // 1112-01: 화면 시각 공용 함수(index.html 이 app.js 앞에 읽음)
 vm.runInThisContext(fs.readFileSync(path.join(STATIC, "app.js"), "utf8"));
 for (const fn of listeners["alpine:init"]) fn();
 globalThis.Alpine = RealAlpine;
@@ -134,14 +135,14 @@ test("chart draws, shows failure, and retries after gate under Alpine.reactive",
     assert.equal(upbitCalls, 2);
     assert.ok(upbitUrls[1].includes("&to=2026-10-23T03%3A00%3A00Z"), upbitUrls[1]);
 
-    // (2) 30초 뒤 429 -> 「갱신 실패 · HH:MM:SS」, 마지막 데이터 유지
+    // (2) 30초 뒤 429 -> 「갱신 실패 · YYMMDD:HH:MM」(1112-01), 마지막 데이터 유지
     const before = setDataCalls;
     nowMs += 31_000;
     const thirty = intervals.filter((i) => i.ms === 30000).pop();
     thirty.fn();
     await flush(); await flush();
     assert.equal(upbitCalls, 3);
-    assert.match(d.chartFail, /^갱신 실패 · \d\d:\d\d:\d\d$/);
+    assert.match(d.chartFail, /^갱신 실패 · \d{6}:\d\d:\d\d$/);
     assert.equal(setDataCalls, before);
 
     // (3) 탭을 바로 오가면 10초 게이트에 막히고, 게이트가 열린 뒤 재시도로 1건 더 나간다

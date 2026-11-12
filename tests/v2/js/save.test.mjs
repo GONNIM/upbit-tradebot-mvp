@@ -97,8 +97,10 @@ test("saveButtonDisabled: 미리 읽기 전·종목 없음·저장 중·저장 �
 test("lastSavedText: 응답 saved_at 우선, 없으면 current, 둘 다 없으면 기록 없음", () => {
   const S = load();
   const cur = { exists: true, broken: false, mtime: "2026-10-24T09:00:00+09:00" };
-  assert.equal(S.lastSavedText("2026-10-24T10:00:00+09:00", cur), "2026-10-24 10:00:00");
-  assert.equal(S.lastSavedText(null, cur), "2026-10-24 09:00:00");
+  // 1112-01: 화면 공용 모양 YYMMDD:HH:MM(KST)
+  assert.equal(S.lastSavedText("2026-10-24T10:00:00+09:00", cur), "261024:10:00");
+  assert.equal(S.lastSavedText(null, cur), "261024:09:00");
+  assert.equal(S.lastSavedText("2026-10-24T01:30:00Z", null), "261024:10:30");
   assert.equal(S.lastSavedText(null, { exists: true, broken: true, mtime: "x" }), "저장 기록 없음");
   assert.equal(S.lastSavedText(null, { exists: false }), "저장 기록 없음");
   assert.equal(S.lastSavedText(null, null), "저장 기록 없음");

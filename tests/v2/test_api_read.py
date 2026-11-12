@@ -870,7 +870,7 @@ class TestLogsKinds(ApiBase):
         self.assertEqual(b["pages"], 1)
         t = [r["text"] for r in b["rows"]]
         self.assertEqual(len(t), 2, t)
-        self.assertEqual(t[0], "매수 대기 — 신호 없음 (30회, 10:10~10:39)")
+        self.assertEqual(t[0], "매수 대기 — 신호 없음 (30회, 261023:10:10~261023:10:39)")   # 1112-01
         self.assertTrue(b["rows"][0]["timestamp"].startswith("2026-10-23T10:39:00"))
         self.assertTrue(t[1].startswith("매수 체결"))
 
@@ -886,7 +886,7 @@ class TestLogsKinds(ApiBase):
         code, b = self.get_json("/v2/api/logs")
         self.assertEqual([r["text"] for r in b["rows"]],
                          ["매수 대기 — 대기 시간", "매수 조건 충족", "매수 대기 — 대기 시간",
-                          "매수 대기 — 신호 없음 (2회, 10:00~10:01)"])
+                          "매수 대기 — 신호 없음 (2회, 261023:10:00~261023:10:01)"])   # 1112-01
 
     def test_engine_and_error_kinds(self):
         c = self.make_live_db()

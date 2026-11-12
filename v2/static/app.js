@@ -50,8 +50,6 @@ function tabFromHash(hash) {
 }
 
 // ---- 홈 표시 계산 (그림 2-가). DOM 을 만지지 않는 순수 함수 — node 시험이 검사한다 ----
-const _KST_MS = 9 * 3600 * 1000;
-const _p2 = (n) => String(n).padStart(2, "0");
 const _won = (n) => Math.round(n).toLocaleString("ko-KR");   // 원화 금액(평가 합계·원화·손익)은 정수
 // 코인 가격 표기: 크기별 고정 소수 자리(100원 미만 종목도 값이 보이게), 천 단위 쉼표
 function priceText(p) {
@@ -59,30 +57,19 @@ function priceText(p) {
   const d = a >= 1000 ? 0 : a >= 100 ? 1 : a >= 10 ? 2 : a >= 1 ? 3 : 4;
   return Number(p).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
-// 현재가 시각: 오늘이면 HH:MM, 아니면 MM-DD HH:MM, 없으면 ""
+// 화면 시각 표기는 kst_time.js 의 kstStamp 한 곳(1112-01): 「YYMMDD:HH:MM」 KST. 해석 못 하면 null.
+function _stamp(iso) { return globalThis.kstStamp(iso); }
+// 현재가 시각: YYMMDD:HH:MM, 없으면 ""
 function _priceTime(iso, nowMs) {
-  const p = iso ? _kstParts(iso) : null;
-  if (!p) return "";
-  return p.day === _kstDay(nowMs) ? p.h + ":" + p.mi : p.mo + "-" + p.da + " " + p.h + ":" + p.mi;
+  return (iso && _stamp(iso)) || "";
 }
 // 사유·실패 조건 표는 labels.js(모듈) — index.html 이 window.v2Labels 로 올린다
 function _labels() {
   return window.v2Labels || { reasonLabel: (c) => String(c == null ? "" : c), failedKeysText: (r) => String(r == null ? "" : r) };
 }
-// ISO -> KST 부품. 해석 못 하면 null.
-function _kstParts(iso) {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return null;
-  const d = new Date(t + _KST_MS);
-  return { day: Math.floor((t + _KST_MS) / 86400000), mo: _p2(d.getUTCMonth() + 1), da: _p2(d.getUTCDate()),
-    h: _p2(d.getUTCHours()), mi: _p2(d.getUTCMinutes()), s: _p2(d.getUTCSeconds()) };
-}
-function _kstDay(ms) { return Math.floor((ms + _KST_MS) / 86400000); }
-// 오늘이면 HH:MM:SS, 아니면 MM-DD HH:MM, 값 없으면 —
+// 기록 시각: YYMMDD:HH:MM, 값 없으면 —
 function _recordTime(iso, nowMs) {
-  const p = iso ? _kstParts(iso) : null;
-  if (!p) return "—";
-  return p.day === _kstDay(nowMs) ? p.h + ":" + p.mi + ":" + p.s : p.mo + "-" + p.da + " " + p.h + ":" + p.mi;
+  return (iso && _stamp(iso)) || "—";
 }
 
 const _STRATEGY_NAMES = { EMA: "EMA (기존)", MACD: "MACD (기존)", PULLBACK: "눌림목 분할매수" };
@@ -177,11 +164,9 @@ function homeView(status, assets, basic, nowMs, ctl) {
 const _INACTIVE_TEXT = { not_golden: (a, b) => a + "선 ≤ " + b + "선", slope_low: (a, b) => b + "선 기울기 낮음",
   slope_drop: (a, b) => b + "선 기울기 둔화", ma60_slope_low: (a, b) => a + "선 기울기 낮음",
   ma60_slope_drop: (a, b) => a + "선 기울기 둔화" };
-// 1105-09 (2-6): 「HH:MM」(오늘) 또는 「MM-DD HH:MM」. 값이 없으면 null
+// 1105-09 (2-6): 중단 끝 시각 「YYMMDD:HH:MM」(1112-01). 값이 없으면 null
 function _untilText(iso, nowMs) {
-  const p = _kstParts(iso);
-  if (!p) return null;
-  return (p.day === _kstDay(nowMs == null ? Date.now() : nowMs) ? "" : p.mo + "-" + p.da + " ") + p.h + ":" + p.mi;
+  return iso ? _stamp(iso) : null;
 }
 function pullbackSentence(row, ctx) {
   const c = ctx || {};
@@ -220,8 +205,9 @@ function pullbackSentence(row, ctx) {
 
 function signalSentence(row, ctx) {
   if (!row) return { title: "최신 신호", text: "신호 기록이 없습니다" };
-  const p = _kstParts(row.bar_time || row.timestamp);
-  const title = "최신 신호" + (p ? " · " + p.h + ":" + p.mi + " 봉" : "");
+  const bt = row.bar_time || row.timestamp;
+  const st = bt ? _stamp(bt) : null;
+  const title = "최신 신호" + (st ? " · " + st + " 봉" : "");
   const L = _labels();
   let text;
   if (row.kind === "sell" && row.triggered) {
@@ -248,13 +234,9 @@ function signalSentence(row, ctx) {
   return { title, text };
 }
 
-// 최근 거래·로그 표의 시각 열: 오늘 HH:MM, 어제 「어제」, 그 전 MM-DD, 해석 못 하면 —
+// 최근 거래·로그 표의 시각 열: 늘 YYMMDD:HH:MM(1112-01 — 오늘·어제 분기 없앰), 해석 못 하면 —
 function logTime(iso, nowMs) {
-  nowMs = nowMs == null ? Date.now() : nowMs;
-  const p = iso ? _kstParts(iso) : null;
-  if (!p) return "—";
-  const diff = _kstDay(nowMs) - p.day;
-  return diff === 0 ? p.h + ":" + p.mi : (diff === 1 ? "어제" : p.mo + "-" + p.da);
+  return (iso && _stamp(iso)) || "—";
 }
 
 function tradeRow(t, nowMs) {
@@ -607,7 +589,7 @@ document.addEventListener("alpine:init", () => {
         },
         onError: (time) => {
           if (C.gen !== gen) return;
-          this.chartFail = "갱신 실패 · " + mod.kstTime(time);
+          this.chartFail = "갱신 실패 · " + (_stamp(time) || "—");
         },
       });
       C.poller = poller;
@@ -672,15 +654,10 @@ document.addEventListener("alpine:init", () => {
       const s = this.status || {};
       return "경고: 입장 모드(" + (s.mode_entry || "?") + ")와 엔진 모드(" + (s.mode_engine || "?") + ")가 다릅니다.";
     },
-    // KST(UTC+9) 표시: MM-DD HH:MM:SS
+    // KST(UTC+9) 표시: YYMMDD:HH:MM(1112-01), 해석 못 하면 원문
     kst(iso) {
       if (!iso) return "—";
-      const t = Date.parse(iso);
-      if (!Number.isFinite(t)) return String(iso);
-      const d = new Date(t + 9 * 3600 * 1000);
-      const p = (n) => String(n).padStart(2, "0");
-      return p(d.getUTCMonth() + 1) + "-" + p(d.getUTCDate()) + " " +
-        p(d.getUTCHours()) + ":" + p(d.getUTCMinutes()) + ":" + p(d.getUTCSeconds());
+      return _stamp(iso) || String(iso);
     },
     };
   });

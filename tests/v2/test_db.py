@@ -185,5 +185,20 @@ class TestStdlibOnly(unittest.TestCase):
         self.assertLessEqual(found, allowed, found - allowed)
 
 
+class TestKstStamp(unittest.TestCase):
+    """1112-01: 화면 글 안 시각 「YYMMDD:HH:MM」(KST) — v2/static/kst_time.js 와 같은 모양."""
+
+    def test_shape_and_boundaries(self):
+        from datetime import datetime, timezone
+        s = db.kst_stamp
+        self.assertEqual(s(datetime(2026, 11, 12, 15, 18, 59, tzinfo=db.KST)), "261112:15:18")
+        self.assertEqual(s(datetime(2026, 11, 11, 14, 59, tzinfo=timezone.utc)), "261111:23:59")
+        self.assertEqual(s(datetime(2026, 11, 11, 15, 0, tzinfo=timezone.utc)), "261112:00:00")
+        self.assertEqual(s(datetime(2026, 12, 31, 15, 0, tzinfo=timezone.utc)), "270101:00:00")
+        self.assertEqual(s(datetime(2026, 10, 25, 11, 0)), "261025:11:00")   # 시각대 없음 = KST
+        self.assertEqual(s(db.parse_ts("2026-10-25 11:00:00")), "261025:11:00")
+        self.assertEqual(s(None), "—")
+
+
 if __name__ == "__main__":
     unittest.main()
