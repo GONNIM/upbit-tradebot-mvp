@@ -1,5 +1,5 @@
 // v2 차트 도우미 (ES 모듈). 모듈 최상위에서 브라우저 전역을 쓰지 않는다 (node 시험이 import 한다).
-// 화면 시각 표기 한 곳(1112-01): kst_time.js 가 globalThis.kstStamp 를 올린다(「YYMMDD:HH:MM」 KST).
+// 화면 시각 표기 한 곳(1112-01): kst_time.js 가 globalThis.kstStamp 를 올린다(「YY.MM.DD HH:MM」 KST).
 import "./kst_time.js";
 
 // toIso 가 있으면 그 시각 이전 200봉(업비트 to= 는 해당 시각 미포함)
@@ -184,7 +184,7 @@ export function kstMdHm(sec) {
 export function kstTick(sec, tickMarkType) {
   return tickMarkType >= 3 ? kstHm(sec) : kstMdHm(sec).slice(0, 5);
 }
-// 십자선(손가락으로 짚은 봉) 시각 글: 「YYMMDD:HH:MM」(1112-01). 해석 못 하면 원문
+// 십자선(손가락으로 짚은 봉) 시각 글: 「YY.MM.DD HH:MM」(1112-01). 해석 못 하면 원문
 export function crosshairTime(t) {
   return (typeof t === "number" && globalThis.kstStamp(t * 1000)) || String(t);
 }

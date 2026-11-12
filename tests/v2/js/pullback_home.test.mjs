@@ -63,7 +63,7 @@ const buyRow = (pb, over) => ({ kind: "buy", bar_time: "2026-10-30T10:42:00+09:0
 test("눌림 상태(armed) 문장", () => {
   const s = signalSentence(buyRow({ state: "WAIT_PULLBACK", round: 2, armed: 1, active: 1, holding: 0 }), ctx());
   assert.equal(s.text, "눌림 대기 중 — 가격이 60선 아래로 내려옴. 다시 위에서 마감하면 3회차 매수");
-  assert.equal(s.title, "최신 신호 · 261030:10:42 봉");
+  assert.equal(s.title, "최신 신호 · 26.10.30 10:42 봉");
 });
 
 test("눌림 상태(armed) 문장도 기준선 기간(pullbackP)을 쓴다", () => {
@@ -134,12 +134,12 @@ test("감시 밖 사유: 60선 기울기 낮음·둔화는 60선 기간(ma60p)�
   assert.equal(signalSentence(row("slope_low"), c).text, "매수 대기 — 감시 구간 아님 (150선 기울기 낮음)");
 });
 
-test("연속 손절 중단 봉: 「연속 손절로 매수 중단 중 — YYMMDD:HH:MM 까지」(1112-01 — 날짜와 상관없이 같은 모양)", () => {
+test("연속 손절 중단 봉: 「연속 손절로 매수 중단 중 — YY.MM.DD HH:MM 까지」(1112-01 — 날짜와 상관없이 같은 모양)", () => {
   const row = (pe) => buyRow({ state: "SL_PAUSE", round: 0, armed: 0, active: 1, holding: 0, pause_end: pe });
   assert.equal(signalSentence(row("2026-10-30T16:42:00+09:00"), ctx({ nowMs: NOW })).text,
-    "매수 대기 — 연속 손절로 매수 중단 중 — 261030:16:42 까지");
+    "매수 대기 — 연속 손절로 매수 중단 중 — 26.10.30 16:42 까지");
   assert.equal(signalSentence(row("2026-10-31T02:10:00+09:00"), ctx({ nowMs: NOW })).text,
-    "매수 대기 — 연속 손절로 매수 중단 중 — 261031:02:10 까지");
+    "매수 대기 — 연속 손절로 매수 중단 중 — 26.10.31 02:10 까지");
   assert.equal(signalSentence(row(null), ctx({ nowMs: NOW })).text, "매수 대기 — 연속 손절로 매수 중단 중");
   // 보유 중이면 보유 유지 문장(익절·손절은 계속)
   const held = { ...row("2026-10-30T16:42:00+09:00"), kind: "sell", pb: { state: "SL_PAUSE", round: 1, holding: 1 } };
@@ -156,7 +156,7 @@ test("연속 손절 중단 배지: 서버가 끝 시각을 줄 때만 노란 배
   assert.equal(homeView(PB_ST, HOLD, BASIC, NOW).badges.length, 4);
   const b = homeView(PB_ST, { ...HOLD, pause_until: "2026-10-30T16:42:00+09:00" }, BASIC, NOW).badges;
   assert.equal(b.length, 5);
-  assert.deepEqual([b[4].id, b[4].text, b[4].cls], ["sl-pause-badge", "연속 손절로 매수 중단 중 — 261030:16:42 까지", "p-warn"]);
+  assert.deepEqual([b[4].id, b[4].text, b[4].cls], ["sl-pause-badge", "연속 손절로 매수 중단 중 — 26.10.30 16:42 까지", "p-warn"]);
 });
 
 test("이번 거래 익절 %: 설정 TP 와 다를 때만 「· 이번 거래」 로 그 값을 보임", () => {

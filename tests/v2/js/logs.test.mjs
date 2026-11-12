@@ -25,17 +25,17 @@ for (const fn of listeners) fn();
 // 기준 시각: 2026-10-27 10:00 KST
 const NOW = Date.parse("2026-10-27T10:00:00+09:00");
 
-test("logTime(1112-01): 오늘·어제·그 전 모두 YYMMDD:HH:MM(초 없음), 값 없음 —", () => {
+test("logTime(1112-01): 오늘·어제·그 전 모두 YY.MM.DD HH:MM(초 없음), 값 없음 —", () => {
   const f = globalThis.logTime;
   assert.equal(typeof f, "function");
-  assert.equal(f("2026-10-27T09:31:42+09:00", NOW), "261027:09:31");
-  assert.equal(f("2026-10-26T23:59:00+09:00", NOW), "261026:23:59");
-  assert.equal(f("2026-10-25T10:00:00+09:00", NOW), "261025:10:00");
+  assert.equal(f("2026-10-27T09:31:42+09:00", NOW), "26.10.27 09:31");
+  assert.equal(f("2026-10-26T23:59:00+09:00", NOW), "26.10.26 23:59");
+  assert.equal(f("2026-10-25T10:00:00+09:00", NOW), "26.10.25 10:00");
   assert.equal(f(null, NOW), "—");
   assert.equal(f("", NOW), "—");
   assert.equal(f("엉터리", NOW), "—");
   // KST 자정 경계: UTC 로는 어제 15:30 이어도 KST 로는 10-27 00:30
-  assert.equal(f("2026-10-26T15:30:00Z", NOW), "261027:00:30");
+  assert.equal(f("2026-10-26T15:30:00Z", NOW), "26.10.27 00:30");
 });
 
 function makeDash(handler) {
@@ -58,7 +58,7 @@ test("loadLogs: kind·page 를 주소에 싣고 rows·pages 를 반영, 기본�
   assert.equal(d.logRows.length, 1);
   assert.equal(d.logRows[0].text, "매수 체결 · 골든크로스");
   assert.equal(d.logRows[0].cls, "buy");
-  assert.equal(d.logRows[0].time, "261027:09:31");
+  assert.equal(d.logRows[0].time, "26.10.27 09:31");
   assert.equal(d.logsLoaded, true);
 });
 

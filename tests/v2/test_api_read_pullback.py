@@ -50,9 +50,9 @@ def _no_clock(body):
     return body
 
 
-# 1112-01: 로그 글 안 시각이 「HH:MM」 → 「YYMMDD:HH:MM」 으로 바뀐 것만 기준 커밋 모양으로 되돌려 비교한다.
+# 1112-01: 로그 글 안 시각이 「HH:MM」 → 「YY.MM.DD HH:MM」(같은 날 묶음 끝은 HH:MM) 으로 바뀐 것만 기준 커밋 모양으로 되돌려 비교한다.
 # 기준 커밋(V2_READ_BASE_COMMIT)은 올리지 않았다 — 이 한 가지 의도한 변경 밖의 글자는 그대로 같아야 한다.
-_STAMP_RE = re.compile(r"\b\d{6}:(\d\d:\d\d)\b")
+_STAMP_RE = re.compile(r"\b\d\d\.\d\d\.\d\d (\d\d:\d\d)\b")
 
 
 def _old_time_shape(body):
@@ -341,7 +341,7 @@ class TestPullbackLogs(PbBase):
         self.pb_eval("audit_buy_eval", "2026-10-30 10:41:00", ["WAIT_PULLBACK"], round=2, armed=1, active=1)
         self.pb_eval("audit_buy_eval", "2026-10-30 10:42:00", ["WAIT_PULLBACK"], round=2, armed=1, active=1)
         t = self.audit_texts()
-        self.assertEqual(t[0], "매수 대기 — 눌림 상태, 3회차 준비 (2회, 261030:10:41~261030:10:42)")   # 1112-01
+        self.assertEqual(t[0], "매수 대기 — 눌림 상태, 3회차 준비 (2회, 26.10.30 10:41~10:42)")   # 1112-01
         self.assertEqual(t[1], "매수 대기 — 눌림 대기, 3회차 준비")
 
     def test_logs_not_active_uses_ma_periods(self):
@@ -591,7 +591,7 @@ class TestVer2Display(PbBase):
                      pause_end="2026-10-30T16:42:00+09:00", streak_paused=1)
         self.pb_eval("audit_buy_eval", "2026-10-30 10:44:00", ["GC_GAP"], round=0, active=1, gap200_pct=1.2)
         texts = self.audit_texts()
-        self.assertIn("매수 대기 — 연속 손절로 매수 중단 중(261030:16:42 까지)", texts)   # 1112-01
+        self.assertIn("매수 대기 — 연속 손절로 매수 중단 중(26.10.30 16:42 까지)", texts)   # 1112-01
         self.assertIn("매수 대기 — 상승폭 제한 — 1차 매수 건너뜀", texts)
         s = self.get_json("/v2/api/signals?limit=2")[1]["signals"]
         pe = {x["pb"]["state"]: x["pb"]["pause_end"] for x in s}

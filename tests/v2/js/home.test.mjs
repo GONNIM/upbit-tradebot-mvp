@@ -114,7 +114,7 @@ test("(d) tradeRow: 외부 매도·금액 없음, 구분 색", () => {
   assert.equal(r.kind, "외부 매도");
   assert.equal(r.reason, "외부 매도");
   const buy = tradeRow({ type: "BUY", price: 1000, qty: 600.4, reason: "EMA_GC", timestamp: "2026-10-27T09:31:00+09:00" }, NOW);
-  assert.deepEqual([buy.time, buy.kind, buy.kindCls, buy.reason, buy.amount], ["261027:09:31", "매수", "up", "골든크로스", "600,400"]);
+  assert.deepEqual([buy.time, buy.kind, buy.kindCls, buy.reason, buy.amount], ["26.10.27 09:31", "매수", "up", "골든크로스", "600,400"]);
   const sell = tradeRow({ type: "SELL", price: 1, qty: 1, reason: "TP", timestamp: "2026-10-27T09:31:00+09:00" }, NOW);
   assert.deepEqual([sell.kind, sell.kindCls], ["매도", "dn"]);
   const rej = tradeRow({ type: "BUY_REJECTED", price: 1, qty: 1, timestamp: "2026-10-27T09:31:00+09:00" }, NOW);
@@ -125,7 +125,7 @@ test("(d) tradeRow: 외부 매도·금액 없음, 구분 색", () => {
 
 test("(d) signalSentence", () => {
   const miss = signalSentence({ kind: "buy", overall_ok: 0, failed_keys: '["NO_SIGNAL"]', bar_time: "2026-10-27T10:42:00+09:00" });
-  assert.equal(miss.title, "최신 신호 · 261027:10:42 봉");
+  assert.equal(miss.title, "최신 신호 · 26.10.27 10:42 봉");
   assert.equal(miss.text, "매수 대기 — 신호 없음");
   assert.equal(signalSentence({ kind: "buy", overall_ok: 1, bar_time: "2026-10-27T10:42:00+09:00" }).text, "매수 조건 충족");
   assert.equal(signalSentence({ kind: "sell", triggered: 1, trigger_key: "TAKE_PROFIT", bar_time: "2026-10-27T10:42:00+09:00" }).text, "매도 — 익절");
@@ -141,13 +141,13 @@ test("(f) 빈 거래·빈 신호", () => {
   assert.equal(failedKeysText('["SURGE_FILTER","WARMUP_IN_PROGRESS","WEAK_ENTRY_FILTER"]'), "급등 필터, 준비 중, 약한 진입 필터");
 });
 
-test("(e) 1112-01: 거래 시각은 오늘·어제·그 전 모두 YYMMDD:HH:MM", () => {
+test("(e) 1112-01: 거래 시각은 오늘·어제·그 전 모두 YY.MM.DD HH:MM", () => {
   const t = (iso) => tradeRow({ type: "SELL", price: 1, qty: 1, timestamp: iso }, NOW).time;
-  assert.equal(t("2026-10-26T23:00:00+09:00"), "261026:23:00");
-  assert.equal(t("2026-10-27T00:05:00+09:00"), "261027:00:05");
-  assert.equal(t("2026-10-25T12:00:00+09:00"), "261025:12:00");
+  assert.equal(t("2026-10-26T23:00:00+09:00"), "26.10.26 23:00");
+  assert.equal(t("2026-10-27T00:05:00+09:00"), "26.10.27 00:05");
+  assert.equal(t("2026-10-25T12:00:00+09:00"), "26.10.25 12:00");
   // UTC 표기도 KST 날짜로: 10-26T15:30Z = 10-27 00:30 KST
-  assert.equal(t("2026-10-26T15:30:00+00:00"), "261027:00:30");
+  assert.equal(t("2026-10-26T15:30:00+00:00"), "26.10.27 00:30");
   assert.equal(t(null), "—");
 });
 
@@ -156,13 +156,13 @@ test("(g) 잠김 줄·기록 시각", () => {
   const v = homeView(STATUS, a, BASIC, Date.parse("2026-10-27T11:00:00+09:00"));
   assert.equal(v.locked.text, "5,000 / 0");
   assert.equal(v.locked.warn, true);
-  assert.equal(v.recorded, "기록 시각 261027:10:42 · 현재가 1,000원 엔진 기록");
+  assert.equal(v.recorded, "기록 시각 26.10.27 10:42 · 현재가 1,000원 엔진 기록");
   const z = homeView(STATUS, { ...a, krw_locked: 0 }, BASIC, NOW);
   assert.equal(z.locked.text, "0 / 0");
   assert.equal(z.locked.warn, false);
-  // 1112-01: 오늘이 아니어도 같은 모양 YYMMDD:HH:MM
+  // 1112-01: 오늘이 아니어도 같은 모양 YY.MM.DD HH:MM
   const old = homeView(STATUS, { ...a, updated_at: "2026-10-25T10:42:05+09:00", price_at: "2026-10-26T09:01:30+09:00" }, BASIC, NOW);
-  assert.equal(old.recorded, "기록 시각 261025:10:42 · 현재가 1,000원 261026:09:01 엔진 기록");
+  assert.equal(old.recorded, "기록 시각 26.10.25 10:42 · 현재가 1,000원 26.10.26 09:01 엔진 기록");
 });
 
 // verifier 수정 2026-10-27: 가격은 크기별 고정 소수 자리(100원 미만 종목), 원화 금액은 정수
@@ -182,9 +182,9 @@ test("priceText: 크기별 소수 자리·천 단위 쉼표, 보유 카드에 �
   assert.equal(v.total, "2,500원");
 });
 
-test("기록 시각 줄: 현재가 값·시각(YYMMDD:HH:MM — 1112-01), 값 없으면 —", () => {
+test("기록 시각 줄: 현재가 값·시각(YY.MM.DD HH:MM — 1112-01), 값 없으면 —", () => {
   const a = { ...ASSETS, price: 0.001234, updated_at: "2026-10-27T09:42:05+09:00", price_at: "2026-10-27T09:41:30+09:00" };
-  assert.equal(homeView(STATUS, a, BASIC, NOW).recorded, "기록 시각 261027:09:42 · 현재가 0.0012원 261027:09:41 엔진 기록");
+  assert.equal(homeView(STATUS, a, BASIC, NOW).recorded, "기록 시각 26.10.27 09:42 · 현재가 0.0012원 26.10.27 09:41 엔진 기록");
   const none = { ...a, price: null, price_at: null, updated_at: null };
   assert.equal(homeView(STATUS, none, BASIC, NOW).recorded, "기록 시각 — · 현재가 — 엔진 기록");
 });

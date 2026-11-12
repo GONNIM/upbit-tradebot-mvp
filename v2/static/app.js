@@ -57,9 +57,9 @@ function priceText(p) {
   const d = a >= 1000 ? 0 : a >= 100 ? 1 : a >= 10 ? 2 : a >= 1 ? 3 : 4;
   return Number(p).toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
 }
-// 화면 시각 표기는 kst_time.js 의 kstStamp 한 곳(1112-01): 「YYMMDD:HH:MM」 KST. 해석 못 하면 null.
+// 화면 시각 표기는 kst_time.js 의 kstStamp 한 곳(1112-01): 「YY.MM.DD HH:MM」 KST. 해석 못 하면 null.
 function _stamp(iso) { return globalThis.kstStamp(iso); }
-// 현재가 시각: YYMMDD:HH:MM, 없으면 ""
+// 현재가 시각: YY.MM.DD HH:MM, 없으면 ""
 function _priceTime(iso, nowMs) {
   return (iso && _stamp(iso)) || "";
 }
@@ -67,7 +67,7 @@ function _priceTime(iso, nowMs) {
 function _labels() {
   return window.v2Labels || { reasonLabel: (c) => String(c == null ? "" : c), failedKeysText: (r) => String(r == null ? "" : r) };
 }
-// 기록 시각: YYMMDD:HH:MM, 값 없으면 —
+// 기록 시각: YY.MM.DD HH:MM, 값 없으면 —
 function _recordTime(iso, nowMs) {
   return (iso && _stamp(iso)) || "—";
 }
@@ -164,7 +164,7 @@ function homeView(status, assets, basic, nowMs, ctl) {
 const _INACTIVE_TEXT = { not_golden: (a, b) => a + "선 ≤ " + b + "선", slope_low: (a, b) => b + "선 기울기 낮음",
   slope_drop: (a, b) => b + "선 기울기 둔화", ma60_slope_low: (a, b) => a + "선 기울기 낮음",
   ma60_slope_drop: (a, b) => a + "선 기울기 둔화" };
-// 1105-09 (2-6): 중단 끝 시각 「YYMMDD:HH:MM」(1112-01). 값이 없으면 null
+// 1105-09 (2-6): 중단 끝 시각 「YY.MM.DD HH:MM」(1112-01). 값이 없으면 null
 function _untilText(iso, nowMs) {
   return iso ? _stamp(iso) : null;
 }
@@ -234,7 +234,7 @@ function signalSentence(row, ctx) {
   return { title, text };
 }
 
-// 최근 거래·로그 표의 시각 열: 늘 YYMMDD:HH:MM(1112-01 — 오늘·어제 분기 없앰), 해석 못 하면 —
+// 최근 거래·로그 표의 시각 열: 늘 YY.MM.DD HH:MM(1112-01 — 오늘·어제 분기 없앰), 해석 못 하면 —
 function logTime(iso, nowMs) {
   return (iso && _stamp(iso)) || "—";
 }
@@ -654,7 +654,7 @@ document.addEventListener("alpine:init", () => {
       const s = this.status || {};
       return "경고: 입장 모드(" + (s.mode_entry || "?") + ")와 엔진 모드(" + (s.mode_engine || "?") + ")가 다릅니다.";
     },
-    // KST(UTC+9) 표시: YYMMDD:HH:MM(1112-01), 해석 못 하면 원문
+    // KST(UTC+9) 표시: YY.MM.DD HH:MM(1112-01), 해석 못 하면 원문
     kst(iso) {
       if (!iso) return "—";
       return _stamp(iso) || String(iso);

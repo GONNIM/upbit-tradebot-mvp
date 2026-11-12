@@ -870,7 +870,7 @@ class TestLogsKinds(ApiBase):
         self.assertEqual(b["pages"], 1)
         t = [r["text"] for r in b["rows"]]
         self.assertEqual(len(t), 2, t)
-        self.assertEqual(t[0], "매수 대기 — 신호 없음 (30회, 261023:10:10~261023:10:39)")   # 1112-01
+        self.assertEqual(t[0], "매수 대기 — 신호 없음 (30회, 26.10.23 10:10~10:39)")   # 1112-01
         self.assertTrue(b["rows"][0]["timestamp"].startswith("2026-10-23T10:39:00"))
         self.assertTrue(t[1].startswith("매수 체결"))
 
@@ -886,7 +886,7 @@ class TestLogsKinds(ApiBase):
         code, b = self.get_json("/v2/api/logs")
         self.assertEqual([r["text"] for r in b["rows"]],
                          ["매수 대기 — 대기 시간", "매수 조건 충족", "매수 대기 — 대기 시간",
-                          "매수 대기 — 신호 없음 (2회, 261023:10:00~261023:10:01)"])   # 1112-01
+                          "매수 대기 — 신호 없음 (2회, 26.10.23 10:00~10:01)"])   # 1112-01
 
     def test_engine_and_error_kinds(self):
         c = self.make_live_db()
@@ -1106,6 +1106,22 @@ class TestLint(unittest.TestCase):
         self.assertNotIn("open_live_ro", src)
         for bad in ("pyupbit", "streamlit", "services.", "engine.", "api.upbit.com"):
             self.assertNotIn(bad, src)
+
+
+class TestSpan(unittest.TestCase):
+    """1112-01 ㉡: 묶음 글 「시작~끝」 — 같은 날(KST)이면 끝은 HH:MM 만, 날을 넘으면 둘 다 전체."""
+
+    def test_same_day_and_cross_day(self):
+        from datetime import datetime, timezone
+        s = api_read._span
+        self.assertEqual(s(datetime(2026, 11, 12, 15, 43, tzinfo=db.KST), datetime(2026, 11, 12, 15, 58, tzinfo=db.KST)),
+                         "26.11.12 15:43~15:58")
+        self.assertEqual(s(datetime(2026, 11, 11, 23, 58, tzinfo=db.KST), datetime(2026, 11, 12, 0, 1, tzinfo=db.KST)),
+                         "26.11.11 23:58~26.11.12 00:01")
+        # UTC 로 같은 날이어도 KST 로 날을 넘으면 전체 모양
+        self.assertEqual(s(datetime(2026, 11, 11, 14, 59, tzinfo=timezone.utc), datetime(2026, 11, 11, 15, 0, tzinfo=timezone.utc)),
+                         "26.11.11 23:59~26.11.12 00:00")
+        self.assertEqual(s(None, datetime(2026, 11, 12, 15, 58, tzinfo=db.KST)), "—~26.11.12 15:58")
 
 
 if __name__ == "__main__":

@@ -52,11 +52,11 @@
     if (!Number.isFinite(t)) return null;
     var d = new Date(t + 9 * 3600 * 1000);
     var p = function (n) { return String(n).padStart(2, "0"); };
-    return p(d.getUTCFullYear() % 100) + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + ":" +
+    return p(d.getUTCFullYear() % 100) + "." + p(d.getUTCMonth() + 1) + "." + p(d.getUTCDate()) + " " +
       p(d.getUTCHours()) + ":" + p(d.getUTCMinutes());
   }
 
-  // 「YYMMDD:HH:MM」, 해석 못 하면 원문 그대로(옛 표기와 같은 빈 값 규칙)
+  // 「YY.MM.DD HH:MM」, 해석 못 하면 원문 그대로(옛 표기와 같은 빈 값 규칙)
   function fmtTime(s) {
     return kstStamp(String(s)) || String(s);
   }

@@ -713,8 +713,16 @@ def _price_text(v) -> str:
 
 
 def _hhmm(dt: Optional[datetime]) -> str:
-    # 1112-01: 이름은 옛 그대로, 모양은 화면 공용 「YYMMDD:HH:MM」(db.kst_stamp 한 곳)
+    # 1112-01: 이름은 옛 그대로, 모양은 화면 공용 「YY.MM.DD HH:MM」(db.kst_stamp 한 곳)
     return db.kst_stamp(dt)
+
+
+def _span(a: Optional[datetime], b: Optional[datetime]) -> str:
+    """묶음 글 「시작~끝」(1112-01 ㉡): 같은 날(KST)이면 끝은 HH:MM 만, 날을 넘으면 둘 다 전체 모양."""
+    start, end = db.kst_stamp(a), db.kst_stamp(b)
+    if a is not None and b is not None and start[:8] == end[:8]:
+        return "%s~%s" % (start, end[9:])
+    return "%s~%s" % (start, end)
 
 
 def _with_note(head: str, note) -> str:
@@ -796,8 +804,7 @@ def _group_buy_wait(buys, cfg=None):
         n = j - i + 1
         text = key[1] if isinstance(key, tuple) else _with_note("매수 대기", _failed_keys_text(r["failed_keys"]))
         if n > 1:
-            text += " (%d회, %s~%s)" % (n, _hhmm(_dt(buys[j]["timestamp"])),
-                                       _hhmm(_dt(r["timestamp"])))
+            text += " (%d회, %s)" % (n, _span(_dt(buys[j]["timestamp"]), _dt(r["timestamp"])))
         out.append((_dt(r["timestamp"]), 2, r["id"],
                     {"id": "b%s" % r["id"], "timestamp": _iso(r["timestamp"]),
                      "text": text, "cls": "muted"}))
@@ -840,7 +847,7 @@ def _pb_sell_items(sells, cfg):
             j += 1
         n = j - i + 1
         if n > 1:
-            text += " (%d회, %s~%s)" % (n, _hhmm(_dt(sells[j]["timestamp"])), _hhmm(_dt(r["timestamp"])))
+            text += " (%d회, %s)" % (n, _span(_dt(sells[j]["timestamp"]), _dt(r["timestamp"])))
         out.append((_dt(r["timestamp"]), 2, r["id"],
                     {"id": "w%s" % r["id"], "timestamp": _iso(r["timestamp"]), "text": text, "cls": "muted"}))
         i = j + 1
