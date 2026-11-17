@@ -59,6 +59,7 @@ function makeContext(fixture) {
     console,
   };
   ctx.window = ctx;
+  ctx.addEventListener = () => {}; // 기준 원문(Ver9) 맨 위가 window/document 에 처리기를 붙인다 — 아무 일 안 함
   vm.createContext(ctx);
   vm.runInContext(originalScript(), ctx);
   return ctx;

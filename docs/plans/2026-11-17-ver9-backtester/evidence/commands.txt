@@ -1,0 +1,9 @@
+node scripts/build_backtester_js.mjs
+node --test tests/v2/js/*.test.mjs
+bash scripts/regression_gate.sh
+python3 -m unittest tests.v2.test_static_lint
+node tests/v2/js/pullback_reference.mjs --write-expected
+git diff -U0 -- tests/fixtures/pullback/expected | grep '^[+-] ' | grep -vc script_sha256   # 0
+git diff --stat -- core engine v2/api_write.py v2/handlers.py v2/params_schema.py v2/static/save.js pages   # 출력 없음
+shasum -a 256 docs/new-version/ver2-backup-20261117/v2-static/* docs/new-version/ver2-backup-20261117/fixtures/*
+# 브라우저 실측: python3 -m http.server (127.0.0.1:8801 v2/static, :8802 백업본) + playwright-core headless Chromium (scratchpad/browser/run.js · sw.js · tap.js)

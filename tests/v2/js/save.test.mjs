@@ -159,7 +159,7 @@ test("스냅샷: 원본 입력이 바뀌어도 보낼 본문은 스냅샷 그대
   assert.equal(S.snapshotBody(snap), body1);
   const parsed = JSON.parse(body1);
   assert.equal(parsed.params.src, "3m");
-  assert.equal(parsed.params.tp, 1);
+  assert.equal(parsed.params.tp, 3); // 1111-01: 기본 익절 3 (투자자 Ver9)
   assert.equal(parsed.source, "binance");
   assert.deepEqual(Object.keys(parsed.params), IDS);
   // 다시 열면 새로 모은다

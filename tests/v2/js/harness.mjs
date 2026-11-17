@@ -116,6 +116,7 @@ export async function runInHarness(scriptText, htmlText, fixture) {
     console,
   };
   ctx.window = ctx;
+  ctx.addEventListener = () => {}; // 기준 원문(Ver9) 맨 위가 window/document 에 처리기를 붙인다 — 아무 일 안 함
   vm.createContext(ctx);
   vm.runInContext(scriptText, ctx);
   await ctx.run();

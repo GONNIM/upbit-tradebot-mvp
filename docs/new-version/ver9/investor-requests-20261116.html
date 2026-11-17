@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>첫 눌림목 거래 확인 · Ver9 반영 확인 요청 (2026-11-16)</title>
+<style>
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Regular.ttf");font-weight:400}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Bold.ttf");font-weight:700}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-ExtraBold.ttf");font-weight:800}
+@page{size:A4;margin:12mm 14mm 12mm 14mm}
+*{box-sizing:border-box}
+body{font-family:"NG",sans-serif;font-size:9.6pt;line-height:1.55;color:#1a1a1a;margin:0}
+h1{font-size:15pt;margin:0 0 3px;font-weight:800}
+.meta{color:#555;font-size:9pt;margin-bottom:9px;border-bottom:2px solid #1a1a1a;padding-bottom:6px}
+h2{font-size:11pt;margin:11px 0 4px;padding:2px 0 2px 8px;border-left:5px solid #2563eb;font-weight:800;break-after:avoid}
+p{margin:4px 0}
+b{font-weight:700}
+.box{background:#f4f6f8;border-radius:6px;padding:7px 11px;margin:6px 0}
+.ex{background:#fffbeb;border:1px solid #f3d27a;border-radius:6px;padding:7px 11px;margin:6px 0}
+.opt{border:1px solid #c9d2dc;border-radius:6px;padding:5px 11px;margin:4px 0}
+.opt b.n{display:inline-block;min-width:20px}
+.ans{background:#ecfdf3;border:1px solid #86d7a5;border-radius:6px;padding:7px 11px;margin:10px 0 6px;font-weight:700}
+table{border-collapse:collapse;width:100%;margin:6px 0}
+th,td{border:1px solid #c9d2dc;padding:4px 8px;text-align:left}
+th{background:#f4f6f8;font-weight:700}
+ul{margin:3px 0;padding-left:18px}
+li{margin:2px 0}
+</style>
+</head>
+<body>
+
+<h1>첫 눌림목 거래 확인 · Ver9 반영 확인 요청</h1>
+<div class="meta">2026년 11월 16일</div>
+
+<p>투자자님, Ver9 파일과 답을 잘 받았습니다. 아래 두 가지를 부탁드립니다.</p>
+
+<h2>요청 1. 첫 눌림목 거래를 업비트 앱과 맞춰 봐 주세요</h2>
+<p>11월 11일 실계좌를 눌림목 전략으로 바꾸신 뒤 <b>첫 거래가 한 번 있었습니다.</b> 봇 기록으로는 규칙대로 사고팔았습니다. 실제 계좌 숫자와 같은지 확인해 주세요.</p>
+<table>
+<tr><th>구분</th><th>시각</th><th>봇 기록</th><th>이유</th></tr>
+<tr><td>매수</td><td>11/13 09:42</td><td>KRW-JTO 약 5,673.19개 · 434원 · 2,462,165원</td><td>눌림목 1회차 매수</td></tr>
+<tr><td>매도</td><td>11/14 10:39</td><td>같은 수량 전부 · 412원</td><td>손절(손절 기준 가격 412.3원에 닿음)</td></tr>
+</table>
+<p>손실은 수수료를 빼기 전 <b>약 −124,810원(−5.07%)</b>입니다. 봇 기록에는 수수료가 0원으로 적혀 있습니다. 실제 수수료를 앱에서 확인해 주세요.</p>
+<div class="box">보실 곳: 업비트 앱 → 투자내역 → 거래내역 → JTO<br>
+보실 것: 위 두 거래의 수량 · 가격 · 수수료<br>
+화면이 다르면 거래내역 화면 사진을 보내 주셔도 됩니다.</div>
+
+<h2>요청 2. Ver9 를 어디까지 반영할지 알려 주세요</h2>
+<p>Ver9 를 지금 대시보드 백테스터와 한 줄씩 비교했습니다. <b>Ver9 의 현물 매매 규칙은 지금 봇의 바탕인 Ver2 와 똑같습니다.</b> 지금 봇과 대시보드에는 그 위에 보정 2가지(구간 순번 · 건너뜀 횟수)와 트레일링 스톱이 더 들어 있습니다. 그래서 Ver9 파일과 대시보드의 결과 숫자는 다를 수 있습니다. 실제 매매 방식은 바뀌지 않습니다. 대시보드 백테스터에 새로 들어갈 것은 아래와 같습니다.</p>
+<ul>
+<li><b>월·주별 1등 조합</b>과 「그 설정을 다음 기간에 그대로 쓰면」 수익률</li>
+<li>여러 값 비교 확장(둔화 허용치 축, 최대 20,000개 조합, CSV 추가)</li>
+<li>차트 개선(전체화면 · 끌어서 이동 · 표시 밀도)</li>
+<li><b>선물 백테스트(롱+숏)</b> — 바이낸스 선물 시세로 계산합니다(방식 A·B·C, 펀딩비 반영).</li>
+</ul>
+<p>대시보드에만 있는 업비트 시세 선택, 트레일링 스톱, 휴대폰 −/+ 단추 등은 그대로 둡니다.</p>
+
+<p><b>질문 ㉠ 선물 백테스트도 넣을까요?</b> 지금 계좌는 업비트 현물이라 숏을 실제로 매매하지는 못합니다. 넣어도 화면 계산만 됩니다.</p>
+<div class="opt"><b class="n">①</b> 넣습니다. 숏은 백테스터 화면 계산만 합니다. 실제 매매는 지금처럼 업비트 현물입니다. (권장)</div>
+<div class="opt"><b class="n">②</b> 넣지 않습니다. 현물 기능만 넣습니다.</div>
+<div class="opt"><b class="n">③</b> 숏 실제 매매도 원합니다. (거래소·계좌 검토 결과를 따로 알려 드립니다.)</div>
+
+<p><b>질문 ㉡ 백테스터를 처음 열 때 기본값도 Ver9 값으로 바꿀까요?</b> Ver9 기본값은 분할 1회, 익절 3%, 손절 3% 입니다(지금은 분할 5회, 익절 1%, 손절 1.5%). 실제 매매 설정은 투자자님이 설정 저장 화면에서 정하시므로 이 질문과 상관없습니다.</p>
+<div class="opt"><b class="n">①</b> Ver9 기본값으로 바꿉니다. (권장)</div>
+<div class="opt"><b class="n">②</b> 지금 기본값을 그대로 둡니다.</div>
+
+<div class="ans">답은 「요청 1 같음(수수료 ○○원), ㉠ ①, ㉡ ①」처럼 보내 주시면 됩니다.</div>
+<p>답을 받으면 반영 계획을 세우고, 대시보드가 바뀌기 전에 바뀌는 점을 다시 안내드리겠습니다.</p>
+
+</body>
+</html>

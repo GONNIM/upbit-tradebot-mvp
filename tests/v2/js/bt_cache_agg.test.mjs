@@ -45,6 +45,7 @@ function context(withUi) {
     fetch: () => Promise.reject(new Error("시험: 바깥 연결 없음")),
   };
   ctx.window = ctx;
+  ctx.addEventListener = () => {}; // 기준 원문(Ver9) 맨 위가 window/document 에 처리기를 붙인다 — 아무 일 안 함
   ctx.globalThis = ctx;
   vm.createContext(ctx);
   vm.runInContext(BT_JS, ctx);

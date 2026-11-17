@@ -1,4 +1,4 @@
-// Ver2 기준 파일에서 백테스터 스크립트를 만든다: 원문 인라인 스크립트 + 정해진 차이(fixtures/ver2_patches.json).
+// 기준 원문(투자자 Ver9)에서 백테스터 스크립트를 만든다: 원문 인라인 스크립트 + 정해진 차이(fixtures/ver2_patches.json).
 // parity 시험과 scripts/build_backtester_js.mjs 가 같은 함수를 쓴다.
 import fs from "node:fs";
 import path from "node:path";

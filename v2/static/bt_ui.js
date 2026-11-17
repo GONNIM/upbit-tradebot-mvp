@@ -1,4 +1,4 @@
-// 백테스터 화면 보조 (그림 2-다). backtester.js(Ver2 원문 + 정해진 차이 2곳 — tests/v2/js/fixtures/ver2_patches.json)는 건드리지 않고
+// 백테스터 화면 보조 (그림 2-다). backtester.js(Ver9 원문 + 정해진 차이 10곳 — tests/v2/js/fixtures/ver2_patches.json)는 건드리지 않고
 // 이 파일이 출처 토글·업비트 서버 수집·요약 카드·스윕 요약·중복 실행 막기를 맡는다.
 // 업비트 시세는 같은 출처의 v2 서버(/v2/api/candles)만 부른다 — 브라우저가 업비트를 직접 부르지 않는다.
 (function () {
@@ -120,6 +120,13 @@
     }
   }
 
+  var MSG_FUT_UPBIT = "선물은 바이낸스 출처에서만 됩니다";
+  var MSG_SRC_BUSY = "실행 중에는 출처를 바꿀 수 없습니다. 끝난 뒤 바꿔 주세요";
+  // 실행 · 선물 실행 · 스윕이 도는 동안의 개수. 도는 중에 출처를 바꾸면 끝난 결과가 새 출처 화면에 다시 채워지므로 막는다(1111-01).
+  var busyCount = 0;
+  var MSG_WAIT_SWEEP = "스윕이 끝난 뒤 실행해 주세요";
+  var MSG_WAIT_RUN = "실행이 끝난 뒤 스윕해 주세요";
+
   // ---- 요약 ----
   function pct(n, signed) {
     var v = Number(n);
@@ -150,7 +157,7 @@
     var out = [];
     for (var i = 0; i < rows.length && i < k; i++) {
       var r = rows[i];
-      out.push({ tp: r.tp, sl: r.sl, maxSplits: r.maxSplits, ret: r.returnPct });
+      out.push({ tp: r.tp, sl: r.sl, maxSplits: r.maxSplits, slope: r.ma60MinSlope, drop: r.ma60SlopeDrop, ret: r.returnPct });
     }
     return out;
   }
@@ -170,16 +177,26 @@
     return h;
   }
 
+  // 1111-01: 스윕 줄이 TP·SL·분할만으로는 구분되지 않는다(분할 1 · 기울기 11 · 둔화 5 → 같은 TP·SL 이 55줄) — 60선 기울기·둔화 허용치 칸을 더한다
   function sweepHtml(rows) {
     if (!rows || !rows.length) return '<div class="empty">스윕을 실행하면 상위 5개가 여기에 보입니다</div>';
-    var h = '<table class="mt"><tr><th>TP</th><th>SL</th><th>분할</th><th class="r">수익률</th></tr>';
+    var h = '<table class="mt"><tr><th>TP</th><th>SL</th><th>분할</th><th>60선 기울기</th><th>둔화 허용치</th><th class="r">수익률</th></tr>';
     for (var i = 0; i < rows.length; i++) {
       var r = rows[i];
       var v = Number(r.ret);
       h += "<tr><td>" + num(r.tp) + "</td><td>" + num(r.sl) + "</td><td>" + esc(r.maxSplits) +
+        "</td><td>" + (r.slope == null ? "—" : num(r.slope)) + "</td><td>" + (r.drop == null ? "—" : num(r.drop)) +
         '</td><td class="r ' + (v > 0 ? "up" : (v < 0 ? "dn" : "")) + '">' + pct(v, true) + "</td></tr>";
     }
     return h + "</table>";
+  }
+
+  // 카드 위 한 줄: 무엇으로 계산한 결과인지(현물 · 선물, 출처)
+  function modeLabel(mode, source, cfg) {
+    if (mode === "futures") {
+      return "선물(롱+숏) · 바이낸스 USDT 선물 시세 · 방식 " + esc((cfg && cfg.futMode) || "A") + " · 화면 계산만";
+    }
+    return "현물 · " + (source === "upbit" ? "업비트(KRW)" : "바이낸스");
   }
 
   // ---- window 의 fetchKlines·run·runSweep 감싸기 ----
@@ -190,9 +207,15 @@
     var origFetchKlines = win.fetchKlines;
     var origRun = win.run;
     var origSweep = win.runSweep;
+    var origFutures = win.runFutures;
     var running = false;
 
-    win.fetchKlines = async function (symbol, interval, days) {
+    win.fetchKlines = async function (symbol, interval, days, market) {
+      // 선물(1111-01): 업비트 현물 봉이 선물 계산에 들어가지 않게 막는다. 바이낸스면 원래 함수에 그대로 넘긴다.
+      if (market === "futures") {
+        if (el("dataSource").value === "upbit") throw new Error(MSG_FUT_UPBIT);
+        return origFetchKlines.apply(win, arguments);
+      }
       if (el("dataSource").value !== "upbit") return origFetchKlines.apply(win, arguments);
       var market = String(symbol || "").trim().toUpperCase();
       if (!UPBIT_MARKET_RE.test(market)) throw new Error("업비트 종목은 KRW-XXX 형식입니다");
@@ -217,40 +240,98 @@
 
     win.run = async function () {
       if (running) return;
+      if (busyCount > 0) { el("status").textContent = MSG_WAIT_SWEEP; return; }   // 스윕이 도는 중이면 결과가 섞이므로 막는다(1111-01)
       running = true;
       var runBtn = el("btRunBtn");
       runBtn.disabled = true;
       var before = o.getState().lastResults;
+      busyCount++;
       try {
         await origRun.apply(win, arguments);
       } finally {
         running = false;
+        busyCount--;
         runBtn.disabled = false;
       }
-      // Ver2 원문은 출처와 상관없이 「바이낸스에서 새로 조회함」을 붙인다 — 업비트면 바로잡는다.
+      // 기준 원문(Ver9)은 출처와 상관없이 「바이낸스에서 새로 조회함」을 붙인다 — 업비트면 바로잡는다.
       // 업비트는 서버 저장분에 새 봉만 이어 받으므로 「전부 새로 받음」으로 읽히지 않게 쓴다(1106-01 ㉠).
       if (el("dataSource").value === "upbit") {
         var stEl = el("status");
         stEl.textContent = String(stEl.textContent || "").replace("[바이낸스에서 새로 조회함]", "[업비트: 서버 저장분 + 새 봉 이어 받음]");
       }
-      var st = o.getState();
-      if (st.lastResults && st.lastResults !== before) {
-        el("btBrief").innerHTML = briefHtml(briefSummary(o.statsFn(st.lastResults, st.lastCfgBase)));
-      } else {
-        el("btBrief").innerHTML = briefHtml(null);
-      }
+      refreshBrief(before);
     };
 
-    win.runSweep = function () {
-      var r = origSweep.apply(win, arguments);
-      el("sweepBrief").innerHTML = sweepHtml(sweepBrief(o.getState().sweepRows));
-      return r;
+    // 요약 카드(현물 · 선물 공통): 새 결과가 있으면 3줄 카드, 없으면 「결과 없음」
+    function refreshBrief(before) {
+      var st = o.getState();
+      var mode = st.lastMode === "futures" ? "futures" : "spot";
+      if (st.lastResults && st.lastResults !== before) {
+        el("btBrief").innerHTML = briefHtml(briefSummary(o.statsFn(st.lastResults, st.lastCfgBase)));
+        el("btBriefMode").textContent = modeLabel(mode, el("dataSource").value, st.lastCfgBase);
+      } else {
+        el("btBrief").innerHTML = briefHtml(null);
+        el("btBriefMode").textContent = "";
+      }
+    }
+
+    // 선물 백테스트(1111-01): 업비트 출처면 바깥 요청 없이 막고, run 과 같은 겹침 막기, await 로 끝난 뒤 카드를 갱신한다.
+    if (typeof origFutures === "function") {
+      win.runFutures = async function () {
+        if (running) return;
+        if (busyCount > 0) { el("status").textContent = MSG_WAIT_SWEEP; return; }
+        if (el("dataSource").value === "upbit") {
+          el("status").textContent = "오류: " + MSG_FUT_UPBIT;
+          return;
+        }
+        running = true;
+        var runBtn = el("btRunBtn");
+        var futBtn = el("btFutBtn");
+        runBtn.disabled = true;
+        futBtn.disabled = true;
+        var before = o.getState().lastResults;
+        busyCount++;
+        try {
+          await origFutures.apply(win, arguments);
+        } finally {
+          running = false;
+          busyCount--;
+          runBtn.disabled = false;
+          futBtn.disabled = el("dataSource").value === "upbit";
+        }
+        refreshBrief(before);
+      };
+    }
+
+    // 스윕은 비동기다. 끝나기 전에 sweepRows 를 읽으면 늘 빈 목록이므로 await 한 뒤 카드를 그린다(1111-01).
+    win.runSweep = async function () {
+      if (running) { el("sweepStatus").textContent = MSG_WAIT_RUN; return; }   // 실행 · 선물 실행 중에는 스윕을 시작하지 않는다(1111-01)
+      busyCount++;
+      try {
+        return await origSweep.apply(win, arguments);
+      } finally {
+        busyCount--;
+        var st = o.getState();
+        el("sweepBrief").innerHTML = sweepHtml(sweepBrief(st.sweepRows));
+        el("sweepBriefMode").textContent = st.sweepRows && st.sweepRows.length
+          ? modeLabel(st.lastMode === "futures" ? "futures" : "spot", el("dataSource").value, st.lastCfgBase) : "";
+      }
     };
   }
 
   // ---- 브라우저 연결 ----
   function clearDataCache() {
     try { if (typeof dataCache !== "undefined") dataCache = null; } catch (e) { /* 캐시가 없으면 할 일 없음 */ }
+    try { if (typeof futCache !== "undefined") futCache = null; } catch (e) { /* 선물 캐시(Ver9)도 출처를 키에 넣지 않는다 */ }
+  }
+  // 직전 결과 변수(Ver9 스크립트의 let)를 처음 상태로 돌린다. 저장 창은 「창을 열 때 고른 출처」를 쓰므로,
+  // 바이낸스 선물 결과가 남은 채 업비트로 바꿔 저장하는 틈을 막는다(1111-01). 각 줄은 따로 감싸 하나가 실패해도 나머지를 비운다.
+  function clearResultVars() {
+    try { lastBars = null; lastMaTrend = null; lastMa200 = null; lastSlope60 = null; lastMaPullback = null; lastCfgBase = null; lastResults = null; } catch (e) { /* 변수 없음 */ }
+    try { tradeRows = []; weeklyRows = []; monthlyRows = []; } catch (e) { /* 변수 없음 */ }
+    try { sweepRows = []; sweepSlopeRows = []; sweepDropRows = []; sweepMonthRows = []; sweepWeekRows = []; } catch (e) { /* 변수 없음 */ }
+    try { lastMode = "spot"; lastFundings = []; } catch (e) { /* 변수 없음 */ }
+    try { chartState = null; chartViewStart = null; } catch (e) { /* 변수 없음 */ }
   }
   var dummy = {};
   function byId(id) { return document.getElementById(id) || dummy; }
@@ -262,14 +343,46 @@
   }
 
   function mountPage() {
+    // 처음 상태 문구(출처를 바꿀 때 화면을 이 상태로 돌린다)
+    var initial = {
+      status: byId("status").textContent, sweepHint: byId("sweepHint").textContent, chartHint: byId("chartHint").textContent,
+      chartInfo: byId("chartInfo").textContent,
+    };
+    function clearCanvas(id) {
+      var cv = byId(id);
+      try { var g = cv.getContext && cv.getContext("2d"); if (g) g.clearRect(0, 0, cv.width, cv.height); } catch (e) { /* 캔버스 없음 */ }
+    }
+    // 화면에 보이는 결과를 처음 상태로: 카드 · 자세한 결과 · 스윕 · 차트
+    function resetView() {
+      clearResultVars();
+      byId("btBrief").innerHTML = briefHtml(null);
+      byId("btBriefMode").textContent = "";
+      byId("sweepBrief").innerHTML = sweepHtml([]);
+      byId("sweepBriefMode").textContent = "";
+      ["summary", "depth", "weekly", "monthly", "sweepResult", "chartLegend"].forEach(function (id) { byId(id).innerHTML = ""; });
+      byId("sweepStatus").textContent = "";
+      byId("status").textContent = initial.status;
+      byId("sweepHint").textContent = initial.sweepHint;
+      byId("chartHint").textContent = initial.chartHint;
+      byId("chartInfo").textContent = initial.chartInfo;
+      clearCanvas("chartCanvas");
+      clearCanvas("chartOverlay");
+    }
+    // 선물 단추: 업비트 출처면 막고 안내, 바이낸스면 푼다
+    function syncFutButton(source) {
+      byId("btFutBtn").disabled = source === "upbit";
+      byId("btFutNote").hidden = source !== "upbit";
+    }
     var binanceSymbol = byId("symbol").value || "JTOUSDT";     // 정적 기본값(바이낸스 종목)
     var upbitSymbol = "KRW-" + binanceSymbol.replace(/USDT$/, "");
     var engineTicker = null;
 
     function choose(source) {
-      // Ver2 캐시(dataCache)는 출처를 키에 넣지 않는다 — 출처를 바꾸면 비워 섞이지 않게 한다.
-      if (byId("dataSource").value !== source) clearDataCache();
+      // 기준 원문(Ver9) 캐시(dataCache)는 출처를 키에 넣지 않는다 — 출처를 바꾸면 비워 섞이지 않게 한다.
+      if (byId("dataSource").value !== source && busyCount > 0) { byId("status").textContent = MSG_SRC_BUSY; return; }
+      if (byId("dataSource").value !== source) { clearDataCache(); resetView(); }
       setSegment(source);
+      syncFutButton(source);
       byId("symbol").value = source === "upbit" ? (engineTicker || upbitSymbol) : binanceSymbol;
     }
     byId("btSrcUpbit").addEventListener("click", function () { choose("upbit"); });
@@ -279,7 +392,7 @@
     install({
       win: window,
       getEl: byId,
-      getState: function () { return { lastResults: lastResults, lastCfgBase: lastCfgBase, sweepRows: sweepRows }; },
+      getState: function () { return { lastResults: lastResults, lastCfgBase: lastCfgBase, sweepRows: sweepRows, lastMode: lastMode }; },
       statsFn: function (res, cfg) { return stats(res, cfg); },
     });
     byId("btBrief").innerHTML = briefHtml(null);

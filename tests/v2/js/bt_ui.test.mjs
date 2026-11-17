@@ -359,12 +359,12 @@ test("(h) run 이 lastResults 를 바꾸면 요약, 안 바꾸면 «결과 없�
   assert.doesNotMatch(env2.els.btBrief.innerHTML, /OLD/);
 });
 
-test("스윕 실행 뒤 상위 5개 요약", () => {
+test("스윕 실행 뒤 상위 5개 요약", async () => {
   const rows = [];
   for (let i = 0; i < 7; i++) rows.push({ tp: i + 1, sl: 3, maxSplits: 5, returnPct: 10 - i });
   const env = fakeEnv({ onSweep: (s) => { s.sweepRows = rows; } });
   installOn(env);
-  env.win.runSweep();
+  await env.win.runSweep();   // 1111-01: runSweep 감싸기가 비동기가 되어 끝난 뒤 카드를 그린다
   assert.equal(env.calls.sweep, 1);
   assert.equal((env.els.sweepBrief.innerHTML.match(/<tr><td>/g) || []).length, 5);
 });
@@ -462,9 +462,9 @@ test("backtester.html: 출처 토글·접힘 20개·카드·자세한 결과 (11
   assert.ok(HTML.indexOf("전략 로직 설명") > HTML.indexOf('<details id="btDetail"'));
 });
 
-test("backtester.html: 입력 41개 id 가 모두 있고 기본값 그대로 (1105-09 Ver2) + 추적 손절 3칸 (1110-01)", () => {
+test("backtester.html: 입력 47개 id + 추적 손절 3칸 = 50칸이 모두 있고 기본값은 Ver9 (1111-01)", () => {
   const p = parseDefaults(HTML);
-  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 44);
+  assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 50);
   assert.equal(p.trailingStop.value, "no");     // 기본 꺼짐
   assert.deepStrictEqual(p.trailingStop.options, ["no", "yes"]);
   assert.equal(p.trailingMode.value, "ratio");

@@ -1,4 +1,4 @@
-// v2/static/backtester.js 를 Ver2 기준 파일 + 정해진 차이 2곳으로 다시 만든다 (1105-09).
+// v2/static/backtester.js 를 기준 원문(투자자 Ver9) + 정해진 차이로 다시 만든다 (1105-09).
 // 사용: node scripts/build_backtester_js.mjs
 import fs from "node:fs";
 import path from "node:path";

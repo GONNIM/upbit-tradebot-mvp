@@ -1,10 +1,10 @@
 {
-  "source": "docs/new-version/ver2/MA_GC_Pullback_Backtester_2611051030(Ver2).html",
+  "source": "docs/new-version/ver9/MA_GC_Pullback_Backtester_2611161307(Ver9).html",
   "script_lines": [
-    168,
-    1212
+    196,
+    1902
   ],
-  "note": "기준 파일(Ver2) 인라인 스크립트에 정해진 차이(1105-06 두 곳 · 1110-01 추적 손절)만 적용한 것이 v2/static/backtester.js 다 (1105-06 · plan.md 1절 · 1110-01). find 는 원문에 정확히 1번 나와야 한다.",
+  "note": "기준 파일(투자자 Ver9, 1111-01) 인라인 스크립트에 정해진 차이(1105-06 두 곳 · 1110-01 추적 손절)만 적용한 것이 v2/static/backtester.js 다 (1105-06 · plan.md 1절 · 1110-01). find 는 원문에 정확히 1번 나와야 한다.",
   "patches": [
     {
       "why": "1105-06 Q3 ② — 새 거래를 연 눌림목 매수만 구간 순번에 셈",
@@ -53,8 +53,8 @@
     },
     {
       "why": "1110-01 설정 3칸 읽기",
-      "find": "    compounding:$(\"compounding\").value\n  };\n",
-      "replace": "    compounding:$(\"compounding\").value,\n    // 기준 파일과 다름 — 1110-01: 추적 손절 3칸(없으면 꺼짐)\n    trailingStop:$(\"trailingStop\")?$(\"trailingStop\").value:\"no\",\n    trailingMode:$(\"trailingMode\")?$(\"trailingMode\").value:\"ratio\",\n    trailingPct:$(\"trailingPct\")?+$(\"trailingPct\").value:50\n  };\n"
+      "find": "    useFunding:$(\"useFunding\").value===\"yes\"\n  };\n",
+      "replace": "    useFunding:$(\"useFunding\").value===\"yes\",\n    // 기준 파일과 다름 — 1110-01: 추적 손절 3칸(없으면 꺼짐)\n    trailingStop:$(\"trailingStop\")?$(\"trailingStop\").value:\"no\",\n    trailingMode:$(\"trailingMode\")?$(\"trailingMode\").value:\"ratio\",\n    trailingPct:$(\"trailingPct\")?+$(\"trailingPct\").value:50\n  };\n"
     }
   ]
 }

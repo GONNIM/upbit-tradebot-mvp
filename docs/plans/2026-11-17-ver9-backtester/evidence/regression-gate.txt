@@ -1,0 +1,2527 @@
+==========================================
+🛡️  회귀 테스트 CI 게이트 (Phase 2)
+==========================================
+프로젝트: /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp
+
+▶ UI 페이지 top-level import 게이트 (pages/*.py)...
+  ✅ 모든 pages/*.py top-level import OK
+▶ typing 심볼 정적 검증 (pages/*.py + core, engine, services)...
+  ✅ 모든 pages/*.py typing 심볼 임포트 OK
+
+▶ v2 시험 실행 (tests/v2/)...
+test_activate_twice_does_not_rewrap (tests.v2.test_00_netguard_active.TestNetguardActiveInProcess.test_activate_twice_does_not_rewrap) ... ok
+test_blocks_upbit_in_process (tests.v2.test_00_netguard_active.TestNetguardActiveInProcess.test_blocks_upbit_in_process) ... ok
+test_installed_and_keys_placeholder (tests.v2.test_00_netguard_active.TestNetguardActiveInProcess.test_installed_and_keys_placeholder) ... ok
+test_assets_fully_locked_still_holding (tests.v2.test_api_read.TestAssets.test_assets_fully_locked_still_holding) ... 2026-11-17 13:34:43.750 200 GET /v2/api/assets (127.0.0.1) 1.57ms
+ok
+test_assets_keys_and_values (tests.v2.test_api_read.TestAssets.test_assets_keys_and_values) ... 2026-11-17 13:34:43.773 200 GET /v2/api/assets (127.0.0.1) 1.26ms
+ok
+test_assets_not_holding (tests.v2.test_api_read.TestAssets.test_assets_not_holding) ... 2026-11-17 13:34:43.794 200 GET /v2/api/assets (127.0.0.1) 1.00ms
+ok
+test_assets_price_from_latest_eval_for_ticker (tests.v2.test_api_read.TestAssets.test_assets_price_from_latest_eval_for_ticker) ... 2026-11-17 13:34:43.815 200 GET /v2/api/assets (127.0.0.1) 1.15ms
+2026-11-17 13:34:43.817 200 GET /v2/api/assets (127.0.0.1) 1.10ms
+ok
+test_assets_round_null_in_phase1 (tests.v2.test_api_read.TestAssets.test_assets_round_null_in_phase1) ... 2026-11-17 13:34:43.837 200 GET /v2/api/assets (127.0.0.1) 1.02ms
+ok
+test_assets_tp_sl_from_latest_sell_eval (tests.v2.test_api_read.TestAssets.test_assets_tp_sl_from_latest_sell_eval) ... 2026-11-17 13:34:43.858 200 GET /v2/api/assets (127.0.0.1) 1.08ms
+ok
+test_assets_tp_sl_null_when_sell_eval_older_than_latest_buy (tests.v2.test_api_read.TestAssets.test_assets_tp_sl_null_when_sell_eval_older_than_latest_buy) ... 2026-11-17 13:34:43.889 200 GET /v2/api/assets (127.0.0.1) 1.10ms
+2026-11-17 13:34:43.891 200 GET /v2/api/assets (127.0.0.1) 1.02ms
+2026-11-17 13:34:43.893 200 GET /v2/api/assets (127.0.0.1) 0.95ms
+ok
+test_mixed_timestamp_formats (tests.v2.test_api_read.TestAssets.test_mixed_timestamp_formats) ... 2026-11-17 13:34:43.914 200 GET /v2/api/assets (127.0.0.1) 0.95ms
+2026-11-17 13:34:43.915 200 GET /v2/api/logs?*** (127.0.0.1) 0.59ms
+ok
+test_no_db_returns_404_json (tests.v2.test_api_read.TestAuthOnRoutes.test_no_db_returns_404_json) ... 2026-11-17 13:34:43.918 404 GET /v2/api/assets (127.0.0.1) 0.22ms
+ok
+test_routes_not_allowlisted_403 (tests.v2.test_api_read.TestAuthOnRoutes.test_routes_not_allowlisted_403) ... 2026-11-17 13:34:43.920 403 GET /v2/api/basic (127.0.0.1) 0.24ms
+2026-11-17 13:34:43.921 403 GET /v2/api/status (127.0.0.1) 0.23ms
+2026-11-17 13:34:43.922 403 GET /v2/api/assets (127.0.0.1) 0.24ms
+2026-11-17 13:34:43.923 403 GET /v2/api/trades (127.0.0.1) 0.22ms
+2026-11-17 13:34:43.924 403 GET /v2/api/signals (127.0.0.1) 0.31ms
+2026-11-17 13:34:43.924 403 GET /v2/api/logs (127.0.0.1) 0.22ms
+2026-11-17 13:34:43.925 403 GET /v2/api/markers (127.0.0.1) 0.21ms
+ok
+test_routes_without_session_401 (tests.v2.test_api_read.TestAuthOnRoutes.test_routes_without_session_401) ... 2026-11-17 13:34:43.927 401 GET /v2/api/basic (127.0.0.1) 0.10ms
+2026-11-17 13:34:43.928 401 GET /v2/api/status (127.0.0.1) 0.10ms
+2026-11-17 13:34:43.929 401 GET /v2/api/assets (127.0.0.1) 0.09ms
+2026-11-17 13:34:43.929 401 GET /v2/api/trades (127.0.0.1) 0.10ms
+2026-11-17 13:34:43.930 401 GET /v2/api/signals (127.0.0.1) 0.10ms
+2026-11-17 13:34:43.930 401 GET /v2/api/logs (127.0.0.1) 0.10ms
+2026-11-17 13:34:43.931 401 GET /v2/api/markers (127.0.0.1) 0.09ms
+ok
+test_url_user_id_is_ignored (tests.v2.test_api_read.TestAuthOnRoutes.test_url_user_id_is_ignored) ... 2026-11-17 13:34:43.951 200 GET /v2/api/status?*** (127.0.0.1) 1.09ms
+ok
+test_api_read_imports (tests.v2.test_api_read.TestLint.test_api_read_imports) ... ok
+test_fixture_ddl_matches_init_db (tests.v2.test_api_read.TestLint.test_fixture_ddl_matches_init_db) ... ok
+test_lint_detects_drift (tests.v2.test_api_read.TestLint.test_lint_detects_drift) ... ok
+test_pb_fixture_ddl_matches_init_db (tests.v2.test_api_read.TestLint.test_pb_fixture_ddl_matches_init_db)
+2차 T16: 새 전략 표 픽스처 = services/init_db.ensure_pullback_tables 원문(스키마 변경 없음 — 같은 문장). ... ok
+test_bad_limit_and_page_400 (tests.v2.test_api_read.TestListsAndPaging.test_bad_limit_and_page_400) ... 2026-11-17 13:34:43.974 400 GET /v2/api/trades?*** (127.0.0.1) 0.22ms
+2026-11-17 13:34:43.975 400 GET /v2/api/trades?*** (127.0.0.1) 0.30ms
+2026-11-17 13:34:43.975 400 GET /v2/api/trades?*** (127.0.0.1) 0.20ms
+2026-11-17 13:34:43.976 400 GET /v2/api/trades?*** (127.0.0.1) 0.22ms
+2026-11-17 13:34:43.977 400 GET /v2/api/trades?*** (127.0.0.1) 0.19ms
+2026-11-17 13:34:43.978 400 GET /v2/api/signals?*** (127.0.0.1) 0.18ms
+2026-11-17 13:34:43.979 400 GET /v2/api/signals?*** (127.0.0.1) 0.19ms
+2026-11-17 13:34:43.979 400 GET /v2/api/logs?*** (127.0.0.1) 0.20ms
+2026-11-17 13:34:43.980 400 GET /v2/api/logs?*** (127.0.0.1) 0.19ms
+2026-11-17 13:34:43.981 400 GET /v2/api/logs?*** (127.0.0.1) 0.18ms
+ok
+test_logs_engine_paginated_12 (tests.v2.test_api_read.TestListsAndPaging.test_logs_engine_paginated_12) ... 2026-11-17 13:34:44.031 200 GET /v2/api/logs?*** (127.0.0.1) 0.83ms
+2026-11-17 13:34:44.032 200 GET /v2/api/logs?*** (127.0.0.1) 0.69ms
+2026-11-17 13:34:44.033 200 GET /v2/api/logs?*** (127.0.0.1) 0.69ms
+2026-11-17 13:34:44.035 200 GET /v2/api/logs?*** (127.0.0.1) 0.63ms
+ok
+test_markers_current_ticker_max_200 (tests.v2.test_api_read.TestListsAndPaging.test_markers_current_ticker_max_200) ... 2026-11-17 13:34:44.137 200 GET /v2/api/markers (127.0.0.1) 1.65ms
+ok
+test_same_timestamp_ties_ordered_by_id_desc (tests.v2.test_api_read.TestListsAndPaging.test_same_timestamp_ties_ordered_by_id_desc) ... 2026-11-17 13:34:44.162 200 GET /v2/api/trades (127.0.0.1) 0.76ms
+2026-11-17 13:34:44.163 200 GET /v2/api/logs?*** (127.0.0.1) 0.83ms
+2026-11-17 13:34:44.165 200 GET /v2/api/markers (127.0.0.1) 0.55ms
+ok
+test_signals_all_tickers_when_no_strategy (tests.v2.test_api_read.TestListsAndPaging.test_signals_all_tickers_when_no_strategy) ... 2026-11-17 13:34:44.184 200 GET /v2/api/signals (127.0.0.1) 0.70ms
+ok
+test_signals_default_20 (tests.v2.test_api_read.TestListsAndPaging.test_signals_default_20) ... 2026-11-17 13:34:44.219 200 GET /v2/api/signals (127.0.0.1) 1.07ms
+2026-11-17 13:34:44.221 200 GET /v2/api/signals?*** (127.0.0.1) 1.10ms
+ok
+test_signals_holding_shows_sell (tests.v2.test_api_read.TestListsAndPaging.test_signals_holding_shows_sell) ... 2026-11-17 13:34:44.242 200 GET /v2/api/signals?*** (127.0.0.1) 0.80ms
+ok
+test_signals_kind_and_key_set (tests.v2.test_api_read.TestListsAndPaging.test_signals_kind_and_key_set) ... 2026-11-17 13:34:44.273 200 GET /v2/api/signals (127.0.0.1) 5.49ms
+ok
+test_signals_merge_buy_and_sell_by_time (tests.v2.test_api_read.TestListsAndPaging.test_signals_merge_buy_and_sell_by_time) ... 2026-11-17 13:34:44.306 200 GET /v2/api/signals (127.0.0.1) 1.94ms
+ok
+test_signals_mixed_timestamp_formats_merge (tests.v2.test_api_read.TestListsAndPaging.test_signals_mixed_timestamp_formats_merge) ... 2026-11-17 13:34:44.329 200 GET /v2/api/signals (127.0.0.1) 0.82ms
+ok
+test_signals_same_time_same_kind_larger_id_first (tests.v2.test_api_read.TestListsAndPaging.test_signals_same_time_same_kind_larger_id_first) ... 2026-11-17 13:34:44.354 200 GET /v2/api/signals (127.0.0.1) 0.84ms
+ok
+test_signals_same_time_sell_first_and_broken_timestamps_last (tests.v2.test_api_read.TestListsAndPaging.test_signals_same_time_sell_first_and_broken_timestamps_last) ... 2026-11-17 13:34:44.374 200 GET /v2/api/signals (127.0.0.1) 0.94ms
+ok
+test_trades_limit_default_and_cap (tests.v2.test_api_read.TestListsAndPaging.test_trades_limit_default_and_cap) ... 2026-11-17 13:34:44.436 200 GET /v2/api/trades (127.0.0.1) 1.93ms
+2026-11-17 13:34:44.440 200 GET /v2/api/trades?*** (127.0.0.1) 2.56ms
+2026-11-17 13:34:44.442 200 GET /v2/api/trades?*** (127.0.0.1) 1.06ms
+2026-11-17 13:34:44.444 200 GET /v2/api/trades?*** (127.0.0.1) 0.96ms
+2026-11-17 13:34:44.445 200 GET /v2/api/trades?*** (127.0.0.1) 0.48ms
+ok
+test_trades_only_current_ticker (tests.v2.test_api_read.TestListsAndPaging.test_trades_only_current_ticker) ... 2026-11-17 13:34:44.468 200 GET /v2/api/trades (127.0.0.1) 0.75ms
+ok
+test_audit_different_keys_or_ok_row_breaks_group (tests.v2.test_api_read.TestLogsKinds.test_audit_different_keys_or_ok_row_breaks_group) ... 2026-11-17 13:34:44.498 200 GET /v2/api/logs (127.0.0.1) 1.19ms
+ok
+test_audit_groups_same_failed_keys_run (tests.v2.test_api_read.TestLogsKinds.test_audit_groups_same_failed_keys_run) ... 2026-11-17 13:34:44.526 200 GET /v2/api/logs (127.0.0.1) 1.62ms
+ok
+test_audit_merges_six_kinds_desc (tests.v2.test_api_read.TestLogsKinds.test_audit_merges_six_kinds_desc) ... 2026-11-17 13:34:44.557 200 GET /v2/api/logs (127.0.0.1) 1.17ms
+ok
+test_audit_page_999_goes_to_last_page (tests.v2.test_api_read.TestLogsKinds.test_audit_page_999_goes_to_last_page) ... 2026-11-17 13:34:44.580 200 GET /v2/api/logs?*** (127.0.0.1) 1.28ms
+2026-11-17 13:34:44.582 200 GET /v2/api/logs?*** (127.0.0.1) 1.23ms
+ok
+test_audit_sell_eval_reads_only_recent_1200_rows (tests.v2.test_api_read.TestLogsKinds.test_audit_sell_eval_reads_only_recent_1200_rows) ... 2026-11-17 13:34:44.609 200 GET /v2/api/logs (127.0.0.1) 1.81ms
+ok
+test_audit_sell_filled_cancel_and_sell_rejected (tests.v2.test_api_read.TestLogsKinds.test_audit_sell_filled_cancel_and_sell_rejected) ... 2026-11-17 13:34:44.631 200 GET /v2/api/logs?*** (127.0.0.1) 1.16ms
+ok
+test_bad_kind_400_and_page_clamped_and_empty (tests.v2.test_api_read.TestLogsKinds.test_bad_kind_400_and_page_clamped_and_empty) ... 2026-11-17 13:34:44.654 400 GET /v2/api/logs?*** (127.0.0.1) 0.22ms
+2026-11-17 13:34:44.656 200 GET /v2/api/logs?*** (127.0.0.1) 1.02ms
+2026-11-17 13:34:44.657 200 GET /v2/api/logs?*** (127.0.0.1) 0.64ms
+2026-11-17 13:34:44.658 200 GET /v2/api/logs?*** (127.0.0.1) 0.59ms
+ok
+test_engine_and_error_kinds (tests.v2.test_api_read.TestLogsKinds.test_engine_and_error_kinds) ... 2026-11-17 13:34:44.679 200 GET /v2/api/logs?*** (127.0.0.1) 0.79ms
+2026-11-17 13:34:44.681 200 GET /v2/api/logs?*** (127.0.0.1) 0.67ms
+ok
+test_engine_pages_cap_100 (tests.v2.test_api_read.TestLogsKinds.test_engine_pages_cap_100) ... 2026-11-17 13:34:44.715 200 GET /v2/api/logs?*** (127.0.0.1) 0.97ms
+ok
+test_error_sql_cuts_recent_rows_before_level_filter (tests.v2.test_api_read.TestLogsKinds.test_error_sql_cuts_recent_rows_before_level_filter) ... 2026-11-17 13:34:44.795 200 GET /v2/api/logs?*** (127.0.0.1) 11.41ms
+ok
+test_more_flag_engine_1200_false_1201_true (tests.v2.test_api_read.TestLogsKinds.test_more_flag_engine_1200_false_1201_true) ... 2026-11-17 13:34:44.823 200 GET /v2/api/logs?*** (127.0.0.1) 0.95ms
+2026-11-17 13:34:44.825 200 GET /v2/api/logs?*** (127.0.0.1) 0.82ms
+ok
+test_more_flag_error_and_audit (tests.v2.test_api_read.TestLogsKinds.test_more_flag_error_and_audit) ... 2026-11-17 13:34:44.869 200 GET /v2/api/logs?*** (127.0.0.1) 1.64ms
+2026-11-17 13:34:44.874 200 GET /v2/api/logs?*** (127.0.0.1) 3.35ms
+2026-11-17 13:34:44.898 200 GET /v2/api/logs?*** (127.0.0.1) 18.13ms
+2026-11-17 13:34:44.926 200 GET /v2/api/logs?*** (127.0.0.1) 10.00ms
+ok
+test_no_where_ticker_order_by_id (tests.v2.test_api_read.TestQueries.test_no_where_ticker_order_by_id) ... ok
+test_queries_all_have_limit (tests.v2.test_api_read.TestQueries.test_queries_all_have_limit) ... ok
+test_queries_registered (tests.v2.test_api_read.TestQueries.test_queries_registered) ... ok
+test_queries_use_index (tests.v2.test_api_read.TestQueries.test_queries_use_index) ... ok
+test_same_day_and_cross_day (tests.v2.test_api_read.TestSpan.test_same_day_and_cross_day) ... ok
+test_status_engine_ok_from_eval (tests.v2.test_api_read.TestStatus.test_status_engine_ok_from_eval) ... 2026-11-17 13:34:44.958 200 GET /v2/api/status (127.0.0.1) 1.21ms
+ok
+test_status_live_secondary_accounts (tests.v2.test_api_read.TestStatus.test_status_live_secondary_accounts) ... 2026-11-17 13:34:44.982 200 GET /v2/api/status (127.0.0.1) 1.18ms
+2026-11-17 13:34:44.983 200 GET /v2/api/status (127.0.0.1) 1.10ms
+ok
+test_status_mode_engine_none (tests.v2.test_api_read.TestStatus.test_status_mode_engine_none) ... 2026-11-17 13:34:45.003 200 GET /v2/api/status (127.0.0.1) 1.10ms
+ok
+test_status_shape_and_mode_mismatch (tests.v2.test_api_read.TestStatus.test_status_shape_and_mode_mismatch) ... 2026-11-17 13:34:45.025 200 GET /v2/api/status (127.0.0.1) 1.15ms
+ok
+test_ema_user_never_reads_pullback_sql (tests.v2.test_api_read_pullback.TestEmaPathQueries.test_ema_user_never_reads_pullback_sql)
+EMA 사용자 홈·로그·자산·신호는 새 전략 조회(눌림 상태·새 전략 판단 행)를 하지 않는다. ... 2026-11-17 13:34:45.053 200 GET /v2/api/status (127.0.0.1) 1.55ms
+2026-11-17 13:34:45.055 200 GET /v2/api/assets (127.0.0.1) 1.12ms
+2026-11-17 13:34:45.056 200 GET /v2/api/signals (127.0.0.1) 0.64ms
+2026-11-17 13:34:45.058 200 GET /v2/api/logs?*** (127.0.0.1) 0.98ms
+ok
+test_empty_new_tables_same_as_base (tests.v2.test_api_read_pullback.TestEmaUnchangedVsBase.test_empty_new_tables_same_as_base) ... 2026-11-17 13:34:45.108 200 GET /v2/api/status (127.0.0.1) 1.55ms
+2026-11-17 13:34:45.110 200 GET /old/v2/api/status (127.0.0.1) 1.18ms
+2026-11-17 13:34:45.112 200 GET /v2/api/assets (127.0.0.1) 1.28ms
+2026-11-17 13:34:45.114 200 GET /old/v2/api/assets (127.0.0.1) 1.08ms
+2026-11-17 13:34:45.116 200 GET /v2/api/basic (127.0.0.1) 1.48ms
+2026-11-17 13:34:45.118 200 GET /old/v2/api/basic (127.0.0.1) 1.46ms
+2026-11-17 13:34:45.119 200 GET /v2/api/trades?*** (127.0.0.1) 0.49ms
+2026-11-17 13:34:45.120 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.48ms
+2026-11-17 13:34:45.121 200 GET /v2/api/trades?*** (127.0.0.1) 0.51ms
+2026-11-17 13:34:45.122 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.48ms
+2026-11-17 13:34:45.124 200 GET /v2/api/signals?*** (127.0.0.1) 0.65ms
+2026-11-17 13:34:45.125 200 GET /old/v2/api/signals?*** (127.0.0.1) 0.68ms
+2026-11-17 13:34:45.127 200 GET /v2/api/signals (127.0.0.1) 0.93ms
+2026-11-17 13:34:45.128 200 GET /old/v2/api/signals (127.0.0.1) 0.92ms
+2026-11-17 13:34:45.131 200 GET /v2/api/logs?*** (127.0.0.1) 1.82ms
+2026-11-17 13:34:45.133 200 GET /old/v2/api/logs?*** (127.0.0.1) 1.52ms
+2026-11-17 13:34:45.136 200 GET /v2/api/logs?*** (127.0.0.1) 1.11ms
+2026-11-17 13:34:45.138 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.87ms
+2026-11-17 13:34:45.139 200 GET /v2/api/logs?*** (127.0.0.1) 0.70ms
+2026-11-17 13:34:45.141 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.63ms
+2026-11-17 13:34:45.142 200 GET /v2/api/logs?*** (127.0.0.1) 0.88ms
+2026-11-17 13:34:45.144 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.76ms
+2026-11-17 13:34:45.145 200 GET /v2/api/markers (127.0.0.1) 0.48ms
+2026-11-17 13:34:45.146 200 GET /old/v2/api/markers (127.0.0.1) 0.46ms
+2026-11-17 13:34:45.148 200 GET /v2/api/status (127.0.0.1) 1.10ms
+2026-11-17 13:34:45.150 200 GET /old/v2/api/status (127.0.0.1) 1.10ms
+2026-11-17 13:34:45.152 200 GET /v2/api/assets (127.0.0.1) 1.21ms
+2026-11-17 13:34:45.153 200 GET /old/v2/api/assets (127.0.0.1) 1.10ms
+2026-11-17 13:34:45.156 200 GET /v2/api/basic (127.0.0.1) 1.46ms
+2026-11-17 13:34:45.158 200 GET /old/v2/api/basic (127.0.0.1) 1.42ms
+2026-11-17 13:34:45.159 200 GET /v2/api/trades?*** (127.0.0.1) 0.49ms
+2026-11-17 13:34:45.160 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.47ms
+2026-11-17 13:34:45.162 200 GET /v2/api/trades?*** (127.0.0.1) 0.60ms
+2026-11-17 13:34:45.163 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.53ms
+2026-11-17 13:34:45.164 200 GET /v2/api/signals?*** (127.0.0.1) 0.70ms
+2026-11-17 13:34:45.165 200 GET /old/v2/api/signals?*** (127.0.0.1) 0.68ms
+2026-11-17 13:34:45.167 200 GET /v2/api/signals (127.0.0.1) 0.94ms
+2026-11-17 13:34:45.168 200 GET /old/v2/api/signals (127.0.0.1) 0.97ms
+2026-11-17 13:34:45.170 200 GET /v2/api/logs?*** (127.0.0.1) 1.32ms
+2026-11-17 13:34:45.172 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.98ms
+2026-11-17 13:34:45.174 200 GET /v2/api/logs?*** (127.0.0.1) 1.17ms
+2026-11-17 13:34:45.175 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.89ms
+2026-11-17 13:34:45.177 200 GET /v2/api/logs?*** (127.0.0.1) 0.63ms
+2026-11-17 13:34:45.178 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.63ms
+2026-11-17 13:34:45.179 200 GET /v2/api/logs?*** (127.0.0.1) 0.74ms
+2026-11-17 13:34:45.180 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.61ms
+2026-11-17 13:34:45.182 200 GET /v2/api/markers (127.0.0.1) 0.47ms
+2026-11-17 13:34:45.183 200 GET /old/v2/api/markers (127.0.0.1) 0.45ms
+ok
+test_markers_only_buy_sell_rows_u2 (tests.v2.test_api_read_pullback.TestEmaUnchangedVsBase.test_markers_only_buy_sell_rows_u2)
+결정 1030-02 U2: 표식은 BUY·SELL 만. 화면에서 사라지는 것은 거절·취소 행의 가짜 ▼ 뿐. ... 2026-11-17 13:34:45.226 200 GET /v2/api/markers (127.0.0.1) 0.64ms
+2026-11-17 13:34:45.227 200 GET /old/v2/api/markers (127.0.0.1) 0.55ms
+ok
+test_no_new_tables_same_as_base (tests.v2.test_api_read_pullback.TestEmaUnchangedVsBase.test_no_new_tables_same_as_base) ... 2026-11-17 13:34:45.268 200 GET /v2/api/status (127.0.0.1) 1.31ms
+2026-11-17 13:34:45.270 200 GET /old/v2/api/status (127.0.0.1) 1.07ms
+2026-11-17 13:34:45.272 200 GET /v2/api/assets (127.0.0.1) 1.03ms
+2026-11-17 13:34:45.274 200 GET /old/v2/api/assets (127.0.0.1) 0.98ms
+2026-11-17 13:34:45.276 200 GET /v2/api/basic (127.0.0.1) 1.42ms
+2026-11-17 13:34:45.278 200 GET /old/v2/api/basic (127.0.0.1) 1.32ms
+2026-11-17 13:34:45.279 200 GET /v2/api/trades?*** (127.0.0.1) 0.48ms
+2026-11-17 13:34:45.280 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.49ms
+2026-11-17 13:34:45.281 200 GET /v2/api/trades?*** (127.0.0.1) 0.46ms
+2026-11-17 13:34:45.282 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.46ms
+2026-11-17 13:34:45.283 200 GET /v2/api/signals?*** (127.0.0.1) 0.63ms
+2026-11-17 13:34:45.284 200 GET /old/v2/api/signals?*** (127.0.0.1) 0.61ms
+2026-11-17 13:34:45.286 200 GET /v2/api/signals (127.0.0.1) 1.14ms
+2026-11-17 13:34:45.288 200 GET /old/v2/api/signals (127.0.0.1) 0.92ms
+2026-11-17 13:34:45.290 200 GET /v2/api/logs?*** (127.0.0.1) 1.64ms
+2026-11-17 13:34:45.292 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.89ms
+2026-11-17 13:34:45.294 200 GET /v2/api/logs?*** (127.0.0.1) 1.17ms
+2026-11-17 13:34:45.295 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.82ms
+2026-11-17 13:34:45.296 200 GET /v2/api/logs?*** (127.0.0.1) 0.59ms
+2026-11-17 13:34:45.297 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.59ms
+2026-11-17 13:34:45.299 200 GET /v2/api/logs?*** (127.0.0.1) 0.61ms
+2026-11-17 13:34:45.300 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.60ms
+2026-11-17 13:34:45.301 200 GET /v2/api/markers (127.0.0.1) 0.45ms
+2026-11-17 13:34:45.302 200 GET /old/v2/api/markers (127.0.0.1) 0.44ms
+2026-11-17 13:34:45.304 200 GET /v2/api/status (127.0.0.1) 0.98ms
+2026-11-17 13:34:45.305 200 GET /old/v2/api/status (127.0.0.1) 0.99ms
+2026-11-17 13:34:45.307 200 GET /v2/api/assets (127.0.0.1) 1.14ms
+2026-11-17 13:34:45.309 200 GET /old/v2/api/assets (127.0.0.1) 0.98ms
+2026-11-17 13:34:45.311 200 GET /v2/api/basic (127.0.0.1) 1.53ms
+2026-11-17 13:34:45.313 200 GET /old/v2/api/basic (127.0.0.1) 1.40ms
+2026-11-17 13:34:45.314 200 GET /v2/api/trades?*** (127.0.0.1) 0.49ms
+2026-11-17 13:34:45.315 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.46ms
+2026-11-17 13:34:45.316 200 GET /v2/api/trades?*** (127.0.0.1) 0.58ms
+2026-11-17 13:34:45.318 200 GET /old/v2/api/trades?*** (127.0.0.1) 0.59ms
+2026-11-17 13:34:45.319 200 GET /v2/api/signals?*** (127.0.0.1) 0.74ms
+2026-11-17 13:34:45.320 200 GET /old/v2/api/signals?*** (127.0.0.1) 0.64ms
+2026-11-17 13:34:45.322 200 GET /v2/api/signals (127.0.0.1) 1.08ms
+2026-11-17 13:34:45.324 200 GET /old/v2/api/signals (127.0.0.1) 0.92ms
+2026-11-17 13:34:45.325 200 GET /v2/api/logs?*** (127.0.0.1) 1.18ms
+2026-11-17 13:34:45.327 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.90ms
+2026-11-17 13:34:45.329 200 GET /v2/api/logs?*** (127.0.0.1) 1.07ms
+2026-11-17 13:34:45.330 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.81ms
+2026-11-17 13:34:45.331 200 GET /v2/api/logs?*** (127.0.0.1) 0.71ms
+2026-11-17 13:34:45.333 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.65ms
+2026-11-17 13:34:45.334 200 GET /v2/api/logs?*** (127.0.0.1) 0.66ms
+2026-11-17 13:34:45.335 200 GET /old/v2/api/logs?*** (127.0.0.1) 0.61ms
+2026-11-17 13:34:45.336 200 GET /v2/api/markers (127.0.0.1) 0.46ms
+2026-11-17 13:34:45.337 200 GET /old/v2/api/markers (127.0.0.1) 0.43ms
+ok
+test_apply_labels_cover_engine_values (tests.v2.test_api_read_pullback.TestLabelTables.test_apply_labels_cover_engine_values) ... ok
+test_labels_match_terminology (tests.v2.test_api_read_pullback.TestLabelTables.test_labels_match_terminology) ... ok
+test_param_labels_cover_engine_keys (tests.v2.test_api_read_pullback.TestLabelTables.test_param_labels_cover_engine_keys) ... ok
+test_logs_golden_event_line (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_golden_event_line) ... 2026-11-17 13:34:45.363 200 GET /v2/api/logs?*** (127.0.0.1) 1.22ms
+2026-11-17 13:34:45.365 200 GET /v2/api/logs?*** (127.0.0.1) 1.07ms
+ok
+test_logs_holding_armed_from_sell_eval (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_holding_armed_from_sell_eval)
+보유 중 눌림 대기는 매도 판단 행 checks 에 있다(그림 2-라 10:42 줄). 미발동 비armed 행은 넣지 않는다. ... 2026-11-17 13:34:45.392 200 GET /v2/api/logs?*** (127.0.0.1) 1.21ms
+ok
+test_logs_not_active_uses_ma_periods (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_not_active_uses_ma_periods) ... 2026-11-17 13:34:45.419 200 GET /v2/api/logs?*** (127.0.0.1) 1.32ms
+ok
+test_logs_params_apply_labels (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_params_apply_labels) ... 2026-11-17 13:34:45.451 200 GET /v2/api/logs?*** (127.0.0.1) 1.30ms
+2026-11-17 13:34:45.455 200 GET /v2/api/logs?*** (127.0.0.1) 1.31ms
+2026-11-17 13:34:45.458 200 GET /v2/api/logs?*** (127.0.0.1) 1.14ms
+2026-11-17 13:34:45.461 200 GET /v2/api/logs?*** (127.0.0.1) 1.18ms
+2026-11-17 13:34:45.463 200 GET /v2/api/logs?*** (127.0.0.1) 1.15ms
+ok
+test_logs_params_first_switch_all_new (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_params_first_switch_all_new) ... 2026-11-17 13:34:45.488 200 GET /v2/api/logs?*** (127.0.0.1) 1.30ms
+ok
+test_logs_params_more_than_three (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_params_more_than_three) ... 2026-11-17 13:34:45.519 200 GET /v2/api/logs?*** (127.0.0.1) 1.20ms
+ok
+test_logs_params_row_not_switch (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_params_row_not_switch) ... 2026-11-17 13:34:45.546 200 GET /v2/api/logs?*** (127.0.0.1) 1.17ms
+ok
+test_logs_pullback_wait_line (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_pullback_wait_line) ... 2026-11-17 13:34:45.576 200 GET /v2/api/logs?*** (127.0.0.1) 1.25ms
+ok
+test_logs_pullback_without_tables_200 (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_pullback_without_tables_200) ... 2026-11-17 13:34:45.595 200 GET /v2/api/logs?*** (127.0.0.1) 1.03ms
+ok
+test_logs_sell_line (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_sell_line) ... 2026-11-17 13:34:45.619 200 GET /v2/api/logs?*** (127.0.0.1) 1.19ms
+ok
+test_logs_skip_krw_short_line (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_skip_krw_short_line) ... 2026-11-17 13:34:45.661 200 GET /v2/api/logs?*** (127.0.0.1) 3.14ms
+ok
+test_logs_split_buy_lines (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_split_buy_lines) ... 2026-11-17 13:34:45.701 200 GET /v2/api/logs?*** (127.0.0.1) 1.41ms
+ok
+test_logs_switch_done_line (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_switch_done_line) ... 2026-11-17 13:34:45.733 200 GET /v2/api/logs?*** (127.0.0.1) 1.16ms
+ok
+test_logs_switch_immediate_90s_no_reserved_line (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_switch_immediate_90s_no_reserved_line)
+결정 9: 즉시 전환이 1분봉에서 완료까지 90초 → 하한 300초 안이라 예약 줄 없음. ... 2026-11-17 13:34:45.768 200 GET /v2/api/logs?*** (127.0.0.1) 1.08ms
+ok
+test_logs_switch_kinds_states (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_switch_kinds_states) ... 2026-11-17 13:34:45.804 200 GET /v2/api/logs?*** (127.0.0.1) 1.16ms
+2026-11-17 13:34:45.807 200 GET /v2/api/logs?*** (127.0.0.1) 1.18ms
+2026-11-17 13:34:45.811 200 GET /v2/api/logs?*** (127.0.0.1) 1.10ms
+2026-11-17 13:34:45.814 200 GET /v2/api/logs?*** (127.0.0.1) 1.04ms
+2026-11-17 13:34:45.817 200 GET /v2/api/logs?*** (127.0.0.1) 0.96ms
+2026-11-17 13:34:45.820 200 GET /v2/api/logs?*** (127.0.0.1) 0.92ms
+2026-11-17 13:34:45.822 200 GET /v2/api/logs?*** (127.0.0.1) 0.95ms
+2026-11-17 13:34:45.824 200 GET /v2/api/logs?*** (127.0.0.1) 0.93ms
+2026-11-17 13:34:45.828 200 GET /v2/api/logs?*** (127.0.0.1) 0.94ms
+ok
+test_logs_switch_mode_and_user_scope (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_switch_mode_and_user_scope) ... 2026-11-17 13:34:45.862 200 GET /v2/api/logs?*** (127.0.0.1) 1.17ms
+2026-11-17 13:34:45.864 200 GET /v2/api/logs?*** (127.0.0.1) 1.07ms
+ok
+test_logs_switch_reserved_then_done_two_lines (tests.v2.test_api_read_pullback.TestPullbackLogs.test_logs_switch_reserved_then_done_two_lines) ... 2026-11-17 13:34:45.903 200 GET /v2/api/logs?*** (127.0.0.1) 1.22ms
+2026-11-17 13:34:45.907 200 GET /v2/api/logs?*** (127.0.0.1) 1.53ms
+ok
+test_signals_holding_sell_eval_pb (tests.v2.test_api_read_pullback.TestPullbackSignals.test_signals_holding_sell_eval_pb) ... 2026-11-17 13:34:45.941 200 GET /v2/api/signals?*** (127.0.0.1) 0.89ms
+ok
+test_signals_pb_field_only_for_pullback (tests.v2.test_api_read_pullback.TestPullbackSignals.test_signals_pb_field_only_for_pullback) ... 2026-11-17 13:34:45.977 200 GET /v2/api/signals?*** (127.0.0.1) 0.83ms
+2026-11-17 13:34:45.978 200 GET /v2/api/signals?*** (127.0.0.1) 0.69ms
+ok
+test_assets_does_not_call_ops_info_helpers (tests.v2.test_api_read_pullback.TestPullbackStatusAssets.test_assets_does_not_call_ops_info_helpers)
+결정 5: 자산 처리 경로는 ops_info·저장본 해시·요청 파일 읽기를 부르지 않는다. ... 2026-11-17 13:34:46.030 200 GET /v2/api/assets (127.0.0.1) 2.59ms
+ok
+test_assets_pullback_without_tables_200 (tests.v2.test_api_read_pullback.TestPullbackStatusAssets.test_assets_pullback_without_tables_200) ... 2026-11-17 13:34:46.059 200 GET /v2/api/assets (127.0.0.1) 1.26ms
+ok
+test_assets_round_from_pullback_state (tests.v2.test_api_read_pullback.TestPullbackStatusAssets.test_assets_round_from_pullback_state) ... 2026-11-17 13:34:46.089 200 GET /v2/api/assets (127.0.0.1) 1.59ms
+2026-11-17 13:34:46.091 200 GET /v2/api/assets (127.0.0.1) 1.29ms
+2026-11-17 13:34:46.093 200 GET /v2/api/assets (127.0.0.1) 1.23ms
+ok
+test_assets_tp_sl_desync_uses_engine_record (tests.v2.test_api_read_pullback.TestPullbackStatusAssets.test_assets_tp_sl_desync_uses_engine_record)
+어긋남(지갑 평단 기준으로 엔진이 관리) — 상태 평단이 아니라 엔진 판단 기록 값. ... 2026-11-17 13:34:46.129 200 GET /v2/api/assets (127.0.0.1) 1.69ms
+ok
+test_assets_tp_sl_from_pullback_params (tests.v2.test_api_read_pullback.TestPullbackStatusAssets.test_assets_tp_sl_from_pullback_params) ... 2026-11-17 13:34:46.161 200 GET /v2/api/assets (127.0.0.1) 1.95ms
+ok
+test_status_pullback_config_only_for_pullback (tests.v2.test_api_read_pullback.TestPullbackStatusAssets.test_status_pullback_config_only_for_pullback) ... 2026-11-17 13:34:46.193 200 GET /v2/api/status (127.0.0.1) 1.30ms
+2026-11-17 13:34:46.195 200 GET /v2/api/status (127.0.0.1) 1.08ms
+ok
+test_markers_include_split_buys (tests.v2.test_api_read_pullback.TestPullbackTradesMarkers.test_markers_include_split_buys) ... 2026-11-17 13:34:46.238 200 GET /v2/api/markers (127.0.0.1) 0.81ms
+ok
+test_trades_include_round (tests.v2.test_api_read_pullback.TestPullbackTradesMarkers.test_trades_include_round) ... 2026-11-17 13:34:46.272 200 GET /v2/api/trades (127.0.0.1) 0.83ms
+ok
+test_assets_old_table_without_v2_columns (tests.v2.test_api_read_pullback.TestVer2Display.test_assets_old_table_without_v2_columns)
+새 칸이 아직 없는 DB(엔진 기동 전 배포 직후) — 새 칸은 null, 회차·가격은 그대로. ... 2026-11-17 13:34:46.303 200 GET /v2/api/assets (127.0.0.1) 1.58ms
+ok
+test_assets_pause_until_only_while_future (tests.v2.test_api_read_pullback.TestVer2Display.test_assets_pause_until_only_while_future) ... 2026-11-17 13:34:46.336 200 GET /v2/api/assets (127.0.0.1) 1.53ms
+2026-11-17 13:34:46.339 200 GET /v2/api/assets (127.0.0.1) 1.44ms
+ok
+test_assets_trade_tp_pct_sets_tp_price (tests.v2.test_api_read_pullback.TestVer2Display.test_assets_trade_tp_pct_sets_tp_price) ... 2026-11-17 13:34:46.370 200 GET /v2/api/assets (127.0.0.1) 1.42ms
+ok
+test_inactive_ma60_reasons_use_ma60_period (tests.v2.test_api_read_pullback.TestVer2Display.test_inactive_ma60_reasons_use_ma60_period) ... 2026-11-17 13:34:46.394 200 GET /v2/api/logs?*** (127.0.0.1) 1.19ms
+ok
+test_param_records_show_new_keys_with_pct (tests.v2.test_api_read_pullback.TestVer2Display.test_param_records_show_new_keys_with_pct) ... ok
+test_saved_state_accepts_old_and_new_files (tests.v2.test_api_read_pullback.TestVer2Display.test_saved_state_accepts_old_and_new_files)
+옛 저장본(18키, minSlope·slopeDrop 있음)도 「저장본 정상」 — 엔진이 옮겨 읽는다(2-5). 키가 빠지면 아님. ... ok
+test_sl_pause_and_gc_gap_texts (tests.v2.test_api_read_pullback.TestVer2Display.test_sl_pause_and_gc_gap_texts) ... 2026-11-17 13:34:46.424 200 GET /v2/api/logs?*** (127.0.0.1) 1.20ms
+2026-11-17 13:34:46.425 200 GET /v2/api/signals?*** (127.0.0.1) 0.73ms
+ok
+test_current_after_save_roundtrip (tests.v2.test_api_write.TestCurrent.test_current_after_save_roundtrip) ... 2026-11-17 13:34:46.444 200 POST /v2/api/params/save (127.0.0.1) 1.81ms
+2026-11-17 13:34:46.445 200 GET /v2/api/params/current (127.0.0.1) 0.31ms
+ok
+test_params_current (tests.v2.test_api_write.TestCurrent.test_params_current) ... 2026-11-17 13:34:46.465 200 GET /v2/api/params/current (127.0.0.1) 0.30ms
+2026-11-17 13:34:46.466 200 GET /v2/api/params/current (127.0.0.1) 0.26ms
+2026-11-17 13:34:46.467 200 GET /v2/api/params/current (127.0.0.1) 0.24ms
+2026-11-17 13:34:46.468 200 GET /v2/api/params/current (127.0.0.1) 0.26ms
+2026-11-17 13:34:46.468 200 GET /v2/api/params/current (127.0.0.1) 0.22ms
+ok
+test_normalize_ticker (tests.v2.test_api_write.TestNormalizeTicker.test_normalize_ticker) ... ok
+test_bad_json_400 (tests.v2.test_api_write.TestSave.test_bad_json_400) ... 2026-11-17 13:34:46.488 400 POST /v2/api/params/save (127.0.0.1) 0.26ms
+2026-11-17 13:34:46.489 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:34:46.490 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:34:46.491 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:34:46.492 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:46.492 400 POST /v2/api/params/save (127.0.0.1) 0.21ms
+2026-11-17 13:34:46.493 400 POST /v2/api/params/save (127.0.0.1) 0.32ms
+ok
+test_body_too_large_400 (tests.v2.test_api_write.TestSave.test_body_too_large_400) ... 2026-11-17 13:34:46.524 400 POST /v2/api/params/save (127.0.0.1) 0.29ms
+ok
+test_deeply_nested_json_400 (tests.v2.test_api_write.TestSave.test_deeply_nested_json_400) ... 2026-11-17 13:34:46.601 400 POST /v2/api/params/save (127.0.0.1) 0.53ms
+ok
+test_engine_ticker_from_active_strategy (tests.v2.test_api_write.TestSave.test_engine_ticker_from_active_strategy) ... 2026-11-17 13:34:46.665 200 POST /v2/api/params/save (127.0.0.1) 5.08ms
+ok
+test_engine_ticker_unknown_409_file_unchanged (tests.v2.test_api_write.TestSave.test_engine_ticker_unknown_409_file_unchanged) ... 2026-11-17 13:34:46.734 409 POST /v2/api/params/save (127.0.0.1) 0.35ms
+2026-11-17 13:34:46.738 409 POST /v2/api/params/save (127.0.0.1) 0.40ms
+2026-11-17 13:34:46.743 409 POST /v2/api/params/save (127.0.0.1) 0.33ms
+2026-11-17 13:34:46.744 409 POST /v2/api/params/save (127.0.0.1) 0.32ms
+2026-11-17 13:34:46.746 409 POST /v2/api/params/save (127.0.0.1) 0.30ms
+2026-11-17 13:34:46.747 409 POST /v2/api/params/save (127.0.0.1) 0.26ms
+ok
+test_file_removed_between_read_and_write_500_no_create (tests.v2.test_api_write.TestSave.test_file_removed_between_read_and_write_500_no_create) ... 2026-11-17 13:34:46.776 500 POST /v2/api/params/save (127.0.0.1) 0.64ms
+ok
+test_file_write_failure_500_file_unchanged (tests.v2.test_api_write.TestSave.test_file_write_failure_500_file_unchanged) ... 2026-11-17 13:34:46.809 500 POST /v2/api/params/save (127.0.0.1) 0.46ms
+2026-11-17 13:34:46.810 500 POST /v2/api/params/save (127.0.0.1) 0.37ms
+2026-11-17 13:34:46.812 500 POST /v2/api/params/save (127.0.0.1) 0.79ms
+2026-11-17 13:34:46.813 500 POST /v2/api/params/save (127.0.0.1) 0.57ms
+2026-11-17 13:34:46.817 500 POST /v2/api/params/save (127.0.0.1) 0.57ms
+ok
+test_history_failure_and_restore_failure_file_changed (tests.v2.test_api_write.TestSave.test_history_failure_and_restore_failure_file_changed) ... 2026-11-17 13:34:46.859 500 POST /v2/api/params/save (127.0.0.1) 0.80ms
+ok
+test_history_failure_restores_file (tests.v2.test_api_write.TestSave.test_history_failure_restores_file) ... 2026-11-17 13:34:46.893 500 POST /v2/api/params/save (127.0.0.1) 0.66ms
+ok
+test_integer_float_accepted (tests.v2.test_api_write.TestSave.test_integer_float_accepted) ... 2026-11-17 13:34:46.927 200 POST /v2/api/params/save (127.0.0.1) 2.27ms
+2026-11-17 13:34:46.929 200 POST /v2/api/params/save (127.0.0.1) 1.29ms
+ok
+test_interval_and_bool_mapping (tests.v2.test_api_write.TestSave.test_interval_and_bool_mapping) ... 2026-11-17 13:34:46.953 200 POST /v2/api/params/save (127.0.0.1) 2.12ms
+2026-11-17 13:34:46.955 200 POST /v2/api/params/save (127.0.0.1) 1.17ms
+2026-11-17 13:34:46.957 200 POST /v2/api/params/save (127.0.0.1) 1.11ms
+2026-11-17 13:34:46.958 200 POST /v2/api/params/save (127.0.0.1) 1.16ms
+2026-11-17 13:34:46.960 200 POST /v2/api/params/save (127.0.0.1) 1.10ms
+2026-11-17 13:34:46.962 200 POST /v2/api/params/save (127.0.0.1) 1.13ms
+ok
+test_invalid_param_400_and_file_unchanged (tests.v2.test_api_write.TestSave.test_invalid_param_400_and_file_unchanged) ... 2026-11-17 13:34:46.998 400 POST /v2/api/params/save (127.0.0.1) 0.33ms
+2026-11-17 13:34:46.999 400 POST /v2/api/params/save (127.0.0.1) 0.31ms
+2026-11-17 13:34:47.000 400 POST /v2/api/params/save (127.0.0.1) 0.24ms
+2026-11-17 13:34:47.001 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.002 400 POST /v2/api/params/save (127.0.0.1) 0.35ms
+2026-11-17 13:34:47.003 400 POST /v2/api/params/save (127.0.0.1) 0.24ms
+2026-11-17 13:34:47.005 400 POST /v2/api/params/save (127.0.0.1) 0.38ms
+2026-11-17 13:34:47.006 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.007 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:34:47.008 400 POST /v2/api/params/save (127.0.0.1) 0.21ms
+2026-11-17 13:34:47.009 400 POST /v2/api/params/save (127.0.0.1) 0.30ms
+2026-11-17 13:34:47.011 400 POST /v2/api/params/save (127.0.0.1) 0.39ms
+2026-11-17 13:34:47.012 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.013 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:34:47.014 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.015 400 POST /v2/api/params/save (127.0.0.1) 0.31ms
+2026-11-17 13:34:47.016 400 POST /v2/api/params/save (127.0.0.1) 0.31ms
+2026-11-17 13:34:47.017 400 POST /v2/api/params/save (127.0.0.1) 0.26ms
+2026-11-17 13:34:47.018 400 POST /v2/api/params/save (127.0.0.1) 0.27ms
+2026-11-17 13:34:47.019 400 POST /v2/api/params/save (127.0.0.1) 0.34ms
+2026-11-17 13:34:47.021 400 POST /v2/api/params/save (127.0.0.1) 0.29ms
+2026-11-17 13:34:47.022 400 POST /v2/api/params/save (127.0.0.1) 0.53ms
+2026-11-17 13:34:47.023 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.024 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:34:47.025 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.026 400 POST /v2/api/params/save (127.0.0.1) 0.31ms
+2026-11-17 13:34:47.027 400 POST /v2/api/params/save (127.0.0.1) 0.21ms
+2026-11-17 13:34:47.027 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.028 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.029 400 POST /v2/api/params/save (127.0.0.1) 0.21ms
+2026-11-17 13:34:47.030 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.031 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.032 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.032 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.033 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.034 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:34:47.035 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:34:47.036 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+ok
+test_missing_pullback_file_500_no_create (tests.v2.test_api_write.TestSave.test_missing_pullback_file_500_no_create) ... 2026-11-17 13:34:47.053 500 POST /v2/api/params/save (127.0.0.1) 0.36ms
+ok
+test_no_live_db_404_file_unchanged (tests.v2.test_api_write.TestSave.test_no_live_db_404_file_unchanged) ... 2026-11-17 13:34:47.071 404 POST /v2/api/params/save (127.0.0.1) 0.36ms
+ok
+test_save_bad_origin_403 (tests.v2.test_api_write.TestSave.test_save_bad_origin_403) ... 2026-11-17 13:34:47.090 403 POST /v2/api/params/save (127.0.0.1) 0.13ms
+2026-11-17 13:34:47.090 403 POST /v2/api/params/save (127.0.0.1) 0.11ms
+ok
+test_save_does_not_touch_live_db (tests.v2.test_api_write.TestSave.test_save_does_not_touch_live_db) ... 2026-11-17 13:34:47.110 200 POST /v2/api/params/save (127.0.0.1) 1.65ms
+ok
+test_save_inserts_v2hist_row (tests.v2.test_api_write.TestSave.test_save_inserts_v2hist_row) ... 2026-11-17 13:34:47.133 200 POST /v2/api/params/save (127.0.0.1) 1.58ms
+ok
+test_save_not_allowed_403 (tests.v2.test_api_write.TestSave.test_save_not_allowed_403) ... 2026-11-17 13:34:47.160 403 POST /v2/api/params/save (127.0.0.1) 0.32ms
+2026-11-17 13:34:47.161 403 GET /v2/api/params/current (127.0.0.1) 0.28ms
+ok
+test_save_requires_session_401 (tests.v2.test_api_write.TestSave.test_save_requires_session_401) ... 2026-11-17 13:34:47.184 401 POST /v2/api/params/save (127.0.0.1) 0.16ms
+2026-11-17 13:34:47.185 401 GET /v2/api/params/current (127.0.0.1) 0.11ms
+ok
+test_save_writes_only_pullback_file (tests.v2.test_api_write.TestSave.test_save_writes_only_pullback_file) ... 2026-11-17 13:34:47.206 200 POST /v2/api/params/save (127.0.0.1) 1.79ms
+ok
+test_saved_at_lookup_failure_still_200 (tests.v2.test_api_write.TestSave.test_saved_at_lookup_failure_still_200) ... 2026-11-17 13:34:47.232 200 POST /v2/api/params/save (127.0.0.1) 2.56ms
+ok
+test_server_extra_limits_boundaries (tests.v2.test_api_write.TestSave.test_server_extra_limits_boundaries) ... 2026-11-17 13:34:47.254 200 POST /v2/api/params/save (127.0.0.1) 1.98ms
+ok
+test_source_not_binance_400 (tests.v2.test_api_write.TestSave.test_source_not_binance_400) ... 2026-11-17 13:34:47.274 400 POST /v2/api/params/save (127.0.0.1) 0.29ms
+2026-11-17 13:34:47.275 400 POST /v2/api/params/save (127.0.0.1) 0.24ms
+2026-11-17 13:34:47.276 400 POST /v2/api/params/save (127.0.0.1) 0.35ms
+2026-11-17 13:34:47.277 400 POST /v2/api/params/save (127.0.0.1) 0.21ms
+ok
+test_symbol_rule_depends_on_source (tests.v2.test_api_write.TestSave.test_symbol_rule_depends_on_source) ... 2026-11-17 13:34:47.303 400 POST /v2/api/params/save (127.0.0.1) 0.60ms
+2026-11-17 13:34:47.305 400 POST /v2/api/params/save (127.0.0.1) 0.64ms
+2026-11-17 13:34:47.306 400 POST /v2/api/params/save (127.0.0.1) 0.27ms
+2026-11-17 13:34:47.307 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.308 400 POST /v2/api/params/save (127.0.0.1) 0.29ms
+2026-11-17 13:34:47.311 400 POST /v2/api/params/save (127.0.0.1) 0.59ms
+ok
+test_two_saves_two_history_rows (tests.v2.test_api_write.TestSave.test_two_saves_two_history_rows) ... 2026-11-17 13:34:47.334 200 POST /v2/api/params/save (127.0.0.1) 1.97ms
+2026-11-17 13:34:47.336 200 POST /v2/api/params/save (127.0.0.1) 1.46ms
+ok
+test_unknown_key_400 (tests.v2.test_api_write.TestSave.test_unknown_key_400) ... 2026-11-17 13:34:47.358 400 POST /v2/api/params/save (127.0.0.1) 0.30ms
+2026-11-17 13:34:47.359 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:34:47.360 400 POST /v2/api/params/save (127.0.0.1) 0.24ms
+ok
+test_upbit_source_saves_with_note (tests.v2.test_api_write.TestSave.test_upbit_source_saves_with_note) ... 2026-11-17 13:34:47.405 200 POST /v2/api/params/save (127.0.0.1) 12.62ms
+ok
+test_api_write_imports (tests.v2.test_api_write.TestSchema.test_api_write_imports) ... ok
+test_param_fields_match_original_html (tests.v2.test_api_write.TestSchema.test_param_fields_match_original_html) ... ok
+test_validate_params_basics (tests.v2.test_api_write.TestSchema.test_validate_params_basics) ... ok
+test_read_apis_use_prefixed_ticker (tests.v2.test_api_write.TestTickerWithoutPrefix.test_read_apis_use_prefixed_ticker) ... 2026-11-17 13:34:47.461 200 GET /v2/api/status (127.0.0.1) 1.31ms
+2026-11-17 13:34:47.463 200 GET /v2/api/assets (127.0.0.1) 1.22ms
+2026-11-17 13:34:47.464 200 GET /v2/api/trades (127.0.0.1) 0.56ms
+2026-11-17 13:34:47.466 200 GET /v2/api/signals (127.0.0.1) 0.67ms
+2026-11-17 13:34:47.467 200 GET /v2/api/markers (127.0.0.1) 0.54ms
+ok
+test_save_with_bare_ticker_200 (tests.v2.test_api_write.TestTickerWithoutPrefix.test_save_with_bare_ticker_200) ... 2026-11-17 13:34:47.488 200 POST /v2/api/params/save (127.0.0.1) 1.56ms
+ok
+test_allowlist_comments (tests.v2.test_auth.AllowlistTests.test_allowlist_comments) ... ok
+test_allowlist_missing_or_unreadable_empty (tests.v2.test_auth.AllowlistTests.test_allowlist_missing_or_unreadable_empty) ... ok
+test_allowlist_read_each_call (tests.v2.test_auth.AllowlistTests.test_allowlist_read_each_call) ... ok
+test_cookie_constants (tests.v2.test_auth.SessionTests.test_cookie_constants) ... ok
+test_make_session_rejects_bad_input (tests.v2.test_auth.SessionTests.test_make_session_rejects_bad_input) ... ok
+test_session_bad_mode_none (tests.v2.test_auth.SessionTests.test_session_bad_mode_none) ... ok
+test_session_expired_none (tests.v2.test_auth.SessionTests.test_session_expired_none) ... ok
+test_session_extra_or_missing_key_none (tests.v2.test_auth.SessionTests.test_session_extra_or_missing_key_none) ... ok
+test_session_no_secret (tests.v2.test_auth.SessionTests.test_session_no_secret) ... ok
+test_session_roundtrip (tests.v2.test_auth.SessionTests.test_session_roundtrip) ... ok
+test_session_tampered_or_garbage_none (tests.v2.test_auth.SessionTests.test_session_tampered_or_garbage_none) ... ok
+test_session_wrong_typ_none (tests.v2.test_auth.SessionTests.test_session_wrong_typ_none) ... ok
+test_entry_token_stdlib_only (tests.v2.test_auth.StdlibOnlyTests.test_entry_token_stdlib_only) ... ok
+test_make_token_rejects_bad_input (tests.v2.test_auth.TokenTests.test_make_token_rejects_bad_input) ... ok
+test_missing_secret_unavailable (tests.v2.test_auth.TokenTests.test_missing_secret_unavailable) ... ok
+test_nonce_store_purges_expired (tests.v2.test_auth.TokenTests.test_nonce_store_purges_expired) ... ok
+test_roundtrip (tests.v2.test_auth.TokenTests.test_roundtrip) ... ok
+test_secret_read_each_call (tests.v2.test_auth.TokenTests.test_secret_read_each_call) ... ok
+test_session_value_rejected_as_token (tests.v2.test_auth.TokenTests.test_session_value_rejected_as_token) ... ok
+test_short_secret_unavailable (tests.v2.test_auth.TokenTests.test_short_secret_unavailable) ... ok
+test_token_expired_rejected (tests.v2.test_auth.TokenTests.test_token_expired_rejected) ... ok
+test_token_nonalphabet_char_rejected (tests.v2.test_auth.TokenTests.test_token_nonalphabet_char_rejected) ... ok
+test_token_noncanonical_signature_rejected (tests.v2.test_auth.TokenTests.test_token_noncanonical_signature_rejected) ... ok
+test_token_rejected_as_session (tests.v2.test_auth.TokenTests.test_token_rejected_as_session) ... ok
+test_token_reuse_rejected (tests.v2.test_auth.TokenTests.test_token_reuse_rejected) ... ok
+test_token_tampered_rejected (tests.v2.test_auth.TokenTests.test_token_tampered_rejected) ... ok
+test_token_wrong_version_rejected (tests.v2.test_auth.TokenTests.test_token_wrong_version_rejected) ... ok
+test_unreadable_secret_unavailable (tests.v2.test_auth.TokenTests.test_unreadable_secret_unavailable) ... ok
+test_display_name_blank_falls_back_to_user_id (tests.v2.test_basic_pause.TestBasicCalc.test_display_name_blank_falls_back_to_user_id) ... 2026-11-17 13:34:47.523 200 GET /v2/api/basic (127.0.0.1) 1.42ms
+ok
+test_display_name_from_users (tests.v2.test_basic_pause.TestBasicCalc.test_display_name_from_users) ... 2026-11-17 13:34:47.542 200 GET /v2/api/basic (127.0.0.1) 1.45ms
+ok
+test_no_ticker_means_no_pnl (tests.v2.test_basic_pause.TestBasicCalc.test_no_ticker_means_no_pnl) ... 2026-11-17 13:34:47.567 200 GET /v2/api/basic (127.0.0.1) 1.42ms
+ok
+test_other_users_orders_ignored (tests.v2.test_basic_pause.TestBasicCalc.test_other_users_orders_ignored) ... 2026-11-17 13:34:47.595 200 GET /v2/api/basic (127.0.0.1) 1.51ms
+ok
+test_realized_outside_recent_50_is_na (tests.v2.test_basic_pause.TestBasicCalc.test_realized_outside_recent_50_is_na) ... 2026-11-17 13:34:47.647 200 GET /v2/api/basic (127.0.0.1) 1.87ms
+ok
+test_realized_sell_without_older_buy_is_none (tests.v2.test_basic_pause.TestBasicCalc.test_realized_sell_without_older_buy_is_none) ... 2026-11-17 13:34:47.675 200 GET /v2/api/basic (127.0.0.1) 1.47ms
+ok
+test_realized_uses_latest_sell_and_nearest_older_buy (tests.v2.test_basic_pause.TestBasicCalc.test_realized_uses_latest_sell_and_nearest_older_buy) ... 2026-11-17 13:34:47.695 200 GET /v2/api/basic (127.0.0.1) 1.22ms
+ok
+test_realized_uses_price_column (tests.v2.test_basic_pause.TestBasicCalc.test_realized_uses_price_column) ... 2026-11-17 13:34:47.718 200 GET /v2/api/basic (127.0.0.1) 1.27ms
+ok
+test_realized_when_only_locked_coin (tests.v2.test_basic_pause.TestBasicCalc.test_realized_when_only_locked_coin) ... 2026-11-17 13:34:47.740 200 GET /v2/api/basic (127.0.0.1) 1.70ms
+ok
+test_shape (tests.v2.test_basic_pause.TestBasicCalc.test_shape) ... 2026-11-17 13:34:47.762 200 GET /v2/api/basic (127.0.0.1) 1.56ms
+ok
+test_unrealized_after_sell_new_buy_is_open (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_after_sell_new_buy_is_open) ... 2026-11-17 13:34:47.784 200 GET /v2/api/basic (127.0.0.1) 1.90ms
+ok
+test_unrealized_canceled_with_executed_volume_counts (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_canceled_with_executed_volume_counts) ... 2026-11-17 13:34:47.813 200 GET /v2/api/basic (127.0.0.1) 1.98ms
+ok
+test_unrealized_closed_by_hts_sell_is_none (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_closed_by_hts_sell_is_none) ... 2026-11-17 13:34:47.836 200 GET /v2/api/basic (127.0.0.1) 1.91ms
+ok
+test_unrealized_closed_by_later_sell_is_none (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_closed_by_later_sell_is_none) ... 2026-11-17 13:34:47.857 200 GET /v2/api/basic (127.0.0.1) 1.70ms
+ok
+test_unrealized_fallback_then_hts_sell_is_none (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_fallback_then_hts_sell_is_none) ... 2026-11-17 13:34:47.889 200 GET /v2/api/basic (127.0.0.1) 2.02ms
+ok
+test_unrealized_fallback_then_later_filled_sell_is_none (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_fallback_then_later_filled_sell_is_none) ... 2026-11-17 13:34:47.914 200 GET /v2/api/basic (127.0.0.1) 2.04ms
+ok
+test_unrealized_hts_sell_before_buy_is_open (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_hts_sell_before_buy_is_open) ... 2026-11-17 13:34:47.944 200 GET /v2/api/basic (127.0.0.1) 2.03ms
+ok
+test_unrealized_no_filled_buy_falls_back_to_any_state (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_no_filled_buy_falls_back_to_any_state) ... 2026-11-17 13:34:47.970 200 GET /v2/api/basic (127.0.0.1) 2.08ms
+ok
+test_unrealized_no_orders_or_no_price_is_none (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_no_orders_or_no_price_is_none) ... 2026-11-17 13:34:47.998 200 GET /v2/api/basic (127.0.0.1) 1.62ms
+2026-11-17 13:34:48.001 200 GET /v2/api/basic (127.0.0.1) 1.81ms
+ok
+test_unrealized_open_position (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_open_position) ... 2026-11-17 13:34:48.034 200 GET /v2/api/basic (127.0.0.1) 2.10ms
+ok
+test_unrealized_uses_avg_price_over_price (tests.v2.test_basic_pause.TestBasicCalc.test_unrealized_uses_avg_price_over_price) ... 2026-11-17 13:34:48.060 200 GET /v2/api/basic (127.0.0.1) 1.94ms
+ok
+test_broken_json_is_stopped (tests.v2.test_basic_pause.TestEngineAlive.test_broken_json_is_stopped) ... 2026-11-17 13:34:48.084 200 GET /v2/api/basic (127.0.0.1) 1.42ms
+2026-11-17 13:34:48.087 200 GET /v2/api/basic (127.0.0.1) 1.25ms
+ok
+test_false_or_missing_key_is_stopped (tests.v2.test_basic_pause.TestEngineAlive.test_false_or_missing_key_is_stopped) ... 2026-11-17 13:34:48.107 200 GET /v2/api/basic (127.0.0.1) 1.37ms
+2026-11-17 13:34:48.109 200 GET /v2/api/basic (127.0.0.1) 1.32ms
+ok
+test_fresh_and_running_is_running (tests.v2.test_basic_pause.TestEngineAlive.test_fresh_and_running_is_running) ... 2026-11-17 13:34:48.133 200 GET /v2/api/basic (127.0.0.1) 1.49ms
+ok
+test_missing_file_is_stopped (tests.v2.test_basic_pause.TestEngineAlive.test_missing_file_is_stopped) ... 2026-11-17 13:34:48.162 200 GET /v2/api/basic (127.0.0.1) 2.41ms
+ok
+test_stale_is_stopped (tests.v2.test_basic_pause.TestEngineAlive.test_stale_is_stopped) ... 2026-11-17 13:34:48.193 200 GET /v2/api/basic (127.0.0.1) 1.77ms
+ok
+test_bad_shapes (tests.v2.test_basic_pause.TestEngineAliveRule.test_bad_shapes) ... ok
+test_boundary_15_seconds (tests.v2.test_basic_pause.TestEngineAliveRule.test_boundary_15_seconds) ... ok
+test_not_true_values (tests.v2.test_basic_pause.TestEngineAliveRule.test_not_true_values) ... ok
+test_hts_sell_scenarios (tests.v2.test_basic_pause.TestLegacyParity.test_hts_sell_scenarios) ... 2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 WARNING services.db | [DB] last BUY already closed by external sell (HTS_SELL id=1 ts=2026-11-17T13:24:48+09:00) → returning None (WO-22)
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+ok
+test_hts_sell_with_fallback_buy (tests.v2.test_basic_pause.TestLegacyParity.test_hts_sell_with_fallback_buy) ... 2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => None
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (any state) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 0.0}
+2026-11-17 13:34:48 WARNING services.db | [DB] last BUY already closed by external sell (HTS_SELL id=1 ts=2026-11-17T13:24:48+09:00) → returning None (WO-22)
+ok
+test_realized_window_50 (tests.v2.test_basic_pause.TestLegacyParity.test_realized_window_50) ... 2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-16T22:34:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 WARNING services.db | [DB] last BUY already closed by later SELL → returning None (B1: 가짜 진입가 차용 방지)
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-16T22:34:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 WARNING services.db | [DB] last BUY already closed by later SELL → returning None (B1: 가짜 진입가 차용 방지)
+ok
+test_scenarios (tests.v2.test_basic_pause.TestLegacyParity.test_scenarios) ... 2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => None
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (any state) => None
+2026-11-17 13:34:48 INFO services.db | [DB] no BUY candidate found
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 WARNING services.db | [DB] last BUY already closed by later SELL → returning None (B1: 가짜 진입가 차용 방지)
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 119.0, 'entry_ts_iso': '2026-11-17T13:24:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => None
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (any state) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => None
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (any state) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 100.0, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 98.5, 'entry_ts_iso': '2026-11-17T13:04:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => {'price': 130.0, 'entry_ts_iso': '2026-11-17T13:14:48+09:00', 'executed_volume': 1.0}
+2026-11-17 13:34:48 INFO services.db | [DB] orders cols = ['avg_price', 'canceled_at', 'current_coin', 'current_krw', 'executed_at', 'executed_volume', 'id', 'paid_fee', 'price', 'profit_krw', 'provider_uuid', 'requested_at', 'side', 'state', 'status', 'ticker', 'timestamp', 'updated_at', 'user_id', 'volume']
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (with status filter=True) => None
+2026-11-17 13:34:48 INFO services.db | [DB] last BUY (any state) => None
+2026-11-17 13:34:48 INFO services.db | [DB] no BUY candidate found
+ok
+test_status_log_text_same_as_legacy (tests.v2.test_basic_pause.TestLegacyParity.test_status_log_text_same_as_legacy) ... 2026-11-17 13:34:48.359 200 GET /v2/api/basic (127.0.0.1) 1.34ms
+2026-11-17 13:34:48.363 200 GET /v2/api/basic (127.0.0.1) 1.19ms
+ok
+test_clears_cookie_and_redirect (tests.v2.test_basic_pause.TestLogout.test_clears_cookie_and_redirect) ... 2026-11-17 13:34:48.381 200 POST /v2/api/logout (127.0.0.1) 0.31ms
+2026-11-17 13:34:48.382 401 GET /v2/api/status (127.0.0.1) 0.11ms
+2026-11-17 13:34:48.383 401 GET /v2/api/basic (127.0.0.1) 0.10ms
+ok
+test_bad_bodies_400 (tests.v2.test_basic_pause.TestPause.test_bad_bodies_400) ... 2026-11-17 13:34:48.400 400 POST /v2/api/pause (127.0.0.1) 0.30ms
+2026-11-17 13:34:48.401 400 POST /v2/api/pause (127.0.0.1) 0.23ms
+2026-11-17 13:34:48.402 400 POST /v2/api/pause (127.0.0.1) 0.21ms
+2026-11-17 13:34:48.402 400 POST /v2/api/pause (127.0.0.1) 0.20ms
+2026-11-17 13:34:48.403 400 POST /v2/api/pause (127.0.0.1) 0.19ms
+2026-11-17 13:34:48.404 400 POST /v2/api/pause (127.0.0.1) 0.19ms
+2026-11-17 13:34:48.405 400 POST /v2/api/pause (127.0.0.1) 0.19ms
+2026-11-17 13:34:48.405 400 POST /v2/api/pause (127.0.0.1) 0.20ms
+2026-11-17 13:34:48.406 400 POST /v2/api/pause (127.0.0.1) 0.31ms
+2026-11-17 13:34:48.407 400 POST /v2/api/pause (127.0.0.1) 0.19ms
+ok
+test_error_body_has_no_internal_detail (tests.v2.test_basic_pause.TestPause.test_error_body_has_no_internal_detail) ... 2026-11-17 13:34:48.425 404 POST /v2/api/pause (127.0.0.1) 0.26ms
+ok
+test_failure_in_second_statement_rolls_back_first (tests.v2.test_basic_pause.TestPause.test_failure_in_second_statement_rolls_back_first) ... 2026-11-17 13:34:48.442 503 POST /v2/api/pause (127.0.0.1) 0.61ms
+ok
+test_locked_database_503_and_nothing_written (tests.v2.test_basic_pause.TestPause.test_locked_database_503_and_nothing_written) ... 2026-11-17 13:34:48.585 503 POST /v2/api/pause (127.0.0.1) 124.58ms
+2026-11-17 13:34:48.588 200 POST /v2/api/pause (127.0.0.1) 1.54ms
+ok
+test_no_live_db_404_and_no_file_created (tests.v2.test_basic_pause.TestPause.test_no_live_db_404_and_no_file_created) ... 2026-11-17 13:34:48.612 404 POST /v2/api/pause (127.0.0.1) 0.34ms
+ok
+test_pause_then_resume_changes_one_cell_and_one_log (tests.v2.test_basic_pause.TestPause.test_pause_then_resume_changes_one_cell_and_one_log) ... 2026-11-17 13:34:48.632 200 POST /v2/api/pause (127.0.0.1) 0.86ms
+2026-11-17 13:34:48.633 200 POST /v2/api/pause (127.0.0.1) 0.79ms
+ok
+test_status_reflects_pause (tests.v2.test_basic_pause.TestPause.test_status_reflects_pause) ... 2026-11-17 13:34:48.651 200 POST /v2/api/pause (127.0.0.1) 0.78ms
+2026-11-17 13:34:48.653 200 GET /v2/api/status (127.0.0.1) 1.00ms
+ok
+test_upsert_creates_user_row_when_missing (tests.v2.test_basic_pause.TestPause.test_upsert_creates_user_row_when_missing) ... 2026-11-17 13:34:48.673 200 POST /v2/api/pause (127.0.0.1) 0.89ms
+ok
+test_all_nine_prefixes_match_legacy (tests.v2.test_basic_pause.TestStatusLog.test_all_nine_prefixes_match_legacy) ... 2026-11-17 13:34:48.690 200 GET /v2/api/basic (127.0.0.1) 1.45ms
+2026-11-17 13:34:48.693 200 GET /v2/api/basic (127.0.0.1) 1.23ms
+2026-11-17 13:34:48.695 200 GET /v2/api/basic (127.0.0.1) 1.13ms
+2026-11-17 13:34:48.698 200 GET /v2/api/basic (127.0.0.1) 1.17ms
+2026-11-17 13:34:48.700 200 GET /v2/api/basic (127.0.0.1) 1.20ms
+2026-11-17 13:34:48.703 200 GET /v2/api/basic (127.0.0.1) 1.14ms
+2026-11-17 13:34:48.705 200 GET /v2/api/basic (127.0.0.1) 1.20ms
+2026-11-17 13:34:48.708 200 GET /v2/api/basic (127.0.0.1) 1.13ms
+2026-11-17 13:34:48.711 200 GET /v2/api/basic (127.0.0.1) 1.34ms
+ok
+test_buy_sell_levels_included (tests.v2.test_basic_pause.TestStatusLog.test_buy_sell_levels_included) ... 2026-11-17 13:34:48.729 200 GET /v2/api/basic (127.0.0.1) 1.25ms
+ok
+test_iso_timestamp_formatted_like_legacy (tests.v2.test_basic_pause.TestStatusLog.test_iso_timestamp_formatted_like_legacy) ... 2026-11-17 13:34:48.746 200 GET /v2/api/basic (127.0.0.1) 1.20ms
+ok
+test_latest_status_prefix_only (tests.v2.test_basic_pause.TestStatusLog.test_latest_status_prefix_only) ... 2026-11-17 13:34:48.765 200 GET /v2/api/basic (127.0.0.1) 1.35ms
+ok
+test_none (tests.v2.test_basic_pause.TestStatusLog.test_none) ... 2026-11-17 13:34:48.781 200 GET /v2/api/basic (127.0.0.1) 1.17ms
+ok
+test_get_on_write_routes_not_allowed (tests.v2.test_basic_pause.TestWriteAuth.test_get_on_write_routes_not_allowed) ... 2026-11-17 13:34:48.802 405 GET /v2/api/pause (127.0.0.1) 0.27ms
+2026-11-17 13:34:48.803 405 GET /v2/api/logout (127.0.0.1) 0.22ms
+ok
+test_logout_origin_and_session (tests.v2.test_basic_pause.TestWriteAuth.test_logout_origin_and_session) ... 2026-11-17 13:34:48.830 403 POST /v2/api/logout (127.0.0.1) 0.18ms
+2026-11-17 13:34:48.832 403 POST /v2/api/logout (127.0.0.1) 0.27ms
+2026-11-17 13:34:48.837 401 POST /v2/api/logout (127.0.0.1) 2.66ms
+2026-11-17 13:34:48.840 403 POST /v2/api/logout (127.0.0.1) 0.73ms
+ok
+test_pause_not_allowlisted_403 (tests.v2.test_basic_pause.TestWriteAuth.test_pause_not_allowlisted_403) ... 2026-11-17 13:34:48.862 403 POST /v2/api/pause (127.0.0.1) 0.42ms
+ok
+test_pause_origin_missing_or_other_403 (tests.v2.test_basic_pause.TestWriteAuth.test_pause_origin_missing_or_other_403) ... 2026-11-17 13:34:48.879 403 POST /v2/api/pause (127.0.0.1) 0.13ms
+2026-11-17 13:34:48.879 403 POST /v2/api/pause (127.0.0.1) 0.11ms
+2026-11-17 13:34:48.880 403 POST /v2/api/pause (127.0.0.1) 0.11ms
+ok
+test_pause_without_session_401 (tests.v2.test_basic_pause.TestWriteAuth.test_pause_without_session_401) ... 2026-11-17 13:34:48.899 401 POST /v2/api/pause (127.0.0.1) 0.21ms
+ok
+test_live_write_statements_touch_only_users_and_logs (tests.v2.test_basic_pause.TestWriteLint.test_live_write_statements_touch_only_users_and_logs) ... ok
+test_only_expected_write_statements_exist (tests.v2.test_basic_pause.TestWriteLint.test_only_expected_write_statements_exist) ... ok
+test_rw_connections_only_in_set_paused_and_open_v2hist (tests.v2.test_basic_pause.TestWriteLint.test_rw_connections_only_in_set_paused_and_open_v2hist) ... ok
+test_set_paused_called_only_from_pause_handler (tests.v2.test_basic_pause.TestWriteLint.test_set_paused_called_only_from_pause_handler) ... ok
+test_v2_code_has_no_upbit_or_engine_imports (tests.v2.test_basic_pause.TestWriteLint.test_v2_code_has_no_upbit_or_engine_imports) ... ok
+test_write_sql_executed_only_inside_set_paused_and_hist_funcs (tests.v2.test_basic_pause.TestWriteLint.test_write_sql_executed_only_inside_set_paused_and_hist_funcs) ... ok
+test_202_then_200_gzip (tests.v2.test_candles.HandlerTests.test_202_then_200_gzip) ... 2026-11-17 13:34:49.822 202 GET /v2/api/candles?*** (127.0.0.1) 0.39ms
+2026-11-17 13:34:49.839 200 GET /v2/api/candles/progress (127.0.0.1) 1.84ms
+2026-11-17 13:34:50.229 200 GET /v2/api/candles/progress (127.0.0.1) 0.28ms
+2026-11-17 13:34:50.354 200 GET /v2/api/candles?*** (127.0.0.1) 124.31ms
+ok
+test_429_and_503 (tests.v2.test_candles.HandlerTests.test_429_and_503) ... 2026-11-17 13:34:50.384 202 GET /v2/api/candles?*** (127.0.0.1) 0.35ms
+2026-11-17 13:34:50 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+2026-11-17 13:34:50.385 429 GET /v2/api/candles?*** (127.0.0.1) 0.30ms
+2026-11-17 13:34:50.386 202 GET /v2/api/candles?*** (127.0.0.1) 0.30ms
+2026-11-17 13:34:50 ERROR v2.candles | [V2-CANDLES] status=418 HALT market=KRW-JTO unit=1
+2026-11-17 13:34:50.387 503 GET /v2/api/candles?*** (127.0.0.1) 0.20ms
+ok
+test_bad_request_400 (tests.v2.test_candles.HandlerTests.test_bad_request_400) ... 2026-11-17 13:34:50.390 400 GET /v2/api/candles?*** (127.0.0.1) 0.21ms
+2026-11-17 13:34:50.390 400 GET /v2/api/candles?*** (127.0.0.1) 0.21ms
+2026-11-17 13:34:50.391 400 GET /v2/api/candles?*** (127.0.0.1) 0.19ms
+2026-11-17 13:34:50.392 400 GET /v2/api/candles?*** (127.0.0.1) 0.19ms
+ok
+test_busy_409 (tests.v2.test_candles.HandlerTests.test_busy_409) ... 2026-11-17 13:34:50.394 202 GET /v2/api/candles?*** (127.0.0.1) 0.26ms
+2026-11-17 13:34:50.411 409 GET /v2/api/candles?*** (127.0.0.1) 1.99ms
+ok
+test_inline_upbit_error_502 (tests.v2.test_candles.HandlerTests.test_inline_upbit_error_502) ... 2026-11-17 13:34:50.831 502 GET /v2/api/candles?*** (127.0.0.1) 2.58ms
+ok
+test_no_session_401 (tests.v2.test_candles.HandlerTests.test_no_session_401) ... 2026-11-17 13:34:50.834 401 GET /v2/api/candles?*** (127.0.0.1) 0.13ms
+2026-11-17 13:34:50.834 401 GET /v2/api/candles/progress (127.0.0.1) 0.11ms
+ok
+test_second_429_halt_shows_503 (tests.v2.test_candles.HandlerTests.test_second_429_halt_shows_503) ... 2026-11-17 13:34:50.837 202 GET /v2/api/candles?*** (127.0.0.1) 0.29ms
+2026-11-17 13:34:50 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+2026-11-17 13:34:50.838 202 GET /v2/api/candles?*** (127.0.0.1) 0.30ms
+2026-11-17 13:34:50 ERROR v2.candles | [V2-CANDLES] status=429 HALT market=KRW-JTO unit=1
+2026-11-17 13:34:50.839 200 GET /v2/api/candles/progress (127.0.0.1) 0.20ms
+2026-11-17 13:34:50.840 503 GET /v2/api/candles?*** (127.0.0.1) 0.19ms
+ok
+test_total_size_400_from_serve (tests.v2.test_candles.HandlerTests.test_total_size_400_from_serve) ... 2026-11-17 13:34:50.843 400 GET /v2/api/candles?*** (127.0.0.1) 0.29ms
+ok
+test_418_halt_file_persists (tests.v2.test_candles.TestCollect.test_418_halt_file_persists) ... ok
+test_429_cooldown_600 (tests.v2.test_candles.TestCollect.test_429_cooldown_600) ... ok
+test_empty_30_days_216_requests (tests.v2.test_candles.TestCollect.test_empty_30_days_216_requests) ... 2026-11-17 13:34:51 WARNING asyncio | Executing <Task finished name='Task-1550' coro=<TestCollect.test_empty_30_days_216_requests() done, defined at /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/v2/test_candles.py:156> result=None created at /Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/asyncio/runners.py:100> took 0.274 seconds
+ok
+test_low_remaining_sec_sleeps_one_second (tests.v2.test_candles.TestCollect.test_low_remaining_sec_sleeps_one_second) ... ok
+test_pid_change_mid_collection (tests.v2.test_candles.TestCollect.test_pid_change_mid_collection) ... 2026-11-17 13:34:51 WARNING v2.candles | [V2-CANDLES] engine pid changed — pause 300s
+ok
+test_pid_missing_or_broken_no_rest (tests.v2.test_candles.TestCollect.test_pid_missing_or_broken_no_rest) ... ok
+test_prefetch_loop_detects_pid_change (tests.v2.test_candles.TestCollect.test_prefetch_loop_detects_pid_change) ... 2026-11-17 13:34:51 WARNING v2.candles | [V2-CANDLES] engine pid changed — pause 300s
+ok
+test_rate_spacing (tests.v2.test_candles.TestCollect.test_rate_spacing) ... ok
+test_request_headers_and_url (tests.v2.test_candles.TestCollect.test_request_headers_and_url) ... ok
+test_store_follows_db_data_dir (tests.v2.test_candles.TestCollect.test_store_follows_db_data_dir) ... ok
+test_store_permissions_eviction_trim (tests.v2.test_candles.TestCollect.test_store_permissions_eviction_trim) ... ok
+test_trim_older_than_30_days (tests.v2.test_candles.TestCollect.test_trim_older_than_30_days) ... 2026-11-17 13:34:52 WARNING asyncio | Executing <Task pending name='Task-1595' coro=<TestCollect.test_trim_older_than_30_days() running at /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/v2/test_candles.py:306> cb=[_run_until_complete_cb() at /Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/asyncio/base_events.py:181] created at /Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/asyncio/runners.py:100> took 0.223 seconds
+ok
+test_gen_bumps_on_inner_restart (tests.v2.test_candles.TestEngineRestartSignals.test_gen_bumps_on_inner_restart) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] engine generation changed — pause 300s
+ok
+test_gen_missing_or_new_user_no_rest (tests.v2.test_candles.TestEngineRestartSignals.test_gen_missing_or_new_user_no_rest) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] engine generation changed — pause 300s
+ok
+test_rest_mark_broken_or_past_ignored (tests.v2.test_candles.TestEngineRestartSignals.test_rest_mark_broken_or_past_ignored) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] engine restart mark — pause until mark
+ok
+test_rest_mark_future_at_capped_by_now (tests.v2.test_candles.TestEngineRestartSignals.test_rest_mark_future_at_capped_by_now)
+수정 1회차: 표식의 at 이 미래(시계 어긋남·위조)여도 쉼은 지금 + 300초를 넘지 않는다. ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] engine restart mark — pause until mark
+ok
+test_rest_mark_until_blocks_fetch (tests.v2.test_candles.TestEngineRestartSignals.test_rest_mark_until_blocks_fetch) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] engine restart mark — pause until mark
+ok
+test_broken_cooldown_file_ignored (tests.v2.test_candles.TestIpBlockGuard.test_broken_cooldown_file_ignored) ... ok
+test_cached_only_inside_window_immediate (tests.v2.test_candles.TestIpBlockGuard.test_cached_only_inside_window_immediate) ... ok
+test_first_429_cooldown_600_survives_restart (tests.v2.test_candles.TestIpBlockGuard.test_first_429_cooldown_600_survives_restart) ... ok
+test_pid_change_during_window_wait (tests.v2.test_candles.TestIpBlockGuard.test_pid_change_during_window_wait) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] engine pid changed — pause 300s
+ok
+test_second_429_after_24h_cooldown_only (tests.v2.test_candles.TestIpBlockGuard.test_second_429_after_24h_cooldown_only) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+ok
+test_second_429_after_restart_halts (tests.v2.test_candles.TestIpBlockGuard.test_second_429_after_restart_halts) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+2026-11-17 13:34:52 ERROR v2.candles | [V2-CANDLES] status=429 HALT market=KRW-JTO unit=1
+ok
+test_second_429_within_24h_halts (tests.v2.test_candles.TestIpBlockGuard.test_second_429_within_24h_halts) ... 2026-11-17 13:34:52 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+ok
+test_user_rate_4_spacing (tests.v2.test_candles.TestIpBlockGuard.test_user_rate_4_spacing) ... ok
+test_window_applies_to_prefetch (tests.v2.test_candles.TestIpBlockGuard.test_window_applies_to_prefetch) ... ok
+test_window_every_request_outside (tests.v2.test_candles.TestIpBlockGuard.test_window_every_request_outside) ... ok
+test_window_multiple_units_avoid_all (tests.v2.test_candles.TestIpBlockGuard.test_window_multiple_units_avoid_all) ... ok
+test_window_no_targets_uses_one_minute (tests.v2.test_candles.TestIpBlockGuard.test_window_no_targets_uses_one_minute) ... ok
+test_window_unit3_after_boundary_sleeps (tests.v2.test_candles.TestIpBlockGuard.test_window_unit3_after_boundary_sleeps) ... ok
+test_window_unit3_before_boundary_sleeps_to_end (tests.v2.test_candles.TestIpBlockGuard.test_window_unit3_before_boundary_sleeps_to_end) ... ok
+test_window_unit3_outside_no_sleep (tests.v2.test_candles.TestIpBlockGuard.test_window_unit3_outside_no_sleep) ... ok
+test_90_days_job_then_reget_served_without_loop (tests.v2.test_candles.TestLongPeriod.test_90_days_job_then_reget_served_without_loop) ... 2026-11-17 13:34:54 WARNING asyncio | Executing <Task pending name='Task-1701' coro=<TestLongPeriod.test_90_days_job_then_reget_served_without_loop() running at /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/v2/test_candles.py:1251> cb=[_run_until_complete_cb() at /Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/asyncio/base_events.py:181] created at /Users/gonnim/.pyenv/versions/3.11.9/lib/python3.11/asyncio/runners.py:100> took 0.150 seconds
+ok
+test_evict_keeps_long_kept_file (tests.v2.test_candles.TestLongPeriod.test_evict_keeps_long_kept_file) ... ok
+test_keep_expires_after_7_days (tests.v2.test_candles.TestLongPeriod.test_keep_expires_after_7_days) ... ok
+test_prefetch_does_not_change_keep_mark (tests.v2.test_candles.TestLongPeriod.test_prefetch_does_not_change_keep_mark) ... ok
+test_size_limit_judged_before_fetch (tests.v2.test_candles.TestLongPeriod.test_size_limit_judged_before_fetch) ... ok
+test_total_size_blocks_before_fetch_when_held_files_fill_budget (tests.v2.test_candles.TestLongPeriod.test_total_size_blocks_before_fetch_when_held_files_fill_budget)
+검증 지적 3: 지울 수 없는 파일 합계 + 이번 어림 > 30MB 이면 업비트를 부르기 전에 size. ... ok
+test_total_size_does_not_block_stored_read (tests.v2.test_candles.TestLongPeriod.test_total_size_does_not_block_stored_read) ... ok
+test_units_10_30_and_90_days (tests.v2.test_candles.TestLongPeriod.test_units_10_30_and_90_days) ... ok
+test_user_30_days_no_mark (tests.v2.test_candles.TestLongPeriod.test_user_30_days_no_mark) ... ok
+test_418_halt_file_write_fails_still_blocks (tests.v2.test_candles.TestServe.test_418_halt_file_write_fails_still_blocks) ... ok
+test_busy_other_market_same_market_joins (tests.v2.test_candles.TestServe.test_busy_other_market_same_market_joins) ... ok
+test_cached_only_after_pid_change_but_not_during_halt (tests.v2.test_candles.TestServe.test_cached_only_after_pid_change_but_not_during_halt) ... 2026-11-17 13:34:55 WARNING v2.candles | [V2-CANDLES] engine pid changed — pause 300s
+ok
+test_cached_only_served_during_cooldown (tests.v2.test_candles.TestServe.test_cached_only_served_during_cooldown) ... ok
+test_empty_store_starts_job (tests.v2.test_candles.TestServe.test_empty_store_starts_job) ... ok
+test_job_429_into_progress (tests.v2.test_candles.TestServe.test_job_429_into_progress) ... 2026-11-17 13:34:56 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+ok
+test_job_errors_into_progress (tests.v2.test_candles.TestServe.test_job_errors_into_progress) ... 2026-11-17 13:34:56 WARNING v2.candles | [V2-CANDLES] error market=KRW-JTO unit=1 OSError
+2026-11-17 13:34:56 WARNING v2.candles | [V2-CANDLES] error market=KRW-JTO unit=1 HTTPClientError
+ok
+test_load_reuses_parsed_rows (tests.v2.test_candles.TestServe.test_load_reuses_parsed_rows) ... ok
+test_overlap_overwrites_unconfirmed_close (tests.v2.test_candles.TestServe.test_overlap_overwrites_unconfirmed_close) ... ok
+test_overlap_same_request_count_for_few_new_bars (tests.v2.test_candles.TestServe.test_overlap_same_request_count_for_few_new_bars) ... ok
+test_prefetch_every_600 (tests.v2.test_candles.TestServe.test_prefetch_every_600) ... ok
+test_prefetch_loop_fills_targets_before_first_sleep (tests.v2.test_candles.TestServe.test_prefetch_loop_fills_targets_before_first_sleep) ... ok
+test_prefetch_loop_first_at_300_then_every_600 (tests.v2.test_candles.TestServe.test_prefetch_loop_first_at_300_then_every_600) ... ok
+test_prefetch_needs_engine_alive (tests.v2.test_candles.TestServe.test_prefetch_needs_engine_alive) ... ok
+test_prefetch_runs_at_one_per_second (tests.v2.test_candles.TestServe.test_prefetch_runs_at_one_per_second) ... ok
+test_prefetch_skips_when_halt_file_exists (tests.v2.test_candles.TestServe.test_prefetch_skips_when_halt_file_exists) ... ok
+test_prefetch_waits_300_seconds_after_start (tests.v2.test_candles.TestServe.test_prefetch_waits_300_seconds_after_start) ... ok
+test_recent_store_answers_inline (tests.v2.test_candles.TestServe.test_recent_store_answers_inline) ... ok
+test_same_market_prefetch_switches_to_user_rate (tests.v2.test_candles.TestServe.test_same_market_prefetch_switches_to_user_rate) ... ok
+test_size_limit_never_deletes_prefetch_target (tests.v2.test_candles.TestServe.test_size_limit_never_deletes_prefetch_target) ... ok
+test_user_preempts_prefetch (tests.v2.test_candles.TestServe.test_user_preempts_prefetch) ... ok
+test_only_upbit_candle_url_and_no_auth (tests.v2.test_candles.TestSourceRules.test_only_upbit_candle_url_and_no_auth) ... ok
+test_server_starts_prefetch_and_gzip (tests.v2.test_candles.TestSourceRules.test_server_starts_prefetch_and_gzip) ... ok
+test_bad_inputs (tests.v2.test_candles.TestValidate.test_bad_inputs) ... ok
+test_good_inputs (tests.v2.test_candles.TestValidate.test_good_inputs) ... ok
+test_after_release_429_within_24h_halts_at_once (tests.v2.test_candles.TestWindowUnits.test_after_release_429_within_24h_halts_at_once) ... 2026-11-17 13:34:58 WARNING v2.candles | [V2-CANDLES] status=429 market=KRW-JTO unit=1 — pause 600s
+2026-11-17 13:34:58 ERROR v2.candles | [V2-CANDLES] status=429 HALT market=KRW-JTO unit=1
+2026-11-17 13:34:58 ERROR v2.candles | [V2-CANDLES] status=429 HALT market=KRW-JTO unit=1
+ok
+test_alive_missing_or_empty_is_one_minute (tests.v2.test_candles.TestWindowUnits.test_alive_missing_or_empty_is_one_minute) ... ok
+test_inline_request_waits_for_window (tests.v2.test_candles.TestWindowUnits.test_inline_request_waits_for_window) ... ok
+test_prefetch_loop_fills_units_before_first_sleep (tests.v2.test_candles.TestWindowUnits.test_prefetch_loop_fills_units_before_first_sleep) ... ok
+test_refresh_exception_is_one_minute (tests.v2.test_candles.TestWindowUnits.test_refresh_exception_is_one_minute) ... ok
+test_refresh_on_pid_change_and_prefetch (tests.v2.test_candles.TestWindowUnits.test_refresh_on_pid_change_and_prefetch) ... 2026-11-17 13:34:58 WARNING v2.candles | [V2-CANDLES] engine pid changed — pause 300s
+ok
+test_request_does_not_read_files (tests.v2.test_candles.TestWindowUnits.test_request_does_not_read_files) ... ok
+test_units_from_all_running_users (tests.v2.test_candles.TestWindowUnits.test_units_from_all_running_users) ... ok
+test_unreadable_user_counts_as_one_minute (tests.v2.test_candles.TestWindowUnits.test_unreadable_user_counts_as_one_minute) ... ok
+test_entry_does_not_switch (tests.v2.test_control.ControlApiTest.test_entry_does_not_switch)
+A8: 입장·홈·운용 탭 읽기 API 만 부름 → 요청 파일 0, 활성 전략 파일 바이트 불변. ... 2026-11-17 13:34:58.586 200 GET /v2/api/basic (127.0.0.1) 1.28ms
+2026-11-17 13:34:58.587 200 GET /v2/api/basic (127.0.0.1) 1.06ms
+2026-11-17 13:34:58.589 200 GET /v2/api/status (127.0.0.1) 1.06ms
+2026-11-17 13:34:58.591 200 GET /v2/api/status (127.0.0.1) 1.04ms
+2026-11-17 13:34:58.592 200 GET /v2/api/assets (127.0.0.1) 0.80ms
+2026-11-17 13:34:58.594 200 GET /v2/api/assets (127.0.0.1) 0.76ms
+2026-11-17 13:34:58.595 200 GET /v2/api/trades (127.0.0.1) 0.42ms
+2026-11-17 13:34:58.596 200 GET /v2/api/trades (127.0.0.1) 0.39ms
+2026-11-17 13:34:58.597 200 GET /v2/api/signals (127.0.0.1) 0.54ms
+2026-11-17 13:34:58.598 200 GET /v2/api/signals (127.0.0.1) 0.58ms
+2026-11-17 13:34:58.599 200 GET /v2/api/logs (127.0.0.1) 0.79ms
+2026-11-17 13:34:58.601 200 GET /v2/api/logs (127.0.0.1) 0.76ms
+2026-11-17 13:34:58.602 200 GET /v2/api/markers (127.0.0.1) 0.38ms
+2026-11-17 13:34:58.603 200 GET /v2/api/markers (127.0.0.1) 0.38ms
+2026-11-17 13:34:58.604 200 GET /v2/api/control/state (127.0.0.1) 0.43ms
+2026-11-17 13:34:58.605 200 GET /v2/api/control/state (127.0.0.1) 0.38ms
+2026-11-17 13:34:58.606 200 GET /v2/api/params/current (127.0.0.1) 0.23ms
+2026-11-17 13:34:58.607 200 GET /v2/api/params/current (127.0.0.1) 0.19ms
+ok
+test_post_202_then_409_busy_and_result_pending (tests.v2.test_control.ControlApiTest.test_post_202_then_409_busy_and_result_pending) ... 2026-11-17 13:34:58.625 202 POST /v2/api/control (127.0.0.1) 0.72ms
+2026-11-17 13:34:58.627 409 POST /v2/api/control (127.0.0.1) 0.34ms
+2026-11-17 13:34:58.627 200 GET /v2/api/control/result?*** (127.0.0.1) 0.29ms
+2026-11-17 13:34:58.628 200 GET /v2/api/control/state (127.0.0.1) 0.45ms
+ok
+test_post_rejects_bad_body_origin_session (tests.v2.test_control.ControlApiTest.test_post_rejects_bad_body_origin_session) ... 2026-11-17 13:34:58.646 400 POST /v2/api/control (127.0.0.1) 0.23ms
+2026-11-17 13:34:58.647 400 POST /v2/api/control (127.0.0.1) 0.20ms
+2026-11-17 13:34:58.647 403 POST /v2/api/control (127.0.0.1) 0.12ms
+2026-11-17 13:34:58.648 401 POST /v2/api/control (127.0.0.1) 0.10ms
+ok
+test_result_bad_id_400_unknown_404 (tests.v2.test_control.ControlApiTest.test_result_bad_id_400_unknown_404) ... 2026-11-17 13:34:58.664 400 GET /v2/api/control/result?*** (127.0.0.1) 0.25ms
+2026-11-17 13:34:58.665 404 GET /v2/api/control/result?*** (127.0.0.1) 0.21ms
+ok
+test_busy_while_pending_then_free_after_result_or_expiry (tests.v2.test_control.ControlFileTest.test_busy_while_pending_then_free_after_result_or_expiry) ... ok
+test_force_reason_label (tests.v2.test_control.ControlFileTest.test_force_reason_label)
+수정 1회차: 새 전략 강제 매수 사유 FORCE 의 화면 용어(서버 표 — labels.js 와 같음은 정적 시험이 대조). ... ok
+test_read_result (tests.v2.test_control.ControlFileTest.test_read_result) ... ok
+test_rejects_bad_kind_user_mode_payload (tests.v2.test_control.ControlFileTest.test_rejects_bad_kind_user_mode_payload) ... ok
+test_symlink_dir_refused (tests.v2.test_control.ControlFileTest.test_symlink_dir_refused)
+수정 1회차: 사용자 폴더가 바깥을 가리키는 링크면 쓰지 않는다(바깥 폴더 권한·파일 무변경). ... ok
+test_write_request_file_format_and_modes (tests.v2.test_control.ControlFileTest.test_write_request_file_format_and_modes) ... ok
+test_v2_has_no_engine_import_and_no_engine_thread (tests.v2.test_control.ImportGraphTest.test_v2_has_no_engine_import_and_no_engine_thread)
+A11: v2.control 을 포함한 신버전 모듈 import·요청 쓰기 뒤에도 엔진·core·services 모듈 0, 엔진 스레드 0. ... ok
+test_active_strategy_and_params (tests.v2.test_db.TestDb.test_active_strategy_and_params) ... ok
+test_app_version_missing (tests.v2.test_db.TestDb.test_app_version_missing) ... ok
+test_insert_history_columns (tests.v2.test_db.TestDb.test_insert_history_columns) ... ok
+test_live_ro_insert_rejected (tests.v2.test_db.TestDb.test_live_ro_insert_rejected) ... ok
+test_open_live_ro_missing_creates_nothing (tests.v2.test_db.TestDb.test_open_live_ro_missing_creates_nothing) ... ok
+test_open_v2hist_created_when_live_exists (tests.v2.test_db.TestDb.test_open_v2hist_created_when_live_exists) ... ok
+test_open_v2hist_existing_empty_file_gets_table_and_600 (tests.v2.test_db.TestDb.test_open_v2hist_existing_empty_file_gets_table_and_600) ... ok
+test_open_v2hist_new_file_is_600 (tests.v2.test_db.TestDb.test_open_v2hist_new_file_is_600) ... ok
+test_open_v2hist_not_created_without_live_db (tests.v2.test_db.TestDb.test_open_v2hist_not_created_without_live_db) ... ok
+test_parse_ts_both_formats (tests.v2.test_db.TestDb.test_parse_ts_both_formats) ... ok
+test_query_limit_must_be_at_end (tests.v2.test_db.TestDb.test_query_limit_must_be_at_end) ... ok
+test_query_requires_limit (tests.v2.test_db.TestDb.test_query_requires_limit) ... ok
+test_query_time_limit_interrupts (tests.v2.test_db.TestDb.test_query_time_limit_interrupts) ... ok
+test_v2hist_name_not_tradebot_prefix (tests.v2.test_db.TestDb.test_v2hist_name_not_tradebot_prefix) ... ok
+test_valid_user_id (tests.v2.test_db.TestDb.test_valid_user_id) ... ok
+test_shape_and_boundaries (tests.v2.test_db.TestKstStamp.test_shape_and_boundaries) ... ok
+test_db_module_stdlib_only (tests.v2.test_db.TestStdlibOnly.test_db_module_stdlib_only) ... ok
+test_cron_guards_missing_file (tests.v2.test_deploy_files.CronFileTest.test_cron_guards_missing_file) ... ok
+test_gate_node_step (tests.v2.test_deploy_files.GateAndRunbookTest.test_gate_node_step) ... ok
+test_runbook_has_required_sections_and_no_secret_commands (tests.v2.test_deploy_files.GateAndRunbookTest.test_runbook_has_required_sections_and_no_secret_commands) ... ok
+test_nginx_location_only_v2 (tests.v2.test_deploy_files.NginxFileTest.test_nginx_location_only_v2) ... ok
+test_all_absent (tests.v2.test_deploy_files.ProbeFakeRootTest.test_all_absent) ... ok
+test_applied (tests.v2.test_deploy_files.ProbeFakeRootTest.test_applied) ... ok
+test_control_bad (tests.v2.test_deploy_files.ProbeFakeRootTest.test_control_bad) ... ok
+test_control_ok (tests.v2.test_deploy_files.ProbeFakeRootTest.test_control_ok) ... ok
+test_control_only_request_no_result (tests.v2.test_deploy_files.ProbeFakeRootTest.test_control_only_request_no_result) ... ok
+test_control_symlinks (tests.v2.test_deploy_files.ProbeFakeRootTest.test_control_symlinks) ... ok
+test_main_prints_expected_line_count (tests.v2.test_deploy_files.ProbeFakeRootTest.test_main_prints_expected_line_count) ... ok
+test_rw_paths (tests.v2.test_deploy_files.RwPathsTest.test_rw_paths) ... ok
+test_a3_oom_judged_by_string (tests.v2.test_deploy_files.ShellScriptTest.test_a3_oom_judged_by_string) ... ok
+test_check_script_has_phase2_items (tests.v2.test_deploy_files.ShellScriptTest.test_check_script_has_phase2_items)
+2차 T18: 탐침 5항목 + 셸 unit-rw-paths-unchanged. 없으면 (absent), lstat, 내용 안 엶, 적용본 r+ 실패 기대. ... ok
+test_check_script_never_opens_strategy_params_for_write (tests.v2.test_deploy_files.ShellScriptTest.test_check_script_never_opens_strategy_params_for_write) ... ok
+test_check_script_outputs_status_only (tests.v2.test_deploy_files.ShellScriptTest.test_check_script_outputs_status_only) ... ok
+test_check_script_reads_all_unit_properties (tests.v2.test_deploy_files.ShellScriptTest.test_check_script_reads_all_unit_properties) ... ok
+test_probe_checks_all_inaccessible_paths (tests.v2.test_deploy_files.ShellScriptTest.test_probe_checks_all_inaccessible_paths) ... ok
+test_probe_cleans_up_created_files (tests.v2.test_deploy_files.ShellScriptTest.test_probe_cleans_up_created_files) ... ok
+test_probe_stdlib_only (tests.v2.test_deploy_files.ShellScriptTest.test_probe_stdlib_only) ... ok
+test_scripts_bash_syntax (tests.v2.test_deploy_files.ShellScriptTest.test_scripts_bash_syntax) ... ok
+test_scripts_never_restart_services (tests.v2.test_deploy_files.ShellScriptTest.test_scripts_never_restart_services) ... ok
+test_systemctl_show_one_property_per_call (tests.v2.test_deploy_files.ShellScriptTest.test_systemctl_show_one_property_per_call) ... ok
+test_unit_has_no_environmentfile (tests.v2.test_deploy_files.UnitFileTest.test_unit_has_no_environmentfile) ... ok
+test_unit_has_required_directives (tests.v2.test_deploy_files.UnitFileTest.test_unit_has_required_directives) ... ok
+test_unit_header_comment_mentions_account_add (tests.v2.test_deploy_files.UnitFileTest.test_unit_header_comment_mentions_account_add) ... ok
+test_default_port_is_8512_not_production_8502 (tests.v2.test_dev_server.DevServerTests.test_default_port_is_8512_not_production_8502) ... ok
+test_dev_server_not_imported_by_v2 (tests.v2.test_dev_server.DevServerTests.test_dev_server_not_imported_by_v2) ... ok
+test_fake_db_readable_by_v2_query (tests.v2.test_dev_server.DevServerTests.test_fake_db_readable_by_v2_query) ... ok
+test_fake_root_paths_inside_tmp (tests.v2.test_dev_server.DevServerTests.test_fake_root_paths_inside_tmp) ... ok
+test_point_modules_to_redirects_all_paths (tests.v2.test_dev_server.DevServerTests.test_point_modules_to_redirects_all_paths) ... ok
+test_secret_file_600_and_32_bytes (tests.v2.test_dev_server.DevServerTests.test_secret_file_600_and_32_bytes) ... ok
+test_alive_dead_two_users_and_never_started (tests.v2.test_engine_alive.AliveTest.test_alive_dead_two_users_and_never_started) ... ok
+test_at_is_kst_iso_with_offset (tests.v2.test_engine_alive.AliveTest.test_at_is_kst_iso_with_offset) ... ok
+test_atomic_write_uses_replace_and_failure_keeps_old_file (tests.v2.test_engine_alive.AliveTest.test_atomic_write_uses_replace_and_failure_keeps_old_file) ... ok
+test_does_not_touch_trading_modules (tests.v2.test_engine_alive.AliveTest.test_does_not_touch_trading_modules) ... ok
+test_engine_manager_imported_lazily_inside_thread (tests.v2.test_engine_alive.AliveTest.test_engine_manager_imported_lazily_inside_thread) ... ok
+test_file_permission_600_and_no_tmp_left (tests.v2.test_engine_alive.AliveTest.test_file_permission_600_and_no_tmp_left) ... ok
+test_gen_written_from_manager (tests.v2.test_engine_alive.AliveTest.test_gen_written_from_manager)
+2차 T11: 엔진 재시작 세대 값 — 관리자의 gen_map() 을 그대로 쓴다(같은 pid 안 재시작 감지용). ... ok
+test_loop_returns_quietly_when_manager_import_fails (tests.v2.test_engine_alive.AliveTest.test_loop_returns_quietly_when_manager_import_fails) ... 2026-11-17 13:35:01 ERROR tradebot_boot | [ENGINE-ALIVE] 시작 실패: ImportError: no engine
+ok
+test_loop_survives_manager_errors_and_stops (tests.v2.test_engine_alive.AliveTest.test_loop_survives_manager_errors_and_stops) ... 2026-11-17 13:35:01 ERROR tradebot_boot | [ENGINE-ALIVE] 기록 실패: RuntimeError: first call fails
+ok
+test_main_calls_bootstrap_run_even_if_alive_thread_cannot_start (tests.v2.test_engine_alive.AliveTest.test_main_calls_bootstrap_run_even_if_alive_thread_cannot_start) ... 2026-11-17 13:35:01 ERROR tradebot_boot | [ENGINE-ALIVE] 스레드 시작 실패: RuntimeError: cannot start new thread
+ok
+test_main_starts_alive_thread_before_bootstrap_run (tests.v2.test_engine_alive.AliveTest.test_main_starts_alive_thread_before_bootstrap_run) ... ok
+test_start_delay_waits_before_import_and_stop_cancels (tests.v2.test_engine_alive.AliveTest.test_start_delay_waits_before_import_and_stop_cancels) ... ok
+test_thread_alive_during_restart_wait_counts_as_running (tests.v2.test_engine_alive.AliveTest.test_thread_alive_during_restart_wait_counts_as_running) ... ok
+test_nan_rejected (tests.v2.test_live_open_ratio_save.TestRatioSave.test_nan_rejected) ... 2026-11-17 13:35:01.105 400 POST /v2/api/params/save (127.0.0.1) 0.34ms
+ok
+test_param_fields_still_25 (tests.v2.test_live_open_ratio_save.TestRatioSave.test_param_fields_still_25) ... ok
+test_ratio_absent_in_request_preserves_saved (tests.v2.test_live_open_ratio_save.TestRatioSave.test_ratio_absent_in_request_preserves_saved) ... 2026-11-17 13:35:01.139 200 POST /v2/api/params/save (127.0.0.1) 1.53ms
+2026-11-17 13:35:01.141 200 POST /v2/api/params/save (127.0.0.1) 1.06ms
+2026-11-17 13:35:01.143 200 POST /v2/api/params/save (127.0.0.1) 1.15ms
+ok
+test_ratio_null_clears_only_that_mode (tests.v2.test_live_open_ratio_save.TestRatioSave.test_ratio_null_clears_only_that_mode) ... 2026-11-17 13:35:01.161 200 POST /v2/api/params/save (127.0.0.1) 1.46ms
+2026-11-17 13:35:01.162 200 POST /v2/api/params/save (127.0.0.1) 1.17ms
+2026-11-17 13:35:01.164 200 POST /v2/api/params/save (127.0.0.1) 1.06ms
+ok
+test_ratio_out_of_range_rejected_and_file_untouched (tests.v2.test_live_open_ratio_save.TestRatioSave.test_ratio_out_of_range_rejected_and_file_untouched) ... 2026-11-17 13:35:01.184 200 POST /v2/api/params/save (127.0.0.1) 1.56ms
+2026-11-17 13:35:01.185 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:35:01.186 400 POST /v2/api/params/save (127.0.0.1) 0.21ms
+2026-11-17 13:35:01.187 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:35:01.188 400 POST /v2/api/params/save (127.0.0.1) 0.27ms
+2026-11-17 13:35:01.189 400 POST /v2/api/params/save (127.0.0.1) 0.24ms
+2026-11-17 13:35:01.190 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:35:01.191 400 POST /v2/api/params/save (127.0.0.1) 0.21ms
+2026-11-17 13:35:01.192 400 POST /v2/api/params/save (127.0.0.1) 0.20ms
+2026-11-17 13:35:01.193 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:35:01.195 200 POST /v2/api/params/save (127.0.0.1) 1.31ms
+2026-11-17 13:35:01.196 200 POST /v2/api/params/save (127.0.0.1) 1.15ms
+2026-11-17 13:35:01.198 200 POST /v2/api/params/save (127.0.0.1) 1.15ms
+2026-11-17 13:35:01.200 200 POST /v2/api/params/save (127.0.0.1) 1.16ms
+ok
+test_ratio_saved_under_session_mode_key_only (tests.v2.test_live_open_ratio_save.TestRatioSave.test_ratio_saved_under_session_mode_key_only) ... 2026-11-17 13:35:01.218 200 POST /v2/api/params/save (127.0.0.1) 1.73ms
+2026-11-17 13:35:01.220 200 POST /v2/api/params/save (127.0.0.1) 1.03ms
+ok
+test_saved_file_with_ratio_passes_engine_validate (tests.v2.test_live_open_ratio_save.TestRatioSave.test_saved_file_with_ratio_passes_engine_validate) ... 2026-11-17 13:35:01.238 200 POST /v2/api/params/save (127.0.0.1) 1.55ms
+ok
+test_golden_only_max_is_one (tests.v2.test_ops.OpsApiTest.test_golden_only_max_is_one) ... 2026-11-17 13:35:01.257 200 GET /v2/api/ops (127.0.0.1) 1.07ms
+ok
+test_no_revert_target_without_record (tests.v2.test_ops.OpsApiTest.test_no_revert_target_without_record) ... 2026-11-17 13:35:01.275 200 GET /v2/api/ops (127.0.0.1) 1.08ms
+ok
+test_ops_ema_saved_ok_sha_and_order_ratio (tests.v2.test_ops.OpsApiTest.test_ops_ema_saved_ok_sha_and_order_ratio) ... 2026-11-17 13:35:01.293 200 GET /v2/api/ops (127.0.0.1) 0.57ms
+ok
+test_ops_live_session_sees_only_live_reservation (tests.v2.test_ops.OpsApiTest.test_ops_live_session_sees_only_live_reservation)
+실계좌 입장은 실계좌 예약만, 모의 입장은 모의 예약만 (V06c). ... 2026-11-17 13:35:01.312 200 GET /v2/api/ops (127.0.0.1) 0.60ms
+2026-11-17 13:35:01.313 200 GET /v2/api/ops (127.0.0.1) 0.48ms
+ok
+test_ops_requires_session (tests.v2.test_ops.OpsApiTest.test_ops_requires_session) ... 2026-11-17 13:35:01.331 401 GET /v2/api/ops (127.0.0.1) 0.15ms
+ok
+test_ops_saved_broken_not_ok (tests.v2.test_ops.OpsApiTest.test_ops_saved_broken_not_ok) ... 2026-11-17 13:35:01.349 200 GET /v2/api/ops (127.0.0.1) 0.62ms
+2026-11-17 13:35:01.350 200 GET /v2/api/ops (127.0.0.1) 0.50ms
+ok
+test_ops_scope_ignores_query_user_and_mode (tests.v2.test_ops.OpsApiTest.test_ops_scope_ignores_query_user_and_mode)
+GET /v2/api/ops?user_id=bob&mode=LIVE 이어도 세션(alice·TEST) 값만 (V06b). ... 2026-11-17 13:35:01.368 200 GET /v2/api/ops?*** (127.0.0.1) 0.54ms
+ok
+test_ops_settings_allowed_in_live (tests.v2.test_ops.OpsApiTest.test_ops_settings_allowed_in_live)
+1109: 실계좌 입장의 운용 설정 저장도 열렸다 — 요청이 나가고(202) 엔진이 모드 표식·충돌을 판정한다. ... 2026-11-17 13:35:01.388 202 POST /v2/api/control (127.0.0.1) 1.28ms
+ok
+test_ops_settings_bad_origin_403_no_request (tests.v2.test_ops.OpsApiTest.test_ops_settings_bad_origin_403_no_request)
+다른 Origin 이면 403, 요청·저장본 그대로 (V07). ... 2026-11-17 13:35:01.407 403 POST /v2/api/control (127.0.0.1) 0.15ms
+ok
+test_ops_settings_bad_payload_400_no_request_no_saved_change (tests.v2.test_ops.OpsApiTest.test_ops_settings_bad_payload_400_no_request_no_saved_change) ... 2026-11-17 13:35:01.424 400 POST /v2/api/control (127.0.0.1) 0.24ms
+2026-11-17 13:35:01.425 400 POST /v2/api/control (127.0.0.1) 0.23ms
+2026-11-17 13:35:01.426 400 POST /v2/api/control (127.0.0.1) 0.20ms
+2026-11-17 13:35:01.427 400 POST /v2/api/control (127.0.0.1) 0.19ms
+2026-11-17 13:35:01.428 400 POST /v2/api/control (127.0.0.1) 0.21ms
+ok
+test_ops_settings_busy_does_not_touch_saved (tests.v2.test_ops.OpsApiTest.test_ops_settings_busy_does_not_touch_saved) ... 2026-11-17 13:35:01.446 202 POST /v2/api/control (127.0.0.1) 0.65ms
+2026-11-17 13:35:01.447 409 POST /v2/api/control (127.0.0.1) 0.59ms
+ok
+test_ops_settings_rejected_when_not_pullback (tests.v2.test_ops.OpsApiTest.test_ops_settings_rejected_when_not_pullback)
+새 전략 운용 중이 아니면 요청도 저장본 맞춤도 없다 (PO 결정 2). ... 2026-11-17 13:35:01.466 409 POST /v2/api/control (127.0.0.1) 0.32ms
+ok
+test_ops_settings_rejected_while_reserved_in_that_mode (tests.v2.test_ops.OpsApiTest.test_ops_settings_rejected_while_reserved_in_that_mode)
+그 모드에 예약이 있으면 거절. 다른 모드 예약·PARAMS 행은 막지 않는다 (PO 결정 2). ... 2026-11-17 13:35:01.484 409 POST /v2/api/control (127.0.0.1) 0.56ms
+2026-11-17 13:35:01.487 202 POST /v2/api/control (127.0.0.1) 1.09ms
+ok
+test_ops_settings_reservation_unreadable_503 (tests.v2.test_ops.OpsApiTest.test_ops_settings_reservation_unreadable_503) ... 2026-11-17 13:35:01.506 503 POST /v2/api/control (127.0.0.1) 0.56ms
+ok
+test_ops_settings_saved_missing_still_sends (tests.v2.test_ops.OpsApiTest.test_ops_settings_saved_missing_still_sends) ... 2026-11-17 13:35:01.526 202 POST /v2/api/control (127.0.0.1) 1.02ms
+ok
+test_ops_settings_sell_off_changeable_1029_09 (tests.v2.test_ops.OpsApiTest.test_ops_settings_sell_off_changeable_1029_09)
+1029-09: 「시간 밖에도 익절」 잠금 풂 — 적용본 값과 달라도 202, 요청·저장본에 바꾼 값. 형식(참/거짓)은 그대로 검사. ... 2026-11-17 13:35:01.546 202 POST /v2/api/control (127.0.0.1) 1.22ms
+2026-11-17 13:35:01.547 400 POST /v2/api/control (127.0.0.1) 0.21ms
+2026-11-17 13:35:01.548 400 POST /v2/api/control (127.0.0.1) 0.18ms
+2026-11-17 13:35:01.549 400 POST /v2/api/control (127.0.0.1) 0.19ms
+ok
+test_ops_settings_writes_request_and_syncs_saved_4_keys_only (tests.v2.test_ops.OpsApiTest.test_ops_settings_writes_request_and_syncs_saved_4_keys_only) ... 2026-11-17 13:35:01.568 202 POST /v2/api/control (127.0.0.1) 1.07ms
+ok
+test_per_buy_first_round_follows_engine_rule_live_and_test_ratio (tests.v2.test_ops.OpsApiTest.test_per_buy_first_round_follows_engine_rule_live_and_test_ratio)
+1109 지적 2: 첫 회차 금액 = 엔진 규칙. 실계좌 = 가용 원화(계좌 표) × 비율 ÷ (1+수수료) ÷ 분할 횟수(비율 없으면 모름), ... 2026-11-17 13:35:01.588 200 GET /v2/api/ops (127.0.0.1) 1.32ms
+2026-11-17 13:35:01.590 200 GET /v2/api/ops (127.0.0.1) 0.96ms
+2026-11-17 13:35:01.592 200 GET /v2/api/ops (127.0.0.1) 1.04ms
+2026-11-17 13:35:01.593 200 GET /v2/api/ops (127.0.0.1) 0.92ms
+ok
+test_per_buy_uses_fixed_sizing_base_while_holding_and_compounding (tests.v2.test_ops.OpsApiTest.test_per_buy_uses_fixed_sizing_base_while_holding_and_compounding) ... 2026-11-17 13:35:01.613 200 GET /v2/api/ops (127.0.0.1) 0.93ms
+2026-11-17 13:35:01.615 200 GET /v2/api/ops (127.0.0.1) 0.94ms
+ok
+test_pullback_round_per_buy_hours_revert_target (tests.v2.test_ops.OpsApiTest.test_pullback_round_per_buy_hours_revert_target) ... 2026-11-17 13:35:01.635 200 GET /v2/api/ops (127.0.0.1) 1.14ms
+ok
+test_reservation_filtered_by_mode_and_kind (tests.v2.test_ops.OpsApiTest.test_reservation_filtered_by_mode_and_kind) ... 2026-11-17 13:35:01.654 200 GET /v2/api/ops (127.0.0.1) 0.83ms
+2026-11-17 13:35:01.656 200 GET /v2/api/ops (127.0.0.1) 0.63ms
+2026-11-17 13:35:01.658 200 GET /v2/api/control/state (127.0.0.1) 0.47ms
+2026-11-17 13:35:01.659 200 GET /v2/api/control/state (127.0.0.1) 0.57ms
+ok
+test_reservation_table_missing_is_error_flag (tests.v2.test_ops.OpsApiTest.test_reservation_table_missing_is_error_flag) ... 2026-11-17 13:35:01.679 200 GET /v2/api/ops (127.0.0.1) 0.85ms
+2026-11-17 13:35:01.680 200 GET /v2/api/control/state (127.0.0.1) 0.46ms
+ok
+test_revert_target_only_from_switch_rows (tests.v2.test_ops.OpsApiTest.test_revert_target_only_from_switch_rows)
+복귀 대상은 kind='SWITCH' DONE 행만 — 뒤에 온 PARAMS 행(from MACD)은 보지 않는다 (V16). ... 2026-11-17 13:35:01.702 200 GET /v2/api/ops (127.0.0.1) 1.30ms
+ok
+test_v2_control_rules (tests.v2.test_ops.OpsApiTest.test_v2_control_rules) ... ok
+test_cookie_without_secure_keeps_other_flags (tests.v2.test_server.InsecureCookieTests.test_cookie_without_secure_keeps_other_flags) ... 2026-11-17 13:35:01.724 302 GET /v2/?*** (127.0.0.1) 0.33ms
+ok
+test_access_log_masks_encoded_param_name (tests.v2.test_server.ServerTests.test_access_log_masks_encoded_param_name) ... ok
+test_access_log_masks_token (tests.v2.test_server.ServerTests.test_access_log_masks_token) ... ok
+test_api_not_allowlisted_403 (tests.v2.test_server.ServerTests.test_api_not_allowlisted_403) ... 2026-11-17 13:35:01.730 403 GET /v2/api/_test (127.0.0.1) 0.23ms
+ok
+test_api_with_session_ok (tests.v2.test_server.ServerTests.test_api_with_session_ok) ... 2026-11-17 13:35:01.731 200 GET /v2/api/_test (127.0.0.1) 0.22ms
+ok
+test_api_without_session_401 (tests.v2.test_server.ServerTests.test_api_without_session_401) ... 2026-11-17 13:35:01.733 401 GET /v2/api/_test (127.0.0.1) 0.11ms
+ok
+test_cookie_secure_default_true (tests.v2.test_server.ServerTests.test_cookie_secure_default_true) ... ok
+test_expired_token_page_has_guidance (tests.v2.test_server.ServerTests.test_expired_token_page_has_guidance) ... 2026-11-17 13:35:01.736 401 GET /v2/?*** (127.0.0.1) 0.17ms
+ok
+test_not_allowlisted_token_same_guidance (tests.v2.test_server.ServerTests.test_not_allowlisted_token_same_guidance) ... 2026-11-17 13:35:01.738 401 GET /v2/?*** (127.0.0.1) 0.30ms
+ok
+test_post_bad_origin_403 (tests.v2.test_server.ServerTests.test_post_bad_origin_403) ... 2026-11-17 13:35:01.739 403 POST /v2/api/_test (127.0.0.1) 0.12ms
+2026-11-17 13:35:01.740 403 POST /v2/api/_test (127.0.0.1) 0.10ms
+2026-11-17 13:35:01.741 403 PUT /v2/api/_test (127.0.0.1) 0.10ms
+2026-11-17 13:35:01.741 403 PUT /v2/api/_test (127.0.0.1) 0.10ms
+2026-11-17 13:35:01.742 403 DELETE /v2/api/_test (127.0.0.1) 0.09ms
+2026-11-17 13:35:01.743 403 DELETE /v2/api/_test (127.0.0.1) 0.08ms
+2026-11-17 13:35:01.743 200 POST /v2/api/_test (127.0.0.1) 0.19ms
+ok
+test_referrer_policy_header (tests.v2.test_server.ServerTests.test_referrer_policy_header) ... 2026-11-17 13:35:01.745 401 GET /v2/ (127.0.0.1) 0.10ms
+2026-11-17 13:35:01.745 401 GET /v2/api/_test (127.0.0.1) 0.10ms
+2026-11-17 13:35:01.746 404 GET /v2/static/nope.js (127.0.0.1) 0.15ms
+ok
+test_root_with_session_serves_index (tests.v2.test_server.ServerTests.test_root_with_session_serves_index) ... 2026-11-17 13:35:01.748 404 GET /v2/ (127.0.0.1) 0.21ms
+2026-11-17 13:35:01.748 200 GET /v2/ (127.0.0.1) 0.20ms
+ok
+test_root_without_session_401_guidance (tests.v2.test_server.ServerTests.test_root_without_session_401_guidance) ... 2026-11-17 13:35:01.751 401 GET /v2/ (127.0.0.1) 0.10ms
+ok
+test_secret_missing_same_guidance (tests.v2.test_server.ServerTests.test_secret_missing_same_guidance) ... 2026-11-17 13:35:01.752 401 GET /v2/?*** (127.0.0.1) 0.11ms
+ok
+test_static_cache_control_no_cache (tests.v2.test_server.ServerTests.test_static_cache_control_no_cache) ... 2026-11-17 13:35:01.756 200 GET /v2/static/style.css (127.0.0.1) 2.22ms
+2026-11-17 13:35:01.757 200 GET /v2/static/style.css?*** (127.0.0.1) 0.22ms
+2026-11-17 13:35:01.758 304 GET /v2/static/style.css (127.0.0.1) 0.13ms
+ok
+test_static_index_not_served (tests.v2.test_server.ServerTests.test_static_index_not_served) ... 2026-11-17 13:35:01.759 404 GET /v2/static/index.html (127.0.0.1) 0.12ms
+2026-11-17 13:35:01.760 404 GET /v2/static/Index.html (127.0.0.1) 0.11ms
+2026-11-17 13:35:01.761 200 GET /v2/static/app.js (127.0.0.1) 0.25ms
+ok
+test_token_exchange_sets_cookie_and_redirects (tests.v2.test_server.ServerTests.test_token_exchange_sets_cookie_and_redirects) ... 2026-11-17 13:35:01.763 302 GET /v2/?*** (127.0.0.1) 0.25ms
+ok
+test_token_reuse_rejected (tests.v2.test_server.ServerTests.test_token_reuse_rejected) ... 2026-11-17 13:35:01.764 302 GET /v2/?*** (127.0.0.1) 0.23ms
+2026-11-17 13:35:01.765 401 GET /v2/?*** (127.0.0.1) 0.17ms
+ok
+test_server_code_has_no_upbit_host (tests.v2.test_server.StaticChecks.test_server_code_has_no_upbit_host) ... ok
+test_server_import_graph_clean (tests.v2.test_server.StaticChecks.test_server_import_graph_clean) ... ok
+test_app_has_no_identity_compare_on_reactive_chart_state (tests.v2.test_static_lint.StaticLintTest.test_app_has_no_identity_compare_on_reactive_chart_state) ... ok
+test_backtester_menu_link (tests.v2.test_static_lint.StaticLintTest.test_backtester_menu_link) ... ok
+test_chart_matches_figure_2_na (tests.v2.test_static_lint.StaticLintTest.test_chart_matches_figure_2_na)
+그림 2-나: 단추 4칸·범례·카드 문구, 공유 10초 문, 차트 높이 300px (E4 폐기 — 200선 포함). ... ok
+test_external_hosts_allowlisted (tests.v2.test_static_lint.StaticLintTest.test_external_hosts_allowlisted) ... ok
+test_home_signal_is_single_card (tests.v2.test_static_lint.StaticLintTest.test_home_signal_is_single_card)
+홈 최신 신호는 1건 카드(그림 2-가). 목록(x-for signals)이 아니므로 kind-id 키가 필요 없다. ... ok
+test_index_loads_both_vendor_scripts (tests.v2.test_static_lint.StaticLintTest.test_index_loads_both_vendor_scripts) ... ok
+test_labels_match_server (tests.v2.test_static_lint.StaticLintTest.test_labels_match_server)
+labels.js 의 두 표 == v2.api_read 의 REASON_LABELS·FAILED_KEY_LABELS. ... ok
+test_no_double_init (tests.v2.test_static_lint.StaticLintTest.test_no_double_init) ... ok
+test_no_stop_word_in_engine_badge (tests.v2.test_static_lint.StaticLintTest.test_no_stop_word_in_engine_badge)
+엔진 동작 배지에만 적용(운용 버튼의 「엔진 정지」·「일시정지」는 spec 낱말). ... ok
+test_no_top_level_browser_globals_in_chart (tests.v2.test_static_lint.StaticLintTest.test_no_top_level_browser_globals_in_chart) ... ok
+test_operation_buttons_wired (tests.v2.test_static_lint.StaticLintTest.test_operation_buttons_wired)
+2차 T14 (요청서 2-마): 1차 「2차 공개 때 열립니다」 안내는 지우고 「매매 중지/재개는 홈 화면 위 단추로 합니다.」는 남긴다. ... ok
+test_pc_is_phone_width (tests.v2.test_static_lint.StaticLintTest.test_pc_is_phone_width) ... ok
+test_vendor_sha256_matches_versions_txt (tests.v2.test_static_lint.StaticLintTest.test_vendor_sha256_matches_versions_txt)
+VERSIONS.txt 형식: `#` 으로 시작하지 않는 비어 있지 않은 줄은 ... ok
+test_accounts_boundary_is_exceeding (tests.v2.test_status.TestEngineState.test_accounts_boundary_is_exceeding) ... ok
+test_constants (tests.v2.test_status.TestEngineState.test_constants) ... ok
+test_engine_state_10min_delay_band (tests.v2.test_status.TestEngineState.test_engine_state_10min_delay_band) ... ok
+test_engine_state_day_bar (tests.v2.test_status.TestEngineState.test_engine_state_day_bar) ... ok
+test_engine_state_delay_upper_boundary (tests.v2.test_status.TestEngineState.test_engine_state_delay_upper_boundary) ... ok
+test_engine_state_no_trade_gap_is_delay (tests.v2.test_status.TestEngineState.test_engine_state_no_trade_gap_is_delay) ... ok
+test_engine_state_ok (tests.v2.test_status.TestEngineState.test_engine_state_ok) ... ok
+test_engine_state_ok_boundary_is_exceeding (tests.v2.test_status.TestEngineState.test_engine_state_ok_boundary_is_exceeding) ... ok
+test_engine_state_unknown_after_unknown_sec (tests.v2.test_status.TestEngineState.test_engine_state_unknown_after_unknown_sec) ... ok
+test_engine_state_unknown_when_none (tests.v2.test_status.TestEngineState.test_engine_state_unknown_when_none) ... ok
+test_future_eval_ts_clamped (tests.v2.test_status.TestEngineState.test_future_eval_ts_clamped) ... ok
+test_interval_sec (tests.v2.test_status.TestEngineState.test_interval_sec) ... ok
+test_live_never_ok_from_accounts (tests.v2.test_status.TestEngineState.test_live_never_ok_from_accounts) ... ok
+test_live_no_eval_recent_accounts_delay (tests.v2.test_status.TestEngineState.test_live_no_eval_recent_accounts_delay) ... ok
+test_live_stale_accounts_keeps_eval_basis (tests.v2.test_status.TestEngineState.test_live_stale_accounts_keeps_eval_basis) ... ok
+test_live_uses_accounts_ts_as_secondary (tests.v2.test_status.TestEngineState.test_live_uses_accounts_ts_as_secondary) ... ok
+test_no_word_jeongji (tests.v2.test_status.TestEngineState.test_no_word_jeongji) ... /Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/tests/v2/test_status.py:117: ResourceWarning: unclosed file <_io.TextIOWrapper name='/Users/gonnim/Project-MVP/Source/upbit-tradebot-mvp/v2/status.py' mode='r' encoding='utf-8'>
+  self.assertNotIn("정지", open(s.__file__, encoding="utf-8").read())
+ResourceWarning: Enable tracemalloc to get the object allocation traceback
+ok
+test_test_mode_ignores_accounts (tests.v2.test_status.TestEngineState.test_test_mode_ignores_accounts) ... ok
+test_unknown_sec_floor_short_bars (tests.v2.test_status.TestEngineState.test_unknown_sec_floor_short_bars) ... ok
+test_unknown_sec_long_bars (tests.v2.test_status.TestEngineState.test_unknown_sec_long_bars) ... ok
+test_mode_case_sensitive (tests.v2.test_status.TestModeState.test_mode_case_sensitive) ... ok
+test_mode_engine_none_or_empty (tests.v2.test_status.TestModeState.test_mode_engine_none_or_empty) ... ok
+test_mode_mismatch_warning (tests.v2.test_status.TestModeState.test_mode_mismatch_warning) ... ok
+test_same (tests.v2.test_trailing_save.TestSameRules.test_same) ... ok
+test_absent_preserves_saved (tests.v2.test_trailing_save.TestTrailingSave.test_absent_preserves_saved) ... 2026-11-17 13:35:02.008 200 POST /v2/api/params/save (127.0.0.1) 1.74ms
+2026-11-17 13:35:02.010 200 POST /v2/api/params/save (127.0.0.1) 1.14ms
+ok
+test_bad_rejected_file_untouched (tests.v2.test_trailing_save.TestTrailingSave.test_bad_rejected_file_untouched) ... 2026-11-17 13:35:02.035 200 POST /v2/api/params/save (127.0.0.1) 3.12ms
+2026-11-17 13:35:02.037 400 POST /v2/api/params/save (127.0.0.1) 0.32ms
+2026-11-17 13:35:02.038 400 POST /v2/api/params/save (127.0.0.1) 0.30ms
+2026-11-17 13:35:02.039 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:35:02.040 400 POST /v2/api/params/save (127.0.0.1) 0.32ms
+2026-11-17 13:35:02.041 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:35:02.042 400 POST /v2/api/params/save (127.0.0.1) 0.30ms
+2026-11-17 13:35:02.043 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:35:02.044 400 POST /v2/api/params/save (127.0.0.1) 0.25ms
+2026-11-17 13:35:02.044 400 POST /v2/api/params/save (127.0.0.1) 0.26ms
+2026-11-17 13:35:02.045 400 POST /v2/api/params/save (127.0.0.1) 0.23ms
+2026-11-17 13:35:02.046 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+2026-11-17 13:35:02.047 400 POST /v2/api/params/save (127.0.0.1) 0.22ms
+ok
+test_off_removes_keys (tests.v2.test_trailing_save.TestTrailingSave.test_off_removes_keys) ... 2026-11-17 13:35:02.068 200 POST /v2/api/params/save (127.0.0.1) 1.65ms
+2026-11-17 13:35:02.070 200 POST /v2/api/params/save (127.0.0.1) 1.13ms
+ok
+test_on_writes_three_keys_and_engine_accepts (tests.v2.test_trailing_save.TestTrailingSave.test_on_writes_three_keys_and_engine_accepts) ... 2026-11-17 13:35:02.088 200 POST /v2/api/params/save (127.0.0.1) 1.45ms
+ok
+test_param_fields_still_25 (tests.v2.test_trailing_save.TestTrailingSave.test_param_fields_still_25) ... ok
+
+----------------------------------------------------------------------
+Ran 466 tests in 18.387s
+
+OK
+✅ v2 시험 통과
+
+▶ v2 JS 시험 (tests/v2/js/)...
+TAP version 13
+# Subtest: chart draws, shows failure, and retries after gate under Alpine.reactive
+ok 1 - chart draws, shows failure, and retries after gate under Alpine.reactive
+  ---
+  duration_ms: 18.186167
+  type: 'test'
+  ...
+# Subtest: tabFromHash: 알려진 탭만 인정, 모르는 값·\#backtester 는 home
+ok 2 - tabFromHash: 알려진 탭만 인정, 모르는 값·\#backtester 는 home
+  ---
+  duration_ms: 0.18575
+  type: 'test'
+  ...
+# Subtest: index.html 아래 메뉴 순서: 홈·차트·백테스터·로그·운용, 백테스터만 링크
+ok 3 - index.html 아래 메뉴 순서: 홈·차트·백테스터·로그·운용, 백테스터만 링크
+  ---
+  duration_ms: 0.479125
+  type: 'test'
+  ...
+# Subtest: index.html: 옛 \#basic 자리 없음, \#pause-row 1개, 머리 막대 \#logout-btn 1개
+ok 4 - index.html: 옛 \#basic 자리 없음, \#pause-row 1개, 머리 막대 \#logout-btn 1개
+  ---
+  duration_ms: 0.261792
+  type: 'test'
+  ...
+# Subtest: index.html 운용 탭(2차 T14): 그림 2-마 카드 4개·단추 글자 순서·판정에 묶임·안내 한 줄·구버전 카드 없음
+ok 5 - index.html 운용 탭(2차 T14): 그림 2-마 카드 4개·단추 글자 순서·판정에 묶임·안내 한 줄·구버전 카드 없음
+  ---
+  duration_ms: 0.505417
+  type: 'test'
+  ...
+# Subtest: 운용 탭 연결(2차 T14, Alpine.reactive): 판정·확인 창·요청 POST·결과 읽기·전략 고르기
+ok 6 - 운용 탭 연결(2차 T14, Alpine.reactive): 판정·확인 창·요청 POST·결과 읽기·전략 고르기
+  ---
+  duration_ms: 19.803708
+  type: 'test'
+  ...
+# Subtest: 운용 탭 연결(T14 fix 1): 일시정지는 pause API · 전환/예약 취소 확인 창 · 묶인 수량도 보유 · 실계좌 닫힘
+ok 7 - 운용 탭 연결(T14 fix 1): 일시정지는 pause API · 전환/예약 취소 확인 창 · 묶인 수량도 보유 · 실계좌 닫힘
+  ---
+  duration_ms: 4.351875
+  type: 'test'
+  ...
+# Subtest: 옛 기본 블록 표시는 남지 않았다(안내 문장·현재 시각·상태 로그·자산 3칸)
+ok 8 - 옛 기본 블록 표시는 남지 않았다(안내 문장·현재 시각·상태 로그·자산 3칸)
+  ---
+  duration_ms: 3.675416
+  type: 'test'
+  ...
+# Subtest: 중지 배너 문구는 「위 '▶️ 매매 재개' 단추」, 단추 문구 전환(중지 ↔ 재개)
+ok 9 - 중지 배너 문구는 「위 '▶️ 매매 재개' 단추」, 단추 문구 전환(중지 ↔ 재개)
+  ---
+  duration_ms: 1.22975
+  type: 'test'
+  ...
+# Subtest: 확인 창 취소 시 요청이 없다
+ok 10 - 확인 창 취소 시 요청이 없다
+  ---
+  duration_ms: 0.539083
+  type: 'test'
+  ...
+# Subtest: 확인 창 문구: 중지(모드·한계 명시)·재개
+ok 11 - 확인 창 문구: 중지(모드·한계 명시)·재개
+  ---
+  duration_ms: 0.228083
+  type: 'test'
+  ...
+# Subtest: 중지 확인 → POST {paused:true}, 응답 전 단추 비활성, 응답 뒤 상태를 다시 읽는다
+ok 12 - 중지 확인 → POST {paused:true}, 응답 전 단추 비활성, 응답 뒤 상태를 다시 읽는다
+  ---
+  duration_ms: 8.624667
+  type: 'test'
+  ...
+# Subtest: busy 중에는 두 번째 누름이 요청을 만들지 않는다
+ok 13 - busy 중에는 두 번째 누름이 요청을 만들지 않는다
+  ---
+  duration_ms: 1.786417
+  type: 'test'
+  ...
+# Subtest: 503 → 「잠시 뒤 다시 시도해 주세요」, 401·403 → 구버전 안내, 네트워크 오류도 재시도 안내
+ok 14 - 503 → 「잠시 뒤 다시 시도해 주세요」, 401·403 → 구버전 안내, 네트워크 오류도 재시도 안내
+  ---
+  duration_ms: 0.791541
+  type: 'test'
+  ...
+# Subtest: 401·403 이면 \#pause-row 자리에 「구버전에서 다시 들어와 주세요」
+ok 15 - 401·403 이면 \#pause-row 자리에 「구버전에서 다시 들어와 주세요」
+  ---
+  duration_ms: 0.148875
+  type: 'test'
+  ...
+# Subtest: status 읽기 실패 → 단추 비활성·안내 문구
+ok 16 - status 읽기 실패 → 단추 비활성·안내 문구
+  ---
+  duration_ms: 0.299917
+  type: 'test'
+  ...
+# Subtest: 탭이 숨겨지면(visible=false·문서 숨김) tick 이 요청을 만들지 않고, 다시 보이면 곧바로 읽는다
+ok 17 - 탭이 숨겨지면(visible=false·문서 숨김) tick 이 요청을 만들지 않고, 다시 보이면 곧바로 읽는다
+  ---
+  duration_ms: 1.1355
+  type: 'test'
+  ...
+# Subtest: tick: 7초 안에는 다시 읽지 않는다
+ok 18 - tick: 7초 안에는 다시 읽지 않는다
+  ---
+  duration_ms: 0.360208
+  type: 'test'
+  ...
+# Subtest: 로그아웃: POST 뒤 「/」 이동, 실패해도 이동
+ok 19 - 로그아웃: POST 뒤 「/」 이동, 실패해도 이동
+  ---
+  duration_ms: 0.263083
+  type: 'test'
+  ...
+# Subtest: 로딩 중(status 없음)은 단추 비활성
+ok 20 - 로딩 중(status 없음)은 단추 비활성
+  ---
+  duration_ms: 0.234542
+  type: 'test'
+  ...
+# Subtest: PC 넘김 없음: index.html head 에 인라인 넘김 스크립트·backtester.html replace 가 없다
+ok 21 - PC 넘김 없음: index.html head 에 인라인 넘김 스크립트·backtester.html replace 가 없다
+  ---
+  duration_ms: 1.480167
+  type: 'test'
+  ...
+# Subtest: index.html: 홈 탭 배지 줄 아래 \#pause-row, 머리 막대 \#logout-btn, basic.css·basic.js 연결
+ok 22 - index.html: 홈 탭 배지 줄 아래 \#pause-row, 머리 막대 \#logout-btn, basic.css·basic.js 연결
+  ---
+  duration_ms: 0.112333
+  type: 'test'
+  ...
+# Subtest: backtester.html: 옛 기본 블록 자리·basic.js·basic.css 없음
+ok 23 - backtester.html: 옛 기본 블록 자리·basic.js·basic.css 없음
+  ---
+  duration_ms: 0.067
+  type: 'test'
+  ...
+# Subtest: basic.js·basic.css: 업비트·외부 주소 없음, innerHTML 미사용
+ok 24 - basic.js·basic.css: 업비트·외부 주소 없음, innerHTML 미사용
+  ---
+  duration_ms: 0.422667
+  type: 'test'
+  ...
+# Subtest: 읽기 진행 중 강제 읽기(중지/재개 응답 뒤)는 버리지 않고, 끝난 뒤 한 번 더 읽는다
+ok 25 - 읽기 진행 중 강제 읽기(중지/재개 응답 뒤)는 버리지 않고, 끝난 뒤 한 번 더 읽는다
+  ---
+  duration_ms: 1.574125
+  type: 'test'
+  ...
+# Subtest: PC 넘김 가드가 없다 — PC 에서도 홈(app.js)·단추(basic.js)가 읽기를 시작한다
+ok 26 - PC 넘김 가드가 없다 — PC 에서도 홈(app.js)·단추(basic.js)가 읽기를 시작한다
+  ---
+  duration_ms: 1.1035
+  type: 'test'
+  ...
+# Subtest: aggregateBars: 5분봉 2개를 10분 경계로 묶고, 짝이 없는 앞뒤 묶음은 버린다
+ok 27 - aggregateBars: 5분봉 2개를 10분 경계로 묶고, 짝이 없는 앞뒤 묶음은 버린다
+  ---
+  duration_ms: 3.489791
+  type: 'test'
+  ...
+# Subtest: fetchKlines 10m: 5분봉을 받아 합성한다(다른 봉은 그대로)
+ok 28 - fetchKlines 10m: 5분봉을 받아 합성한다(다른 봉은 그대로)
+  ---
+  duration_ms: 3.712792
+  type: 'test'
+  ...
+# Subtest: 출처를 바꾸면 Ver2 dataCache 를 비우고, 같은 출처를 다시 누르면 그대로 둔다
+ok 29 - 출처를 바꾸면 Ver2 dataCache 를 비우고, 같은 출처를 다시 누르면 그대로 둔다
+  ---
+  duration_ms: 2.682917
+  type: 'test'
+  ...
+# Subtest: (a) upbitCallCount: 1m·30일=216, 3m=72
+ok 30 - (a) upbitCallCount: 1m·30일=216, 3m=72
+  ---
+  duration_ms: 0.949791
+  type: 'test'
+  ...
+# Subtest: (b) 200 -> [t,o,h,l,c] 가 {t,o,h,l,c} 로, 같은 출처 주소·credentials same-origin
+ok 31 - (b) 200 -> [t,o,h,l,c] 가 {t,o,h,l,c} 로, 같은 출처 주소·credentials same-origin
+  ---
+  duration_ms: 0.808541
+  type: 'test'
+  ...
+# Subtest: (b2) 봉 단위 -> unit: 3m=3, 5m=5, 1h=60
+ok 32 - (b2) 봉 단위 -> unit: 3m=3, 5m=5, 1h=60
+  ---
+  duration_ms: 1.377458
+  type: 'test'
+  ...
+# Subtest: (c) 202 -> progress 3회(마지막 active false) -> 같은 GET 다시 -> 200, onProgress 3회
+ok 33 - (c) 202 -> progress 3회(마지막 active false) -> 같은 GET 다시 -> 200, onProgress 3회
+  ---
+  duration_ms: 0.324959
+  type: 'test'
+  ...
+# Subtest: (c2) progress 가 미리 받기(prefetch)·다른 종목이면 기다리지 않고 같은 GET 다시
+ok 34 - (c2) progress 가 미리 받기(prefetch)·다른 종목이면 기다리지 않고 같은 GET 다시
+  ---
+  duration_ms: 0.417917
+  type: 'test'
+  ...
+# Subtest: (d) 상태별 문구로 멈춤
+ok 35 - (d) 상태별 문구로 멈춤
+  ---
+  duration_ms: 0.723667
+  type: 'test'
+  ...
+# Subtest: (d2) progress error 칸 -> 문구, 10분 상한 -> 일반 오류 (1105-09: 5분 → 10분)
+ok 36 - (d2) progress error 칸 -> 문구, 10분 상한 -> 일반 오류 (1105-09: 5분 → 10분)
+  ---
+  duration_ms: 10.708334
+  type: 'test'
+  ...
+# Subtest: (e) briefSummary: 총 수익률·거래 수 / 승률·최대 낙폭
+ok 37 - (e) briefSummary: 총 수익률·거래 수 / 승률·최대 낙폭
+  ---
+  duration_ms: 0.220375
+  type: 'test'
+  ...
+# Subtest: sweepBrief: 상위 n 개 {tp,sl,maxSplits,ret}, 기본 5
+ok 38 - sweepBrief: 상위 n 개 {tp,sl,maxSplits,ret}, 기본 5
+  ---
+  duration_ms: 0.466416
+  type: 'test'
+  ...
+# Subtest: briefHtml·sweepHtml: 결과 없음·표
+ok 39 - briefHtml·sweepHtml: 결과 없음·표
+  ---
+  duration_ms: 0.523541
+  type: 'test'
+  ...
+# Subtest: 봉 단위 기본값: 엔진 interval -> 1m·3m·5m·10m·15m·30m·1h, 그 밖은 3m (1105-09)
+ok 40 - 봉 단위 기본값: 엔진 interval -> 1m·3m·5m·10m·15m·30m·1h, 그 밖은 3m (1105-09)
+  ---
+  duration_ms: 0.126709
+  type: 'test'
+  ...
+# Subtest: install: 업비트로 돌리면 Ver2 의 「바이낸스에서 새로 조회함」을 업비트 문구로 바꾼다 (1105-09)
+ok 41 - install: 업비트로 돌리면 Ver2 의 「바이낸스에서 새로 조회함」을 업비트 문구로 바꾼다 (1105-09)
+  ---
+  duration_ms: 0.310917
+  type: 'test'
+  ...
+# Subtest: install: 업비트 10·15·30분 봉은 서버 단위 10·15·30 으로 부른다 (1105-09)
+ok 42 - install: 업비트 10·15·30분 봉은 서버 단위 10·15·30 으로 부른다 (1105-09)
+  ---
+  duration_ms: 0.254125
+  type: 'test'
+  ...
+# Subtest: install: 출처 업비트면 서버 경로, 바이낸스면 원래 fetchKlines
+ok 43 - install: 출처 업비트면 서버 경로, 바이낸스면 원래 fetchKlines
+  ---
+  duration_ms: 0.16425
+  type: 'test'
+  ...
+# Subtest: install: 업비트 종목 형식 아니면 멈춤, 기간 90일 초과도 멈춤(서버 호출 없음, 1105-06 결정 ④)
+ok 44 - install: 업비트 종목 형식 아니면 멈춤, 기간 90일 초과도 멈춤(서버 호출 없음, 1105-06 결정 ④)
+  ---
+  duration_ms: 0.217125
+  type: 'test'
+  ...
+# Subtest: install: 업비트 기간이 정수가 아니면(7.5) 서버 호출 없이 90일 문구로 멈춤
+ok 45 - install: 업비트 기간이 정수가 아니면(7.5) 서버 호출 없이 90일 문구로 멈춤
+  ---
+  duration_ms: 0.2215
+  type: 'test'
+  ...
+# Subtest: install: 진행 줄 «n / N회» 와 안내 한 줄
+ok 46 - install: 진행 줄 «n / N회» 와 안내 한 줄
+  ---
+  duration_ms: 0.961167
+  type: 'test'
+  ...
+# Subtest: (f) 실행 중 run() 두 번째 호출은 원래 run 을 다시 부르지 않음
+ok 47 - (f) 실행 중 run() 두 번째 호출은 원래 run 을 다시 부르지 않음
+  ---
+  duration_ms: 0.264209
+  type: 'test'
+  ...
+# Subtest: (h) run 이 lastResults 를 바꾸면 요약, 안 바꾸면 «결과 없음»
+ok 48 - (h) run 이 lastResults 를 바꾸면 요약, 안 바꾸면 «결과 없음»
+  ---
+  duration_ms: 0.363291
+  type: 'test'
+  ...
+# Subtest: 스윕 실행 뒤 상위 5개 요약
+ok 49 - 스윕 실행 뒤 상위 5개 요약
+  ---
+  duration_ms: 0.919
+  type: 'test'
+  ...
+# Subtest: (g) bt_ui.js 원문에 api.upbit.com 없음
+ok 50 - (g) bt_ui.js 원문에 api.upbit.com 없음
+  ---
+  duration_ms: 0.351334
+  type: 'test'
+  ...
+# Subtest: backtester.html: 머리 막대·아래 메뉴·스크립트 순서
+ok 51 - backtester.html: 머리 막대·아래 메뉴·스크립트 순서
+  ---
+  duration_ms: 0.371792
+  type: 'test'
+  ...
+# Subtest: backtester.html: 휴대폰 숫자 칸 −/+ 단추가 숫자를 가리지 않음 (1106-02 투자자 클레임)
+ok 52 - backtester.html: 휴대폰 숫자 칸 −/+ 단추가 숫자를 가리지 않음 (1106-02 투자자 클레임)
+  ---
+  duration_ms: 0.131208
+  type: 'test'
+  ...
+# Subtest: backtester.html: 칸 이름 글자 — 짝 칸 이름·단위·크기·봉 단위 칸 반 줄 (1106-03 투자자 클레임 후속)
+ok 53 - backtester.html: 칸 이름 글자 — 짝 칸 이름·단위·크기·봉 단위 칸 반 줄 (1106-03 투자자 클레임 후속)
+  ---
+  duration_ms: 0.300875
+  type: 'test'
+  ...
+# Subtest: backtester.html: 출처 토글·접힘 20개·카드·자세한 결과 (1105-09 Ver2 · 1110-01 추적 손절 3칸)
+ok 54 - backtester.html: 출처 토글·접힘 20개·카드·자세한 결과 (1105-09 Ver2 · 1110-01 추적 손절 3칸)
+  ---
+  duration_ms: 0.619667
+  type: 'test'
+  ...
+# Subtest: backtester.html: 입력 47개 id + 추적 손절 3칸 = 50칸이 모두 있고 기본값은 Ver9 (1111-01)
+ok 55 - backtester.html: 입력 47개 id + 추적 손절 3칸 = 50칸이 모두 있고 기본값은 Ver9 (1111-01)
+  ---
+  duration_ms: 1.765208
+  type: 'test'
+  ...
+# Subtest: backtester.html: 다시 받기 칸 이름·도움말이 업비트 이어 받기 동작을 말한다 (1106-01 ㉠)
+ok 56 - backtester.html: 다시 받기 칸 이름·도움말이 업비트 이어 받기 동작을 말한다 (1106-01 ㉠)
+  ---
+  duration_ms: 0.113375
+  type: 'test'
+  ...
+# Subtest: N7 기본값 고정: 분할 1 · 익절 3 · 손절 3 · 스윕 범위는 Ver9 값 · 둔화 허용치 축
+ok 57 - N7 기본값 고정: 분할 1 · 익절 3 · 손절 3 · 스윕 범위는 Ver9 값 · 둔화 허용치 축
+  ---
+  duration_ms: 2.290334
+  type: 'test'
+  ...
+# Subtest: N4 업비트 출처에서는 선물이 막힌다: 바깥 요청 0건 · 오류 문구 · 단추 disabled
+ok 58 - N4 업비트 출처에서는 선물이 막힌다: 바깥 요청 0건 · 오류 문구 · 단추 disabled
+  ---
+  duration_ms: 3.631916
+  type: 'test'
+  ...
+# Subtest: N8 비동기 선물 · 스윕이 끝난 뒤 요약 카드가 실제 결과로 그려진다(현물/선물 표시 포함)
+ok 59 - N8 비동기 선물 · 스윕이 끝난 뒤 요약 카드가 실제 결과로 그려진다(현물/선물 표시 포함)
+  ---
+  duration_ms: 148.095417
+  type: 'test'
+  ...
+# Subtest: N5 출처를 바꾸면 선물 캐시 · 직전 결과 · 화면 결과가 처음 상태로 돌아간다
+ok 60 - N5 출처를 바꾸면 선물 캐시 · 직전 결과 · 화면 결과가 처음 상태로 돌아간다
+  ---
+  duration_ms: 156.015084
+  type: 'test'
+  ...
+# Subtest: N10 선물을 돌린 뒤 업비트로 바꾸면 저장 창은 업비트 출처 현재 입력값만 보이고 화면 결과는 비어 있다
+ok 61 - N10 선물을 돌린 뒤 업비트로 바꾸면 저장 창은 업비트 출처 현재 입력값만 보이고 화면 결과는 비어 있다
+  ---
+  duration_ms: 28.272375
+  type: 'test'
+  ...
+# Subtest: N9 스윕 카드: TP · SL · 분할이 같고 기울기(또는 둔화)만 다른 두 줄은 글자가 다르다
+ok 62 - N9 스윕 카드: TP · SL · 분할이 같고 기울기(또는 둔화)만 다른 두 줄은 글자가 다르다
+  ---
+  duration_ms: 0.211709
+  type: 'test'
+  ...
+# Subtest: N11 실행 · 선물 · 스윕이 도는 동안에는 출처를 바꾸지 않는다(끝난 결과가 새 출처 화면에 다시 채워지는 틈 막기)
+ok 63 - N11 실행 · 선물 · 스윕이 도는 동안에는 출처를 바꾸지 않는다(끝난 결과가 새 출처 화면에 다시 채워지는 틈 막기)
+  ---
+  duration_ms: 82.955209
+  type: 'test'
+  ...
+# Subtest: N12 스윕이 도는 동안 실행 · 선물은 시작하지 않고, 실행 중에는 스윕을 시작하지 않는다(현물 · 선물 결과 섞임 막기)
+ok 64 - N12 스윕이 도는 동안 실행 · 선물은 시작하지 않고, 실행 중에는 스윕을 시작하지 않는다(현물 · 선물 결과 섞임 막기)
+  ---
+  duration_ms: 84.75225
+  type: 'test'
+  ...
+# Subtest: upbitCandlesUrl
+ok 65 - upbitCandlesUrl
+  ---
+  duration_ms: 0.576416
+  type: 'test'
+  ...
+# Subtest: upbitCandlesUrl appends encoded to=
+ok 66 - upbitCandlesUrl appends encoded to=
+  ---
+  duration_ms: 0.166042
+  type: 'test'
+  ...
+# Subtest: shared gate: two gates on one storage share the 10s window
+ok 67 - shared gate: two gates on one storage share the 10s window
+  ---
+  duration_ms: 0.159958
+  type: 'test'
+  ...
+# Subtest: shared gate: default key and works when storage throws
+ok 68 - shared gate: default key and works when storage throws
+  ---
+  duration_ms: 0.097833
+  type: 'test'
+  ...
+# Subtest: shared gate: default key is v2.upbitGateAt; future/garbage stamps do not lock
+ok 69 - shared gate: default key is v2.upbitGateAt; future/garbage stamps do not lock
+  ---
+  duration_ms: 0.140625
+  type: 'test'
+  ...
+# Subtest: mergeCandles: ascending, one per time, newer wins
+ok 70 - mergeCandles: ascending, one per time, newer wins
+  ---
+  duration_ms: 0.404625
+  type: 'test'
+  ...
+# Subtest: maLines: 60 and 200 on 400 closes
+ok 71 - maLines: 60 and 200 on 400 closes
+  ---
+  duration_ms: 0.195792
+  type: 'test'
+  ...
+# Subtest: visiblePeriods: 200 line waits until 400 candles
+ok 72 - visiblePeriods: 200 line waits until 400 candles
+  ---
+  duration_ms: 0.129292
+  type: 'test'
+  ...
+# Subtest: zoom scales visible logical range around its centre
+ok 73 - zoom scales visible logical range around its centre
+  ---
+  duration_ms: 3.706458
+  type: 'test'
+  ...
+# Subtest: orders oldest first
+ok 74 - orders oldest first
+  ---
+  duration_ms: 0.68675
+  type: 'test'
+  ...
+# Subtest: keeps last data on 429
+ok 75 - keeps last data on 429
+  ---
+  duration_ms: 0.60575
+  type: 'test'
+  ...
+# Subtest: single in-flight request
+ok 76 - single in-flight request
+  ---
+  duration_ms: 0.35875
+  type: 'test'
+  ...
+# Subtest: skips when hidden
+ok 77 - skips when hidden
+  ---
+  duration_ms: 0.079208
+  type: 'test'
+  ...
+# Subtest: marks last candle forming
+ok 78 - marks last candle forming
+  ---
+  duration_ms: 0.088917
+  type: 'test'
+  ...
+# Subtest: sma60 matches reference
+ok 79 - sma60 matches reference
+  ---
+  duration_ms: 0.110208
+  type: 'test'
+  ...
+# Subtest: parseFailedKeys parses json array else raw
+ok 80 - parseFailedKeys parses json array else raw
+  ---
+  duration_ms: 0.355709
+  type: 'test'
+  ...
+# Subtest: kst formatters add nine hours
+ok 81 - kst formatters add nine hours
+  ---
+  duration_ms: 0.073791
+  type: 'test'
+  ...
+# Subtest: clipMarkers drops markers outside candle range
+ok 82 - clipMarkers drops markers outside candle range
+  ---
+  duration_ms: 0.05925
+  type: 'test'
+  ...
+# Subtest: intervalToMinutes rejects non-minute units
+ok 83 - intervalToMinutes rejects non-minute units
+  ---
+  duration_ms: 0.09325
+  type: 'test'
+  ...
+# Subtest: toMarkers buy below sell above sorted
+ok 84 - toMarkers buy below sell above sorted
+  ---
+  duration_ms: 0.112125
+  type: 'test'
+  ...
+# Subtest: (a) 배지 4개: 모드·엔진·전략·일시정지
+ok 85 - (a) 배지 4개: 모드·엔진·전략·일시정지
+  ---
+  duration_ms: 29.655541
+  type: 'test'
+  ...
+# Subtest: 엔진 배지: 글자와 색이 함께 바뀐다
+ok 86 - 엔진 배지: 글자와 색이 함께 바뀐다
+  ---
+  duration_ms: 1.341084
+  type: 'test'
+  ...
+# Subtest: 전략 이름·일시정지 배지
+ok 87 - 전략 이름·일시정지 배지
+  ---
+  duration_ms: 0.697166
+  type: 'test'
+  ...
+# Subtest: (b) 평가 합계·원화/코인·평가손익
+ok 88 - (b) 평가 합계·원화/코인·평가손익
+  ---
+  duration_ms: 0.319334
+  type: 'test'
+  ...
+# Subtest: (c) 코인 0 이면 보유 없음 · 평가손익 —
+ok 89 - (c) 코인 0 이면 보유 없음 · 평가손익 —
+  ---
+  duration_ms: 0.103917
+  type: 'test'
+  ...
+# Subtest: 보유 카드: 익절·손절 퍼센트, 회차 —
+ok 90 - 보유 카드: 익절·손절 퍼센트, 회차 —
+  ---
+  duration_ms: 0.15175
+  type: 'test'
+  ...
+# Subtest: 값이 없는 새 계정(assets·status 없음)도 오류 없이
+ok 91 - 값이 없는 새 계정(assets·status 없음)도 오류 없이
+  ---
+  duration_ms: 0.177458
+  type: 'test'
+  ...
+# Subtest: (d) reasonLabel
+ok 92 - (d) reasonLabel
+  ---
+  duration_ms: 0.094167
+  type: 'test'
+  ...
+# Subtest: (d) tradeRow: 외부 매도·금액 없음, 구분 색
+ok 93 - (d) tradeRow: 외부 매도·금액 없음, 구분 색
+  ---
+  duration_ms: 0.485959
+  type: 'test'
+  ...
+# Subtest: (d) signalSentence
+ok 94 - (d) signalSentence
+  ---
+  duration_ms: 2.130209
+  type: 'test'
+  ...
+# Subtest: (f) 빈 거래·빈 신호
+ok 95 - (f) 빈 거래·빈 신호
+  ---
+  duration_ms: 1.141958
+  type: 'test'
+  ...
+# Subtest: (e) 1112-01: 거래 시각은 오늘·어제·그 전 모두 YY.MM.DD HH:MM
+ok 96 - (e) 1112-01: 거래 시각은 오늘·어제·그 전 모두 YY.MM.DD HH:MM
+  ---
+  duration_ms: 0.379
+  type: 'test'
+  ...
+# Subtest: (g) 잠김 줄·기록 시각
+ok 97 - (g) 잠김 줄·기록 시각
+  ---
+  duration_ms: 0.947542
+  type: 'test'
+  ...
+# Subtest: priceText: 크기별 소수 자리·천 단위 쉼표, 보유 카드에 적용, 원화 금액은 정수
+ok 98 - priceText: 크기별 소수 자리·천 단위 쉼표, 보유 카드에 적용, 원화 금액은 정수
+  ---
+  duration_ms: 0.678625
+  type: 'test'
+  ...
+# Subtest: 기록 시각 줄: 현재가 값·시각(YY.MM.DD HH:MM — 1112-01), 값 없으면 —
+ok 99 - 기록 시각 줄: 현재가 값·시각(YY.MM.DD HH:MM — 1112-01), 값 없으면 —
+  ---
+  duration_ms: 0.659917
+  type: 'test'
+  ...
+# Subtest: logTime(1112-01): 오늘·어제·그 전 모두 YY.MM.DD HH:MM(초 없음), 값 없음 —
+ok 100 - logTime(1112-01): 오늘·어제·그 전 모두 YY.MM.DD HH:MM(초 없음), 값 없음 —
+  ---
+  duration_ms: 1.228
+  type: 'test'
+  ...
+# Subtest: loadLogs: kind·page 를 주소에 싣고 rows·pages 를 반영, 기본은 감사 로그
+ok 101 - loadLogs: kind·page 를 주소에 싣고 rows·pages 를 반영, 기본은 감사 로그
+  ---
+  duration_ms: 1.768333
+  type: 'test'
+  ...
+# Subtest: setLogsKind: 종류를 바꾸면 1쪽부터 다시 읽는다
+ok 102 - setLogsKind: 종류를 바꾸면 1쪽부터 다시 읽는다
+  ---
+  duration_ms: 0.173792
+  type: 'test'
+  ...
+# Subtest: 쪽 이동: 첫 쪽·마지막 쪽 밖으로는 나가지 않고, 서버가 맞춘 쪽 번호를 따른다
+ok 103 - 쪽 이동: 첫 쪽·마지막 쪽 밖으로는 나가지 않고, 서버가 맞춘 쪽 번호를 따른다
+  ---
+  duration_ms: 0.12825
+  type: 'test'
+  ...
+# Subtest: more 가 true 면 쪽 표기는 「p / 100+」
+ok 104 - more 가 true 면 쪽 표기는 「p / 100+」
+  ---
+  duration_ms: 0.213125
+  type: 'test'
+  ...
+# Subtest: 종류를 바꾸면 이전 행을 비우고 불러오는 중으로 둔다
+ok 105 - 종류를 바꾸면 이전 행을 비우고 불러오는 중으로 둔다
+  ---
+  duration_ms: 0.112791
+  type: 'test'
+  ...
+# Subtest: 느리게 도착한 이전 종류의 응답은 버린다
+ok 106 - 느리게 도착한 이전 종류의 응답은 버린다
+  ---
+  duration_ms: 0.181792
+  type: 'test'
+  ...
+# Subtest: index.html: 그림 2-라 문구·토글·표 머리·쪽 이동·설명 카드
+ok 107 - index.html: 그림 2-라 문구·토글·표 머리·쪽 이동·설명 카드
+  ---
+  duration_ms: 0.237375
+  type: 'test'
+  ...
+# Subtest: EMA 운용 중 복귀 단추: 글자 「(지금은 해당 없음)」 · 비활성 (그림 2-마)
+ok 108 - EMA 운용 중 복귀 단추: 글자 「(지금은 해당 없음)」 · 비활성 (그림 2-마)
+  ---
+  duration_ms: 0.660375
+  type: 'test'
+  ...
+# Subtest: 상태별 활성 단추 집합: EMA 미보유 / EMA 보유 / 예약 중 / PULLBACK 보유 / 엔진 멈춤
+ok 109 - 상태별 활성 단추 집합: EMA 미보유 / EMA 보유 / 예약 중 / PULLBACK 보유 / 엔진 멈춤
+  ---
+  duration_ms: 0.580667
+  type: 'test'
+  ...
+# Subtest: 전환 단추: 저장본 정상·예약 없음·예약 확인 가능일 때만, 요청 처리 중이면 모두 닫힘(일시정지 포함)
+ok 110 - 전환 단추: 저장본 정상·예약 없음·예약 확인 가능일 때만, 요청 처리 중이면 모두 닫힘(일시정지 포함)
+  ---
+  duration_ms: 0.099958
+  type: 'test'
+  ...
+# Subtest: 전환 확인 창 문구
+ok 111 - 전환 확인 창 문구
+  ---
+  duration_ms: 0.051417
+  type: 'test'
+  ...
+# Subtest: 복귀 확인: 기록 있음 → 「EMA · 종목 · 봉 으로 돌아갑니다」, 기록 없음 → null(전략 고르기)
+ok 112 - 복귀 확인: 기록 있음 → 「EMA · 종목 · 봉 으로 돌아갑니다」, 기록 없음 → null(전략 고르기)
+  ---
+  duration_ms: 0.201708
+  type: 'test'
+  ...
+# Subtest: 강제 매수 금액 표시 2종: PULLBACK = 회당 금액, EMA·MACD = 잔고 × 주문 비율
+ok 113 - 강제 매수 금액 표시 2종: PULLBACK = 회당 금액, EMA·MACD = 잔고 × 주문 비율
+  ---
+  duration_ms: 12.93725
+  type: 'test'
+  ...
+# Subtest: 결과 문구 7종(busy·mode_conflict·saved_invalid·sha_mismatch·choose_strategy·expired·error)
+ok 114 - 결과 문구 7종(busy·mode_conflict·saved_invalid·sha_mismatch·choose_strategy·expired·error)
+  ---
+  duration_ms: 0.413959
+  type: 'test'
+  ...
+# Subtest: 60초 넘으면 「엔진이 응답하지 않습니다」 (2초 간격 31회 읽기)
+ok 115 - 60초 넘으면 「엔진이 응답하지 않습니다」 (2초 간격 31회 읽기)
+  ---
+  duration_ms: 1.977541
+  type: 'test'
+  ...
+# Subtest: 운용 설정 입력 → 4키 payload, 형식 틀리면 null, 적용본 값 → 입력 칸
+ok 116 - 운용 설정 입력 → 4키 payload, 형식 틀리면 null, 적용본 값 → 입력 칸
+  ---
+  duration_ms: 0.835125
+  type: 'test'
+  ...
+# Subtest: 예약 한 줄 문구
+ok 117 - 예약 한 줄 문구
+  ---
+  duration_ms: 0.698542
+  type: 'test'
+  ...
+# Subtest: 「시간 밖에도 익절」은 입력 칸 값을 보낸다(적용본 값과 달라도), 참/거짓 아니면 null
+ok 118 - 「시간 밖에도 익절」은 입력 칸 값을 보낸다(적용본 값과 달라도), 참/거짓 아니면 null
+  ---
+  duration_ms: 0.413667
+  type: 'test'
+  ...
+# Subtest: 운용 설정 저장 단추: 새 전략 운용 중 + 예약 확인 가능 + 예약 없음일 때만
+ok 119 - 운용 설정 저장 단추: 새 전략 운용 중 + 예약 확인 가능 + 예약 없음일 때만
+  ---
+  duration_ms: 0.574792
+  type: 'test'
+  ...
+# Subtest: 복귀 단추: 새 전략 운용 중이라도 예약 중이면 닫힘 (V08b)
+ok 120 - 복귀 단추: 새 전략 운용 중이라도 예약 중이면 닫힘 (V08b)
+  ---
+  duration_ms: 0.073208
+  type: 'test'
+  ...
+# Subtest: 실계좌(LIVE) 입장: 1109 부터 전환·복귀·운용 설정 저장이 모의와 같이 열림 + 안내 한 줄
+ok 121 - 실계좌(LIVE) 입장: 1109 부터 전환·복귀·운용 설정 저장이 모의와 같이 열림 + 안내 한 줄
+  ---
+  duration_ms: 0.16275
+  type: 'test'
+  ...
+# Subtest: 실계좌 전환·복귀 확인 문구: 예약 전제 문장이 없고, 모의는 그대로
+ok 122 - 실계좌 전환·복귀 확인 문구: 예약 전제 문장이 없고, 모의는 그대로
+  ---
+  duration_ms: 0.118083
+  type: 'test'
+  ...
+# Subtest: EMA·MACD 강제 매수 확인: 주문 방식은 매수 조건 설정을 따른다(시장가 단정 없음), PULLBACK 은 그대로
+ok 123 - EMA·MACD 강제 매수 확인: 주문 방식은 매수 조건 설정을 따른다(시장가 단정 없음), PULLBACK 은 그대로
+  ---
+  duration_ms: 0.126875
+  type: 'test'
+  ...
+# Subtest: Ver9 기준 파일이 바뀌지 않았다
+ok 124 - Ver9 기준 파일이 바뀌지 않았다
+  ---
+  duration_ms: 2.812792
+  type: 'test'
+  ...
+# Subtest: script = Ver9 원문 + 정해진 차이(1105-06 두 곳 · 1110-01 추적 손절) (바이트 동일)
+ok 125 - script = Ver9 원문 + 정해진 차이(1105-06 두 곳 · 1110-01 추적 손절) (바이트 동일)
+  ---
+  duration_ms: 1.86975
+  type: 'test'
+  ...
+# Subtest: defaults identical to Ver9
+ok 126 - defaults identical to Ver9
+  ---
+  duration_ms: 2.094584
+  type: 'test'
+  ...
+# Subtest: set a: trades/weekly/monthly/sweep CSV identical (구간 순번 칸 제외)
+ok 127 - set a: trades/weekly/monthly/sweep CSV identical (구간 순번 칸 제외)
+  ---
+  duration_ms: 8167.47025
+  type: 'test'
+  ...
+# Subtest: set a: request count and bar count identical
+ok 128 - set a: request count and bar count identical
+  ---
+  duration_ms: 0.223083
+  type: 'test'
+  ...
+# Subtest: set a: chart path no error
+ok 129 - set a: chart path no error
+  ---
+  duration_ms: 0.09525
+  type: 'test'
+  ...
+# Subtest: set b: trades/weekly/monthly/sweep CSV identical (구간 순번 칸 제외)
+ok 130 - set b: trades/weekly/monthly/sweep CSV identical (구간 순번 칸 제외)
+  ---
+  duration_ms: 8403.500583
+  type: 'test'
+  ...
+# Subtest: set b: request count and bar count identical
+ok 131 - set b: request count and bar count identical
+  ---
+  duration_ms: 0.115666
+  type: 'test'
+  ...
+# Subtest: set b: chart path no error
+ok 132 - set b: chart path no error
+  ---
+  duration_ms: 0.260917
+  type: 'test'
+  ...
+# Subtest: set c: trades/weekly/monthly/sweep CSV identical (구간 순번 칸 제외)
+ok 133 - set c: trades/weekly/monthly/sweep CSV identical (구간 순번 칸 제외)
+  ---
+  duration_ms: 4533.986042
+  type: 'test'
+  ...
+# Subtest: set c: request count and bar count identical
+ok 134 - set c: request count and bar count identical
+  ---
+  duration_ms: 0.153125
+  type: 'test'
+  ...
+# Subtest: set c: chart path no error
+ok 135 - set c: chart path no error
+  ---
+  duration_ms: 0.046875
+  type: 'test'
+  ...
+# Subtest: N1 선물 동등성: 방식 A·B·C × 방식 C 손절 2 × 펀딩비 2 = 12가지 거래·주간·월간·요약이 원문과 같다
+ok 136 - N1 선물 동등성: 방식 A·B·C × 방식 C 손절 2 × 펀딩비 2 = 12가지 거래·주간·월간·요약이 원문과 같다
+  ---
+  duration_ms: 377.903584
+  type: 'test'
+  ...
+# Subtest: N1 펀딩비 반영 여부가 거래 손익 칸에 실제로 영향을 준다(시험 자료 점검)
+ok 137 - N1 펀딩비 반영 여부가 거래 손익 칸에 실제로 영향을 준다(시험 자료 점검)
+  ---
+  duration_ms: 62.439583
+  type: 'test'
+  ...
+# Subtest: N2 선물 스윕 동등성: 스윕·기울기별·둔화별·월별 1위·주별 1위 5개 CSV 가 원문과 같다
+ok 138 - N2 선물 스윕 동등성: 스윕·기울기별·둔화별·월별 1위·주별 1위 5개 CSV 가 원문과 같다
+  ---
+  duration_ms: 138.5855
+  type: 'test'
+  ...
+# Subtest: N3 현물 스윕 5개 CSV 동등성(좁힌 범위): 원문과 같다(거래 CSV 는 구간 순번 칸 제외)
+ok 139 - N3 현물 스윕 5개 CSV 동등성(좁힌 범위): 원문과 같다(거래 CSV 는 구간 순번 칸 제외)
+  ---
+  duration_ms: 69.604792
+  type: 'test'
+  ...
+# Subtest: N6 바깥 연결 0: vm 에 실제 fetch 가 없고, 선물은 가짜 서버(fapi 주소)만 불렀다
+ok 140 - N6 바깥 연결 0: vm 에 실제 fetch 가 없고, 선물은 가짜 서버(fapi 주소)만 불렀다
+  ---
+  duration_ms: 10.826
+  type: 'test'
+  ...
+# Subtest: 예약 없으면 배지 4개 그대로, 예약 있으면 전략 배지 뒤에 노란 예약 배지
+ok 141 - 예약 없으면 배지 4개 그대로, 예약 있으면 전략 배지 뒤에 노란 예약 배지
+  ---
+  duration_ms: 19.286208
+  type: 'test'
+  ...
+# Subtest: 분할 회차 「2 / 5회」, 회차 없으면(EMA) 「—」
+ok 142 - 분할 회차 「2 / 5회」, 회차 없으면(EMA) 「—」
+  ---
+  duration_ms: 2.159042
+  type: 'test'
+  ...
+# Subtest: 익절·손절 라벨: 새 전략은 적용본 %(+5%·-3%), EMA 는 1차 계산 그대로
+ok 143 - 익절·손절 라벨: 새 전략은 적용본 %(+5%·-3%), EMA 는 1차 계산 그대로
+  ---
+  duration_ms: 0.602084
+  type: 'test'
+  ...
+# Subtest: 눌림 상태(armed) 문장
+ok 144 - 눌림 상태(armed) 문장
+  ---
+  duration_ms: 0.61375
+  type: 'test'
+  ...
+# Subtest: 눌림 상태(armed) 문장도 기준선 기간(pullbackP)을 쓴다
+ok 145 - 눌림 상태(armed) 문장도 기준선 기간(pullbackP)을 쓴다
+  ---
+  duration_ms: 0.211834
+  type: 'test'
+  ...
+# Subtest: 눌림 전(armed 0) 문장은 pullbackP 기간을 쓴다
+ok 146 - 눌림 전(armed 0) 문장은 pullbackP 기간을 쓴다
+  ---
+  duration_ms: 0.183166
+  type: 'test'
+  ...
+# Subtest: 감시 구간 밖: 미보유는 사유(기간 반영), 보유는 보유 유지
+ok 147 - 감시 구간 밖: 미보유는 사유(기간 반영), 보유는 보유 유지
+  ---
+  duration_ms: 0.117834
+  type: 'test'
+  ...
+# Subtest: 회차 다 참·어긋남·예약 문장과 우선순위
+ok 148 - 회차 다 참·어긋남·예약 문장과 우선순위
+  ---
+  duration_ms: 0.18525
+  type: 'test'
+  ...
+# Subtest: EMA 사용자: 예약 중이면 예약 문장, 아니면 1차 문장 그대로
+ok 149 - EMA 사용자: 예약 중이면 예약 문장, 아니면 1차 문장 그대로
+  ---
+  duration_ms: 0.325375
+  type: 'test'
+  ...
+# Subtest: 투자자 문장에 내부 코드가 나오지 않는다
+ok 150 - 투자자 문장에 내부 코드가 나오지 않는다
+  ---
+  duration_ms: 1.450833
+  type: 'test'
+  ...
+# Subtest: 감시 밖 사유: 60선 기울기 낮음·둔화는 60선 기간(ma60p)으로, 옛 200선 사유는 옛 문구 그대로
+ok 151 - 감시 밖 사유: 60선 기울기 낮음·둔화는 60선 기간(ma60p)으로, 옛 200선 사유는 옛 문구 그대로
+  ---
+  duration_ms: 0.394666
+  type: 'test'
+  ...
+# Subtest: 연속 손절 중단 봉: 「연속 손절로 매수 중단 중 — YY.MM.DD HH:MM 까지」(1112-01 — 날짜와 상관없이 같은 모양)
+ok 152 - 연속 손절 중단 봉: 「연속 손절로 매수 중단 중 — YY.MM.DD HH:MM 까지」(1112-01 — 날짜와 상관없이 같은 모양)
+  ---
+  duration_ms: 0.216791
+  type: 'test'
+  ...
+# Subtest: 상승폭 제한 봉 문장
+ok 153 - 상승폭 제한 봉 문장
+  ---
+  duration_ms: 0.518667
+  type: 'test'
+  ...
+# Subtest: 연속 손절 중단 배지: 서버가 끝 시각을 줄 때만 노란 배지 하나 더
+ok 154 - 연속 손절 중단 배지: 서버가 끝 시각을 줄 때만 노란 배지 하나 더
+  ---
+  duration_ms: 1.210125
+  type: 'test'
+  ...
+# Subtest: 이번 거래 익절 %: 설정 TP 와 다를 때만 「· 이번 거래」 로 그 값을 보임
+ok 155 - 이번 거래 익절 %: 설정 TP 와 다를 때만 「· 이번 거래」 로 그 값을 보임
+  ---
+  duration_ms: 2.300375
+  type: 'test'
+  ...
+# Subtest: 회차 매수 「매수 2회」·건너뜀 사유, EMA 행은 1차 그대로
+ok 156 - 회차 매수 「매수 2회」·건너뜀 사유, EMA 행은 1차 그대로
+  ---
+  duration_ms: 0.646292
+  type: 'test'
+  ...
+# Subtest: chartLines: EMA 사용자는 1차 그대로(60·200 단순, 400봉, 범례 없음)
+ok 157 - chartLines: EMA 사용자는 1차 그대로(60·200 단순, 400봉, 범례 없음)
+  ---
+  duration_ms: 0.212666
+  type: 'test'
+  ...
+# Subtest: chartLines: 새 전략은 적용본 기간·방식, 봉 수 = 2 × 가장 긴 기간(최대 2000)
+ok 158 - chartLines: 새 전략은 적용본 기간·방식, 봉 수 = 2 × 가장 긴 기간(최대 2000)
+  ---
+  duration_ms: 0.216084
+  type: 'test'
+  ...
+# Subtest: chartLines: 기준선(pullbackP)이 60선 기간과 다를 때만 점선 하나 더(U3)
+ok 159 - chartLines: 기준선(pullbackP)이 60선 기간과 다를 때만 점선 하나 더(U3)
+  ---
+  duration_ms: 1.283167
+  type: 'test'
+  ...
+# Subtest: ema: 첫 값 = 단순평균 시드, 이후 α=2/(p+1)
+ok 160 - ema: 첫 값 = 단순평균 시드, 이후 α=2/(p+1)
+  ---
+  duration_ms: 0.103167
+  type: 'test'
+  ...
+# Subtest: maLines: 방식에 따라 sma/ema
+ok 161 - maLines: 방식에 따라 sma/ema
+  ---
+  duration_ms: 0.115958
+  type: 'test'
+  ...
+# Subtest: normalizeLines: 숫자 배열(1차) → trend·long 칸, 객체는 그대로
+ok 162 - normalizeLines: 숫자 배열(1차) → trend·long 칸, 객체는 그대로
+  ---
+  duration_ms: 0.089083
+  type: 'test'
+  ...
+# Subtest: toMarkers(U2): BUY·SELL 만, 거절·취소 표식 없음, bar_time 없는 외부 매수·매도도 없음
+ok 163 - toMarkers(U2): BUY·SELL 만, 거절·취소 표식 없음, bar_time 없는 외부 매수·매도도 없음
+  ---
+  duration_ms: 1.739291
+  type: 'test'
+  ...
+# Subtest: 원본 스크립트 sha 같음
+ok 164 - 원본 스크립트 sha 같음
+  ---
+  duration_ms: 5.978125
+  type: 'test'
+  ...
+# Subtest: 조합 15개·세트 3개 (1110-01: 추적 손절 2조합)
+ok 165 - 조합 15개·세트 3개 (1110-01: 추적 손절 2조합)
+  ---
+  duration_ms: 0.374791
+  type: 'test'
+  ...
+# Subtest: 기준값 고정 파일과 같음 — upbit_a 15조합
+ok 166 - 기준값 고정 파일과 같음 — upbit_a 15조합
+  ---
+  duration_ms: 311.490333
+  type: 'test'
+  ...
+# Subtest: 사건 수 — upbit_a base: GOLDEN·PULLBACK·매도 ≥ 1
+ok 167 - 사건 수 — upbit_a base: GOLDEN·PULLBACK·매도 ≥ 1
+  ---
+  duration_ms: 0.318625
+  type: 'test'
+  ...
+# Subtest: 기준값 고정 파일과 같음 — upbit_b 15조합
+ok 168 - 기준값 고정 파일과 같음 — upbit_b 15조합
+  ---
+  duration_ms: 186.849375
+  type: 'test'
+  ...
+# Subtest: 사건 수 — upbit_b base: GOLDEN·PULLBACK·매도 ≥ 1
+ok 169 - 사건 수 — upbit_b base: GOLDEN·PULLBACK·매도 ≥ 1
+  ---
+  duration_ms: 0.304542
+  type: 'test'
+  ...
+# Subtest: 기준값 고정 파일과 같음 — upbit_c 15조합
+ok 170 - 기준값 고정 파일과 같음 — upbit_c 15조합
+  ---
+  duration_ms: 205.450291
+  type: 'test'
+  ...
+# Subtest: 사건 수 — upbit_c base: GOLDEN·PULLBACK·매도 ≥ 1
+ok 171 - 사건 수 — upbit_c base: GOLDEN·PULLBACK·매도 ≥ 1
+  ---
+  duration_ms: 0.21325
+  type: 'test'
+  ...
+# Subtest: collectParams: 25 keys, number->Number, empty number->null, select string
+ok 172 - collectParams: 25 keys, number->Number, empty number->null, select string
+  ---
+  duration_ms: 10.673
+  type: 'test'
+  ...
+# Subtest: floorWarning: 구간 횟수가 켜지고 하한 > TP 일 때만 경고(저장은 막지 않음, 2-1)
+ok 173 - floorWarning: 구간 횟수가 켜지고 하한 > TP 일 때만 경고(저장은 막지 않음, 2-1)
+  ---
+  duration_ms: 1.381125
+  type: 'test'
+  ...
+# Subtest: saveMessage: 응답별 문구
+ok 174 - saveMessage: 응답별 문구
+  ---
+  duration_ms: 0.888958
+  type: 'test'
+  ...
+# Subtest: engineLabel: 정상/지연/판단 불가, 「정지」 없음
+ok 175 - engineLabel: 정상/지연/판단 불가, 「정지」 없음
+  ---
+  duration_ms: 0.511375
+  type: 'test'
+  ...
+# Subtest: saveButtonDisabled: 미리 읽기 전·종목 없음·저장 중·저장 성공 뒤 모두 비활성
+ok 176 - saveButtonDisabled: 미리 읽기 전·종목 없음·저장 중·저장 성공 뒤 모두 비활성
+  ---
+  duration_ms: 1.389959
+  type: 'test'
+  ...
+# Subtest: lastSavedText: 응답 saved_at 우선, 없으면 current, 둘 다 없으면 기록 없음
+ok 177 - lastSavedText: 응답 saved_at 우선, 없으면 current, 둘 다 없으면 기록 없음
+  ---
+  duration_ms: 1.076625
+  type: 'test'
+  ...
+# Subtest: makeGate: 최신 세대만 유효
+ok 178 - makeGate: 최신 세대만 유효
+  ---
+  duration_ms: 1.117292
+  type: 'test'
+  ...
+# Subtest: srcToInterval: 7종 매핑·매핑 밖은 null, 문구·경고
+ok 179 - srcToInterval: 7종 매핑·매핑 밖은 null, 문구·경고
+  ---
+  duration_ms: 1.832209
+  type: 'test'
+  ...
+# Subtest: save.js 매핑이 params_schema._INTERVAL 과 같다
+ok 180 - save.js 매핑이 params_schema._INTERVAL 과 같다
+  ---
+  duration_ms: 1.091125
+  type: 'test'
+  ...
+# Subtest: 스냅샷: 원본 입력이 바뀌어도 보낼 본문은 스냅샷 그대로
+ok 181 - 스냅샷: 원본 입력이 바뀌어도 보낼 본문은 스냅샷 그대로
+  ---
+  duration_ms: 1.121042
+  type: 'test'
+  ...
+# Subtest: 성공 문구에 응답의 ticker·interval 이 들어간다
+ok 182 - 성공 문구에 응답의 ticker·interval 이 들어간다
+  ---
+  duration_ms: 0.567417
+  type: 'test'
+  ...
+# Subtest: backtester.html: saveArea 안에 버튼·확인 창, save.js 가 backtester.js 뒤
+ok 183 - backtester.html: saveArea 안에 버튼·확인 창, save.js 가 backtester.js 뒤
+  ---
+  duration_ms: 0.19825
+  type: 'test'
+  ...
+# Subtest: makeSnapshot: 출처 토글 값이 source 로 간다(업비트면 upbit, 그 밖은 binance)
+ok 184 - makeSnapshot: 출처 토글 값이 source 로 간다(업비트면 upbit, 그 밖은 binance)
+  ---
+  duration_ms: 0.957375
+  type: 'test'
+  ...
+# Subtest: 창 문구: 시험한 데이터 줄·지금 상태 4행·안내
+ok 185 - 창 문구: 시험한 데이터 줄·지금 상태 4행·안내
+  ---
+  duration_ms: 0.665084
+  type: 'test'
+  ...
+# Subtest: backtester.html: 확인 창 제목·단추(저장만 하기 / 이 설정으로 동작 비활성 / 취소)
+ok 186 - backtester.html: 확인 창 제목·단추(저장만 하기 / 이 설정으로 동작 비활성 / 취소)
+  ---
+  duration_ms: 0.122333
+  type: 'test'
+  ...
+# Subtest: preloadAll: basic 실패만 null 로 받고 나머지는 그대로, 다른 실패는 전체 실패
+ok 187 - preloadAll: basic 실패만 null 로 받고 나머지는 그대로, 다른 실패는 전체 실패
+  ---
+  duration_ms: 1.442625
+  type: 'test'
+  ...
+# Subtest: T13 업비트 + EMA → 이 설정으로 동작 활성, 누르면 전환 확인 창
+ok 188 - T13 업비트 + EMA → 이 설정으로 동작 활성, 누르면 전환 확인 창
+  ---
+  duration_ms: 1.479167
+  type: 'test'
+  ...
+# Subtest: T13 업비트 + PULLBACK → 적용 요청(apply_params, 저장본 해시)
+ok 189 - T13 업비트 + PULLBACK → 적용 요청(apply_params, 저장본 해시)
+  ---
+  duration_ms: 1.137708
+  type: 'test'
+  ...
+# Subtest: T13 엔진 꺼짐 질문 → 예 = engine_start 뒤 적용
+ok 190 - T13 엔진 꺼짐 질문 → 예 = engine_start 뒤 적용
+  ---
+  duration_ms: 39.81675
+  type: 'test'
+  ...
+# Subtest: T13 바이낸스 사용 불가 유지 — 참고용 문구·단추 비활성
+ok 191 - T13 바이낸스 사용 불가 유지 — 참고용 문구·단추 비활성
+  ---
+  duration_ms: 0.561416
+  type: 'test'
+  ...
+# Subtest: T13 단추 비활성: 미리 읽기 전·종목 모름·진행 중·한 번 보낸 뒤·전략 모름
+ok 192 - T13 단추 비활성: 미리 읽기 전·종목 모름·진행 중·한 번 보낸 뒤·전략 모름
+  ---
+  duration_ms: 1.282792
+  type: 'test'
+  ...
+# Subtest: T13 결과 문구: 엔진 message 그대로, 응답 없음 60초, 요청 겹침
+ok 193 - T13 결과 문구: 엔진 message 그대로, 응답 없음 60초, 요청 겹침
+  ---
+  duration_ms: 0.864625
+  type: 'test'
+  ...
+# Subtest: 투자 비율 입력 해석: 비움·범위·소수 첫째 자리
+ok 194 - 투자 비율 입력 해석: 비움·범위·소수 첫째 자리
+  ---
+  duration_ms: 2.895708
+  type: 'test'
+  ...
+# Subtest: 1회 금액 미리 보기: 실계좌 = floor(원화×비율÷100÷(1+수수료))÷분할 횟수, 저장 창 문구
+ok 195 - 1회 금액 미리 보기: 실계좌 = floor(원화×비율÷100÷(1+수수료))÷분할 횟수, 저장 창 문구
+  ---
+  duration_ms: 16.892875
+  type: 'test'
+  ...
+# Subtest: 투자 비율 칸 안내·실계좌 빈 칸 경고 문구
+ok 196 - 투자 비율 칸 안내·실계좌 빈 칸 경고 문구
+  ---
+  duration_ms: 4.327333
+  type: 'test'
+  ...
+# Subtest: 저장 요청 본문: 칸을 건드리지 않으면 investRatioPct 없음(저장값 보존), 건드렸으면 숫자 또는 null
+ok 197 - 저장 요청 본문: 칸을 건드리지 않으면 investRatioPct 없음(저장값 보존), 건드렸으면 숫자 또는 null
+  ---
+  duration_ms: 0.544959
+  type: 'test'
+  ...
+# Subtest: 저장된 비율 읽기: 입장 모드의 키만
+ok 198 - 저장된 비율 읽기: 입장 모드의 키만
+  ---
+  duration_ms: 0.434667
+  type: 'test'
+  ...
+# Subtest: 저장 창 전환 확인 문구: 실계좌는 예약 전제 문장 없음(1109 지적 5)
+ok 199 - 저장 창 전환 확인 문구: 실계좌는 예약 전제 문장 없음(1109 지적 5)
+  ---
+  duration_ms: 0.463417
+  type: 'test'
+  ...
+# Subtest: T13 투자자 문구에 내부 코드 없음
+ok 200 - T13 투자자 문구에 내부 코드 없음
+  ---
+  duration_ms: 0.513292
+  type: 'test'
+  ...
+# Subtest: kstStamp: 오늘·어제·그 전 모두 같은 모양, 초는 버린다
+ok 201 - kstStamp: 오늘·어제·그 전 모두 같은 모양, 초는 버린다
+  ---
+  duration_ms: 26.492583
+  type: 'test'
+  ...
+# Subtest: kstStamp: KST 경계(UTC 14:59 / 15:00 = KST 23:59 / 00:00)와 연말 넘김
+ok 202 - kstStamp: KST 경계(UTC 14:59 / 15:00 = KST 23:59 / 00:00)와 연말 넘김
+  ---
+  duration_ms: 0.127167
+  type: 'test'
+  ...
+# Subtest: kstStamp: Date·epoch 밀리초도 받는다, 값 없음·엉터리는 null
+ok 203 - kstStamp: Date·epoch 밀리초도 받는다, 값 없음·엉터리는 null
+  ---
+  duration_ms: 0.952708
+  type: 'test'
+  ...
+# Subtest: save.js 의 kstStamp 사본이 kst_time.js 와 글자 그대로 같다(한 곳에서 같은 로직)
+ok 204 - save.js 의 kstStamp 사본이 kst_time.js 와 글자 그대로 같다(한 곳에서 같은 로직)
+  ---
+  duration_ms: 0.934958
+  type: 'test'
+  ...
+# Subtest: chart.js: kst_time.js 를 import 하고 십자선 시각은 YY.MM.DD HH:MM, 시간축 눈금은 그대로
+ok 205 - chart.js: kst_time.js 를 import 하고 십자선 시각은 YY.MM.DD HH:MM, 시간축 눈금은 그대로
+  ---
+  duration_ms: 5.560333
+  type: 'test'
+  ...
+# Subtest: index.html: kst_time.js 를 app.js·ops.js 보다 먼저 읽는다
+ok 206 - index.html: kst_time.js 를 app.js·ops.js 보다 먼저 읽는다
+  ---
+  duration_ms: 0.148
+  type: 'test'
+  ...
+# Subtest: app.js 에 옛 시각 분기(「어제」·MM-DD·HH:MM:SS) 글자가 남아 있지 않다
+ok 207 - app.js 에 옛 시각 분기(「어제」·MM-DD·HH:MM:SS) 글자가 남아 있지 않다
+  ---
+  duration_ms: 1.820041
+  type: 'test'
+  ...
+# Subtest: 꺼짐(기본·no·키 없음)이면 기준(Ver2 원문 + 1105-06 차이) simulate 와 거래·손익이 같다
+ok 208 - 꺼짐(기본·no·키 없음)이면 기준(Ver2 원문 + 1105-06 차이) simulate 와 거래·손익이 같다
+  ---
+  duration_ms: 99.981917
+  type: 'test'
+  ...
+# Subtest: 켜짐·비율: 익절가를 넘어도 팔지 않고, 최고가 대비 수익의 폭%를 잃으면 종가에 판다
+ok 209 - 켜짐·비율: 익절가를 넘어도 팔지 않고, 최고가 대비 수익의 폭%를 잃으면 종가에 판다
+  ---
+  duration_ms: 0.205084
+  type: 'test'
+  ...
+# Subtest: 켜짐·고정폭: 무장 순간 수익 × 폭% 를 금액으로 고정하고 최고가에서 그만큼 내리면 판다
+ok 210 - 켜짐·고정폭: 무장 순간 수익 × 폭% 를 금액으로 고정하고 최고가에서 그만큼 내리면 판다
+  ---
+  duration_ms: 0.088541
+  type: 'test'
+  ...
+# Subtest: 켜짐: 고가만 익절가를 스치고 종가가 못 미치면 무장하지 않는다 (익절도 안 함)
+ok 211 - 켜짐: 고가만 익절가를 스치고 종가가 못 미치면 무장하지 않는다 (익절도 안 함)
+  ---
+  duration_ms: 0.099916
+  type: 'test'
+  ...
+# Subtest: 켜짐: 같은 봉에서 손절가(저가)가 닿으면 손절이 먼저다
+ok 212 - 켜짐: 같은 봉에서 손절가(저가)가 닿으면 손절이 먼저다
+  ---
+  duration_ms: 0.134292
+  type: 'test'
+  ...
+# Subtest: ㉢ 켜짐: 무장 중에는 눌림목 추가 매수를 하지 않는다(꺼짐이면 산다)
+ok 213 - ㉢ 켜짐: 무장 중에는 눌림목 추가 매수를 하지 않는다(꺼짐이면 산다)
+  ---
+  duration_ms: 0.118084
+  type: 'test'
+  ...
+# Subtest: 켜짐: 구간 TP 감소가 있으면 이 거래의 TP% 로 무장한다
+ok 214 - 켜짐: 구간 TP 감소가 있으면 이 거래의 TP% 로 무장한다
+  ---
+  duration_ms: 0.131875
+  type: 'test'
+  ...
+# Subtest: 통계: 추적 손절 청산 횟수를 센다
+ok 215 - 통계: 추적 손절 청산 횟수를 센다
+  ---
+  duration_ms: 3.4745
+  type: 'test'
+  ...
+# Subtest: Q3 ②: 같은 거래의 추가 분할매수는 구간 순번에 세지 않는다 (질문 PDF 예시)
+ok 216 - Q3 ②: 같은 거래의 추가 분할매수는 구간 순번에 세지 않는다 (질문 PDF 예시)
+  ---
+  duration_ms: 2.85375
+  type: 'test'
+  ...
+# Subtest: Q3 ②: 횟수를 넘은 새 거래는 TP 를 줄이고 하한 밑으로는 줄이지 않는다
+ok 217 - Q3 ②: 횟수를 넘은 새 거래는 TP 를 줄이고 하한 밑으로는 줄이지 않는다
+  ---
+  duration_ms: 0.505167
+  type: 'test'
+  ...
+# Subtest: 결정 ③: 감시가 꺼진 골든크로스(60선 하락)는 건너뜀 횟수에 넣지 않는다
+ok 218 - 결정 ③: 감시가 꺼진 골든크로스(60선 하락)는 건너뜀 횟수에 넣지 않는다
+  ---
+  duration_ms: 0.186459
+  type: 'test'
+  ...
+# Subtest: 결정 ③: 살 수 있었는데 상승폭 때문에 막힌 골든크로스는 둘 다 센다
+ok 219 - 결정 ③: 살 수 있었는데 상승폭 때문에 막힌 골든크로스는 둘 다 센다
+  ---
+  duration_ms: 0.146
+  type: 'test'
+  ...
+1..219
+# tests 219
+# suites 0
+# pass 219
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 21365.282834
+✅ v2 JS 시험 통과
+
+▶ 회귀 테스트 스위트 실행 (tests/regressions/)...
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/tmpclcv0dxj/tradebot_t5u.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/tmpjdih5zdd/tradebot_t5u.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/tmp9x66ber_/tradebot_t5u.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/tmplyx6uf90/tradebot_t5u.db
+✅ DB 초기화 완료: /var/folders/c5/x2xc907x04v_87l_6pgn62fm0000gn/T/ts1110_fvghocol/tradebot_tsu.db
+
+==========================================
+✅ 회귀 테스트 1472/1472 통과 — 배포 진행 가능
+==========================================
+🔌 NETGUARD: 바깥 연결 시도 0건
