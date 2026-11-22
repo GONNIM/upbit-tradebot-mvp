@@ -474,11 +474,12 @@ deploy-tradebot
 - 대상: `.env`, `.streamlit/secrets.toml`, 키·토큰이 든 모든 파일. 권한 `600`, 소유자 root.
 - 비밀 파일을 바꿀 때 `.bak`·`.old`·`.orig`·`~` 같은 사본을 서버에 남기지 않는다.
 - 세션 시작 정기 점검에 `ls -l .env .streamlit/secrets.toml` (사본이 있으면 그것도)과 `server.enableStaticServing=False` 확인을 넣는다.
-- (2026-11-22 추가, 1122-01) 세션 시작 정기 점검에 업비트 키 만료 점검 결과 파일 `services/data/.key_expiry.json` 의 `checked_at`·`expire_at` 날짜 확인을 넣는다(값만 보고 키는 보지 않음). checked_at 이 하루 넘게 지났으면 cron(`deploy/key-expiry.cron`)이 도는지 본다.
-- (2026-11-22 추가, 1122-01) 업비트 키를 교체하면 tradebot 재시작 뒤 점검 스크립트를 cron 과 같은 줄로 손으로 1번 돌린다: `cd /root/upbit-tradebot-mvp && umask 077 && flock -n /tmp/key_expiry.lock venv/bin/python scripts/key_expiry_check.py`. 홈 배지가 새 만료일로 바뀌었는지 본다.
+- (2026-11-22 추가, 1122-01) 세션 시작 정기 점검에 업비트 키 만료 점검 결과 파일 `services/data/.key_expiry.json` 의 `checked_at`·`expire_at` 날짜 확인을 넣는다(값만 보고 키는 보지 않음). checked_at 이 하루 넘게 지났으면 cron(`deploy/key-expiry.cron`)이 도는지 본다. 투자자 채팅을 등록한 뒤에는 `services/data/key_expiry_cron.log` 끝 줄의 `investor=` 값도 본다(`0/1` 이 이어지면 투자자가 봇을 막았는지 확인).
+- (2026-11-22 추가, 1122-01) 업비트 키를 교체하면 tradebot 재시작 뒤 점검 스크립트를 cron 과 같은 줄로 손으로 1번 돌린다: `cd /root/upbit-tradebot-mvp && umask 077 && flock -n /tmp/key_expiry.lock venv/bin/python scripts/key_expiry_check.py`. 출력이 `err=None` 인지(아니면 옛 만료일로 「만료됨」 알림이 투자자에게 계속 나감), 홈 배지가 새 만료일로 바뀌었는지 본다.
+- (2026-11-22 추가, 1122-01 ㉠) 투자자 텔레그램 채팅은 `.env` 의 `TELEGRAM_CHAT_ID_INVESTOR` 한 칸에만 둔다. 키 만료 알림만 이 채팅으로 간다(매매·운영 알림은 운영자 채팅). 등록·교체는 투자자가 봇 「시작」을 누른 뒤(목록의 이름과 「시작」 시각을 투자자가 알려 온 시각과 맞춰 본 뒤) `scripts/telegram_investor_register.py --pick <번호>` 로만 하고(사본 없이 600 으로 바꿔 넣음), 채팅 번호와 목록 출력(투자자 이름·아이디)은 보고·로그에 적지 않는다. 등록 전후 `ls -la .env*` 로 사본이 없는지 본다. 등록 뒤 `scripts/key_expiry_check.py --test-investor` 로 시험 알림을 보낸다.
 - 키 값은 어떤 보고·로그·문서에도 적지 않는다. 비교가 필요하면 키 이름과 "같음/다름" 만 적는다.
 
 ---
 
 **마지막 업데이트**: 2026-11-22
-**버전**: 2.15 (투자자 연락 세 번째 종류 키 발급 부탁 · 키 만료 점검 정기 확인·키 교체 뒤 손 실행)
+**버전**: 2.16 (투자자 텔레그램 채팅 TELEGRAM_CHAT_ID_INVESTOR — 키 만료 알림만 · 등록 스크립트로만)

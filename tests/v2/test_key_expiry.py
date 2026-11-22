@@ -261,6 +261,9 @@ class FakeNotifier:
     def _get_operator_credentials(self):
         return FAKE_TOKEN, "100"
 
+    def _format_message(self, level, title, body):
+        return title + "\n" + body
+
 
 class ScriptRun(unittest.TestCase):
     def setUp(self):
@@ -293,7 +296,7 @@ class ScriptRun(unittest.TestCase):
         self.assertEqual(st["expire_at"], EXP_S)
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)
         self.assertEqual(len(n.sent), 1)
-        self.assertEqual(out.strip(), "key_expiry ok days_left=30 alerts=1/1 err=None")
+        self.assertEqual(out.strip(), "key_expiry ok days_left=30 alerts=1/1 investor=off err=None")
         # 같은 날 다시 돌아도 중복 없음
         _rc, _o, n2 = self.run_chk(FakeHttp(FakeResp(200, self.ok_list())))
         self.assertEqual(n2.sent, [])
@@ -417,6 +420,205 @@ class CronFile(unittest.TestCase):
         for part in ("umask 077", "flock -n ", "timeout 60 ", "venv/bin/python scripts/key_expiry_check.py"):
             self.assertIn(part, ln)
         self.assertNotIn("%", ln)
+
+
+# ---------------- 1122-01 ㉠ 투자자 채팅 ----------------
+class FakePost:
+    def __init__(self, code=200, exc=None):
+        self.code, self.exc, self.calls = code, exc, []
+
+    def __call__(self, url, data=None, timeout=None):
+        self.calls.append((url, dict(data or {})))
+        if self.exc:
+            raise self.exc
+        return FakeResp(self.code)
+
+
+class InvestorPlan(unittest.TestCase):
+    def test_steps_once_each_and_separate_marks(self):
+        s = {}
+        ke.record_success(s, EXP_S, at(40))
+        got = []
+        for d in range(40, -1, -1):
+            for a in ke.plan_investor_alerts(s, at(d)):
+                ke.apply_marks(s, a["marks"])
+                got.append(d)
+        self.assertEqual(got, [30, 14, 7, 3, 1, 0])
+        self.assertEqual(s.get("alerts"), [])          # 운영자 쪽 기록은 건드리지 않음
+        self.assertEqual(len(s["investor_alerts"]), 6)
+
+    def test_expired_once_per_day(self):
+        s = {}
+        ke.record_success(s, EXP_S, at(1))
+        after = EXP + timedelta(hours=9)
+        a = ke.plan_investor_alerts(s, after)
+        self.assertEqual([x["title"] for x in a], ["업비트 키 만료됨"])
+        ke.apply_marks(s, a[0]["marks"])
+        self.assertEqual(ke.plan_investor_alerts(s, after + timedelta(hours=1)), [])
+        self.assertEqual(len(ke.plan_investor_alerts(s, after + timedelta(days=1))), 1)
+
+    def test_key_change_resets(self):
+        s = {}
+        ke.record_success(s, EXP_S, at(30))
+        ke.apply_marks(s, ke.plan_investor_alerts(s, at(30))[0]["marks"])
+        ke.record_success(s, "2028-11-19T12:00:00+09:00", at(29))
+        self.assertEqual(s["investor_alerts"], [])
+        self.assertIsNone(s["last_investor_expired_date"])
+
+    def test_body_warns_no_key_in_messenger(self):
+        s = {}
+        ke.record_success(s, EXP_S, at(30))
+        self.assertIn("키 값은 메신저에 적지 마세요", ke.plan_investor_alerts(s, at(30))[0]["body"])
+
+    def test_no_expire_no_alert(self):
+        self.assertEqual(ke.plan_investor_alerts({}, at(3)), [])
+
+
+class InvestorRun(unittest.TestCase):
+    setUp = ScriptRun.setUp
+    ok_list = ScriptRun.ok_list
+    ENV = {"TELEGRAM_BOT_TOKEN": FAKE_TOKEN, "TELEGRAM_CHAT_ID_INVESTOR": "777"}
+
+    def run_inv(self, now, post, notifier=None, env=None):
+        n = notifier or FakeNotifier()
+        buf = io.StringIO()
+        from unittest import mock
+        with mock.patch.dict(os.environ, env if env is not None else self.ENV), redirect_stdout(buf):
+            rc = chk.run(root=self.root, now=now, http=FakeHttp(FakeResp(200, self.ok_list())), notifier=n, post=post)
+        return rc, buf.getvalue(), n
+
+    def test_both_channels_once(self):
+        p = FakePost()
+        _rc, out, n = self.run_inv(at(30), p)
+        self.assertIn("alerts=1/1 investor=1/1", out)
+        self.assertEqual(len(n.sent), 1)
+        self.assertEqual(len(p.calls), 1)
+        self.assertEqual(p.calls[0][1]["chat_id"], "777")
+        _rc, out2, n2 = self.run_inv(at(30), FakePost())
+        self.assertIn("alerts=0/0 investor=0/0", out2)
+
+    def test_investor_fail_retries_without_operator_resend(self):
+        self.run_inv(at(30), FakePost(code=403))
+        st = ke.read_state(self.path)
+        self.assertEqual(len(st["alerts"]), 1)
+        self.assertEqual(st.get("investor_alerts") or [], [])
+        p = FakePost()
+        _rc, out, n = self.run_inv(at(29), p)
+        self.assertIn("alerts=0/0 investor=1/1", out)
+        self.assertEqual(n.sent, [])
+
+    def test_exception_in_post_is_quiet(self):
+        _rc, out, _n = self.run_inv(at(30), FakePost(exc=RuntimeError("https://x/bot" + FAKE_TOKEN)))
+        self.assertIn("investor=0/1", out)
+        self.assertNotIn(FAKE_TOKEN, out)
+
+    def test_off_when_not_set_or_same_as_default(self):
+        _rc, out, _n = self.run_inv(at(30), FakePost(), env={"TELEGRAM_BOT_TOKEN": FAKE_TOKEN,
+                                                               "TELEGRAM_CHAT_ID_INVESTOR": ""})
+        self.assertIn("investor=off", out)
+        p = FakePost()
+        _rc, out, _n = self.run_inv(at(29), p, env={"TELEGRAM_BOT_TOKEN": FAKE_TOKEN,
+                                                    "TELEGRAM_CHAT_ID_INVESTOR": "100"})
+        self.assertIn("investor=off", out)       # 기본 채널(100)과 같으면 두 번 보내지 않음
+        self.assertEqual(p.calls, [])
+
+    def test_investor_test_message(self):
+        from unittest import mock
+        p, buf = FakePost(), io.StringIO()
+        with mock.patch.dict(os.environ, self.ENV), redirect_stdout(buf):
+            rc = chk.send_investor_test(root=self.root, notifier=FakeNotifier(), post=p)
+        self.assertEqual((rc, buf.getvalue().strip()), (0, "investor_test ok"))
+        self.assertEqual(p.calls[0][1]["chat_id"], "777")
+        self.assertFalse(self.path.exists())     # 결과 파일·업비트 조회는 건드리지 않음
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"TELEGRAM_CHAT_ID_INVESTOR": ""}), redirect_stdout(buf):
+            rc = chk.send_investor_test(root=self.root, notifier=FakeNotifier(), post=FakePost())
+        self.assertEqual((rc, buf.getvalue().strip()), (1, "investor_test off"))
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, self.ENV), redirect_stdout(buf):
+            rc = chk.send_investor_test(root=self.root, notifier=FakeNotifier(), post=FakePost(code=403))
+        self.assertEqual((rc, buf.getvalue().strip()), (1, "investor_test fail http_403"))
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, self.ENV), redirect_stdout(buf):
+            chk.send_investor_test(root=self.root, notifier=FakeNotifier(),
+                                   post=FakePost(exc=RuntimeError("https://x/bot" + FAKE_TOKEN)))
+        self.assertEqual(buf.getvalue().strip(), "investor_test fail RuntimeError")
+
+
+sys.path.insert(0, str(ROOT / "scripts"))
+import telegram_investor_register as reg  # noqa: E402
+
+
+class FakeGet:
+    def __init__(self, updates):
+        self.updates, self.urls = updates, []
+
+    def __call__(self, url, timeout=None):
+        self.urls.append(url)
+        if url.endswith("/getMe"):
+            return FakeResp(200, {"ok": True, "result": {"username": "upbit_tradebot_bot", "first_name": "알림"}})
+        return FakeResp(200, {"ok": True, "result": self.updates})
+
+
+class Register(unittest.TestCase):
+    UPD = [{"message": {"chat": {"id": 100, "type": "private", "first_name": "운영"}, "date": 1795000000, "text": "/start"}},
+           {"message": {"chat": {"id": 987654321, "type": "private", "first_name": "투자", "username": "inv"},
+                        "date": 1795000100, "text": "/start"}},
+           {"message": {"chat": {"id": -5, "type": "group", "title": "g"}, "date": 1795000200, "text": "x"}}]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.env = self.root / ".env"
+        self.env.write_text(f'UPBIT_ACCESS={FAKE_ACCESS}\nTELEGRAM_BOT_TOKEN={FAKE_TOKEN}\nTELEGRAM_CHAT_ID=100\n'
+                            'QUOTED="a b"', encoding="utf-8")
+        os.chmod(self.env, 0o600)
+
+    def main(self, argv):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = reg.main(argv, root=self.root, get=FakeGet(self.UPD))
+        return rc, buf.getvalue()
+
+    def test_list_hides_ids_and_token(self):
+        rc, out = self.main([])
+        self.assertEqual(rc, 0)
+        self.assertIn("봇: @upbit_tradebot_bot", out)
+        self.assertIn("2. 투자 @inv", out)
+        self.assertIn("운영자 채팅", out)
+        self.assertNotIn("g", out.split("봇:")[1].split("\n", 1)[1].replace("@inv", ""))  # 그룹 대화는 빠짐
+        for s in ("987654321", FAKE_TOKEN):
+            self.assertNotIn(s, out)
+        self.assertNotIn("TELEGRAM_CHAT_ID_INVESTOR", self.env.read_text(encoding="utf-8"))
+
+    def test_pick_writes_env_600_and_keeps_lines(self):
+        rc, out = self.main(["--pick", "2"])
+        self.assertEqual(rc, 0)
+        self.assertIn("등록함: 투자 (새로 넣음)", out)
+        self.assertNotIn("987654321", out)
+        text = self.env.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(f"UPBIT_ACCESS={FAKE_ACCESS}\nTELEGRAM_BOT_TOKEN={FAKE_TOKEN}\n"))
+        self.assertIn('QUOTED="a b"\nTELEGRAM_CHAT_ID_INVESTOR=987654321\n', text)
+        self.assertEqual(stat.S_IMODE(os.stat(self.env).st_mode), 0o600)
+        self.assertEqual(sorted(p.name for p in self.root.iterdir()), [".env"])   # 사본 없음
+        rc, out = self.main(["--pick", "2"])
+        self.assertIn("바꿈", out)
+        self.assertEqual(self.env.read_text(encoding="utf-8").count("TELEGRAM_CHAT_ID_INVESTOR="), 1)
+
+    def test_pick_operator_refused(self):
+        rc, out = self.main(["--pick", "1"])
+        self.assertEqual(rc, 1)
+        self.assertIn("운영자 채팅과 같음", out)
+        self.assertNotIn("TELEGRAM_CHAT_ID_INVESTOR", self.env.read_text(encoding="utf-8"))
+
+    def test_bad_pick(self):
+        self.assertEqual(self.main(["--pick", "9"])[0], 1)
+        self.assertEqual(self.main(["--pick", "x"])[0], 1)
+
+    def test_no_order_path_imports(self):
+        names = ImportBoundary().imports(ROOT / "scripts" / "telegram_investor_register.py")
+        self.assertFalse(names & set(ImportBoundary.BANNED))
 
 
 # ---------------- 신버전 status 응답 ----------------

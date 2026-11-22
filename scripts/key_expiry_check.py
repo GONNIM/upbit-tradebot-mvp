@@ -7,6 +7,9 @@
 - core.trader·pyupbit·config 를 import 하지 않는다. 주문 경로와 무관하다.
 - 키 값·토큰·응답 원문은 출력·파일·로그 어디에도 남기지 않는다. 출력은 상태 한 줄뿐이다.
 
+- (1122-01 ㉠) .env 에 TELEGRAM_CHAT_ID_INVESTOR 가 있으면 단계·만료 알림을 투자자 채팅에도 보낸다(발송 기록 따로).
+  등록: scripts/telegram_investor_register.py · 시험 알림: `venv/bin/python scripts/key_expiry_check.py --test-investor`
+
 사용(서버, cron): deploy/key-expiry.cron
 종료 코드: 0 조회 성공 · 1 조회 실패(결과 파일·알림 판정은 그대로 함)
 """
@@ -122,7 +125,71 @@ def _same_channel(notifier) -> bool:
         return False
 
 
-def run(root: Path = ROOT, now: datetime | None = None, http=None, notifier=None) -> int:
+INVESTOR_CHAT_KEY = "TELEGRAM_CHAT_ID_INVESTOR"
+TELEGRAM_API = "https://api.telegram.org"
+
+
+def investor_chat(notifier):
+    """투자자 채팅(1122-01 ㉠). .env 의 TELEGRAM_CHAT_ID_INVESTOR 만 본다(다른 채팅으로 대체하지 않음).
+    기본·등급 채널과 같은 채팅이면 이미 그쪽으로 받으므로 None(두 번 보내지 않음). 값은 비교만 하고 남기지 않는다."""
+    chat = os.environ.get(INVESTOR_CHAT_KEY)
+    if not chat:
+        return None
+    try:
+        for level in ("WARNING", "CRITICAL"):
+            _t, c = notifier._get_credentials(level=level)
+            if c and str(c) == str(chat):
+                return None
+    except Exception:
+        pass
+    return str(chat)
+
+
+def send_direct(chat: str, level: str, title: str, body: str, notifier, post=None) -> bool:
+    """투자자 채팅으로 한 건 보낸다. 토큰이 든 주소·응답 원문·예외 글은 남기지 않는다."""
+    return send_direct_why(chat, level, title, body, notifier, post=post) == "ok"
+
+
+def send_direct_why(chat: str, level: str, title: str, body: str, notifier, post=None) -> str:
+    """보낸 결과 코드: ok · no_token · http_<코드> · 예외 종류 이름. 토큰·주소·예외 글은 돌려주지 않는다."""
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token or not chat:
+        return "no_token"
+    try:
+        if post is None:
+            import requests
+            post = requests.post
+        text = notifier._format_message(level, title, body)
+        r = post(TELEGRAM_API + "/bot" + token + "/sendMessage",
+                 data={"chat_id": chat, "text": text, "parse_mode": "HTML",
+                       "disable_web_page_preview": "true"},
+                 timeout=TIMEOUT)
+        code = getattr(r, "status_code", None)
+        return "ok" if code == 200 else "http_" + str(code)
+    except Exception as e:
+        return type(e).__name__
+
+
+def send_investor_test(root: Path = ROOT, notifier=None, post=None) -> int:
+    """투자자 채팅 등록 뒤 시험 알림 한 건(결과 파일·업비트 조회는 건드리지 않음). 출력: investor_test ok|fail|off."""
+    if str(root) not in sys.path:
+        sys.path.insert(0, str(root))
+    if notifier is None:
+        load_telegram_env(root)
+        from services import notifier
+        quiet_notifier_log()
+    chat = investor_chat(notifier)
+    if chat is None:
+        print("investor_test off")
+        return 1
+    why = send_direct_why(chat, "INFO", "업비트 키 만료 알림 시험",
+                          "이 알림이 보이면 등록이 끝났습니다. 업비트 키 만료가 다가오면 이 대화방으로 알려 드립니다. "
+                          "답장은 하지 않으셔도 됩니다.", notifier, post=post)
+    print("investor_test " + ("ok" if why == "ok" else "fail " + why))
+    return 0 if why == "ok" else 1
+
+
+def run(root: Path = ROOT, now: datetime | None = None, http=None, notifier=None, post=None) -> int:
     if str(root) not in sys.path:
         sys.path.insert(0, str(root))
     from v2 import key_expiry as ke
@@ -158,14 +225,28 @@ def run(root: Path = ROOT, now: datetime | None = None, http=None, notifier=None
             ke.apply_marks(state, a["marks"])
             sent += 1
 
+    inv = investor_chat(notifier)
+    if inv is None:
+        inv_s = "off"
+    else:
+        inv_alerts = ke.plan_investor_alerts(state, now)
+        inv_sent = 0
+        for a in inv_alerts:
+            if send_direct(inv, a["level"], a["title"], a["body"], notifier, post=post):
+                ke.apply_marks(state, a["marks"])
+                inv_sent += 1
+        inv_s = str(inv_sent) + "/" + str(len(inv_alerts))
+
     ke.write_state(path, state)
     exp = ke.parse_time(state.get("expire_at"))
     d = ke.days_left(exp, now) if exp else None
     print("key_expiry " + ("ok" if err is None else "fail") + " days_left=" + str(d)
-          + " alerts=" + str(sent) + "/" + str(len(alerts)) + " err=" + str(err))
+          + " alerts=" + str(sent) + "/" + str(len(alerts)) + " investor=" + inv_s + " err=" + str(err))
     return 0 if err is None else 1
 
 
 if __name__ == "__main__":
     os.chdir(ROOT)
+    if sys.argv[1:] == ["--test-investor"]:
+        sys.exit(send_investor_test())
     sys.exit(run())

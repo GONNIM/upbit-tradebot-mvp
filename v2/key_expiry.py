@@ -149,12 +149,48 @@ def plan_alerts(state: dict, now: datetime, err: Optional[str], same_channel: bo
     return out
 
 
+def plan_investor_alerts(state: dict, now: datetime) -> list:
+    """투자자 채팅으로 보낼 키 만료 알림(1122-01 ㉠). 단계 알림·만료 뒤 알림만, 조회 실패 알림은 넣지 않는다.
+
+    운영자 쪽과 같은 글을 쓰되 발송 기록은 따로 둔다(investor_alerts · last_investor_expired_date).
+    한쪽 발송이 실패해도 다른 쪽이 다시 나가거나 막히지 않게 하려는 것이다.
+    투자자 채팅이 등록되기 전에는 부르지 않는다(등록 뒤 가장 가까운 단계 하나만 나간다).
+    """
+    today = now.astimezone(KST).date().isoformat()
+    exp_s = state.get("expire_at")
+    exp = parse_time(exp_s)
+    if exp is None:
+        return []
+    when = exp.strftime("%Y-%m-%d %H:%M")
+    if is_expired(exp, now):
+        if state.get("last_investor_expired_date") == today:
+            return []
+        return [{"level": "CRITICAL", "title": "업비트 키 만료됨",
+                 "body": ("업비트 Open API 키가 만료되었습니다(" + when + "). 자동 매매 주문이 거절됩니다. "
+                          "투자자님이 업비트에서 새 키를 발급해 운영자에게 전해 주세요. 키 값은 메신저에 적지 마세요."),
+                 "marks": {"last_investor_expired_date": today}}]
+    sent = [a[1] for a in state.get("investor_alerts") or []
+            if isinstance(a, (list, tuple)) and len(a) == 2 and a[0] == exp_s]
+    step = due_step(exp, now, sent)
+    if step is None:
+        return []
+    d = days_left(exp, now)
+    left = "오늘 만료" if d == 0 else str(d) + "일 남음"
+    return [{"level": "CRITICAL" if step <= DANGER_DAYS else "WARNING",
+             "title": "업비트 키 만료 " + ("오늘" if d == 0 else str(d) + "일 전"),
+             "body": ("업비트 Open API 키가 " + when + " 에 만료됩니다(" + left + "). "
+                      "만료되면 자동 매매 주문이 거절됩니다. "
+                      "투자자님이 업비트에서 새 키를 발급해 운영자에게 전해 주세요. 키 값은 메신저에 적지 마세요."),
+             "marks": {"investor_alert": [exp_s, step]}}]
+
+
 def apply_marks(state: dict, marks: dict) -> None:
     for k, v in marks.items():
-        if k == "alert":
-            al = [a for a in state.get("alerts") or [] if isinstance(a, (list, tuple)) and len(a) == 2]
+        if k in ("alert", "investor_alert"):
+            field = "alerts" if k == "alert" else "investor_alerts"
+            al = [a for a in state.get(field) or [] if isinstance(a, (list, tuple)) and len(a) == 2]
             al.append(list(v))
-            state["alerts"] = al
+            state[field] = al
         else:
             state[k] = v
 
@@ -166,6 +202,8 @@ def record_success(state: dict, expire_at: str, now: datetime) -> None:
         state["last_alert_date"] = None
         state["last_expired_alert_date"] = None
         state["last_fail_alert_date"] = None
+        state["investor_alerts"] = []
+        state["last_investor_expired_date"] = None
     state["expire_at"] = expire_at
     state["last_ok_at"] = iso(now)
     state["first_fail_at"] = None
