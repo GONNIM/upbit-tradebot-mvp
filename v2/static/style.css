@@ -53,6 +53,7 @@ dt { color: var(--gray); } dd { margin: 0; text-align: right; word-break: break-
 .p-warn { background: #fef3c7; color: #92400e; border-color: #fcd34d; }
 .p-st { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
 .p-off { background: #f3f4f6; color: #4b5563; border-color: #d1d5db; }
+.p-bad { background: #b91c1c; color: #ffffff; border-color: #7f1d1d; } /* 1122-01 키 만료 위험(7일 이하·만료·확인 안 됨) */
 .kv { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; }
 .kv > span:last-child, .kv > b { text-align: right; }
 .big { font-size: 18px; font-weight: bold; }

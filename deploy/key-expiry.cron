@@ -1,0 +1,6 @@
+# 업비트 키 만료일 점검 — 매일 09:05·21:05 KST (1122-01, 계획 docs/plans/2026-11-22-key-expiry-alert/plan.md 3-3).
+# 21:05 는 만료 당일(만료 시각 12:21 무렵) 「만료됨」 알림을 그날 안에 보내려고 더했다. 같은 알림은 하루 1번만 나간다.
+# 설치는 `crontab -e` 로 아래 한 줄을 추가(배포 승인 대상). 서버 시간대는 Asia/Seoul(11/22 실측)이라 CRON_TZ 를 쓰지 않는다.
+# 09:00 daily_digest 와 겹치지 않게 09:05. flock 으로 손 실행과 겹치지 않게 하고, 출력(상태 한 줄)은 services/data 로그에 쌓는다.
+# 되돌리기: 이 줄을 지우고 services/data/.key_expiry.json 을 치운다.
+5 9,21 * * * cd /root/upbit-tradebot-mvp && umask 077 && flock -n /tmp/key_expiry.lock nice -n 10 timeout 60 venv/bin/python scripts/key_expiry_check.py >> services/data/key_expiry_cron.log 2>&1

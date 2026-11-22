@@ -85,6 +85,13 @@ function engineBadge(status, basic) {
   return { id: "engine-badge", text: "엔진 동작 중 · 판단 보류", cls: "p-off" };
 }
 
+// 1122-01: 키 만료 배지 색 — ok 보통 · warn 경고(30일 이하) · danger 위험(7일 이하·만료·확인 안 됨)
+const _KEY_EXPIRY_CLS = { ok: "p-off", warn: "p-warn", danger: "p-bad" };
+function keyExpiryBadge(ke) {
+  if (!ke || typeof ke !== "object" || typeof ke.label !== "string" || !ke.label) return null;
+  return { id: "key-expiry-badge", text: ke.label, cls: _KEY_EXPIRY_CLS[ke.level] || "p-bad" };
+}
+
 function homeView(status, assets, basic, nowMs, ctl) {
   nowMs = nowMs == null ? Date.now() : nowMs;
   const st = status || {};
@@ -105,6 +112,9 @@ function homeView(status, assets, basic, nowMs, ctl) {
   // 1105-09 (2-6): 연속 손절 중단 중이면 배지 하나 더(끝 시각이 지나면 서버가 null 로 준다)
   const pauseUntil = assets && assets.pause_until ? _untilText(assets.pause_until, nowMs) : null;
   if (pauseUntil) badges.push({ id: "sl-pause-badge", text: "연속 손절로 매수 중단 중 — " + pauseUntil + " 까지", cls: "p-warn" });
+  // 1122-01: 업비트 키 만료 배지 — 맨 끝. 글·단계는 서버(v2/key_expiry.py)가 정한다. 칸이 없으면 배지 없음
+  const kb = keyExpiryBadge(st.key_expiry);
+  if (kb) badges.push(kb);
   const pb = st.pullback || null;
 
   const krw = Number(a.krw), coin = Number(a.coin), price = Number(a.price), entry = Number(a.entry_price);

@@ -12,7 +12,7 @@ from typing import Optional
 
 import tornado.httpclient
 
-from v2 import candles, control, db
+from v2 import candles, control, db, key_expiry
 from v2.handlers import ApiHandler
 from v2.status import engine_alive_running, engine_state, interval_sec, mode_state
 
@@ -467,6 +467,12 @@ class StatusHandler(ReadHandler):
         if value == "PULLBACK":
             # 2차 T16: 새 전략 화면 값(선 기간·방식·TP/SL %·분할 한도). EMA·MACD 응답에는 이 키가 없다
             body["pullback"] = self._pb_cfg
+        # 1122-01: 업비트 키 만료 배지 — 점검 스크립트 결과 파일을 읽기만 한다(없거나 못 읽으면 칸을 뺀다).
+        # read_state 가 OSError·ValueError 를 그 자리에서 잡는다(_guard 가 FileNotFoundError 를 404 로 바꾸므로).
+        ke_state = key_expiry.read_state(db.DATA_DIR / key_expiry.RESULT_NAME)
+        ke_badge = key_expiry.badge(ke_state, now) if ke_state is not None else None
+        if ke_badge is not None:
+            body["key_expiry"] = ke_badge
         self.send_json(body)
 
 
