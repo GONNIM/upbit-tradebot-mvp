@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>백테스터·로그·운용 화면 수정 확인 요청 (2026-11-21)</title>
+<style>
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Regular.ttf");font-weight:400}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-Bold.ttf");font-weight:700}
+@font-face{font-family:"NG";src:url("file:///Users/gonnim/Library/Fonts/NanumGothic-ExtraBold.ttf");font-weight:800}
+@page{size:A4;margin:12mm 14mm 12mm 14mm}
+*{box-sizing:border-box}
+body{font-family:"NG",sans-serif;font-size:9.6pt;line-height:1.55;color:#1a1a1a;margin:0}
+h1{font-size:15pt;margin:0 0 3px;font-weight:800}
+.meta{color:#555;font-size:9pt;margin-bottom:9px;border-bottom:2px solid #1a1a1a;padding-bottom:6px}
+h2{font-size:11pt;margin:11px 0 4px;padding:2px 0 2px 8px;border-left:5px solid #2563eb;font-weight:800;break-after:avoid}
+p{margin:4px 0}
+b{font-weight:700}
+.box{background:#f4f6f8;border-radius:6px;padding:7px 11px;margin:6px 0}
+.opt{border:1px solid #c9d2dc;border-radius:6px;padding:4px 11px;margin:3px 0}
+.opt b.n{display:inline-block;min-width:20px}
+.ans{background:#ecfdf3;border:1px solid #86d7a5;border-radius:6px;padding:7px 11px;margin:10px 0 6px;font-weight:700}
+ul{margin:3px 0;padding-left:18px}
+li{margin:1px 0}
+</style>
+</head>
+<body>
+
+<h1>백테스터·로그·운용 화면 수정 확인 요청</h1>
+<div class="meta">2026년 11월 21일</div>
+
+<p>투자자님, 보내 주신 「Fullback 수정사항」 3쪽을 잘 받았습니다. 아래처럼 고치려고 합니다. 뜻이 두 가지로 읽히는 <b>4곳</b>만 골라 주세요.</p>
+
+<h2>그대로 고치는 것</h2>
+<ul>
+<li>백테스트를 실행하면 <b>결과 요약 바로 아래</b>에 백테스트 결과가 월간 성과까지 펼쳐져 나옵니다(Ver9 순서).</li>
+<li>스윕 실행 단추 <b>바로 아래</b>에 스윕 결과(상위 조합 · 값별 표)가 나옵니다.</li>
+<li>설정 접기 안의 5칸(60선 최소 기울기 · 기울기 둔화 허용치 · 추적 손절 · 방식 · 폭)을 위쪽 주요 칸으로 옮깁니다.</li>
+<li>설정 저장 창의 「취소」 단추 글자를 「닫기」로 바꿉니다.</li>
+<li>트레일링 스톱은 확인해 주셔서 고치지 않습니다.</li>
+</ul>
+<p>모두 화면만 바뀝니다. 매매 규칙과 지금 설정 값은 바뀌지 않습니다.</p>
+
+<h2>질문 ㉠ 「매수 후 1% 상승·하락 로그」는 어떤 뜻인가요?</h2>
+<div class="opt"><b class="n">①</b> 평단 대비 +1%, +2%, +3% … / −1%, −2% … 에 처음 닿을 때마다 한 줄씩 보여 줍니다. (권장)</div>
+<div class="opt"><b class="n">②</b> +1% 와 −1% 에 처음 닿을 때 한 번씩만 보여 줍니다.</div>
+<div class="opt"><b class="n">③</b> 바로 앞 줄의 가격보다 1% 움직일 때마다 한 줄씩 보여 줍니다.</div>
+<p>세 가지 모두 봉이 끝날 때의 가격(종가)으로 봅니다. 봉 안에서 잠깐 1% 를 넘었다가 돌아온 움직임은 나오지 않습니다. 추가 매수로 평단이 바뀌면 새 평단으로 다시 셉니다. 거래 한 번에 최대 20줄입니다. 이 줄은 최근 기록(3분봉 기준 약 60시간)에서 만들어 보여 주므로, 그보다 오래된 줄은 화면에서 사라집니다.</p>
+
+<h2>질문 ㉡ 설정 한 줄을 홈 「보유」 아래에도 넣을까요?</h2>
+<div class="opt"><b class="n">①</b> 운용 화면 「매매 전략」 아래와 홈 「보유」 아래 <b>두 곳 모두</b> 넣습니다. (권장)</div>
+<div class="opt"><b class="n">②</b> 운용 화면에만 넣습니다.</div>
+<p>이 줄은 <b>지금 설정</b>입니다. 보유 중에 익절 · 손절을 바꾸면 지금 보유에도 바로 쓰입니다. 추적 손절은 살 때의 값을 계속 씁니다. 「구간 내 눌림목 돌파 횟수」를 쓰는 경우 이번 거래의 익절도 줄어 있을 수 있습니다. 그래서 이 줄과 지금 보유에 쓰이는 값이 다를 수 있습니다.</p>
+
+<h2>질문 ㉢ 감사 로그의 어느 줄에 설정 값을 붙일까요?</h2>
+<div class="opt"><b class="n">①</b> 보내 주신 그림처럼 「설정 적용」 줄에만 붙입니다. (권장)</div>
+<div class="opt"><b class="n">②</b> 「설정 적용」 줄과 매수 · 매도 줄에 모두 붙입니다.</div>
+
+<h2>질문 ㉣ 「TS 1.50」의 TS 는 무엇인가요?</h2>
+<p>추적 손절 폭은 보통 기본값 50 처럼 큰 값을 쓰는 칸입니다. 익절은 1.5 같은 값을 쓰는 칸입니다. 그리고 보내 주신 목록에 익절이 없습니다. 그래서 예시의 1.50 은 <b>익절(TP) 1.5%</b>로 보입니다.</p>
+<div class="opt"><b class="n">①</b> 익절과 추적 손절을 둘 다 보여 줍니다. (권장)<br>
+&nbsp;&nbsp;&nbsp;&nbsp;예) 익절 1.50 / 추적 손절 끔 / 손절 5.00 / 분할 1 / 기울기 0.60 / 둔화 0.20 / 투자비율 100%</div>
+<div class="opt"><b class="n">②</b> TS 는 추적 손절이 맞습니다. 추적 손절만 보여 줍니다(익절은 넣지 않음).</div>
+
+<div class="ans">답은 「㉠ ①, ㉡ ①, ㉢ ①, ㉣ ①」처럼 보내 주시면 됩니다.</div>
+<p>11월 24일까지 답이 없으면 권장(①)대로 고치겠습니다. 화면이 바뀌기 전에 다시 안내드리겠습니다.</p>
+
+</body>
+</html>
