@@ -202,6 +202,67 @@ class CurrentHandler(ApiHandler):
                         "mtime": mtime, "broken": broken})
 
 
+def _read_json_dict(path):
+    """파일 → dict. 없거나 깨졌거나 dict 가 아니면 None."""
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None
+    return d if isinstance(d, dict) else None
+
+
+def _trailing_or_off(d):
+    """dict 의 추적 손절 3키 → 정규화 dict. 없거나 틀리면 끔."""
+    try:
+        ts = params_schema.valid_trailing(d) if isinstance(d, dict) else None
+    except ValueError:
+        ts = None
+    return ts if ts is not None else {"ts_on": False}
+
+
+class LastSavedHandler(ApiHandler):
+    """GET /v2/api/params/last-saved (1121-03 A1, 결정 ③) — 백테스터 시작값 = 그 사용자 이력 마지막 행의 화면 값 25칸
+    + 추적 손절(저장본 파일 3키, 없으면 끔). 이력 DB 가 없으면 만들지 않고 exists=false. 깨진 행·검증 실패·출처 없는 행은
+    broken(화면 기본값). differs_from_applied = 이력 25칸을 적용본 종목으로 바꾼 23키 + 추적 손절 3키 중 하나라도 적용본과 다름
+    (투자비율은 비교하지 않음). 적용본이 없거나 깨졌으면 null. 읽기만 한다."""
+
+    def get(self):
+        user = self.current_user["user_id"]
+        try:
+            row = db.last_history_full(user)
+        except FileNotFoundError:
+            return self.send_json({"exists": False})
+        except (sqlite3.Error, OSError):
+            return self.send_json({"error": "db_unavailable"}, 503)
+        if row is None:
+            return self.send_json({"exists": False})
+        note = row.get("note") if isinstance(row.get("note"), str) else ""
+        source = note[len("source="):] if note.startswith("source=") else None
+        try:
+            if source not in ("upbit", "binance"):
+                raise ValueError("source")
+            raw = json.loads(row.get("params_json") or "")
+            params = params_schema.validate_params(raw, source)
+        except (ValueError, TypeError, RecursionError):
+            return self.send_json({"exists": False, "broken": True})
+        try:
+            saved_at_text = db.kst_stamp(db.parse_ts(str(row.get("saved_at") or "")))
+        except (ValueError, TypeError):
+            saved_at_text = "—"
+        saved = _read_json_dict(db.pullback_params_path(user))
+        trailing = _trailing_or_off(saved)
+        applied = _read_json_dict(db.applied_params_path(user))
+        differs = None
+        if applied is not None:
+            eng = params_schema.to_engine_file(params, applied.get("ticker"))
+            differs = any(eng[k] != applied.get(k) for k in eng if k != "ticker")
+            if _trailing_or_off(applied) != trailing:
+                differs = True
+        self.send_json({"exists": True, "saved_at": row.get("saved_at"), "saved_at_text": saved_at_text,
+                        "source": source, "params": params, "trailing": trailing,
+                        "differs_from_applied": differs})
+
+
 class PauseHandler(ApiHandler):
     """POST /v2/api/pause {"paused": true|false} — Origin·세션·허용 목록은 ApiHandler 가 확인."""
 
@@ -363,5 +424,6 @@ ROUTES = [
     (r"/v2/api/logout", LogoutHandler),
     (r"/v2/api/params/save", SaveHandler),
     (r"/v2/api/params/current", CurrentHandler),
+    (r"/v2/api/params/last-saved", LastSavedHandler),
     (r"/v2/api/params/applied", AppliedHandler),
 ]

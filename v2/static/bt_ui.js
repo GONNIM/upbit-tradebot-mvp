@@ -385,8 +385,9 @@
       syncFutButton(source);
       byId("symbol").value = source === "upbit" ? (engineTicker || upbitSymbol) : binanceSymbol;
     }
-    byId("btSrcUpbit").addEventListener("click", function () { choose("upbit"); });
-    byId("btSrcBinance").addEventListener("click", function () { choose("binance"); });
+    var touched = false;   // 1121-03 A1: 시작값을 기다리는 사이 사용자가 칸·출처를 고쳤는지
+    byId("btSrcUpbit").addEventListener("click", function () { touched = true; choose("upbit"); });
+    byId("btSrcBinance").addEventListener("click", function () { touched = true; choose("binance"); });
     choose("upbit");
 
     install({
@@ -398,25 +399,88 @@
     byId("btBrief").innerHTML = briefHtml(null);
     byId("sweepBrief").innerHTML = sweepHtml([]);
 
-    // 엔진 상태: 머리 막대 모드, 엔진 종목·봉 단위 기본값
-    fetch("/v2/api/status", { credentials: "same-origin" }).then(function (r) {
-      return r.ok ? r.json() : null;
-    }).then(function (st) {
+    // 1121-03 A1: 기다리는 사이 사용자가 칸을 고쳤으면 저장값으로 덮어쓰지 않는다
+    try {
+      document.addEventListener("input", function () { touched = true; }, true);
+      document.addEventListener("change", function () { touched = true; }, true);
+    } catch (e) { /* 이벤트를 못 달면 고침 표시 없이 진행 */ }
+
+    function getJson(url) {
+      return fetch(url, { credentials: "same-origin" }).then(function (r) { return r.ok ? r.json() : null; });
+    }
+    function inTime(p) {
+      return Promise.race([p, new Promise(function (res) { setTimeout(function () { res(null); }, START_WAIT_MS); })]);
+    }
+
+    // 엔진 상태(머리 막대 모드·엔진 종목·봉 단위)와 마지막 저장값(1121-03 A1)을 함께 기다린 뒤 채운다.
+    // 머리 막대 모드는 5초 상한과 상관없이 상태 응답이 오면 채운다(예전 동작). 종목·봉 단위 자동 채움만 5초 규칙.
+    var statusP = getJson("/v2/api/status");
+    statusP.then(setMode, function () { /* 상태를 못 읽으면 모드 칸은 비워 둔다 */ });
+    Promise.allSettled([inTime(statusP), inTime(getJson("/v2/api/params/last-saved"))]).then(function (got) {
+      var st = got[0].status === "fulfilled" ? got[0].value : null;
+      var ls = got[1].status === "fulfilled" ? got[1].value : null;
+      applyStart(st, ls);
+    });
+
+    function setMode(st) {
       if (!st) return;
       var m = String(st.mode_engine || "").toUpperCase();
       byId("btMode").textContent = m === "LIVE" || m === "TEST" ? m : "";
-      var sym = byId("symbol");
-      if (st.ticker && UPBIT_MARKET_RE.test(String(st.ticker))) {
-        engineTicker = String(st.ticker);
-        if (byId("dataSource").value === "upbit" && sym.value === upbitSymbol) sym.value = engineTicker;
+    }
+    function applyStart(st, ls) {
+      if (st) {
+        if (st.ticker && UPBIT_MARKET_RE.test(String(st.ticker))) engineTicker = String(st.ticker);
       }
+      var saved = startValues(ls);
+      if (saved && (touched || busyCount > 0)) {
+        byId("btLoaded").textContent = MSG_LOAD_SKIP;
+        return;
+      }
+      if (saved) {
+        // 이력으로 채움: 출처 단추 → 화면 값 25칸 → 추적 손절 3칸. 엔진 상태로는 engineTicker 만 정한다(위)
+        choose(saved.source);
+        Object.keys(saved.params).forEach(function (k) {
+          var e = byId(k);
+          if (e !== dummy) e.value = String(saved.params[k]);
+        });
+        var ts = saved.trailing || {};
+        byId("trailingStop").value = ts.ts_on === true ? "yes" : "no";
+        if (ts.ts_on === true) {
+          byId("trailingMode").value = ts.ts_mode === "fixed" ? "fixed" : "ratio";
+          byId("trailingPct").value = String(ts.ts_pct);
+        }
+        byId("btLoaded").textContent = loadedText(ls);
+        return;
+      }
+      // 이력 없음·깨짐·실패·시간 초과: 지금까지와 같게 엔진 종목(기본값일 때만)·봉 단위로 채운다
+      byId("btLoaded").textContent = "기본 설정";
+      if (!st || touched) return;
+      var sym = byId("symbol");
+      if (engineTicker && byId("dataSource").value === "upbit" && sym.value === upbitSymbol) sym.value = engineTicker;
       byId("src").value = srcFromInterval(st.interval);
-    }).catch(function () { /* 상태를 못 읽어도 기본값으로 쓴다 */ });
+    }
+  }
+
+  var START_WAIT_MS = 5000;   // 1121-03 A1: 시작 때 상태·저장값을 기다리는 상한
+  var MSG_LOAD_SKIP = "저장값 불러오기 건너뜀 — 그사이 칸을 고쳤거나 실행 중입니다";
+
+  // GET /v2/api/params/last-saved 응답 → {source, params, trailing} 또는 null(이력 없음·깨짐·모양이 다름)
+  function startValues(ls) {
+    if (!ls || ls.exists !== true || ls.broken === true) return null;
+    if (ls.source !== "upbit" && ls.source !== "binance") return null;
+    if (!ls.params || typeof ls.params !== "object") return null;
+    return { source: ls.source, params: ls.params, trailing: ls.trailing || null };
+  }
+  // 화면 위 한 줄: 「불러온 설정: 마지막 저장 25.11.24 05:08」 + 다르면 「(지금 운용 값과 다름 — 저장만 하고 적용하지 않음)」
+  function loadedText(ls) {
+    return "불러온 설정: 마지막 저장 " + (ls.saved_at_text || "—") +
+      (ls.differs_from_applied === true ? " (지금 운용 값과 다름 — 저장만 하고 적용하지 않음)" : "");
   }
 
   var api = {
     upbitCallCount: upbitCallCount, fetchUpbitKlines: fetchUpbitKlines, briefSummary: briefSummary,
     sweepBrief: sweepBrief, briefHtml: briefHtml, sweepHtml: sweepHtml, srcFromInterval: srcFromInterval,
+    startValues: startValues, loadedText: loadedText,
     install: install,
   };
   globalThis.__v2bt = api;

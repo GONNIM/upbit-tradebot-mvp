@@ -268,6 +268,10 @@ def active_params(user_id: str, strategy: Optional[str] = None) -> dict:
 
 SQL_LAST_HISTORY = ("SELECT id, note FROM v2_settings_history WHERE user_id=? "
                     "ORDER BY id DESC LIMIT 1")
+# 1121-03 A1: 백테스터 시작값 = 그 사용자 이력 마지막 행 1개(화면 값 25칸·출처·저장 시각). api_read.ALL_SQL 밖(이력 DB 표) —
+# LIMIT·사용자 조건은 tests/v2/test_fullback_1121.py 가 따로 본다.
+SQL_LAST_HISTORY_FULL = ("SELECT id, saved_at, params_json, note FROM v2_settings_history WHERE user_id=? "
+                         "ORDER BY id DESC LIMIT 1")
 SQL_SET_APPLIED = ("UPDATE v2_settings_history SET applied_at=? "
                    "WHERE id=? AND user_id=? AND applied_at IS NULL")
 
@@ -286,6 +290,21 @@ def last_history(user_id: str) -> "tuple[Optional[int], Optional[str]]":
         return (None, None)
     note = r[1] if isinstance(r[1], str) else ""
     return (int(r[0]), note[len("source="):] if note.startswith("source=") else None)
+
+
+def last_history_full(user_id: str) -> Optional[dict]:
+    """1121-03 A1: 마지막 저장 행 {id, saved_at, params_json, note}. 이력 DB 가 없으면 만들지 않고 None(last_history 와 같은 규칙)."""
+    p = v2hist_path(user_id)
+    if not p.exists():
+        return None
+    conn = open_v2hist(user_id)
+    try:
+        r = conn.execute(SQL_LAST_HISTORY_FULL, (user_id,)).fetchone()
+    finally:
+        conn.close()
+    if not r:
+        return None
+    return {"id": r[0], "saved_at": r[1], "params_json": r[2], "note": r[3]}
 
 
 def set_applied_at(user_id: str, history_id: int, at: str) -> bool:

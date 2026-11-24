@@ -424,7 +424,7 @@ test("backtester.html: 칸 이름 글자 — 짝 칸 이름·단위·크기·봉
   assert.match(HTML, /#btMore\[open\] \.bt-closed,#btMore:not\(\[open\]\) \.bt-open\{display:none\}/);
 });
 
-test("backtester.html: 출처 토글·접힘 20개·카드·자세한 결과 (1105-09 Ver2 · 1110-01 추적 손절 3칸)", () => {
+test("backtester.html: 출처 토글·주요 칸·접힘 15개·결과 순서·스윕 결과 자리 (1105-09 Ver2 · 1110-01 · 1121-03 B1·B2·B4)", () => {
   assert.match(HTML, /데이터 출처/);
   assert.match(HTML, /업비트 \(KRW\)/);
   assert.match(HTML, /바이낸스/);
@@ -434,34 +434,42 @@ test("backtester.html: 출처 토글·접힘 20개·카드·자세한 결과 (11
   for (const t of ["종목", "봉 단위 · 기간", "60선 / 200선", "분할 최대 횟수", "익절 TP %", "손절 SL %"]) {
     assert.ok(HTML.includes(t), t);
   }
-  // 1106-03: 「… 그 밖의 입력 17개(접힘)」 → 접혔을 때 「설정 17개 더 보기」, 펼쳤을 때 「설정 17개 접기」
-  // 1110-01: 추적 손절 3칸(trailingStop·trailingMode·trailingPct)을 더해 20개
-  assert.match(HTML, /<summary><span class="bt-closed">설정 20개 더 보기<\/span><span class="bt-open">설정 20개 접기<\/span><\/summary>/);
+  // 1121-03 B4: 60선 최소 기울기·둔화 허용치·추적 손절 3칸을 접힘 밖 주요 칸으로(id 그대로) — 접힘은 15개
+  const main = /<div class="bt-grid">([\s\S]*?)<\/div>\s*<details id="btMore"/.exec(HTML);
+  assert.ok(main, "주요 칸");
+  const mainIds = [...main[1].matchAll(/<(?:input|select)\b[^>]*\sid="([^"]+)"/g)].map((x) => x[1]);
+  assert.deepEqual(mainIds, ["symbol", "src", "days", "ma60p", "ma200p", "maxSplits", "tp", "sl",
+    "ma60MinSlope", "ma60SlopeDrop", "trailingStop", "trailingMode", "trailingPct"]);
+  assert.match(HTML, /<summary><span class="bt-closed">설정 15개 더 보기<\/span><span class="bt-open">설정 15개 접기<\/span><\/summary>/);
   const m = /<details id="btMore"[^>]*>([\s\S]*?)<\/details>/.exec(HTML);
   assert.ok(m, "btMore");
   const inner = [...m[1].matchAll(/<(?:input|select)\b[^>]*\sid="([^"]+)"/g)].map((x) => x[1]).sort();
-  assert.deepEqual(inner, ["buyOnGoldenCross", "capital", "deadcross", "compounding", "fee", "maType", "maxPullbackBuys", "pullbackP", "slopeLB", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop", "slStreakPause", "slStreakCooldownHours", "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct", "trailingStop", "trailingMode", "trailingPct"].sort());
+  assert.deepEqual(inner, ["buyOnGoldenCross", "capital", "deadcross", "compounding", "fee", "maType", "maxPullbackBuys", "pullbackP", "slopeLB", "gcMaxGapPct", "slStreakPause", "slStreakCooldownHours", "episodePullbackCap", "episodeTpDecayPct", "episodeTpFloorPct"].sort());
+  assert.equal(inner.length, 15);
   assert.match(HTML, /데이터 가져오기 \+ 백테스트/);
   assert.match(HTML, /id="btNote"[^>]*hidden/);
   assert.match(HTML, /다른 화면으로 가도 서버가 계속 받아 둡니다/);
   assert.match(HTML, /<h2>결과 요약<\/h2>/);
   assert.match(HTML, /여러 설정 비교 \(파라미터 스윕\)/);
-  assert.match(HTML, /<details id="btDetail"[^>]*>/);
-  assert.match(HTML, /자세한 결과/);
   assert.match(HTML, /CSV 받기/);
   assert.match(HTML, /설정 저장/);
-  // 접힘 안으로 옮긴 원래 결과 구역이 id 그대로 남음
-  for (const id of ["summary", "depth", "weekly", "monthly", "sweepResult", "chartWrap", "chartCanvas", "chartOverlay", "chartInfo", "chartLegend", "chartHint", "sweepHint", "sweepStatus"]) {
+  // 1121-03 B1: 「자세한 결과」 접힘 없음 — 결과 요약 바로 아래 요약→깊이→주간→월간(Ver9 순서), 주간·월간 CSV 는 월간 아래
+  assert.ok(!HTML.includes('<details id="btDetail"'));
+  assert.ok(!HTML.includes("자세한 결과"));
+  for (const id of ["summary", "depth", "weekly", "monthly", "sweepResult", "chartWrap", "chartCanvas", "chartOverlay", "chartInfo", "chartLegend", "chartHint", "sweepHint", "sweepStatus", "btLoaded"]) {
     assert.ok(HTML.includes(`id="${id}"`), id);
   }
-  const detail = HTML.slice(HTML.indexOf('<details id="btDetail"'));
-  for (const id of ["summary", "weekly", "monthly", "sweepResult", "chartWrap"]) {
-    assert.ok(detail.indexOf(`id="${id}"`) > 0, id + " 가 자세한 결과 안");
-  }
+  const at = (t) => { const i = HTML.indexOf(t); assert.ok(i > 0, t); return i; };
+  const order = [at("<h2>결과 요약</h2>"), at('id="btBrief"'), at('id="summary"'), at('id="depth"'), at('id="weekly"'),
+    at('id="monthly"'), at("downloadWeekly()"), at("downloadMonthly()"), at("여러 설정 비교 (파라미터 스윕)")];
+  assert.deepEqual([...order].sort((a, b) => a - b), order, "결과 요약 → 요약 → 깊이 → 주간 → 월간 → CSV → 스윕 카드");
+  // 1121-03 B2: 스윕 단추·진행 바로 아래 상위 5 한 줄 → 상위 10 표 → 스윕 결과 CSV, 그 뒤 차트 카드
+  const sw = [at('onclick="runSweep()"'), at('id="sweepStatus"'), at('id="sweepBrief"'), at("<h3>스윕 결과 (상위 10)</h3>"),
+    at('id="sweepResult"'), at("downloadSweep()"), at('id="btChartCard"'), at('id="chartWrap"')];
+  assert.deepEqual([...sw].sort((a, b) => a - b), sw, "스윕 단추 → 진행 → 상위 5 → 상위 10 → CSV → 차트 카드");
   assert.ok(HTML.includes("전략 로직 설명"));
-  assert.ok(HTML.indexOf("전략 로직 설명") > HTML.indexOf('<details id="btDetail"'));
+  assert.ok(HTML.indexOf("전략 로직 설명") > HTML.indexOf('id="btChartCard"'));
 });
-
 test("backtester.html: 입력 47개 id + 추적 손절 3칸 = 50칸이 모두 있고 기본값은 Ver9 (1111-01)", () => {
   const p = parseDefaults(HTML);
   assert.equal(Object.keys(p).filter((i) => i !== "dataSource").length, 50);

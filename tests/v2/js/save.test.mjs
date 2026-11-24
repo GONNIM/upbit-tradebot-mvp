@@ -230,12 +230,13 @@ test("창 문구: 시험한 데이터 줄·지금 상태 4행·안내", () => {
   assert.equal(S.symbolWarning({ source: "upbit", params: { symbol: "KRW-JTO" } }, null), null);
 });
 
-test("backtester.html: 확인 창 제목·단추(저장만 하기 / 이 설정으로 동작 비활성 / 취소)", () => {
+test("backtester.html: 확인 창 제목·단추(저장만 하기 / 이 설정으로 동작 비활성 / 닫기 — 1121-03 B5)", () => {
   const dlg = HTML.slice(HTML.indexOf('id="saveDialog"'), HTML.indexOf('<script src="save.js">'));
   assert.match(dlg, /설정 저장 확인/);
   assert.match(dlg, /id="saveDoBtn"[^>]*>저장만 하기</);
   assert.match(dlg, /<button[^>]*id="saveRunBtn"[^>]*disabled/);
-  assert.match(dlg, /id="saveCloseBtn"[^>]*>취소</);
+  assert.match(dlg, /id="saveCloseBtn"[^>]*>닫기</);
+  assert.doesNotMatch(dlg, />취소</);
   assert.match(dlg, /id="saveTested"/);
   assert.match(dlg, /id="saveRunNote"/);
   assert.match(dlg, /지금 상태/);

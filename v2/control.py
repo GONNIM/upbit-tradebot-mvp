@@ -249,6 +249,51 @@ def _eff_max_splits(p: dict) -> Optional[int]:
     return n if n > 0 else None
 
 
+def _num_or_none(v) -> Optional[float]:
+    if isinstance(v, bool) or not isinstance(v, (int, float)):
+        return None
+    f = float(v)
+    return f if math.isfinite(f) else None
+
+
+# 추적 손절 방식 낱말(save.js trailingText 와 같음) — 6값 줄과 감사 로그 「설정 적용」 키 문구가 함께 쓴다
+TS_MODE_WORDS = {"fixed": "고정폭", "ratio": "비율"}
+
+
+def ts_mode_word(v) -> str:
+    """ts_mode 값 → 「고정폭」·「비율」. 모르는 값은 「비율」(엔진 기본과 같음 — 6값 줄 옛 동작 유지)."""
+    return TS_MODE_WORDS.get(v, TS_MODE_WORDS["ratio"])
+
+
+def settings_summary_text(p, mode: Optional[str]) -> Optional[str]:
+    """1121-03 (㉣ ①): 새 전략 설정 6값 한 줄 — 운용 「지금 전략」 · 홈 「보유」 · 감사 로그 「설정 적용」 이 같은 함수 하나를 쓴다.
+    「익절 1.50 / 추적 손절 끔 / 손절 5.00 / 분할 1 / 기울기 0.60 / 둔화 0.20 / 투자비율 100%」.
+    추적 손절 켬: 「추적 손절 켬 · 고정폭 · 손절폭 30%」(방식 낱말 = save.js trailingText). 분할 = 실제 한도(_eff_max_splits).
+    투자비율 = 입장 모드 키(LIVE → invest_ratio_pct_live, 그 밖 → _test), 없으면 「—」. p 가 dict 가 아니거나 비면 None.
+    값이 None 인 칸(옛 키 행의 기울기·둔화 등)은 「—」."""
+    if not isinstance(p, dict) or not p:
+        return None
+
+    def f2(v):
+        n = _num_or_none(v)
+        return "—" if n is None else "%.2f" % n
+
+    if p.get("ts_on") is True:
+        pct = _num_or_none(p.get("ts_pct"))
+        ts = "추적 손절 켬 · %s · 손절폭 %s" % (ts_mode_word(p.get("ts_mode")),
+                                           "—" if pct is None else ("%g" % pct) + "%")
+    else:
+        ts = "추적 손절 끔"
+    eff = _eff_max_splits(p)
+    ratio = _num_or_none(p.get("invest_ratio_pct_live" if mode == "LIVE" else "invest_ratio_pct_test"))
+    return " / ".join([
+        "익절 " + f2(p.get("tp")), ts, "손절 " + f2(p.get("sl")),
+        "분할 " + ("—" if eff is None else str(eff)),
+        "기울기 " + f2(p.get("ma60MinSlope")), "둔화 " + f2(p.get("ma60SlopeDrop")),
+        "투자비율 " + ("—" if ratio is None else ("%g" % ratio) + "%"),
+    ])
+
+
 def ops_info(user_id: str, mode: Optional[str]) -> dict:
     """운용 탭 단추 판정에 쓰는 값(읽기만). GET /v2/api/ops.
     - reservation·reservation_error, revert_target(마지막 전환 기록의 전략 + 그 전략 설정 파일의 종목·봉 — 엔진 복귀와 같은 값)
@@ -257,7 +302,7 @@ def ops_info(user_id: str, mode: Optional[str]) -> dict:
     strategy, _mt = db.active_strategy(user_id)
     out = {"pending": pending_id(user_id), "mode": mode, "strategy": strategy, "reservation": None,
            "reservation_error": False, "revert_target": None, "saved": _saved_state(user_id),
-           "round": None, "per_buy": None, "order_ratio": None, "hours": None}
+           "round": None, "per_buy": None, "order_ratio": None, "hours": None, "settings_text": None}
     has_db = db.live_db_path(user_id).exists()
     try:
         out["reservation"] = reservation(user_id, mode)
@@ -267,6 +312,7 @@ def ops_info(user_id: str, mode: Optional[str]) -> dict:
         applied = db.active_params(user_id, "PULLBACK")
         if applied:
             out["hours"] = {k: applied.get(k, OPS_DEFAULTS[k]) for k in OPS_KEYS}
+            out["settings_text"] = settings_summary_text(applied, mode)   # 1121-03 O1: 「지금 전략」 아래 6값 한 줄
         eff = _eff_max_splits(applied) if applied else None
         st = None
         if has_db and mode in MODES:

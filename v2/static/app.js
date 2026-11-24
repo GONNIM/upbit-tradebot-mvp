@@ -638,6 +638,12 @@ document.addEventListener("alpine:init", () => {
     get displayName() {
       return (this.basic && (this.basic.display_name || this.basic.account)) || "";
     },
+    // 1121-03 O1·O2: 지금 설정 6값 한 줄(서버 control.settings_summary_text — 운용·홈·감사 로그가 같은 함수)
+    get opsSettingsText() { return (this.ops && typeof this.ops.settings_text === "string") ? this.ops.settings_text : ""; },
+    get homeSettings() {
+      const s = this.status;
+      return s && typeof s.pullback_settings === "string" ? s.pullback_settings : "";
+    },
     // 운용 탭 「지금 전략」 — 배지와 같은 이름표
     get strategyLabel() {
       const v = String(this.status && this.status.strategy && this.status.strategy.value || "").toUpperCase();

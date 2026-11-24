@@ -70,6 +70,13 @@
         </div>
       </template>
       <p class="empty" x-show="!home.holding">보유 없음</p>
+      <template x-if="homeSettings">
+        <div data-home-settings>
+          <div class="kv"><span>지금 설정</span></div>
+          <p class="note" x-text="homeSettings"></p>
+          <p class="note" x-show="home.holding">보유 중인 거래의 추적 손절은 그 거래를 연 때 값을 씁니다. TP 감소를 켰으면 이번 거래 익절은 위 「익절 가격」을 봐 주십시오.</p>
+        </div>
+      </template>
     </section>
 
     <section class="card">
@@ -122,6 +129,7 @@
       <button type="button" class="seg-b" :class="{on: logsKind === 'engine'}" @click="setLogsKind('engine')">엔진</button>
       <button type="button" class="seg-b" :class="{on: logsKind === 'error'}" @click="setLogsKind('error')">오류</button>
     </div>
+    <p class="note" x-show="logsKind === 'audit'" data-step-note>「평단 대비 ±0.5%」 단계 줄은 최근 매도 판단 기록(약 60시간)으로 그때그때 만듭니다. 기록이 밀려나면 옛 보유의 줄은 사라집니다.</p>
     <section class="card">
       <table class="mt">
         <tr><th class="lt">시각</th><th>내용</th></tr>
@@ -149,6 +157,7 @@
     <section class="card">
       <h2>매매 전략</h2>
       <dl><dt>지금 전략</dt><dd><strong x-text="strategyLabel"></strong></dd></dl>
+      <p class="note" data-ops-settings x-show="opsSettingsText" x-text="opsSettingsText"></p>
       <p class="note" x-show="opsReservationText" x-text="opsReservationText"></p>
       <p class="note" data-live-note x-show="opsLiveNote" x-text="opsLiveNote"></p>
       <button type="button" class="ops-primary" data-op="switch" :disabled="!opsView.switch.enabled" @click="opsAct('switch')">백테스터 규칙으로 전환</button>

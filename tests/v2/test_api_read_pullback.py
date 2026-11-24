@@ -536,7 +536,9 @@ class TestLabelTables(unittest.TestCase):
 
     def test_param_labels_cover_engine_keys(self):
         # 1105-09 (Ver2): 옛 2키(minSlope·slopeDrop) 이름은 지난 적용 기록(strategy_switch PARAMS)을 읽으려고 남긴다
-        keys = set(control.SAVED_KEYS) | set(control.OPS_KEYS)
+        # 1121-03 ㉠ (11/25): 엔진 변경 기록에 함께 남는 투자 비율 2키·추적 손절 3키도 이름이 있다
+        from v2 import params_schema as ps
+        keys = set(control.SAVED_KEYS) | set(control.OPS_KEYS) | set(ps.RATIO_KEYS) | set(ps.TRAILING_KEYS)
         self.assertEqual(keys | {"minSlope", "slopeDrop"}, set(api_read.PARAM_KEY_LABELS))
 
 

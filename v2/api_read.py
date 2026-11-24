@@ -4,6 +4,7 @@
 - 실매매 DB 는 v2.db.query() 로만 읽는다(읽기 전용·LIMIT 필수·2초 상한).
 - 시각은 모두 KST ISO(+09:00) 로 돌려준다(DB 에는 ISO 와 'YYYY-MM-DD HH:MM:SS' 가 섞여 있음).
 """
+import hashlib
 import json
 import re
 import sqlite3
@@ -72,9 +73,15 @@ PARAM_KEY_LABELS = {
     "deadcross": "데드크로스 청산", "compounding": "복리 모드", "capital": "초기자본", "fee": "수수료",
     "enable_trading_hours": "거래 시간 제한", "trading_start_time": "거래 시작 시각",
     "trading_end_time": "거래 끝 시각", "allow_sell_during_off_hours": "시간 밖에도 익절",
+    # 1121-03 ㉠ (11/25 승인): 엔진이 변경 기록에 남기는 추적 손절 3키·투자 비율 2키(engine/pullback_apply ALL_KEYS)
+    # — 6값 줄(control.settings_summary_text)과 같은 낱말: 「추적 손절 켬/끔」 · 방식 「고정폭/비율」 · 「손절폭 30%」
+    "ts_on": "추적 손절", "ts_mode": "추적 손절 방식", "ts_pct": "손절폭",
+    "invest_ratio_pct_live": "투자비율(실계좌)", "invest_ratio_pct_test": "투자비율(모의)",
 }
 PARAM_PCT_KEYS = ("tp", "sl", "minSlope", "slopeDrop", "fee", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop",
-                  "episodeTpDecayPct", "episodeTpFloorPct")
+                  "episodeTpDecayPct", "episodeTpFloorPct", "ts_pct", "invest_ratio_pct_live", "invest_ratio_pct_test")
+# 참/거짓 값 낱말 — 기본 「켜짐/꺼짐」, 추적 손절은 6값 줄과 같게 「켬/끔」
+PARAM_BOOL_WORDS = {"ts_on": ("켬", "끔")}
 # 적용 시점(note.apply) — 엔진 engine/pullback_apply·strategy_switch 가 쓰는 값. 결정 1030-02 U4: reseed 글자
 APPLY_LABELS = {"next_bar": "다음 봉부터", "immediate": "즉시", "reseed": "지표 다시 계산(그동안 매수 없음)",
                 "switch": "전환과 함께 적용", "restart": "재시작 적용"}   # reserved 는 엔진이 쓰지 않음(결정 10)
@@ -179,13 +186,13 @@ SQL_LOGS_AUDIT_BUY_EVAL_PB = (
     "ORDER BY timestamp DESC, id DESC LIMIT 1200")
 # 보유 중 눌림 대기(armed)는 매도 판단 행의 checks 에 있다 — 미발동 행도 읽는다(PULLBACK 일 때만)
 SQL_LOGS_AUDIT_SELL_EVAL_PB = (
-    "SELECT id, timestamp, triggered, trigger_key, checks FROM audit_sell_eval "
+    "SELECT id, timestamp, bar_time, triggered, trigger_key, checks FROM audit_sell_eval "
     "ORDER BY timestamp DESC, id DESC LIMIT 1200")
 # 전환·복귀·설정 적용 기록. 인덱스(user_id, mode, state)로 거르면 정렬에 임시 B-트리가 생겨
 # rowid 역순으로 최근 1200행(감사 표와 같은 깊이)을 읽고 사용자·모드는 파이썬에서 거른다(스키마 변경 없음 — 결정 3).
 SQL_LOGS_SWITCH = (
     "SELECT id, user_id, mode, kind, from_strategy, from_interval, to_strategy, to_interval, "
-    "state, requested_at, done_at, note FROM strategy_switch ORDER BY id DESC LIMIT 1200")
+    "state, requested_at, done_at, note, params_sha256 FROM strategy_switch ORDER BY id DESC LIMIT 1200")
 
 # ---- 기본 기능 블록(GET /v2/api/basic) ----
 # 최종 상태 로그: services/db.py get_last_status_log_from_db 와 같은 조건(이모지 접두 9종).
@@ -467,6 +474,9 @@ class StatusHandler(ReadHandler):
         if value == "PULLBACK":
             # 2차 T16: 새 전략 화면 값(선 기간·방식·TP/SL %·분할 한도). EMA·MACD 응답에는 이 키가 없다
             body["pullback"] = self._pb_cfg
+            # 1121-03 O2: 홈 「보유」 아래 지금 설정 6값 한 줄(운용·감사 로그와 같은 control.settings_summary_text)
+            body["pullback_settings"] = control.settings_summary_text(
+                db.active_params(user_id, "PULLBACK"), entry_mode)
         # 1122-01: 업비트 키 만료 배지 — 점검 스크립트 결과 파일을 읽기만 한다(없거나 못 읽으면 칸을 뺀다).
         # read_state 가 OSError·ValueError 를 그 자리에서 잡는다(_guard 가 FileNotFoundError 를 404 로 바꾸므로).
         ke_state = key_expiry.read_state(db.DATA_DIR / key_expiry.RESULT_NAME)
@@ -871,7 +881,10 @@ def _fmt_param(key, v) -> str:
     if v is None:
         return "없음"
     if isinstance(v, bool):
-        return "켜짐" if v else "꺼짐"
+        on, off = PARAM_BOOL_WORDS.get(key, ("켜짐", "꺼짐"))
+        return on if v else off
+    if key == "ts_mode":
+        return control.ts_mode_word(v)
     if isinstance(v, float) and v.is_integer():
         v = int(v)
     return "%s%s" % (v, "%" if key in PARAM_PCT_KEYS else "")
@@ -935,16 +948,216 @@ def _switch_texts(r) -> "list[tuple]":
     return out
 
 
+STEP_PCT = 0.5          # 1121-03 L1 (㉠ ①): 평단 대비 0.5% 단계
+STEP_MAX_LINES = 40     # 보유 1건당 상한(평단이 바뀌어 다시 세도 합쳐서) — 넘으면 최근 40줄 + 「앞 n줄 생략」
+
+
+HTS_BUY_MARKS = ("HTS_BUY", "HTS_BUY_ADD")   # 외부 매수 표시(엔진은 reason 칸에 쓴다 · type 칸 값도 함께 막아 둠)
+
+
+def _holdings_from_trades(trades):
+    """감사 체결 행(최신순) → 보유 구간 [(첫 매수 체결 dt, 끝 dt 또는 None)]. 시각순으로 따라가며
+    봇 매수(BUY)가 보유 없음 상태에서 나오면 시작(분할 회차가 2 이상이면 시작을 모르는 것이라 건너뜀),
+    매도(SELL·HTS_SELL)에서 끝. 보유 없음에서 외부 매수가 먼저 나오면 다음 매도까지 시작을 모르는 것으로 보고
+    구간을 만들지 않는다(계획 1-2 「외부 매수로 시작한 보유는 줄 0개」). 엔진은 외부 매수를 type='BUY' ·
+    reason='HTS_BUY'|'HTS_BUY_ADD' 로 남긴다(engine/order_reconciler.py insert_trade_audit) — reason 으로 가린다.
+    강제 매수(reason force_buy, 회차 없음)는 봇이 낸 매수라 보유 시작으로 본다(11/24 PO 결정)."""
+    evs = []
+    for r in trades:
+        t = _dt(r["timestamp"])
+        if t is not None:
+            evs.append((t, r.get("id") or 0, r))
+    evs.sort(key=lambda e: (e[0], e[1]))
+    out = []
+    start = None
+    unknown = False
+    for t, _id, r in evs:
+        typ = str(r["type"] or "").upper()
+        reason = str(r.get("reason") or "").upper()
+        if typ in HTS_BUY_MARKS or (typ == "BUY" and reason in HTS_BUY_MARKS):
+            if start is None:
+                unknown = True         # 외부 매수로 시작한 보유 — 다음 매도까지 줄 없음
+        elif typ == "BUY":
+            if start is None and not unknown:
+                rnd = pb_trade_extra(typ, r.get("meta")).get("round")
+                if rnd is not None and rnd >= 2:
+                    unknown = True     # 이 보유의 첫 매수가 창 밖 — 시작을 모름
+                else:
+                    start = t
+        elif typ in ("SELL", "HTS_SELL"):
+            if start is not None:
+                out.append((start, t))
+            start = None
+            unknown = False
+    if start is not None:
+        out.append((start, None))
+    return out
+
+
+def _step_label(k: int) -> str:
+    v = k * STEP_PCT
+    return ("+" if v > 0 else "-") + "%.1f%%" % abs(v)
+
+
+def _step_items(trades, sells):
+    """1121-03 L1 (계획 1-2): 보유 중 매도 판단 기록(종가 checks.price · 평단 checks.avg)으로 평단 대비 0.5% 단계를
+    처음 넘은 봉에 한 줄. 잠정 봉 평가(checks.via_tentative) 행은 건너뛰고 같은 bar_time 은 가장 새 id 1개만.
+    한 봉이 단계 여럿을 넘으면 가장 먼 단계 한 줄(「+0.5%→+1.5%」). 평단이 바뀌면 「평단 변경」 한 줄 뒤 다시 센다.
+    보유 1건 합쳐 40줄 — 넘으면 최근 40줄 + 「앞 n줄 생략」. 매도 판단 창의 가장 옛 행이 그 보유의 첫 매수 체결보다
+    이를 때만(또는 창이 1200행보다 적어 표 전체를 읽었을 때만) 그 보유의 줄을 만든다."""
+    rows = []
+    for r in sells:
+        t = _dt(r["timestamp"])
+        if t is not None:
+            rows.append((t, r))
+    if not rows:
+        return []
+    oldest = min(t for t, _r in rows)
+    full_table = len(sells) < LOGS_READ_MAX
+    out = []
+    for start, end in _holdings_from_trades(trades):
+        if not (full_table or oldest < start):
+            continue
+        by_bar = {}
+        for t, r in rows:
+            if t < start or (end is not None and t >= end):
+                continue
+            ck = _json_obj(r.get("checks"))
+            if ck.get("via_tentative") in (1, True):
+                continue
+            price, avg = _float_or_none(ck.get("price")), _float_or_none(ck.get("avg"))
+            if price is None or price <= 0 or avg is None or avg <= 0:
+                continue
+            key = r.get("bar_time") or r["timestamp"]
+            old = by_bar.get(key)
+            if old is None or (r.get("id") or 0) > (old[1].get("id") or 0):
+                by_bar[key] = (t, r, price, avg)
+        seq = sorted(by_bar.values(), key=lambda x: (x[0], x[1].get("id") or 0))
+        lines = []
+        base = None
+        hi = lo = 0
+        for t, r, price, avg in seq:
+            if base is None:
+                base = avg
+            elif abs(avg - base) > base * 1e-9:
+                lines.append((t, r, "pa", "평단 변경 %s → %s" % (_price_text(base), _price_text(avg))))
+                base, hi, lo = avg, 0, 0
+            pct = round((price / base - 1.0) * 100.0, 6)
+            k = int(pct / STEP_PCT)     # 0 쪽으로 자름: +1.2% → 2(+1.0%), -0.7% → -1(-0.5%)
+            if k > hi:
+                step = _step_label(k) if k == hi + 1 else _step_label(hi + 1) + "→" + _step_label(k)
+                hi = k
+            elif k < lo:
+                step = _step_label(k) if k == lo - 1 else _step_label(lo - 1) + "→" + _step_label(k)
+                lo = k
+            else:
+                continue
+            lines.append((t, r, "p", "평단 대비 %s (종가 %s)" % (step, _price_text(price))))
+        if len(lines) > STEP_MAX_LINES:
+            cut = len(lines) - STEP_MAX_LINES
+            t0, r0, _p, _x = lines[cut - 1]
+            lines = lines[cut:]
+            out.append((t0, 3, r0["id"], {"id": "pz%s" % r0["id"], "timestamp": _iso(r0["timestamp"]),
+                                         "text": "평단 대비 단계 줄 앞 %d줄 생략" % cut, "cls": "muted"}))
+        for t, r, pre, text in lines:
+            # 같은 봉이면 최신순 화면에서 단계 줄이 「평단 변경」 줄 위에 오게 평단 변경을 뒤 순서(4)로
+            out.append((t, 4 if pre == "pa" else 2, r["id"], {"id": pre + str(r["id"]), "timestamp": _iso(r["timestamp"]),
+                                       "text": text, "cls": "muted"}))
+    return out
+
+
+OLD_SLOPE_KEYS = ("minSlope", "slopeDrop")
+
+
+def _applied_now(user_id):
+    """지금 적용본 (dict, sha256). 없거나 깨졌으면 (None, None)."""
+    try:
+        raw = db.applied_params_path(user_id).read_bytes()
+        d = json.loads(raw.decode("utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return None, None
+    if not isinstance(d, dict):
+        return None, None
+    return d, hashlib.sha256(raw).hexdigest()
+
+
+def params_after_values(rows, applied, applied_sha) -> dict:
+    """1121-03 L2 (계획 1-1): PARAMS 행 id → 그 적용 뒤 설정(dict). 못 정한 행은 넣지 않는다(화면 「—」 = 6값 없음).
+    rows = 그 사용자의 strategy_switch 행(모드 상관없이 — 적용본은 사용자당 1개). id 역순으로 따라간다.
+    ① 시작: 가장 새 PARAMS 행 params_sha256 = 지금 적용본 sha 일 때만. ② 적용 뒤 값 = 지금 값에서 더 새 행들의 changed 를 구 값으로 되돌린 값
+    (구 값 None = 키 없음). ③ 사슬 검사: 되돌리기 전 그 행 changed 의 신 값이 지금까지 되돌린 값과 다르면 그 행부터 옛 행은 없음.
+    ④ apply=「switch」 행(전략 전환)에서 멈춘다 — 그 행은 값을 쓰고 더 옛 행은 없음. 「구 값 모두 None」만으로는 멈추지 않는다."""
+    out = {}
+    params = sorted((r for r in rows if r.get("kind") == "PARAMS"), key=lambda r: -(r.get("id") or 0))
+    if not params or not isinstance(applied, dict) or not applied_sha \
+            or params[0].get("params_sha256") != applied_sha:
+        return out
+    _missing = object()
+    cur = dict(applied)
+    for r in params:
+        m = _json_obj(r.get("note"))
+        changed = m.get("changed") if isinstance(m.get("changed"), dict) else None
+        if changed is None:
+            break
+        pairs = {}
+        ok = True
+        for k, v in changed.items():
+            if not (isinstance(v, (list, tuple)) and len(v) == 2):
+                ok = False
+                break
+            pairs[k] = v
+            now = cur.get(k, _missing)
+            new = v[1]
+            if (now is _missing and new is not None) or (now is not _missing and (
+                    new is None or now != new or type(now) is not type(new))):
+                ok = False
+                break
+        if not ok:
+            break
+        out[r["id"]] = dict(cur)
+        if str(m.get("apply") or "") == "switch":
+            break
+        for k, (old, _new) in pairs.items():
+            if old is None:
+                cur.pop(k, None)
+            else:
+                cur[k] = old
+    return out
+
+
+def _params_after_text(after: dict, note, mode) -> Optional[str]:
+    """적용 뒤 설정 → 6값 한 줄(control.settings_summary_text — 운용·홈과 같은 함수). 옛 키 행은 기울기·둔화 「—」."""
+    if not isinstance(after, dict):
+        return None
+    m = _json_obj(note)
+    changed = m.get("changed") if isinstance(m.get("changed"), dict) else {}
+    p = dict(after)
+    if any(k in changed for k in OLD_SLOPE_KEYS):
+        p["ma60MinSlope"] = None
+        p["ma60SlopeDrop"] = None
+    return control.settings_summary_text(p, mode)
+
+
 def _switch_items(user_id, mode):
     """2차 T16: 전환·복귀·설정 적용 기록(strategy_switch). 세션 입장 모드 행만(운용 탭 예약과 같은 범위).
-    표가 없거나 못 읽으면 빈 목록 — 감사 로그 나머지는 그대로 나온다."""
+    표가 없거나 못 읽으면 빈 목록 — 감사 로그 나머지는 그대로 나온다.
+    1121-03 L2: 「설정 적용」 줄 뒤에 적용 뒤 6값(params_after_values 로 정한 행만)."""
     rows = _try_query(user_id, SQL_LOGS_SWITCH)
+    mine = [r for r in rows or [] if r["user_id"] == user_id]
+    after = {}
+    if any(r["kind"] == "PARAMS" for r in mine):
+        applied, sha = _applied_now(user_id)
+        after = params_after_values(mine, applied, sha)
     out = []
-    for r in rows or []:
-        if r["user_id"] != user_id or r["mode"] != mode:
+    for r in mine:
+        if r["mode"] != mode:
             continue
         if r["kind"] == "PARAMS":
-            lines = [(r["done_at"] or r["requested_at"], params_change_text(r["note"]), "")]
+            text = params_change_text(r["note"])
+            six = _params_after_text(after.get(r["id"]), r["note"], r["mode"]) if r["id"] in after else None
+            if six:
+                text += " — 적용 뒤: " + six
+            lines = [(r["done_at"] or r["requested_at"], text, "")]
         elif r["kind"] in ("SWITCH", "REVERT"):
             lines = _switch_texts(r)
         else:
@@ -959,7 +1172,8 @@ def _audit_items(user_id, cfg=None, mode=None):
     """감사 로그 네 표(+ 2차 T16 전환 기록)를 시각 내림차순으로 합친 항목 [(dt, rank, id, row)].
     cfg = 새 전략 화면 값(활성 전략 PULLBACK 일 때만, 아니면 None → 판단 표 조회·문구는 1차 그대로)."""
     items = []
-    for r in db.query(user_id, SQL_LOGS_AUDIT_TRADES):
+    trades = db.query(user_id, SQL_LOGS_AUDIT_TRADES)
+    for r in trades:
         got = _trade_item(r)
         if got:
             items.append((_dt(r["timestamp"]), 0, r["id"],
@@ -974,6 +1188,7 @@ def _audit_items(user_id, cfg=None, mode=None):
         sells = db.query(user_id, SQL_LOGS_AUDIT_SELL_EVAL_PB)
         items += _group_buy_wait(buys, cfg)
         items += _pb_sell_items(sells, cfg)
+        items += _step_items(trades, sells)   # 1121-03 L1: 평단 대비 0.5% 단계 줄
         # 보유 중 매수 신호 봉은 두 판단 표에 같은 checks 가 남는다 — 같은 시각 골든크로스 줄은 1개만
         seen = set()
         for it in _golden_items(buys, "b", cfg) + _golden_items(sells, "s", cfg):

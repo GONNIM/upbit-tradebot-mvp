@@ -66,8 +66,9 @@ function page(overrides = {}) {
   vm.createContext(ctx);
   vm.runInContext(BT_JS, ctx);
   vm.runInContext(UI_JS, ctx);
-  // mountPage 가 부르는 /v2/api/status 는 가짜 서버가 거절한다(화면은 무시) — 시험이 세는 바깥 요청에서 뺀다
-  const outer = () => urls.filter((u) => !String(u).startsWith("/v2/api/status"));
+  // mountPage 가 부르는 /v2/api/status · /v2/api/params/last-saved(1121-03 A1)는 가짜 서버가 거절한다(화면은 기본값) —
+  // 시험이 세는 바깥 요청에서 뺀다(둘 다 같은 출처 v2 서버 주소)
+  const outer = () => urls.filter((u) => !String(u).startsWith("/v2/api/status") && !String(u).startsWith("/v2/api/params/last-saved"));
   return { ctx, el: getEl, urls, outer, v: (name) => vm.runInContext(name, ctx) };
 }
 
