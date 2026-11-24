@@ -129,7 +129,7 @@
       <button type="button" class="seg-b" :class="{on: logsKind === 'engine'}" @click="setLogsKind('engine')">엔진</button>
       <button type="button" class="seg-b" :class="{on: logsKind === 'error'}" @click="setLogsKind('error')">오류</button>
     </div>
-    <p class="note" x-show="logsKind === 'audit'" data-step-note>「평단 대비 ±0.5%」 단계 줄은 최근 매도 판단 기록(약 60시간)으로 그때그때 만듭니다. 기록이 밀려나면 옛 보유의 줄은 사라집니다.</p>
+    <p class="note" x-show="logsKind === 'audit'" data-step-note>「평단 대비 ±0.5%」 단계 줄은 보유 중에 쌓이는 최근 매도 판단 기록 1200건으로 그때그때 만듭니다. 기록이 밀려나면 옛 보유의 줄은 사라집니다.</p>
     <section class="card">
       <table class="mt">
         <tr><th class="lt">시각</th><th>내용</th></tr>
