@@ -165,6 +165,30 @@ class TestParamsChangeLabels(unittest.TestCase):
             {"changed": {"ts_on": [True, False], "ts_mode": ["fixed", "ratio"], "ts_pct": [30.0, 12.5]}}))
         self.assertEqual(t2, "설정 적용 · 추적 손절 켬→끔 · 추적 손절 방식 고정폭→비율 · 손절폭 30→12.5%")
 
+    def test_trailing_missing_key_is_off_and_never_hidden(self):
+        # 1121-03 ㉠ (11/25 화면 확인 뒤 승인): 서버 11/24 05:05 · 05:08 줄과 같은 모양(칸 없음 → 생김/없어짐)
+        off = {"changed": {"slStreakCooldownHours": [6, 6.5], "invest_ratio_pct_live": [10, 100],
+                           "ts_on": [True, None], "ts_mode": ["fixed", None], "ts_pct": [30.0, None]},
+               "apply": "next_bar"}
+        self.assertEqual(api_read.params_change_text(json.dumps(off)),
+                         "설정 적용 · 연속 SL 중단 지속시간(시간) 6→6.5 · 투자비율(실계좌) 10→100% · "
+                         "추적 손절 켬→끔 · 다음 봉부터")
+        on = {"changed": {"slStreakCooldownHours": [6.5, 6], "ts_on": [None, True], "ts_mode": [None, "fixed"],
+                          "ts_pct": [None, 30.0]}, "apply": "next_bar"}
+        self.assertEqual(api_read.params_change_text(json.dumps(on)),
+                         "설정 적용 · 연속 SL 중단 지속시간(시간) 6.5→6 · 추적 손절 끔→켬 · "
+                         "추적 손절 방식 고정폭 · 손절폭 30% · 다음 봉부터")
+        # 다른 키가 3개 넘어도 추적 손절 3키는 숨기지 않고, 「외 n개」는 다른 키만 센다
+        many = {"changed": {"tp": [5, 4], "sl": [3, 2], "ma60p": [60, 50], "fee": [0.05, 0.1],
+                            "ts_on": [False, True], "ts_mode": [None, "ratio"], "ts_pct": [None, 50]}}
+        t = api_read.params_change_text(json.dumps(many))
+        self.assertEqual(t, "설정 적용 · 익절 TP 5→4% · 손절 SL 3→2% · 60선 기간 60→50 · "
+                            "추적 손절 끔→켬 · 추적 손절 방식 비율 · 손절폭 50% · 외 1개")
+        self.assertNotIn("없음", t)
+        # 칸 없음 ↔ 끔 은 바뀐 것이 아니다
+        self.assertEqual(api_read.params_change_text(json.dumps({"changed": {"ts_on": [None, False]}})),
+                         "설정 적용")
+
     def test_mode_words_same_as_six_value_line(self):
         six = control.settings_summary_text({"ts_on": True, "ts_mode": "fixed", "ts_pct": 30}, "TEST")
         self.assertIn("추적 손절 켬 · 고정폭 · 손절폭 30%", six)

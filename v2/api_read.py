@@ -80,6 +80,7 @@ PARAM_KEY_LABELS = {
 }
 PARAM_PCT_KEYS = ("tp", "sl", "minSlope", "slopeDrop", "fee", "gcMaxGapPct", "ma60MinSlope", "ma60SlopeDrop",
                   "episodeTpDecayPct", "episodeTpFloorPct", "ts_pct", "invest_ratio_pct_live", "invest_ratio_pct_test")
+TS_KEYS = ("ts_on", "ts_mode", "ts_pct")   # 1121-03 ㉠: 설정 적용 줄에서 「외 n개」로 숨기지 않는 키
 # 참/거짓 값 낱말 — 기본 「켜짐/꺼짐」, 추적 손절은 6값 줄과 같게 「켬/끔」
 PARAM_BOOL_WORDS = {"ts_on": ("켬", "끔")}
 # 적용 시점(note.apply) — 엔진 engine/pullback_apply·strategy_switch 가 쓰는 값. 결정 1030-02 U4: reseed 글자
@@ -899,7 +900,23 @@ def params_change_text(note) -> str:
     if pairs and all(v[0] is None for _k, v in pairs) and len(pairs) > 3:
         parts.append("새 설정 %d개" % len(pairs))
     else:
-        for k, (old, new) in pairs[:3]:
+        # 1121-03 ㉠ (11/25 승인): 추적 손절 3키는 「외 n개」에 넣지 않고 늘 보인다. ts_on 칸 없음 = 끔
+        # (params_schema: 키 없음 = 끔) → 「끔→켬」·「켬→끔」. 끄면서 없어진 방식·폭은 「추적 손절 … →끔」이 대신한다.
+        ts_off = any(k == "ts_on" and not new for k, (_o, new) in pairs)
+        shown = hidden = 0
+        for k, (old, new) in pairs:
+            ts = k in TS_KEYS
+            if k == "ts_on":
+                old, new = bool(old), bool(new)
+                if old == new:
+                    continue
+            elif ts and new is None and ts_off:
+                continue
+            if not ts:
+                if shown >= 3:
+                    hidden += 1
+                    continue
+                shown += 1
             label = PARAM_KEY_LABELS.get(k, k)
             if old is None:
                 parts.append("%s %s" % (label, _fmt_param(k, new)))
@@ -908,8 +925,8 @@ def params_change_text(note) -> str:
                 if k in PARAM_PCT_KEYS and o.endswith("%"):
                     o = o[:-1]   # 「5→4%」
                 parts.append("%s %s→%s" % (label, o, _fmt_param(k, new)))
-        if len(pairs) > 3:
-            parts.append("외 %d개" % (len(pairs) - 3))
+        if hidden:
+            parts.append("외 %d개" % hidden)
     apply = APPLY_LABELS.get(str(m.get("apply") or ""))
     return " · ".join(["설정 적용"] + parts + ([apply] if apply else []))
 
