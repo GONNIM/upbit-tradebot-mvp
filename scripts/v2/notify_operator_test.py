@@ -64,7 +64,8 @@ def main(root: Path = ROOT) -> int:
         print("드라이런 — 보내지 않음")
         return 3
     ok = notifier.send(notifier.LEVEL_INFO, TITLE, BODY, dedupe_key="operator_channel_test",
-                       audience=notifier.AUDIENCE_OPERATOR)
+                       audience=notifier.AUDIENCE_OPERATOR,
+                       investor_copy=False)   # 1122-01: 운영자 채널 시험 글은 투자자 사본을 보내지 않는다
     print("보냄" if ok else "못 보냄 — 원인은 출력하지 않음(토큰 보호). 운영자와 수신 여부 확인")
     return 0 if ok else 1
 

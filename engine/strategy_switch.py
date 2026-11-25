@@ -80,7 +80,8 @@ SAVED_CHANGED_TEXT = ("⚠️ 예약한 뒤 새 전략 설정이 다시 저장�
 SELL_REJECT_TEXT = "매도가 거절되고 있습니다 — 업비트 앱의 미체결 매도 주문을 확인해 주세요"
 RESERVATION_KEPT_TEXT = ("전환 예약은 그대로입니다 — 이번에 산 보유분을 지금 전략이 매도까지 관리한 뒤 바뀝니다"
                          "(예약 중 봇 자동 매수는 계속 멈춤).")
-# 아래 운영자 전용 문구(audience="operator", 1028-15 notifier 경로)는 투자자에게 가지 않아 내부 이름을 적는다.
+# 아래 운영자 전용 문구(audience="operator", 1028-15 notifier 경로)는 운영자 채팅에는 원문 그대로 간다.
+# 1122-01 (2026-11-24): 투자자 채팅에도 같은 글 사본이 간다(services/investor_copy.py · 가공 없음).
 TABLE_MISSING_TITLE = "🚨 [운영자] 새 전략 테이블 없음 — 마이그레이션 확인"
 TABLE_MISSING_BODY = ("사용자 DB 에 strategy_switch 표가 없습니다(user={user}). 지금 전략(EMA/MACD)은 그대로 매수·매도합니다.\n"
                       "services/init_db.ensure_pullback_tables 마이그레이션을 확인해 주세요.")
@@ -265,7 +266,7 @@ def _notify_default(level, title, body, *, dedupe_key=None, dedupe_ttl=3600):
 
 
 def _notify_operator(level, title, body, *, dedupe_key=None, dedupe_ttl=3600):
-    """운영자 전용 채널(1028-15 notifier audience="operator" — 운영자 채팅이 없으면 로그만, 투자자 채널로 넘어가지 않음)."""
+    """운영자 전용 채널(1028-15 notifier audience="operator" — 운영자 채팅이 없으면 로그만, 기본·등급 채널로 넘어가지 않음 · 1122-01: 투자자 채팅에 같은 글 사본)."""
     try:
         from services.notifier import send
         return send(level, title, body, dedupe_key=dedupe_key, dedupe_ttl=dedupe_ttl, audience="operator")

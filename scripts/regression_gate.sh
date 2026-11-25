@@ -30,6 +30,8 @@ set -e  # 어떤 명령이든 실패하면 즉시 종료
 # export 하면 .env 의 자격증명이 로드되지 않는다. (2026-09-30 테스트 경고 실발송 사고)
 export TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID=""
 export TELEGRAM_CHAT_ID_CRITICAL="" TELEGRAM_CHAT_ID_WARNING="" TELEGRAM_CHAT_ID_INFO="" TELEGRAM_CHAT_ID_OPERATOR=""
+# ✅ 1122-01: 투자자 사본도 같은 원리로 끈다(빈 값 — pop 이 아니라 빈 값이어야 load_dotenv 가 채우지 않음)
+export TELEGRAM_CHAT_ID_INVESTOR="" TELEGRAM_INVESTOR_COPY=""
 # ✅ 1030-09: 같은 원리로 업비트 키도 가짜 값을 먼저 넣어 .env 의 실키가 시험에 읽히지 않게 한다
 # (config.py 는 키가 비면 import 에서 멈추므로 빈 값이 아닌 자리표시 값)
 export UPBIT_ACCESS="netguard-placeholder" UPBIT_SECRET="netguard-placeholder"

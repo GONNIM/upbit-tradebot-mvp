@@ -8,6 +8,10 @@
 - 키 값·토큰·응답 원문은 출력·파일·로그 어디에도 남기지 않는다. 출력은 상태 한 줄뿐이다.
 
 - (1122-01 ㉠) .env 에 TELEGRAM_CHAT_ID_INVESTOR 가 있으면 단계·만료 알림을 투자자 채팅에도 보낸다(발송 기록 따로).
+- (1122-01 ②, 2026-11-23) 그 밖의 모든 알림도 notifier 가 투자자 사본을 보낸다. 단계·만료 알림은 위 직접 발송이 이미
+  보내므로 사본을 끄고(investor_copy=False), 점검 실패 글이 든 알림은 운영자 글 그대로 사본이 간다(2026-11-24 사용자 지시:
+  가공·수정 없음). same_channel 로 단계 알림에 점검 실패가 합쳐진 경우 투자자는 단계 문구를 직접 발송과 사본으로 두 번 본다.
+  출력 줄의 copy= 칸: on · off:<사유> · fail:<코드> (이 스크립트는 notifier 로그를 끄므로 사본 상태를 여기서 본다).
   등록: scripts/telegram_investor_register.py · 시험 알림: `venv/bin/python scripts/key_expiry_check.py --test-investor`
 
 사용(서버, cron): deploy/key-expiry.cron
@@ -182,9 +186,9 @@ def send_investor_test(root: Path = ROOT, notifier=None, post=None) -> int:
     if chat is None:
         print("investor_test off")
         return 1
-    why = send_direct_why(chat, "INFO", "업비트 키 만료 알림 시험",
-                          "이 알림이 보이면 등록이 끝났습니다. 업비트 키 만료가 다가오면 이 대화방으로 알려 드립니다. "
-                          "답장은 하지 않으셔도 됩니다.", notifier, post=post)
+    why = send_direct_why(chat, "INFO", "자동매매 알림 등록 시험",
+                          "이 알림이 보이면 등록이 끝났습니다. 앞으로 자동매매 봇의 알림(매매·운영·업비트 키 만료)을 "
+                          "이 대화방으로 함께 보내 드립니다. 답장은 하지 않으셔도 됩니다.", notifier, post=post)
     print("investor_test " + ("ok" if why == "ok" else "fail " + why))
     return 0 if why == "ok" else 1
 
@@ -218,7 +222,11 @@ def run(root: Path = ROOT, now: datetime | None = None, http=None, notifier=None
     for a in alerts:
         ok = False
         try:
-            ok = bool(notifier.send(a["level"], a["title"], a["body"], audience=a["audience"]))
+            if a.get("audience") == "operator" or a.get("fail_part"):
+                kw = {}   # 점검 실패 글이 든 알림은 운영자가 받는 글 그대로 투자자 사본이 간다
+            else:
+                kw = {"investor_copy": False}   # 단계·만료 알림은 아래 직접 발송이 투자자에게 보냄(두 번 안 감)
+            ok = bool(notifier.send(a["level"], a["title"], a["body"], audience=a["audience"], **kw))
         except Exception:
             ok = False
         if ok:
@@ -241,8 +249,29 @@ def run(root: Path = ROOT, now: datetime | None = None, http=None, notifier=None
     exp = ke.parse_time(state.get("expire_at"))
     d = ke.days_left(exp, now) if exp else None
     print("key_expiry " + ("ok" if err is None else "fail") + " days_left=" + str(d)
-          + " alerts=" + str(sent) + "/" + str(len(alerts)) + " investor=" + inv_s + " err=" + str(err))
+          + " alerts=" + str(sent) + "/" + str(len(alerts)) + " investor=" + inv_s
+          + " copy=" + copy_field(notifier) + " err=" + str(err))
     return 0 if err is None else 1
+
+
+def copy_field(notifier) -> str:
+    """1122-01: 투자자 사본 상태 한 칸 — on · off:<사유> · fail:<코드>. 대기 줄을 최대 3초 기다려 보낸 뒤 본다.
+    가짜 notifier(시험)처럼 사본 기능이 없으면 off."""
+    st = getattr(notifier, "copy_state", None)
+    if not callable(st):
+        return "off"
+    try:
+        fl = getattr(notifier, "flush_copies", None)
+        if callable(fl):
+            fl(3.0)
+        on, why = st()
+        if not on:
+            return "off:" + str(why)
+        from services import investor_copy as ic
+        last = str(getattr(ic, "last_result", "none"))
+        return last if last.startswith("fail:") else "on"
+    except Exception:
+        return "off:오류"
 
 
 if __name__ == "__main__":

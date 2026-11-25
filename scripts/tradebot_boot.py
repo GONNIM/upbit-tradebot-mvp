@@ -47,6 +47,12 @@ _KST = ZoneInfo("Asia/Seoul")
 def _boot_resume_thread() -> None:
     try:
         time.sleep(float(os.environ.get("TRADEBOT_BOOT_DELAY", "3")))
+        try:   # 1122-01: 투자자 알림 사본 켜짐/꺼짐 1줄 ([NOTIFY-COPY] on|off reason=…) — 실패해도 기동은 이어 간다
+            import config  # noqa: F401  (.env 를 읽는 쪽 — 엔진이 읽는 환경과 같게)
+            from services import investor_copy
+            investor_copy.log_state()
+        except Exception as e:
+            logger.warning(f"[NOTIFY-COPY] 기동 상태 줄 실패 | {type(e).__name__}")
         from engine.boot_resume import boot_resume_all
         boot_resume_all(boot_started_at=BOOT_STARTED_AT)
     except Exception as e:  # 기동 재개 실패가 서버 기동을 막으면 안 된다

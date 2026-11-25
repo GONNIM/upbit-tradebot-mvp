@@ -46,6 +46,10 @@ def activate() -> None:
     g.register_exit_check()  # 차단이 있었으면 끝날 때 요약 줄 + 종료 코드 1 (결정 1030-09)
     os.environ["UPBIT_ACCESS"] = PLACEHOLDER
     os.environ["UPBIT_SECRET"] = PLACEHOLDER
+    # 1122-01: 텔레그램 토큰·투자자 사본을 빈 값으로(pop 이 아님 — config.py 의 load_dotenv 는 빈 값을 채우지 않는다).
+    # 켜야 하는 시험은 mock.patch.dict 로만 넣는다.
+    for _k in ("TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID_INVESTOR", "TELEGRAM_INVESTOR_COPY"):
+        os.environ[_k] = ""
     # 시험이 띄우는 하위 프로세스(env=dict(os.environ) 등)도 sitecustomize 경로로 막히게 전파한다.
     # NETGUARD_LOG 는 만들지 않는다(없으면 stderr 만). 하위 프로세스 판정은 게이트 줄 판정 규칙 그대로.
     os.environ["NETGUARD"] = "1"

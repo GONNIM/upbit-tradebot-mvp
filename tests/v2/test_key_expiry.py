@@ -296,7 +296,7 @@ class ScriptRun(unittest.TestCase):
         self.assertEqual(st["expire_at"], EXP_S)
         self.assertEqual(stat.S_IMODE(os.stat(self.path).st_mode), 0o600)
         self.assertEqual(len(n.sent), 1)
-        self.assertEqual(out.strip(), "key_expiry ok days_left=30 alerts=1/1 investor=off err=None")
+        self.assertEqual(out.strip(), "key_expiry ok days_left=30 alerts=1/1 investor=off copy=off err=None")
         # 같은 날 다시 돌아도 중복 없음
         _rc, _o, n2 = self.run_chk(FakeHttp(FakeResp(200, self.ok_list())))
         self.assertEqual(n2.sent, [])
