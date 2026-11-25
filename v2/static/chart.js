@@ -292,11 +292,32 @@ export function countVisibleMarkers(markers, fromSec, toSec) {
   return n;
 }
 // LW 에 넘길 표식: 자료의 text 는 그대로, 옆 글을 켠 때만 시각·가격을 붙인다. price 는 LW 에 넘기지 않는다.
+// sideText: true/false(모두) 또는 표식별 배열(1125-01 ㉠ 겹침 숨김)
 export function decorateMarkers(markers, sideText) {
-  return markers.map((m) => ({
+  return markers.map((m, i) => ({
     time: m.time, position: m.position, color: m.color, shape: m.shape,
-    text: sideText ? markerSideText(m) : m.text,
+    text: (Array.isArray(sideText) ? sideText[i] : sideText) ? markerSideText(m) : m.text,
   }));
+}
+// 옆 글 폭 어림(px): LW 표식 글(12px) 기준 한글 12 · 그 밖 7
+export function textWidthPx(s) {
+  let w = 0;
+  for (const ch of String(s)) w += ch.charCodeAt(0) > 0x2000 ? 12 : 7;
+  return w;
+}
+// 1125-01 ㉠: 이웃 표식의 옆 글과 가로로 겹치면 시각·가격을 숨긴다(「매수」「매도」는 남김).
+// xs: 표식별 화면 x(px, 화면 밖이면 null) · texts: 옆 글. 가장 최근 표식부터 남기고, 앞(왼쪽) 것을 숨긴다.
+export function sideMask(xs, texts, gap = 6) {
+  const mask = xs.map(() => true);
+  let leftEdge = Infinity;   // 이미 남긴 글 가운데 가장 왼쪽 끝
+  for (let i = xs.length - 1; i >= 0; i--) {
+    const x = xs[i];
+    if (x === null || x === undefined || !Number.isFinite(x)) continue;
+    const half = textWidthPx(texts[i]) / 2;
+    if (x + half + gap > leftEdge) { mask[i] = false; continue; }
+    leftEdge = x - half;
+  }
+  return mask;
 }
 
 // A2: 봉 정보 글 「26.11.25 15:09 시 330 · 고 335 · 저 328 · 종 331 · 60선 330.5」
@@ -356,7 +377,7 @@ export function createChartView(el, opts = {}) {
   let unit = 60;
   let labelsOn = true;      // 사용자 켜고 끄기(기본 켬)
   let densityHidden = false;
-  let lastSide = null;      // 마지막으로 setMarkers 한 「옆 글 보임」 상태
+  let lastSide = null;      // 마지막으로 setMarkers 한 옆 글 상태(표식별 보임 서명)
 
   const widthNow = () => (el && Number(el.clientWidth)) || 360;
   function visibleCount() {
@@ -368,11 +389,19 @@ export function createChartView(el, opts = {}) {
     return countVisibleMarkers(allMarkers, rows[a].time, rows[b].time + unit);
   }
   // force: 새 자료를 그릴 때는 늘 다시 그린다. 화면 이동 때는 숨김 상태가 바뀔 때만.
-  function applyMarkers(force) {
+  function sideFor() {
     densityHidden = labelsHidden(visibleCount(), widthNow());
-    const side = labelsOn && !densityHidden;
-    if (!force && side === lastSide) return;
-    lastSide = side;
+    if (!labelsOn || densityHidden) return allMarkers.map(() => false);
+    const ts = typeof chart.timeScale === "function" ? chart.timeScale() : null;
+    if (!ts || typeof ts.timeToCoordinate !== "function") return allMarkers.map(() => true);
+    const xs = allMarkers.map((m) => { const x = ts.timeToCoordinate(m.time); return x === null ? null : Number(x); });
+    return sideMask(xs, allMarkers.map(markerSideText));
+  }
+  function applyMarkers(force) {
+    const side = sideFor();
+    const sig = side.map((s) => (s ? "1" : "0")).join("");
+    if (!force && sig === lastSide) return;
+    lastSide = sig;
     candleSeries.setMarkers(decorateMarkers(allMarkers, side));
   }
   if (typeof chart.timeScale === "function") {

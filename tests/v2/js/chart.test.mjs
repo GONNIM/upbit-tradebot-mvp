@@ -250,7 +250,7 @@ test("toMarkers buy below sell above sorted", () => {
 import {
   markerSideText, kstCompact, sidePrice, labelHideLimit, labelsHidden, countVisibleMarkers,
   decorateMarkers, barInfoText, targetBars, normalizeBarChoice, limitBars, BAR_CHOICES,
-  createChartView, COLOR_UP, COLOR_DOWN, CHART_BG,
+  createChartView, COLOR_UP, COLOR_DOWN, CHART_BG, sideMask, textWidthPx,
 } from "../../../v2/static/chart.js";
 
 test("1125-01 A1: 옆 글 = 「매수 YYMMDD_HHMM · 가격」 KST, 표식 자료의 text 는 그대로", () => {
@@ -385,4 +385,24 @@ test("1125-01 A2·A4·A5: 봉 정보 글 콜백·최근 N개만·전체 봉 보�
   assert.equal(infos[3], "");
   view.fit();
   assert.equal(state.fit, 1);
+});
+
+test("1125-01 ㉠: 이웃 옆 글과 겹치면 앞(왼쪽) 표식의 시각·가격만 숨김", () => {
+  const txt = "매수 261125_1750 · 400";          // 한글 2자 + 나머지 → 약 24 + 19*7
+  const w = textWidthPx(txt);
+  assert.ok(w > 100 && w < 200);
+  // 멀리 떨어짐 → 둘 다 보임
+  assert.deepEqual(sideMask([10, 10 + w + 20], [txt, txt]), [true, true]);
+  // 가까움 → 최근(오른쪽) 것만 보임
+  assert.deepEqual(sideMask([100, 140], [txt, txt]), [false, true]);
+  // 셋: 가운데가 최근 것과 겹치고, 맨 앞은 최근 것과 떨어짐
+  assert.deepEqual(sideMask([0, 300, 330], [txt, txt, txt]), [true, false, true]);
+  // 화면 밖(null)은 다른 글을 막지 않음
+  assert.deepEqual(sideMask([100, null], [txt, txt]), [true, true]);
+  // 배열 마스크로 decorate
+  const ms = [{ time: 1, position: "belowBar", color: "#f00", shape: "arrowUp", text: "매수", price: 400 },
+              { time: 2, position: "aboveBar", color: "#00f", shape: "arrowDown", text: "매도", price: 420 }];
+  const d = decorateMarkers(ms, [false, true]);
+  assert.equal(d[0].text, "매수");
+  assert.ok(d[1].text.startsWith("매도 ") && d[1].text.endsWith("· 420"));
 });
