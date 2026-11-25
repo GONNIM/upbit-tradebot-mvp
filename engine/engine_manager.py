@@ -373,6 +373,7 @@ class EngineManager:
 
     def _send_old_alive_alert(self, user_id: str, captured_mode: str, since: float):
         """옛 매매 루프가 정지 뒤 OLD_ALIVE_ALERT_SEC 넘게 끝나지 않아 시작을 거절 중 — 운영자 채널 WARNING 1건."""
+        # 1122-01: 운영자 채널에는 원문, 투자자 채팅에는 notifier 가 같은 글 사본을 보낸다.
         try:
             from services.notifier import send as _notify, LEVEL_WARNING, AUDIENCE_OPERATOR
             mode_text = "실계좌" if captured_mode == MODE_LIVE else "모의"
@@ -591,6 +592,7 @@ class EngineManager:
 
     def _report_engine_exit(self, user_id: str, stop_event: threading.Event, captured_mode: str, e: BaseException):
         """예외 종료 경보 — 원문은 journal·파일, 투자자 화면(logs)에는 짧은 문구, 텔레그램은 운영자 채널만."""
+        # 1122-01: 텔레그램 원문은 운영자 채널, 투자자 채팅에는 notifier 가 같은 글 사본을 보낸다.
         key = _user_key(user_id, captured_mode)
         cause = e.__cause__ if (isinstance(e, EngineWorkerError) and e.__cause__ is not None) else e
         # 준비 신호(_ready)는 문구를 고르는 데에만 쓴다: 이 시작의 Event 가 섰으면 매매 중 멈춤.

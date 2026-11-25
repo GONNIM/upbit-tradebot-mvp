@@ -143,6 +143,7 @@ def plan_alerts(state: dict, now: datetime, err: Optional[str], same_channel: bo
             if same_channel and out:
                 out[0]["body"] += "\n(운영자) " + body
                 out[0]["marks"]["last_fail_alert_date"] = today
+                out[0]["fail_part"] = True   # 1122-01: 점검 실패 글이 끼어 있으면 투자자 사본(원문 그대로)이 간다
             else:
                 out.append({"audience": "operator", "level": "WARNING", "title": "키 만료일 점검 실패",
                             "body": body, "marks": {"last_fail_alert_date": today}})

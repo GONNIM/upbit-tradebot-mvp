@@ -326,6 +326,25 @@
 - `/root/upbit-tradebot-mvp/.streamlit/secrets.toml` (600 권한, gitignore 18행) — Streamlit fallback
 - 두 채널이 같은 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` 사용
 
+### 6.5 투자자 채팅 사본 (1122-01 ②, 2026-11-23·24 사용자 지시)
+
+투자자 채팅(`.env` 의 `TELEGRAM_CHAT_ID_INVESTOR`)에는 이 프로젝트의 모든 텔레그램 알림이 **운영자가 받는 글 그대로** 사본으로 간다(운영자 전용 알림 포함, 가공·수정 없음 — 2026-11-24 사용자 지시 「투자자도 내(개발자)가 받는 알림 그대로 받으면 된다. 가공하거나 수정할 필요가 전혀 없다.」). 운영자 쪽 글·채널·dedupe·반환값은 바뀌지 않는다.
+
+| 길 | 사본을 만드는 곳 | 사본 글 |
+|---|---|---|
+| Python (`services/notifier.py` send) | 운영자 판정·발송 뒤 `services/investor_copy.py` 대기 줄(16개)에 넣음 → 일꾼 스레드 `notify-copy` 가 보냄 | 운영자와 같은 `_format_message(level, title, body)` |
+| Shell (`notify_telegram.sh`) | 운영자 curl 뒤 사본 curl 1번 | 운영자와 같은 TEXT |
+
+- 사본이 가지 않는 경우: dry-run · dedupe 스킵 · 토큰 없음 · 투자자 채팅 = 이번 운영자 채팅 · `investor_copy=False`(운영자 채널 시험, 키 만료 단계 알림 — 직접 발송이 이미 보냄, 사본 쉼 알림).
+- 키 만료일 점검 실패 알림(운영자 전용 또는 단계 알림에 합쳐진 것)은 운영자 글 그대로 사본이 간다. 합쳐진 경우 투자자는 단계 문구를 직접 발송과 사본으로 두 번 본다.
+- 끄는 법: ① 서버 `services/data/.investor_copy_off` 파일(엔진 재시작 없이 바로, 셸도 같은 파일을 봄) ② `.env` 의 `TELEGRAM_INVESTOR_COPY=0` 또는 `TELEGRAM_CHAT_ID_INVESTOR` 줄 삭제(권한 600·사본 파일 금지·`ls -la .env*` 확인, 엔진은 재시작 뒤 먹음).
+- 배포·재시작 때는 먼저 끄는 파일을 두고, 투자자 안내를 보낸 뒤 지운다(재시작 때 나가는 기동 재개 알림이 안내보다 먼저 가지 않게).
+- 로그: 엔진 기동 때 `[NOTIFY-COPY] on|off reason=<파일|env끔|채팅없음|켜짐>` 1줄, 보냄 `[NOTIFY-COPY] sent | kind=…`, 실패 `[NOTIFY-COPY] 발송 실패 status=…`, 쉼 `[NOTIFY-COPY] 쉼 …초`. cron 키 만료 점검은 출력 줄 `copy=on|off:<사유>|fail:<코드>`.
+- 쉼: 403(투자자가 봇을 막음) 1시간 · 429 retry_after(없으면 60초) · 연속 실패 5번 30분. 쉼이 시작되면 운영자에게 하루 1건(사본 없음).
+- 알려진 한계: 엔진 정지·재시작이 최대 3초 늦어질 수 있다(남은 사본 보내기). SIGTERM 으로 끝나면 대기 줄의 사본은 사라진다. 운영자 발송이 계속 실패하면 키 만료 점검마다 점검 실패 사본이 다시 간다(하루 최대 2번). 메모리 감시처럼 dedupe 없이 되풀이되는 셸 알림은 운영자와 같은 횟수로 투자자에게도 간다.
+- 세션 시작 점검: journal 의 `[NOTIFY-COPY]` 기동 줄과 쉼·실패 줄을 본다.
+- 시험: `tests/regressions/test_r_2026_11_23_investor_copy.py` — 사본 글 == 운영자 글(파이썬·셸), 호출 위치 62곳 수 고정.
+
 ---
 
 ## 7. 변경 이력
