@@ -98,7 +98,7 @@ class StaticLintTest(unittest.TestCase):
     def test_chart_matches_figure_2_na(self):
         """그림 2-나: 단추 4칸·범례·카드 문구, 공유 10초 문, 차트 높이 300px (E4 폐기 — 200선 포함)."""
         html, js, css = _read("index.html"), _read("app.js"), _read("style.css")
-        for s in ("최근 200봉", "확대 +", "축소 −", "60선", "200선", "▲", "▼",
+        for s in ("x-text=\"chartCountText\"", "확대 +", "축소 −", "60선", "200선", "▲", "▼",
                   "이 화면에서 보는 것",
                   "캔들, 60선·200선(눌림목 기준선), 봇이 실제로 사고판 자리. 손가락으로 확대·이동합니다."):
             self.assertIn(s, html, s)

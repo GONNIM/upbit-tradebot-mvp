@@ -199,6 +199,24 @@
     return "현물 · " + (source === "upbit" ? "업비트(KRW)" : "바이낸스");
   }
 
+  // 1125-01 B2: 스윕 결과 안의 긴 설명 문단(p.small)을 접기 상자(details)로 감싼다. backtester.js 는 그대로 두고 여기서만 한다.
+  // querySelectorAll 이 없는 요소(시험용 가짜)에서는 아무 일도 하지 않는다. 이미 감싼 문단은 다시 감싸지 않는다. 감싼 수를 돌려준다.
+  function foldSweepNotes(box) {
+    if (!box || typeof box.querySelectorAll !== "function") return 0;
+    var n = 0;
+    var list = Array.prototype.slice.call(box.querySelectorAll("p.small"));
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      var par = p.parentNode;
+      if (par && par.classList && typeof par.classList.contains === "function" && par.classList.contains("sweep-fold")) continue;
+      if (typeof p.closest === "function" && p.closest(".sweep-fold")) continue;
+      if (typeof p.outerHTML !== "string") continue;
+      p.outerHTML = '<details class="bt-more sweep-fold"><summary>설명 펼치기 / 접기</summary>' + p.outerHTML + "</details>";
+      n++;
+    }
+    return n;
+  }
+
   // ---- window 의 fetchKlines·run·runSweep 감싸기 ----
   // o: { win, getEl(id), getState() -> {lastResults,lastCfgBase,sweepRows}, statsFn(res,cfg), fetchFn, sleepFn, nowFn }
   function install(o) {
@@ -315,6 +333,7 @@
         el("sweepBrief").innerHTML = sweepHtml(sweepBrief(st.sweepRows));
         el("sweepBriefMode").textContent = st.sweepRows && st.sweepRows.length
           ? modeLabel(st.lastMode === "futures" ? "futures" : "spot", el("dataSource").value, st.lastCfgBase) : "";
+        try { foldSweepNotes(el("sweepResult")); } catch (e) { /* 접기 실패는 스윕 결과에 영향 없음 */ }
       }
     };
   }
@@ -481,7 +500,7 @@
     upbitCallCount: upbitCallCount, fetchUpbitKlines: fetchUpbitKlines, briefSummary: briefSummary,
     sweepBrief: sweepBrief, briefHtml: briefHtml, sweepHtml: sweepHtml, srcFromInterval: srcFromInterval,
     startValues: startValues, loadedText: loadedText,
-    install: install,
+    install: install, foldSweepNotes: foldSweepNotes,
   };
   globalThis.__v2bt = api;
 

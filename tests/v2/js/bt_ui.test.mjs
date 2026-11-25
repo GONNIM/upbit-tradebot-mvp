@@ -490,3 +490,79 @@ test("backtester.html: 다시 받기 칸 이름·도움말이 업비트 이어 �
   assert.ok(HTML.includes("저장 뒤의 새 봉(마지막 2개는 겹쳐 다시)과 저장이 모자란 기간만 받습니다"));
   assert.ok(HTML.includes("바이낸스는 체크하면 기간 전체를 다시 받습니다"));
 });
+
+// ---- 1125-01 B: 스윕 설명 접기 ----
+test("1125-01 B1: 과최적화 경고 한 줄은 접기 상자 밖, 긴 설명은 기본 접힌 상자 안", () => {
+  const warn = HTML.indexOf('class="small sweep-warn"');
+  const det = HTML.indexOf('<details class="bt-more sweep-fold" id="sweepHelp">');
+  const longP = HTML.indexOf("스윕은 방금 조회한 데이터와");
+  const closeDet = HTML.indexOf("</details>", longP);
+  assert.ok(warn > 0 && det > warn && longP > det && closeDet > longP, "순서: 경고 한 줄 → 상자 → 긴 설명 → 상자 끝");
+  assert.match(HTML.slice(warn, det), /이번 기간에서만 최적입니다\(과최적화 주의\)/);
+  assert.ok(!/<details[^>]*\sopen/.test(HTML.slice(det, det + 80)), "기본 접힘(open 없음)");
+  assert.match(HTML.slice(det, closeDet), /최대 20,000개 조합/);
+});
+
+// 문단 가짜: outerHTML 을 바꾸면 box.html 에 반영한다
+function fakeBox(paragraphs) {
+  const box = { html: paragraphs.join("") };
+  box.querySelectorAll = (sel) => {
+    assert.equal(sel, "p.small");
+    const found = [];
+    for (const t of paragraphs) {
+      const p = {
+        get outerHTML() { return t; },
+        set outerHTML(v) { box.html = box.html.replace(t, v); },
+        parentNode: box.html.includes('<details class="bt-more sweep-fold"><summary>설명 펼치기 / 접기</summary>' + t) ? { classList: { contains: (c) => c === "sweep-fold" } } : box,
+        closest: () => null,
+      };
+      found.push(p);
+    }
+    return found;
+  };
+  return box;
+}
+
+test("1125-01 B2: 스윕 결과 설명 문단(p.small)을 접기 상자로 감싼다 · 두 번 감싸지 않는다", () => {
+  const p1 = '<p class="small">기간 수익률 = …</p>', p2 = '<p class="small">노란 줄 = …</p>';
+  const box = fakeBox([p1, p2]);
+  assert.equal(B.foldSweepNotes(box), 2);
+  assert.equal(box.html.split("<details").length - 1, 2);
+  assert.ok(box.html.includes("설명 펼치기 / 접기"));
+  assert.ok(!/<details[^>]*open/.test(box.html));
+  // 이미 감싼 문단은 건너뜀(부모가 sweep-fold)
+  assert.equal(B.foldSweepNotes(box), 0);
+  assert.equal(box.html.split("<details").length - 1, 2);
+});
+
+test("1125-01 B2: querySelectorAll 이 없는 가짜 요소·빈 값에서도 오류 없이 0", () => {
+  assert.equal(B.foldSweepNotes({ innerHTML: "" }), 0);
+  assert.equal(B.foldSweepNotes(null), 0);
+  assert.equal(B.foldSweepNotes(undefined), 0);
+});
+
+test("1125-01 B2: closest 로 이미 상자 안임을 알면 건너뜀", () => {
+  const p = { outerHTML: '<p class="small">x</p>', parentNode: {}, closest: () => ({}) };
+  assert.equal(B.foldSweepNotes({ querySelectorAll: () => [p] }), 0);
+});
+
+test("1125-01 B2: runSweep 끝(finally)에서 #sweepResult 설명을 감싼다 · 접기가 실패해도 스윕은 끝난다", async () => {
+  const p1 = '<p class="small">기간 수익률 = …</p>';
+  const env = fakeEnv({ onSweep: (s) => { s.sweepRows = []; } });
+  installOn(env);
+  const box = fakeBox([p1]);
+  Object.assign(env.el("sweepResult"), { querySelectorAll: box.querySelectorAll });
+  await env.win.runSweep();
+  assert.equal(box.html.split("<details").length - 1, 1);
+  // 접기에서 예외가 나도 스윕 호출은 정상 종료
+  const env2 = fakeEnv();
+  installOn(env2);
+  env2.el("sweepResult").querySelectorAll = () => { throw new Error("boom"); };
+  await env2.win.runSweep();
+  assert.equal(env2.calls.sweep, 1);
+  // querySelectorAll 없는 가짜 요소 — 오류 없음
+  const env3 = fakeEnv();
+  installOn(env3);
+  await env3.win.runSweep();
+  assert.equal(env3.calls.sweep, 1);
+});

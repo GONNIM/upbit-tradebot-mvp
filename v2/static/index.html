@@ -98,21 +98,36 @@
 
   <!-- 차트 -->
   <div x-show="tab === 'chart'">
-    <section class="card">
+    <section class="card" :class="{'chart-fs': chartFs}">
       <div class="chart-btns">
         <span class="cb" x-text="chartUnitLabel"></span>
-        <span class="cb on">최근 200봉</span>
+        <span class="cb on" x-text="chartCountText">최근 봉</span>
         <button type="button" class="cb" @click="zoomChart(1.5)">확대 +</button>
         <button type="button" class="cb" @click="zoomChart(1 / 1.5)">축소 −</button>
+      </div>
+      <!-- 1125-01 A: 봉 수 고르기 · 옆 글 · 전체 봉 · 전체화면 -->
+      <div class="chart-btns" role="group" aria-label="차트 보기 설정">
+        <button type="button" class="cb" :class="{on: chartBars === 400}" @click="setChartBars(400)">400봉</button>
+        <button type="button" class="cb" :class="{on: chartBars === 1000}" @click="setChartBars(1000)">1000봉</button>
+        <button type="button" class="cb" :class="{on: chartBars === 2000}" @click="setChartBars(2000)">2000봉</button>
+      </div>
+      <div class="chart-btns">
+        <button type="button" class="cb" :class="{on: chartLabels}" @click="toggleChartLabels()" x-text="chartLabels ? '옆 글 끄기' : '옆 글 보기'">옆 글 끄기</button>
+        <button type="button" class="cb" @click="fitAllBars()">전체 봉 보기</button>
+        <button type="button" class="cb" x-show="!chartFs" @click="openChartFs()">전체화면</button>
+        <button type="button" class="cb chart-close" x-show="chartFs" @click="closeChartFs()">닫기 ✕</button>
       </div>
       <p class="warn" x-show="chartFail" x-text="chartFail"></p>
       <p class="warn" x-show="chartNote" x-text="chartNote"></p>
       <p class="note" x-show="!(status && status.ticker)">종목 정보가 없어 차트를 그릴 수 없습니다.</p>
+      <div class="chart-dark">
       <div id="chart" class="chart"></div>
+      <p class="chart-info" x-text="chartInfo || '차트를 짚으면(휴대폰은 길게 눌러서) 그 봉의 시가·고가·저가·종가·선 값이 여기에 나옵니다.'"></p>
       <p class="chart-legend" x-show="!chartSpec.legend"><span class="ma60">━</span> 60선 · <span class="ma200">━</span> 200선 · <span class="up">▲</span> 매수 · <span class="down">▼</span> 매도</p>
       <!-- 2차 T16: 새 전략 — 적용본 기간으로 범례, 기준선이 60선과 다를 때만 「N선(기준선)」(U3), EMA 방식 안내 1줄(U1) -->
       <p class="chart-legend" id="chart-legend-pb" x-show="!!chartSpec.legend"><span class="ma60">━</span> <span x-text="chartSpec.legend ? chartSpec.legend.a : ''"></span> · <span class="ma200">━</span> <span x-text="chartSpec.legend ? chartSpec.legend.b : ''"></span><span x-show="chartSpec.legend &amp;&amp; chartSpec.legend.pull"> · <span class="mapull">┅</span> <span x-text="chartSpec.legend ? chartSpec.legend.pull : ''"></span></span> · <span class="up">▲</span> 매수 · <span class="down">▼</span> 매도</p>
       <p class="note" id="chart-ema-note" x-show="!!chartSpec.note" x-text="chartSpec.note"></p>
+      </div>
     </section>
     <section class="card">
       <h2>이 화면에서 보는 것</h2>

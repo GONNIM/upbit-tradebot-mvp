@@ -71,8 +71,18 @@ dt { color: var(--gray); } dd { margin: 0; text-align: right; word-break: break-
 .chart-btns .cb.on { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; font-weight: bold; }
 .chart-btns button.cb { cursor: pointer; }
 .chart-legend { margin: 4px 0 0; font-size: 12px; color: var(--gray); }
-.chart-legend .ma60 { color: #f59e0b; } .chart-legend .ma200 { color: #7c3aed; }
-.chart-legend .mapull { color: #0d9488; }   /* 2차 T16 (U3): 눌림 기준선(60선과 기간이 다를 때만) */
+.chart-legend .ma60 { color: #fb923c; } .chart-legend .ma200 { color: #a78bfa; }
+.chart-legend .mapull { color: #2dd4bf; }   /* 2차 T16 (U3): 눌림 기준선(60선과 기간이 다를 때만) */
+/* 1125-01 A6(사용자 ㉠ 가): 차트 탭 바탕만 어둡게(백테스터 #0b1220 계열). 선·범례 색은 뜻을 두고 밝게, 캔들은 상승 빨강·하락 파랑 */
+.chart-dark { background: #0b1220; border-radius: 6px; padding: 4px 6px 6px; margin-top: 4px; color: #cbd5e1; }
+.chart-dark .chart-legend, .chart-dark .note { color: #9ca3af; }
+.chart-dark .up { color: #ff5b66; } .chart-dark .down { color: #4c9aff; }
+.chart-info { margin: 4px 0 0; font-size: 12px; color: #cbd5e1; min-height: 2.8em; word-break: break-word; }
+/* A3: 전체화면은 class 로만(inline 높이 없음). 닫기 단추·Esc·탭 이동으로 닫힌다 */
+.card.chart-fs { position: fixed; inset: 0; z-index: 100; margin: 0; border-radius: 0; overflow: auto;
+  display: flex; flex-direction: column; max-width: none; }
+.card.chart-fs .chart-dark { flex: 1 1 auto; display: flex; flex-direction: column; margin-top: 4px; }
+.card.chart-fs .chart-dark .chart { flex: 1 1 auto; height: auto; min-height: 240px; }
 /* 로그 탭(그림 2-라): 종류 3칸 토글 · 시각/내용 표 · 쪽 이동 */
 .seg { display: flex; margin: 0 0 8px; }
 .seg-b { flex: 1; min-width: 0; padding: 8px 4px; font-size: 14px; border: 1px solid var(--line);

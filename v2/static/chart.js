@@ -136,6 +136,10 @@ export function createPoller({ fetchFn, intervalMs = 30000, onData, onError, isH
 // 2차 T16 (결정 1030-02 U2): 실제 체결(BUY·SELL)만 — 거절·취소 등 다른 유형은 그리지 않는다(서버도 같은 조건).
 // 외부 매수·매도 행은 bar_time 이 없어 표식이 없다(4e86afb 와 같음 — 아래 time NaN 거르기).
 export const MARKER_TYPES = ["BUY", "SELL"];
+// 1125-01 A6: 차트 탭 바탕만 어둡게(백테스터 #0b1220 계열). 선·범례 색은 뜻(60선 주황·200선 보라·눌림 기준선 청록)을 두고 밝게.
+export const COLOR_UP = "#ff5b66";     // 상승·매수(빨강)
+export const COLOR_DOWN = "#4c9aff";   // 하락·매도(파랑)
+export const CHART_BG = "#0b1220";
 export function toMarkers(markers) {
   return markers
     .filter((m) => MARKER_TYPES.includes(String(m && m.type).toUpperCase()))
@@ -144,9 +148,10 @@ export function toMarkers(markers) {
       return {
         time: Math.floor(Date.parse(m.bar_time) / 1000),
         position: buy ? "belowBar" : "aboveBar",
-        color: buy ? "#cf222e" : "#0969da",   // 국내 관례: 매수 빨강, 매도 파랑
+        color: buy ? COLOR_UP : COLOR_DOWN,   // 국내 관례: 매수 빨강, 매도 파랑 (어두운 바탕에서 보이게 밝힘, 1125-01)
         shape: buy ? "arrowUp" : "arrowDown",
-        text: buy ? "매수" : "매도",
+        text: buy ? "매수" : "매도",   // 표식 자료의 글은 그대로 — 시각·가격은 그릴 때만 붙인다(decorateMarkers)
+        price: Number(m.price),
       };
     })
     .filter((m) => Number.isFinite(m.time))
@@ -246,65 +251,192 @@ export function toChartCandles(candles) {
 export function pad2(n) { return String(n).padStart(2, "0"); }
 
 
-// 차트 생성. el: 컨테이너. 반환: {ok, chart, update(candles, markers, periods, unitSec), destroy()}
-export function createChartView(el) {
+// ---- 1125-01 A: 백테스터 차트 기능을 차트 탭에 (순수 함수 — node 시험이 검사한다) ----
+
+// A4: 봉 수 고르기 — 고를 수 있는 값, 실제 받을 목표 = max(고른 값, 전략 목표)
+export const BAR_CHOICES = [400, 1000, 2000];
+export function normalizeBarChoice(v) {
+  const n = Number(v);
+  return BAR_CHOICES.includes(n) ? n : BAR_CHOICES[0];
+}
+export function targetBars(chosen, strategyTarget) {
+  return Math.max(normalizeBarChoice(chosen), Number.isFinite(strategyTarget) ? strategyTarget : 0);
+}
+// 줄이면 이미 모은 봉 중 최근 N개만 보인다(앞쪽 봉은 지우지 않고 그리기에서만 뺀다)
+export function limitBars(candles, n) {
+  return n > 0 && candles.length > n ? candles.slice(candles.length - n) : candles;
+}
+
+// A1: 표식 옆 글. 「매수 261124_1509 · 330」 (시각 KST YYMMDD_HHMM, 가격은 크기별 자릿수)
+export function kstCompact(sec) {
+  const d = new Date((sec + 9 * 3600) * 1000);
+  return _p2(d.getUTCFullYear() % 100) + _p2(d.getUTCMonth() + 1) + _p2(d.getUTCDate()) + "_" +
+    _p2(d.getUTCHours()) + _p2(d.getUTCMinutes());
+}
+export function sidePrice(p) {
+  const a = Math.abs(p);
+  const d = a >= 1000 ? 0 : a >= 100 ? 1 : a >= 10 ? 2 : a >= 1 ? 3 : 4;
+  return Number(p).toLocaleString("ko-KR", { minimumFractionDigits: 0, maximumFractionDigits: d });
+}
+export function markerSideText(m) {
+  let t = m.text + " " + kstCompact(m.time);
+  if (Number.isFinite(m.price)) t += " · " + sidePrice(m.price);
+  return t;
+}
+// 백테스터 기준: 화면에 보이는 표식 수 > max(40, 폭/9) 이면 옆 글(시각·가격)을 숨긴다
+export function labelHideLimit(width) { return Math.max(40, (Number(width) || 0) / 9); }
+export function labelsHidden(visibleCount, width) { return visibleCount > labelHideLimit(width); }
+export function countVisibleMarkers(markers, fromSec, toSec) {
+  let n = 0;
+  for (const m of markers) if (m.time >= fromSec && m.time < toSec) n++;
+  return n;
+}
+// LW 에 넘길 표식: 자료의 text 는 그대로, 옆 글을 켠 때만 시각·가격을 붙인다. price 는 LW 에 넘기지 않는다.
+export function decorateMarkers(markers, sideText) {
+  return markers.map((m) => ({
+    time: m.time, position: m.position, color: m.color, shape: m.shape,
+    text: sideText ? markerSideText(m) : m.text,
+  }));
+}
+
+// A2: 봉 정보 글 「26.11.25 15:09 시 330 · 고 335 · 저 328 · 종 331 · 60선 330.5」
+export function barInfoText(c, lineVals) {
+  if (!c) return "";
+  const t = globalThis.kstStamp ? globalThis.kstStamp(c.time * 1000) : String(c.time);
+  let s = t + " 시 " + sidePrice(c.open) + " · 고 " + sidePrice(c.high) + " · 저 " + sidePrice(c.low) +
+    " · 종 " + sidePrice(c.close);
+  for (const lv of lineVals || []) if (Number.isFinite(lv.value)) s += " · " + lv.label + " " + sidePrice(lv.value);
+  return s;
+}
+
+// 차트 생성. el: 컨테이너. opts.onInfo(text): 십자선 위치 봉 정보 글(없으면 빈 글자).
+// 반환: {ok, chart, update(candles, markers, lines, unitSec, maType, upOpts{limit}), setLabels(on), fit(), destroy()}
+export function createChartView(el, opts = {}) {
   const LW = window.LightweightCharts;
   if (!LW || typeof LW.createChart !== "function") {
     el.textContent = "차트 라이브러리를 불러오지 못했습니다";
-    return { ok: false, update() {}, destroy() {} };
+    return { ok: false, update() {}, setLabels() {}, fit() {}, destroy() {} };
   }
   const chart = LW.createChart(el, {
     autoSize: true,
-    layout: { background: { color: "#ffffff" }, textColor: "#333" },
+    layout: { background: { color: CHART_BG }, textColor: "#cbd5e1" },
+    grid: { vertLines: { color: "#1e293b" }, horzLines: { color: "#1e293b" } },
+    rightPriceScale: { borderColor: "#334155" },
     localization: { timeFormatter: crosshairTime },
     timeScale: {
+      borderColor: "#334155",
       timeVisible: true, secondsVisible: false,
       tickMarkFormatter: (t, type) => (typeof t === "number" ? kstTick(t, type) : String(t)),
     },
   });
   const candleSeries = chart.addCandlestickSeries({
-    upColor: "#cf222e", downColor: "#0969da", borderVisible: false,
-    wickUpColor: "#cf222e", wickDownColor: "#0969da",
+    upColor: COLOR_UP, downColor: COLOR_DOWN, borderVisible: false,
+    wickUpColor: COLOR_UP, wickDownColor: COLOR_DOWN,
   });
   // 선 색(그림 2-나): 60선(trend) 주황, 200선(long) 보라. 2차 T16: 칸(slot)별 시리즈 — 새 전략은 기간이
   // 설정값이라 칸에 색을 묶는다. 눌림 기준선(pull, 60선과 기간이 다를 때만 — U3)은 청록 점선.
-  const SLOT_STYLE = { trend: { color: "#f59e0b" }, long: { color: "#7c3aed" }, pull: { color: "#0d9488", lineStyle: 2 } };
+  // 1125-01: 뜻은 그대로 두고 어두운 바탕에서 보이게 밝힘(style.css 범례 색과 같은 값).
+  const SLOT_STYLE = { trend: { color: "#fb923c" }, long: { color: "#a78bfa" }, pull: { color: "#2dd4bf", lineStyle: 2 } };
   const lineSeries = {};
   function seriesFor(slot) {
     if (!lineSeries[slot]) {
-      const st = SLOT_STYLE[slot] || { color: "#6b7280" };
+      const st = SLOT_STYLE[slot] || { color: "#9ca3af" };
       lineSeries[slot] = chart.addLineSeries(Object.assign({
         lineWidth: 2, priceLineVisible: false, lastValueVisible: false,
       }, st));
     }
     return lineSeries[slot];
   }
+
+  // 표식·봉 정보 상태
+  let rows = [];            // 지금 그리는 봉(오름차순)
+  let rowIndex = new Map(); // time -> rows 위치
+  let lineInfo = [];        // [{label, byTime: Map}]
+  let allMarkers = [];      // 범위로 거른 표식(price 포함)
+  let unit = 60;
+  let labelsOn = true;      // 사용자 켜고 끄기(기본 켬)
+  let densityHidden = false;
+  let lastSide = null;      // 마지막으로 setMarkers 한 「옆 글 보임」 상태
+
+  const widthNow = () => (el && Number(el.clientWidth)) || 360;
+  function visibleCount() {
+    if (!rows.length || typeof chart.timeScale !== "function") return 0;
+    const r = chart.timeScale().getVisibleLogicalRange && chart.timeScale().getVisibleLogicalRange();
+    if (!r) return allMarkers.length;
+    const a = Math.max(0, Math.ceil(r.from)), b = Math.min(rows.length - 1, Math.floor(r.to));
+    if (b < a) return 0;
+    return countVisibleMarkers(allMarkers, rows[a].time, rows[b].time + unit);
+  }
+  // force: 새 자료를 그릴 때는 늘 다시 그린다. 화면 이동 때는 숨김 상태가 바뀔 때만.
+  function applyMarkers(force) {
+    densityHidden = labelsHidden(visibleCount(), widthNow());
+    const side = labelsOn && !densityHidden;
+    if (!force && side === lastSide) return;
+    lastSide = side;
+    candleSeries.setMarkers(decorateMarkers(allMarkers, side));
+  }
+  if (typeof chart.timeScale === "function") {
+    const ts = chart.timeScale();
+    if (ts && typeof ts.subscribeVisibleLogicalRangeChange === "function") {
+      ts.subscribeVisibleLogicalRangeChange(() => { if (rows.length) applyMarkers(false); });
+    }
+  }
+  if (typeof chart.subscribeCrosshairMove === "function" && typeof opts.onInfo === "function") {
+    chart.subscribeCrosshairMove((param) => {
+      const t = param && param.time;
+      const i = t === undefined ? undefined : rowIndex.get(t);
+      if (i === undefined) { opts.onInfo(""); return; }
+      const c = rows[i];
+      opts.onInfo(barInfoText(c, lineInfo.map((l) => ({ label: l.label, value: l.byTime.get(c.time) }))));
+    });
+  }
+
   return {
     ok: true,
     chart,
     // lines: 이동평균 선 목록([60, 200] 또는 [{period, slot}]), unitSec: 봉 길이(초), maType: "ema"|"sma"
-    update(candles, markers, lines = [60, 200], unitSec, maType) {
-      const data = toChartCandles(candles);
-      candleSeries.setData(data);
-      const closes = data.map((d) => d.close);
-      const line = (arr) => arr
-        .map((v, i) => (v === null ? null : { time: data[i].time, value: v }))
-        .filter(Boolean);
+    // upOpts.limit: 최근 N개만 그린다(선은 모은 봉 전체로 계산한 뒤 자른다)
+    update(candles, markers, lines = [60, 200], unitSec, maType, upOpts = {}) {
+      const full = toChartCandles(candles);
+      const closes = full.map((d) => d.close);
       const specs = normalizeLines(lines);
       const periods = specs.map((s) => s.period);
-      const shown = visiblePeriods(data.length, periods);
+      const shown = visiblePeriods(full.length, periods);
       const vals = maLines(closes, shown, maType);
+      const off = Math.max(0, full.length - (upOpts.limit > 0 ? upOpts.limit : full.length));
+      const data = full.slice(off);
+      rows = data;
+      rowIndex = new Map(data.map((d, i) => [d.time, i]));
+      unit = unitSec || 60;
+      candleSeries.setData(data);
+      const line = (arr) => arr
+        .map((v, i) => (v === null || i < off ? null : { time: full[i].time, value: v }))
+        .filter(Boolean);
       const used = new Set();
+      lineInfo = [];
       for (const s of specs) {
         used.add(s.slot);
-        seriesFor(s.slot).setData(shown.includes(s.period) ? line(vals[s.period]) : []);
+        const pts = shown.includes(s.period) ? line(vals[s.period]) : [];
+        seriesFor(s.slot).setData(pts);
+        lineInfo.push({ label: s.period + "선", byTime: new Map(pts.map((p) => [p.time, p.value])) });
       }
       // 설정이 바뀌어 없어진 칸(예: 기준선이 60선과 같아짐)은 비운다
       for (const slot of Object.keys(lineSeries)) if (!used.has(slot)) lineSeries[slot].setData([]);
       const all = toMarkers(markers || []);
-      candleSeries.setMarkers(data.length
-        ? clipMarkers(all, data[0].time, data[data.length - 1].time, unitSec || 60) : []);
+      allMarkers = data.length ? clipMarkers(all, data[0].time, data[data.length - 1].time, unit) : [];
+      applyMarkers(true);
     },
+    // 「옆 글 보기」 켜고 끄기 — 상태가 바뀔 때만 다시 그린다
+    setLabels(on) {
+      labelsOn = !!on;
+      if (rows.length) applyMarkers(false);
+    },
+    // A5: 전체 봉 보기
+    fit() {
+      if (typeof chart.timeScale === "function") chart.timeScale().fitContent();
+    },
+    // 시험·화면 확인용: 지금 옆 글이 숨은 상태인가
+    get densityHidden() { return densityHidden; },
     destroy() { chart.remove(); },
   };
 }

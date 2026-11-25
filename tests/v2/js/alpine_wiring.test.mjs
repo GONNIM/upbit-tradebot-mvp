@@ -414,3 +414,48 @@ test("운용 탭 연결(T14 fix 1): 일시정지는 pause API · 전환/예약 �
   }
 });
 
+
+test("1125-01: 봉 수 기억(localStorage, 막혀도 오류 없음) · 전체화면은 class 상태 · 탭 이동·Esc 로 닫힘", () => {
+  const realSI = globalThis.setInterval;
+  globalThis.setInterval = () => 0;   // init 의 7초 갱신 타이머가 프로세스를 붙잡지 않게
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => { store.set(k, String(v)); } };
+  globalThis.v2Chart = chartMod;
+  const d = RealAlpine.reactive(dashFactory());
+  d.refreshCards = () => {};
+  d.$watch = () => {};
+  d.init();
+  assert.equal(d.chartBars, 400);
+  d.setChartBars(1000);                     // status 없음 → 차트는 안 그리고 값만 기억
+  assert.equal(d.chartBars, 1000);
+  assert.equal(store.get("v2.chartBars"), "1000");
+  d.setChartBars(7);                        // 이상한 값은 400
+  assert.equal(d.chartBars, 400);
+  // 다시 열면 기억한 값
+  store.set("v2.chartBars", "2000");
+  const d2 = RealAlpine.reactive(dashFactory());
+  d2.refreshCards = () => {};
+  d2.init();
+  assert.equal(d2.chartBars, 2000);
+  // 저장소가 막혀도 오류 없음
+  globalThis.localStorage = { getItem() { throw new Error("blocked"); }, setItem() { throw new Error("blocked"); } };
+  const d3 = RealAlpine.reactive(dashFactory());
+  d3.refreshCards = () => {};
+  d3.init();
+  assert.equal(d3.chartBars, 400);
+  d3.setChartBars(1000);
+  assert.equal(d3.chartBars, 1000);
+  // 전체화면: 상태로만(inline 높이 없음), 탭 이동·Esc 로 닫힘, 주소 기록 추가 없음
+  const before = globalThis.location.hash;
+  d3.go("chart");
+  d3.openChartFs();
+  assert.equal(d3.chartFs, true);
+  for (const fn of listeners.keydown || []) fn({ key: "Escape" });
+  assert.equal(d3.chartFs, false);
+  d3.openChartFs();
+  d3.go("logs");
+  assert.equal(d3.chartFs, false);
+  assert.equal(chartEl.style.height, undefined);
+  globalThis.location.hash = before;
+  globalThis.setInterval = realSI;
+});

@@ -245,3 +245,144 @@ test("toMarkers buy below sell above sorted", () => {
   assert.ok(out[0].text && out[1].text);
   assert.notEqual(out[0].color, out[1].color);
 });
+
+// ---- 1125-01 A: 백테스터 차트 기능 ----
+import {
+  markerSideText, kstCompact, sidePrice, labelHideLimit, labelsHidden, countVisibleMarkers,
+  decorateMarkers, barInfoText, targetBars, normalizeBarChoice, limitBars, BAR_CHOICES,
+  createChartView, COLOR_UP, COLOR_DOWN, CHART_BG,
+} from "../../../v2/static/chart.js";
+
+test("1125-01 A1: 옆 글 = 「매수 YYMMDD_HHMM · 가격」 KST, 표식 자료의 text 는 그대로", () => {
+  const out = toMarkers([{ type: "BUY", price: 330, bar_time: "2026-11-24T15:09:00+09:00" },
+    { type: "SELL", price: 1234.5, bar_time: "2026-11-24T16:00:00+09:00" }]);
+  assert.deepEqual(out.map((m) => m.text), ["매수", "매도"]);          // 자료는 그대로
+  assert.equal(kstCompact(out[0].time), "261124_1509");
+  assert.equal(markerSideText(out[0]), "매수 261124_1509 · 330");
+  assert.equal(markerSideText(out[1]), "매도 261124_1600 · 1,235");
+  assert.equal(sidePrice(0.1234), "0.1234");
+  // 가격이 없으면 시각만
+  assert.equal(markerSideText({ text: "매수", time: out[0].time, price: NaN }), "매수 261124_1509");
+  const on = decorateMarkers(out, true), off = decorateMarkers(out, false);
+  assert.equal(on[0].text, "매수 261124_1509 · 330");
+  assert.equal(off[0].text, "매수");
+  assert.ok(!("price" in on[0]), "LW 에 price 를 넘기지 않는다");
+  assert.equal(out[0].color, COLOR_UP);
+  assert.equal(out[1].color, COLOR_DOWN);
+});
+
+test("1125-01 A1: 숨김 기준 = 보이는 표식 수 > max(40, 폭/9)", () => {
+  assert.equal(labelHideLimit(360), 40);
+  assert.equal(labelHideLimit(900), 100);
+  assert.equal(labelsHidden(40, 360), false);
+  assert.equal(labelsHidden(41, 360), true);
+  assert.equal(labelsHidden(100, 900), false);
+  assert.equal(labelsHidden(101, 900), true);
+  const ms = [{ time: 100 }, { time: 200 }, { time: 300 }];
+  assert.equal(countVisibleMarkers(ms, 150, 301), 2);
+});
+
+test("1125-01 A2: 봉 정보 글(시각 KST·시고저종·선 값)", () => {
+  const t = Date.parse("2026-11-25T06:09:00Z") / 1000;   // KST 15:09
+  const s = barInfoText({ time: t, open: 330, high: 335, low: 328, close: 331 },
+    [{ label: "60선", value: 330.5 }, { label: "200선", value: undefined }]);
+  assert.equal(s, "26.11.25 15:09 시 330 · 고 335 · 저 328 · 종 331 · 60선 330.5");
+  assert.equal(barInfoText(null, []), "");
+});
+
+test("1125-01 A4: 봉 수 = max(고른 값, 전략 목표), 줄이면 최근 N개만", () => {
+  assert.deepEqual(BAR_CHOICES, [400, 1000, 2000]);
+  assert.equal(targetBars(400, 400), 400);
+  assert.equal(targetBars(400, 1200), 1200);   // 전략이 더 크면 전략 목표
+  assert.equal(targetBars(1000, 400), 1000);
+  assert.equal(targetBars(2000, 1200), 2000);
+  assert.equal(targetBars(123, 400), 400);      // 이상한 값은 400
+  assert.equal(normalizeBarChoice("1000"), 1000);
+  const arr = [1, 2, 3, 4, 5];
+  assert.deepEqual(limitBars(arr, 3), [3, 4, 5]);
+  assert.deepEqual(limitBars(arr, 10), arr);
+});
+
+// 가짜 LW: 보이는 범위·표식 호출 수를 센다
+function fakeLW(state) {
+  const series = { setData() {}, setMarkers(m) { state.markerCalls.push(m); } };
+  return {
+    createChart: (el, o) => {
+      state.opts = o;
+      return {
+        addCandlestickSeries: () => series,
+        addLineSeries: () => ({ setData() {} }),
+        timeScale: () => ({
+          getVisibleLogicalRange: () => state.range,
+          subscribeVisibleLogicalRangeChange: (fn) => { state.rangeFn = fn; },
+          fitContent() { state.fit = (state.fit || 0) + 1; },
+        }),
+        subscribeCrosshairMove: (fn) => { state.crossFn = fn; },
+        remove() {},
+      };
+    },
+  };
+}
+function mkCandles(n, t0 = Date.parse("2026-11-24T00:00:00Z")) {
+  return Array.from({ length: n }, (_, i) => ({
+    candle_date_time_utc: new Date(t0 + i * 180000).toISOString().slice(0, 19),
+    opening_price: 100, high_price: 110, low_price: 90, trade_price: 100 + (i % 7), forming: false,
+  }));
+}
+
+test("1125-01 A1: 숨김 상태가 바뀔 때만 setMarkers 를 다시 부른다", () => {
+  const state = { markerCalls: [], range: { from: 0, to: 99 } };
+  globalThis.window = globalThis;
+  globalThis.LightweightCharts = fakeLW(state);
+  const view = createChartView({ clientWidth: 360 }, {});
+  assert.equal(state.opts.layout.background.color, CHART_BG);
+  const cs = mkCandles(100);
+  const base = Date.parse("2026-11-24T00:00:00Z");
+  // 표식 60개(40 초과) → 모두 보이는 범위에서는 옆 글이 숨는다
+  const rows = Array.from({ length: 60 }, (_, i) => ({
+    type: i % 2 ? "SELL" : "BUY", price: 100 + i, bar_time: new Date(base + i * 180000).toISOString(),
+  }));
+  view.update(cs, rows, [60, 200], 180, "sma", { limit: 100 });
+  assert.equal(state.markerCalls.length, 1, "자료를 그릴 때 1번");
+  assert.equal(state.markerCalls[0][0].text, "매수", "많으면 옆 글 숨김");
+  // 같은 상태로 화면을 옮김 → 다시 그리지 않음
+  state.rangeFn(); state.rangeFn();
+  assert.equal(state.markerCalls.length, 1);
+  // 확대해 보이는 표식이 적어지면(0~19봉 → 표식 20개) 옆 글이 보이고 1번만 다시 그림
+  state.range = { from: 0, to: 19 };
+  state.rangeFn(); state.rangeFn();
+  assert.equal(state.markerCalls.length, 2);
+  assert.match(state.markerCalls[1][0].text, /^매수 \d{6}_\d{4} · 100$/);
+  // 사용자가 옆 글을 끔 → 1번, 같은 값 다시 끄면 안 부름
+  view.setLabels(false); view.setLabels(false);
+  assert.equal(state.markerCalls.length, 3);
+  assert.equal(state.markerCalls[2][0].text, "매수");
+  view.setLabels(true);
+  assert.equal(state.markerCalls.length, 4);
+  // 새 자료는 늘 다시 그림
+  view.update(cs, rows, [60, 200], 180, "sma", { limit: 100 });
+  assert.equal(state.markerCalls.length, 5);
+});
+
+test("1125-01 A2·A4·A5: 봉 정보 글 콜백·최근 N개만·전체 봉 보기", () => {
+  const state = { markerCalls: [], range: { from: 0, to: 49 } };
+  globalThis.window = globalThis;
+  globalThis.LightweightCharts = fakeLW(state);
+  const infos = [];
+  const view = createChartView({ clientWidth: 360 }, { onInfo: (t) => infos.push(t) });
+  const cs = mkCandles(100);
+  view.update(cs, [], [60, 200], 180, "sma", { limit: 50 });
+  const lastT = Math.floor(Date.parse(cs[99].candle_date_time_utc + "Z") / 1000);
+  state.crossFn({ time: lastT });
+  assert.match(infos[0], /^26\.11\.\d\d \d\d:\d\d 시 100 · 고 110 · 저 90 · 종 \d+ · 60선 /);
+  const firstShown = Math.floor(Date.parse(cs[50].candle_date_time_utc + "Z") / 1000);
+  state.crossFn({ time: firstShown });
+  assert.ok(infos[1].startsWith("26.11."));
+  const hidden = Math.floor(Date.parse(cs[0].candle_date_time_utc + "Z") / 1000);
+  state.crossFn({ time: hidden });          // 줄여서 안 그리는 봉
+  assert.equal(infos[2], "");
+  state.crossFn({});                        // 봉 밖
+  assert.equal(infos[3], "");
+  view.fit();
+  assert.equal(state.fit, 1);
+});

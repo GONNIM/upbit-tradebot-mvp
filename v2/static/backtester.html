@@ -22,6 +22,11 @@ button{cursor:pointer;width:auto}
 .bt-more{margin:8px 0}
 .bt-more>summary{cursor:pointer;color:var(--gray);font-family:ui-monospace,monospace;font-size:12px}
 .bt-more .bt-grid{margin-top:8px}
+/* 1125-01 B: 스윕 설명 접기 상자 — 기본 접힘, 글은 작게 */
+.sweep-fold{margin:4px 0}
+.sweep-fold>summary{color:#1a56db}
+.sweep-fold>p.small{margin:4px 0 0}
+.sweep-warn{margin:4px 0}
 /* 1106-03 (사용자 「㉠ 적용」 11/06): 칸 이름을 크고 진하게, 짝 칸마다 작은 이름, 접힌 17개 여는 줄을 크게 — 투자자가 무슨 칸인지 알아보게 */
 .bt-grid>label{font-size:14px;color:#24292f;font-weight:600}
 .bt-grid>label input,.bt-grid>label select{font-weight:400}
@@ -226,7 +231,10 @@ body.chart-fs{overflow:hidden}
 <div class="actions">
 <button type="button" onclick="downloadSweep()">스윕 결과 CSV</button>
 </div>
+<p class="small sweep-warn"><b>여기서 1등으로 나온 조합은 이번 기간에서만 최적입니다(과최적화 주의).</b></p>
+<details class="bt-more sweep-fold" id="sweepHelp"><summary>설명 펼치기 / 접기</summary>
 <p class="small">스윕은 방금 조회한 데이터와 나머지 설정(이동평균 방식·기간, 골든크로스/기울기 필터, 초기자본, 수수료, 데드크로스, 복리 모드 등)을 그대로 두고 TP%·SL%·분할횟수·60선 최소 기울기 %·60선 기울기 둔화 허용치 %p를 격자로 바꿔가며 같은 데이터에 대해 반복 백테스트합니다. "60선 최소 기울기 % 시작/끝"을 같은 값으로 두면 위쪽 설정값 그대로 1가지만 씁니다. <b>여기서 1등으로 나온 조합은 이번에 조회한 기간에서만 최적이라는 뜻입니다.</b> 다른 종목·다른 기간에서도 비슷하게 잘 나오는지 반드시 별도로 확인하세요(과최적화 주의). 조합 수가 많으면 계산에 시간이 걸릴 수 있습니다(최대 20,000개 조합, 진행률이 표시됩니다).</p>
+</details>
 </div>
 
 <div class="card" id="btChartCard">

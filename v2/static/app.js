@@ -37,6 +37,14 @@ function reservationBadgeText(res) {
   return res.kind === "REVERT" ? "복귀 예약 중" : "전환 예약 중";
 }
 const GATE_KEY = "v2.upbitGateAt";
+const CHART_BARS_KEY = "v2.chartBars";   // 1125-01 A4: 고른 봉 수(400·1000·2000) 기억 칸
+// 기억한 봉 수 읽기(저장소가 막히거나 값이 이상하면 400)
+function readChartBars(ls) {
+  try {
+    const n = Number(ls ? ls.getItem(CHART_BARS_KEY) : NaN);
+    return [400, 1000, 2000].includes(n) ? n : 400;
+  } catch (e) { return 400; }
+}
 
 // localStorage 접근이 막힌 환경(시크릿 창 등)에서도 오류 없이 — 없으면 null(문은 메모리로 대신)
 function safeLocalStorage() {
@@ -282,6 +290,8 @@ document.addEventListener("alpine:init", () => {
     // 로그 탭(그림 2-라): 종류 토글 · 12행씩 쪽 이동
     logsKind: "audit", logRows: [], logsPage: 1, logsPages: 1, logsMore: false, logsLoaded: false, _logsSeq: 0,
     authError: false, netError: "", chartFail: "", chartNote: "",
+    // 1125-01 A: 차트 탭 — 고른 봉 수(이 기기에 기억) · 옆 글 보기 · 전체화면(CSS class 로만) · 봉 정보 글 · 지금 그린 봉 수
+    chartBars: 400, chartLabels: true, chartFs: false, chartInfo: "", chartCount: 0,
     _cardTimer: null, _cardsBusy: false,
     // 운용 탭(2차 T14): GET /v2/api/ops 값·요청 처리 중·결과 문구·복귀 전략 고르기·운용 설정 입력
     ops: null, opsBusy: false, opsMsg: "", opsChoose: false, opsDirty: false,
@@ -290,6 +300,9 @@ document.addEventListener("alpine:init", () => {
     // ---- 시작·갱신 ---- (Alpine 이 x-data 의 init 을 자동 호출한다)
     init() {
       this.refreshCards();
+      this.chartBars = readChartBars(safeLocalStorage());
+      // 전체화면은 Esc 로도 닫는다(주소 기록은 건드리지 않는다)
+      document.addEventListener("keydown", (e) => { if (e && e.key === "Escape" && this.chartFs) this.closeChartFs(); });
       // 주소 #탭 으로 들어오면 그 탭을 연다(백테스터 → 아래 메뉴로 돌아올 때)
       const first = tabFromHash(window.location && window.location.hash);
       if (first !== "home") this.go(first);
@@ -355,6 +368,7 @@ document.addEventListener("alpine:init", () => {
     // ---- 탭 ----
     go(name) {
       this.tab = name;
+      if (name !== "chart") this.chartFs = false;   // 탭을 옮기면 전체화면은 닫힌다
       if (name === "chart") this.startChart(); else this.stopChart();
       if (name === "logs") this.loadLogs(1);
       if (name === "ops") this.loadOps();
@@ -535,11 +549,13 @@ document.addEventListener("alpine:init", () => {
       }
       this.chartNote = "";
       const spec = chartLines(st);   // 2차 T16: 새 전략이면 적용본 기간·방식·받을 봉 수
+      const shownBars = spec.target;                       // 전략이 정한 봉 수(고른 값과 비교 전)
+      spec.target = mod.targetBars(this.chartBars, shownBars);   // 1125-01 A4: 실제 목표 = max(고른 값, 전략 목표)
       const key = st.ticker + "|" + unitMin + "|" + spec.sig;
       if (C.key !== key || !C.view) {
         if (C.view) { C.view.destroy(); C.view = null; }
         document.getElementById("chart").innerHTML = "";
-        C.view = mod.createChartView(document.getElementById("chart"));
+        C.view = mod.createChartView(document.getElementById("chart"), { onInfo: (t) => { this.chartInfo = t; } });
         C.key = key;
       }
       if (!C.view.ok) return;   // 라이브러리 없음: 화면에 안내 문구가 이미 있다
@@ -551,7 +567,10 @@ document.addEventListener("alpine:init", () => {
       const gen = ++C.gen;
       const draw = (d) => {
         const asc = mod.markFormingCandle(d.candles, Date.now(), unitMin * 60);
-        C.view.update(asc, d.markers, spec.lines, unitMin * 60, spec.maType);
+        const limit = spec.target;   // 줄이면 최근 N개만 — N = max(고른 값, 전략 목표) (verifier 지적 1)
+        C.view.update(asc, d.markers, spec.lines, unitMin * 60, spec.maType, { limit });
+        C.view.setLabels(this.chartLabels);
+        this.chartCount = Math.min(asc.length, limit);
       };
       // 보관한 같은 키의 데이터가 있으면 즉시 그린다
       if (C.cache && C.cache.key === key) draw(C.cache);
@@ -618,6 +637,24 @@ document.addEventListener("alpine:init", () => {
       const m = window.v2Chart && this.status ? window.v2Chart.intervalToMinutes(this.status.interval) : null;
       return m === null || m === undefined ? "—" : m + "분";
     },
+    get chartCountText() { return this.chartCount > 0 ? "최근 " + this.chartCount + "봉" : "최근 봉"; },
+    // 1125-01 A4: 봉 수 고르기(400·1000·2000) — 이 기기에 기억하고 그 봉 수로 다시 모은다(10초 간격 그대로)
+    setChartBars(n) {
+      const v = window.v2Chart ? window.v2Chart.normalizeBarChoice(n) : 400;
+      this.chartBars = v;
+      try { const ls = safeLocalStorage(); if (ls) ls.setItem(CHART_BARS_KEY, String(v)); } catch (e) { /* 기억 못 해도 화면은 동작 */ }
+      this.startChart();
+    },
+    // A1: 표식 옆 시각·가격 글 켜고 끄기
+    toggleChartLabels() {
+      this.chartLabels = !this.chartLabels;
+      if (C.view && C.view.ok) C.view.setLabels(this.chartLabels);
+    },
+    // A5: 전체 봉 보기
+    fitAllBars() { if (C.view && C.view.ok) C.view.fit(); },
+    // A3: 전체화면(CSS class 로만 — inline 높이를 넣지 않는다). 크기 변화는 차트 autoSize 가 따른다
+    openChartFs() { this.chartFs = true; },
+    closeChartFs() { this.chartFs = false; },
     // 확대(+)·축소(−): 보이는 범위를 1.5배 조절
     zoomChart(factor) {
       if (C.view && window.v2Chart) window.v2Chart.zoom(C.view, factor);
